@@ -45,5 +45,13 @@ profile.json*
 # Node
 node_modules/
 
+# Nix artifacts
+result*
+
 # Cursor
 .cursor/
+
+# Claude
+.claude/
+CLAUDE.md
+CLAUDE.local.md

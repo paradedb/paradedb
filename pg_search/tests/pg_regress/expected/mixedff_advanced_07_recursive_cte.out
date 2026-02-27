@@ -297,6 +297,16 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
 );
+-- Update statistics for consistent query planning
+ANALYZE mixed_numeric_string_test;
+ANALYZE documents;
+ANALYZE files;
+ANALYZE pages;
+ANALYZE categories;
+ANALYZE products;
+ANALYZE conversion_test;
+ANALYZE union_test_a;
+ANALYZE union_test_b;
 \echo 'Test: Recursive CTE'
 Test: Recursive CTE
 -- Create test tables for hierarchical data
@@ -528,7 +538,7 @@ ORDER BY level, name;
                  Table: category
                  Index: category_idx
                  Exec Method: MixedFastFieldExecState
-                 Fast Fields: level, id, name, description, item_count, parent_id
+                 Fast Fields: description, id, item_count, level, name, parent_id
                  Scores: false
                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"books","lenient":null,"conjunction_mode":null}}}}
            ->  Hash Join
@@ -600,7 +610,7 @@ ORDER BY level, name;
                              Table: category
                              Index: category_idx
                              Exec Method: MixedFastFieldExecState
-                             Fast Fields: level, id, name, description, item_count, parent_id
+                             Fast Fields: description, id, item_count, level, name, parent_id
                              Scores: false
                              Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"item_count","lower_bound":{"excluded":30},"upper_bound":null,"is_datetime":false}}]}}
    ->  CTE Scan on category_tree

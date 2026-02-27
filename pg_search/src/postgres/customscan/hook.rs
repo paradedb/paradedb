@@ -21,14 +21,18 @@ use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
+use crate::postgres::customscan::basescan::projections::window_agg;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, Flags, RestrictInfoType,
 };
-use crate::postgres::customscan::pdbscan::projections::window_agg;
+use crate::postgres::customscan::orderby::validate_topn_compatibility;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
+use crate::postgres::customscan::{
+    CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
+};
+use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::expr_contains_any_operator;
+use crate::postgres::utils::{expr_contains_any_operator, pg_search_extension_installed};
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, IntoDatum, PgList, PgMemoryContexts};
 use std::collections::{hash_map::Entry, HashMap};
@@ -123,11 +127,15 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
     CS: CustomScan<Args = RelPathlistHookArgs> + 'static,
 {
     unsafe {
+        if !pg_search_extension_installed() {
+            return;
+        }
+
         if !gucs::enable_custom_scan() {
             return;
         }
 
-        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
+        let paths = CS::create_custom_path(CustomPathBuilder::new(
             root,
             rel,
             RelPathlistHookArgs {
@@ -136,11 +144,94 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
                 rti,
                 rte,
             },
-        )) else {
-            return;
+        ));
+
+        for path in paths {
+            add_path(rel, path);
+        }
+    }
+}
+
+pub fn register_join_pathlist<CS>(_: CS)
+where
+    CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
+{
+    unsafe {
+        static mut PREV_HOOKS: Lazy<
+            HashMap<std::any::TypeId, pg_sys::set_join_pathlist_hook_type>,
+        > = Lazy::new(Default::default);
+
+        #[pg_guard]
+        extern "C-unwind" fn __priv_callback<CS>(
+            root: *mut pg_sys::PlannerInfo,
+            joinrel: *mut pg_sys::RelOptInfo,
+            outerrel: *mut pg_sys::RelOptInfo,
+            innerrel: *mut pg_sys::RelOptInfo,
+            jointype: pg_sys::JoinType::Type,
+            extra: *mut pg_sys::JoinPathExtraData,
+        ) where
+            CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
+        {
+            unsafe {
+                #[allow(static_mut_refs)]
+                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
+                    (*prev_hook)(root, joinrel, outerrel, innerrel, jointype, extra);
+                }
+
+                paradedb_join_pathlist_callback::<CS>(
+                    root, joinrel, outerrel, innerrel, jointype, extra,
+                );
+            }
+        }
+
+        #[allow(static_mut_refs)]
+        match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
+            Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
+            Entry::Vacant(entry) => entry.insert(pg_sys::set_join_pathlist_hook),
         };
 
-        add_path(rel, path)
+        pg_sys::set_join_pathlist_hook = Some(__priv_callback::<CS>);
+
+        pg_sys::RegisterCustomScanMethods(CS::custom_scan_methods())
+    }
+}
+
+#[pg_guard]
+pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
+    root: *mut pg_sys::PlannerInfo,
+    joinrel: *mut pg_sys::RelOptInfo,
+    outerrel: *mut pg_sys::RelOptInfo,
+    innerrel: *mut pg_sys::RelOptInfo,
+    jointype: pg_sys::JoinType::Type,
+    extra: *mut pg_sys::JoinPathExtraData,
+) where
+    CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
+{
+    unsafe {
+        if !pg_search_extension_installed() {
+            return;
+        }
+
+        if !gucs::enable_join_custom_scan() {
+            return;
+        }
+
+        let paths = CS::create_custom_path(CustomPathBuilder::new(
+            root,
+            joinrel,
+            JoinPathlistHookArgs {
+                root,
+                joinrel,
+                outerrel,
+                innerrel,
+                jointype,
+                extra,
+            },
+        ));
+
+        for path in paths {
+            add_path(joinrel, path);
+        }
     }
 }
 
@@ -199,6 +290,10 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
         return;
     }
 
+    if !pg_search_extension_installed() {
+        return;
+    }
+
     // Check if pdb.agg() is used - if so, enable aggregate custom scan regardless of GUC
     // Otherwise, respect the enable_aggregate_custom_scan GUC setting
     let has_paradedb_agg = unsafe {
@@ -211,7 +306,7 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
     }
 
     unsafe {
-        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
+        let paths = CS::create_custom_path(CustomPathBuilder::new(
             root,
             output_rel,
             CreateUpperPathsHookArgs {
@@ -221,11 +316,11 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
                 output_rel,
                 extra,
             },
-        )) else {
-            return;
-        };
+        ));
 
-        add_path(output_rel, path)
+        for path in paths {
+            add_path(output_rel, path);
+        }
     }
 }
 
@@ -378,6 +473,11 @@ pub unsafe fn try_extract_quals_from_query(
 /// Errors if `pdb.agg()` is used AT THE CURRENT LEVEL but requirements aren't met.
 /// Note: pdb.agg() in subqueries/CTEs will be checked separately when those are processed.
 unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
+    // Check if custom scan is enabled globally
+    if !gucs::enable_custom_scan() {
+        return false;
+    }
+
     // Early return: not a SELECT query
     if parse.is_null() || (*parse).commandType != pg_sys::CmdType::CMD_SELECT {
         return false;
@@ -390,17 +490,6 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
 
     // Check if pdb.agg() is used at the CURRENT level (not in subqueries/CTEs)
     let has_paradedb_agg_current_level = query_has_paradedb_agg(parse, false);
-
-    // Check if this is a TopN query
-    if !query_is_topn(parse) {
-        // pdb.agg() at current level requires TopN
-        if has_paradedb_agg_current_level {
-            pgrx::error!(
-                "pdb.agg() window functions require ORDER BY and LIMIT clauses (TopN query)"
-            );
-        }
-        return false;
-    }
 
     // Check if we should handle this query (has pdb.agg or search operator)
     let has_search_operator = query_has_search_operator(parse);
@@ -422,6 +511,21 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
         return false;
     }
 
+    // STRICT CHECK: Validate TopN compatibility
+    // If we're going to replace window functions with pdb.window_agg(), we MUST ensure
+    // that the query can actually be executed as a TopN query on the index.
+    // Otherwise, we'll crash later when basescan falls back to Normal execution.
+    if !unsafe { validate_topn_compatibility(parse) } {
+        if has_paradedb_agg_current_level {
+            pgrx::error!(
+                "pdb.agg() window functions require a valid TopN query (ORDER BY and LIMIT) where all \
+                 ORDER BY columns are indexed and sortable (fast fields). Ensure you are sorting by \
+                 indexed columns of a single table with a BM25 index."
+            );
+        }
+        return false;
+    }
+
     true
 }
 
@@ -438,6 +542,18 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     cursor_options: ::core::ffi::c_int,
     bound_params: pg_sys::ParamListInfo,
 ) -> *mut pg_sys::PlannedStmt {
+    // Clear any existing warnings for this planning cycle
+    clear_planner_warnings();
+
+    if !pg_search_extension_installed() {
+        let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
+            prev_hook(parse, query_string, cursor_options, bound_params)
+        } else {
+            pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
+        };
+        return result;
+    }
+
     // Check if we should replace window functions and do so if needed
     // This checks the OUTER query level
     if should_replace_window_functions(parse) {
@@ -460,11 +576,16 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 
     // Call the previous planner hook (e.g., Citus) or standard planner
     // PREV_PLANNER_HOOK is defined at module level to ensure proper hook chaining
-    if let Some(prev_hook) = PREV_PLANNER_HOOK {
+    let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
         prev_hook(parse, query_string, cursor_options, bound_params)
     } else {
         pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
-    }
+    };
+
+    // Emit collected warnings
+    emit_planner_warnings();
+
+    result
 }
 
 /// Check if the target list contains any window functions (WindowFunc nodes)
@@ -529,7 +650,7 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
     // Check subqueries in RTEs
     if !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-        for (idx, rte) in rtable.iter_ptr().enumerate() {
+        for rte in rtable.iter_ptr() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
                 && !(*rte).subquery.is_null()
                 && query_has_window_func_nodes((*rte).subquery)
@@ -694,19 +815,6 @@ unsafe fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
     is_our_operator
 }
 
-/// Check if the query is a TopN query (has ORDER BY and LIMIT)
-unsafe fn query_is_topn(parse: *mut pg_sys::Query) -> bool {
-    if parse.is_null() {
-        return false;
-    }
-
-    // Must have both ORDER BY (sortClause) and LIMIT (limitCount)
-    let has_order_by = !(*parse).sortClause.is_null();
-    let has_limit = !(*parse).limitCount.is_null();
-
-    has_order_by && has_limit
-}
-
 /// Check if the query contains pdb.agg() in any context (window function or aggregate)
 ///
 /// Parameters:
@@ -852,7 +960,7 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
     // Recursively process subqueries in RTEs
     if !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-        for (idx, rte) in rtable.iter_ptr().enumerate() {
+        for rte in rtable.iter_ptr() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
                 // For subqueries, check if they should have window functions replaced
                 // Each subquery is independent and may have its own TopN context

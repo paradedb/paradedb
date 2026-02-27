@@ -297,6 +297,16 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
 );
+-- Update statistics for consistent query planning
+ANALYZE mixed_numeric_string_test;
+ANALYZE documents;
+ANALYZE files;
+ANALYZE pages;
+ANALYZE categories;
+ANALYZE products;
+ANALYZE conversion_test;
+ANALYZE union_test_a;
+ANALYZE union_test_b;
 \echo 'Test: UNION operations'
 Test: UNION operations
 -- Test 1: Basic UNION with mixed field types
@@ -309,28 +319,32 @@ SELECT title, author, rating, price
 FROM union_test_b
 WHERE title @@@ 'Book B' AND rating > 3
 ORDER BY rating DESC, title;
-                                                                                                                                         QUERY PLAN                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                            QUERY PLAN                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: union_test_a.rating DESC, union_test_a.title
-   ->  HashAggregate
-         Group Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
-         ->  Append
-               ->  Custom Scan (ParadeDB Scan) on union_test_a
-                     Table: union_test_a
-                     Index: union_test_a_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, price, rating, title
-                     Scores: false
-                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}}
-               ->  Custom Scan (ParadeDB Scan) on union_test_b
-                     Table: union_test_b
-                     Index: union_test_b_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, price, rating, title
-                     Scores: false
-                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3.0},"upper_bound":null,"is_datetime":false}}]}}
-(19 rows)
+   ->  Unique
+         ->  Merge Append
+               Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
+               ->  Sort
+                     Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
+                     ->  Custom Scan (ParadeDB Scan) on union_test_a
+                           Table: union_test_a
+                           Index: union_test_a_idx
+                           Exec Method: MixedFastFieldExecState
+                           Fast Fields: author, price, rating, title
+                           Scores: false
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}}
+               ->  Sort
+                     Sort Key: union_test_b.title, union_test_b.author, union_test_b.rating, union_test_b.price
+                     ->  Custom Scan (ParadeDB Scan) on union_test_b
+                           Table: union_test_b
+                           Index: union_test_b_idx
+                           Exec Method: MixedFastFieldExecState
+                           Fast Fields: author, price, rating, title
+                           Scores: false
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3.0},"upper_bound":null,"is_datetime":false}}]}}
+(23 rows)
 
 SELECT title, author, rating, price
 FROM union_test_a
@@ -400,14 +414,14 @@ ORDER BY price;
                Table: union_test_a
                Index: union_test_a_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: price, year, title
+               Fast Fields: price, title, year
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":30.0},"is_datetime":false}},{"range":{"field":"year","lower_bound":{"excluded":2000},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
          ->  Custom Scan (ParadeDB Scan) on union_test_b
                Table: union_test_b
                Index: union_test_b_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: price, year, title
+               Fast Fields: price, title, year
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":45.0},"is_datetime":false}},{"range":{"field":"year","lower_bound":{"excluded":1982},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}}]}}
 (17 rows)
@@ -453,7 +467,7 @@ ORDER BY title, author, author_rank;
                      Table: union_test_a
                      Index: union_test_a_idx
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, price, title, rating
+                     Fast Fields: author, price, rating, title
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
@@ -615,8 +629,8 @@ SELECT title, author, rating, source,
        RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
 FROM combined_books
 ORDER BY title, author, author_rank;
-                                                                                                                                                  QUERY PLAN                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                        QUERY PLAN                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: combined_books.title, combined_books.author, (rank() OVER w1)
    ->  WindowAgg
@@ -624,22 +638,29 @@ ORDER BY title, author, author_rank;
          ->  Sort
                Sort Key: combined_books.author, combined_books.rating DESC
                ->  Subquery Scan on combined_books
-                     ->  HashAggregate
-                           Group Key: union_test_a.title, union_test_a.author, union_test_a.rating, ('A'::text)
-                           ->  Append
-                                 ->  Custom Scan (ParadeDB Scan) on union_test_a
-                                       Table: union_test_a
-                                       Index: union_test_a_idx
-                                       Exec Method: NormalScanExecState
-                                       Scores: false
-                                       Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":3.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
-                                 ->  Custom Scan (ParadeDB Scan) on union_test_b
-                                       Table: union_test_b
-                                       Index: union_test_b_idx
-                                       Exec Method: NormalScanExecState
-                                       Scores: false
-                                       Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":2.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
-(22 rows)
+                     ->  Unique
+                           ->  Sort
+                                 Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating, ('A'::text)
+                                 ->  Append
+                                       ->  Sort
+                                             Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating
+                                             ->  Custom Scan (ParadeDB Scan) on union_test_a
+                                                   Table: union_test_a
+                                                   Index: union_test_a_idx
+                                                   Exec Method: MixedFastFieldExecState
+                                                   Fast Fields: author, rating, title
+                                                   Scores: false
+                                                   Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":3.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+                                       ->  Sort
+                                             Sort Key: union_test_b.title, union_test_b.author, union_test_b.rating
+                                             ->  Custom Scan (ParadeDB Scan) on union_test_b
+                                                   Table: union_test_b
+                                                   Index: union_test_b_idx
+                                                   Exec Method: MixedFastFieldExecState
+                                                   Fast Fields: author, rating, title
+                                                   Scores: false
+                                                   Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":2.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+(29 rows)
 
 WITH combined_books AS (
     SELECT title, author, rating, 'A' as source
@@ -904,33 +925,39 @@ ORDER BY avg_rating DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
 INTERSECT
-(SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');
-                                                                                                                                   QUERY PLAN                                                                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- HashSetOp Intersect
-   ->  Custom Scan (ParadeDB Scan) on union_test_a
-         Table: union_test_a
-         Index: union_test_a_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: author
-         Scores: false
-         Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
-   ->  Custom Scan (ParadeDB Scan) on union_test_b
-         Table: union_test_b
-         Index: union_test_b_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: author
-         Scores: false
-         Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
-(15 rows)
+(SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A')
+ORDER BY author;
+                                                                                                                                      QUERY PLAN                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ SetOp Intersect
+   ->  Sort
+         Sort Key: union_test_a.author
+         ->  Custom Scan (ParadeDB Scan) on union_test_a
+               Table: union_test_a
+               Index: union_test_a_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: author
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+   ->  Sort
+         Sort Key: union_test_b.author
+         ->  Custom Scan (ParadeDB Scan) on union_test_b
+               Table: union_test_b
+               Index: union_test_b_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: author
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+(19 rows)
 
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
 INTERSECT
-(SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');
+(SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A')
+ORDER BY author;
   author   
 -----------
- Author 5
  Author 10
+ Author 5
 (2 rows)
 
 -- Verify actual results of UNION (not just execution method)

@@ -47,10 +47,22 @@ pub enum Qual {
         /// - None = regular OpExpr, not a ScalarArrayOpExpr
         scalar_array_use_or: Option<bool>,
     },
+    /// Represents an expression which can be evaluated after planning in BeginCustomScan.
+    ///
+    /// This happens when the expression involves parameters (e.g. `$1`), other columns, or
+    /// volatile functions which are "uncorrelated": i.e., which do not come from an outer
+    /// relation.
+    ///
+    /// It is converted to `SearchQueryInput::PostgresExpression` and then solved by
+    /// `solve_postgres_expressions` before the search query is executed.
     Expr {
         node: *mut pg_sys::Node,
-        expr_state: *mut pg_sys::ExprState,
+        expr_desc: String,
     },
+    /// Represents an expression that can be evaluated at planning time.
+    /// This typically happens when the expression is effectively constant (no vars/params).
+    /// It is evaluated immediately during conversion to `SearchQueryInput` via
+    /// `SearchQueryInput::from`.
     PushdownExpr {
         funcexpr: *mut pg_sys::FuncExpr,
     },
@@ -150,13 +162,13 @@ impl Qual {
         }
     }
 
-    pub unsafe fn contains_exec_param(&self) -> bool {
+    pub unsafe fn contains_correlated_param(&self, root: *mut pg_sys::PlannerInfo) -> bool {
         match self {
             Qual::All => false,
             Qual::ExternalVar => false,
             Qual::ExternalExpr => false,
             Qual::OpExpr { .. } => false,
-            Qual::Expr { node, .. } => contains_exec_param(*node),
+            Qual::Expr { node, .. } => contains_correlated_param(root, *node),
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
@@ -164,10 +176,10 @@ impl Qual {
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
-            Qual::HeapExpr { expr_node, .. } => contains_exec_param(*expr_node),
-            Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
-            Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
-            Qual::Not(qual) => qual.contains_exec_param(),
+            Qual::HeapExpr { expr_node, .. } => contains_correlated_param(root, *expr_node),
+            Qual::And(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
+            Qual::Not(qual) => qual.contains_correlated_param(root),
         }
     }
 
@@ -282,7 +294,12 @@ impl From<&Qual> for SearchQueryInput {
                         .expect("rhs of @@@ operator Qual must not be null")
                 }
             },
-            Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
+            // Convert to SearchQueryInput::PostgresExpression, which will be solved by
+            // `solve_postgres_expressions`.
+            Qual::Expr { node, expr_desc } => {
+                SearchQueryInput::postgres_expression(*node, expr_desc.clone())
+            }
+            // Solve the expression immediately to produce a concrete SearchQueryInput
             Qual::PushdownExpr { funcexpr } => unsafe {
                 let expr_state = pg_sys::ExecInitExpr((*funcexpr).cast(), std::ptr::null_mut());
                 let expr_context = pg_sys::CreateStandaloneExprContext();
@@ -408,7 +425,8 @@ impl From<&Qual> for SearchQueryInput {
                 };
 
                 // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
-                while let Some(SearchQueryInput::ScoreFilter { bounds, query }) = must_scores.pop()
+                while let Some(SearchQueryInput::ScoreFilter { bounds, query: _ }) =
+                    must_scores.pop()
                 {
                     boolean = SearchQueryInput::ScoreFilter {
                         bounds,
@@ -537,6 +555,27 @@ pub unsafe fn extract_quals(
     }
 
     match (*node).type_ {
+        pg_sys::NodeTag::T_FuncExpr => {
+            // Standalone FuncExprs in a WHERE clause must return boolean (e.g. ST_DWithin).
+            // This is distinct from FuncExprs used inside comparisons (e.g. pdb.score(id) > 0.5),
+            // which are handled within opexpr().
+            if contains_relation_reference(node, rti) {
+                if !gucs::enable_filter_pushdown() {
+                    return None;
+                }
+
+                state.uses_heap_expr = true;
+                state.uses_tantivy_to_query = true;
+                Some(Qual::HeapExpr {
+                    expr_node: node,
+                    expr_desc: deparse_expr(Some(context), indexrel, node),
+                    search_query_input: Box::new(SearchQueryInput::All),
+                })
+            } else {
+                None
+            }
+        }
+
         pg_sys::NodeTag::T_List => {
             let mut quals = list(
                 context,
@@ -602,7 +641,6 @@ pub unsafe fn extract_quals(
 
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
             let mut quals = list(
                 context,
                 rti,
@@ -731,15 +769,7 @@ pub unsafe fn extract_quals(
             }
         }
 
-        pg_sys::NodeTag::T_BooleanTest => booltest(
-            context,
-            rti,
-            node,
-            ri_type,
-            indexrel,
-            convert_external_to_special_qual,
-            state,
-        ),
+        pg_sys::NodeTag::T_BooleanTest => booltest(context, node, indexrel, state),
 
         pg_sys::NodeTag::T_Const => {
             let const_node = nodecast!(Const, T_Const, node)?;
@@ -972,7 +1002,7 @@ unsafe fn node_opexpr(
                 state.uses_tantivy_to_query = true;
                 return Some(Qual::Expr {
                     node: rhs,
-                    expr_state: std::ptr::null_mut(),
+                    expr_desc: deparse_expr(Some(context), indexrel, rhs),
                 });
             }
         } else {
@@ -1085,7 +1115,7 @@ unsafe fn try_pushdown(
             // Return as Expr to be evaluated at execution time
             return Some(Qual::Expr {
                 node: opexpr_node,
-                expr_state: std::ptr::null_mut(),
+                expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
             });
         }
         // Not our operator, can't pushdown in Query context
@@ -1166,6 +1196,46 @@ unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index)
     }
 }
 
+/// Returns true if the expression contains a parameter that is correlated with an outer query.
+/// Correlated parameters are `PARAM_EXEC` parameters that are not provided by an init plan.
+pub unsafe fn contains_correlated_param(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        let root = context as *mut pg_sys::PlannerInfo;
+        if let Some(param) = nodecast!(Param, T_Param, node) {
+            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+                let param_is_from_init_plan =
+                    PgList::<pg_sys::SubPlan>::from_pg((*root).init_plans)
+                        .iter_ptr()
+                        .any(|subplan| {
+                            pg_sys::list_member_int((*subplan).setParam, (*param).paramid)
+                        });
+
+                if !param_is_from_init_plan {
+                    // If this PARAM_EXEC param is not from any init plan, then we have to assume
+                    // that it is correlated.
+                    return true;
+                }
+            }
+        }
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    if node.is_null() {
+        return false;
+    }
+
+    walker(node, root as *mut core::ffi::c_void)
+}
+
+/// Returns true if the expression contains any `PARAM_EXEC` parameter.
+/// `PARAM_EXEC` parameters are evaluated at execution time, often for subqueries.
 pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
@@ -1234,11 +1304,8 @@ unsafe fn contains_param(root: *mut pg_sys::Node) -> bool {
 /// that will correctly handle NULL values in the query.
 unsafe fn booltest(
     context: &PlannerContext,
-    rti: pg_sys::Index,
     node: *mut pg_sys::Node,
-    ri_type: RestrictInfoType,
     indexrel: &PgSearchRelation,
-    convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
     let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
@@ -1279,7 +1346,6 @@ pub unsafe fn extract_join_predicates(
     current_rti: pg_sys::Index,
     pdbopoid: pg_sys::Oid,
     indexrel: &PgSearchRelation,
-    base_query: &SearchQueryInput,
     attempt_pushdown: bool,
 ) -> Option<SearchQueryInput> {
     // Only look at the current relation's join clauses
@@ -1348,8 +1414,6 @@ unsafe fn simplify_join_clause_for_relation(
         return None;
     }
 
-    let input_type = (*node).type_;
-
     match (*node).type_ {
         pg_sys::NodeTag::T_OpExpr => simplify_node_for_relation(node, current_rti),
 
@@ -1359,7 +1423,7 @@ unsafe fn simplify_join_clause_for_relation(
             let mut simplified_args = Vec::new();
 
             // Recursively simplify each argument
-            for (i, arg) in args.iter_ptr().enumerate() {
+            for arg in args.iter_ptr() {
                 if let Some(simplified_arg) = simplify_join_clause_for_relation(arg, current_rti) {
                     simplified_args.push(simplified_arg);
                 }
@@ -1855,7 +1919,7 @@ mod tests {
 
             // Match boolean field TRUE cases
             (
-                qual @ (Qual::PushdownVarEqTrue { field } | Qual::PushdownVarIsTrue { field }),
+                Qual::PushdownVarEqTrue { field } | Qual::PushdownVarIsTrue { field },
                 SearchQueryInput::FieldedQuery {
                     field: f,
                     query: pdb::Query::Term { value, .. },
@@ -1864,7 +1928,7 @@ mod tests {
 
             // Match boolean field FALSE cases
             (
-                qual @ (Qual::PushdownVarEqFalse { field } | Qual::PushdownVarIsFalse { field }),
+                Qual::PushdownVarEqFalse { field } | Qual::PushdownVarIsFalse { field },
                 SearchQueryInput::FieldedQuery {
                     field: f,
                     query: pdb::Query::Term { value, .. },
@@ -1902,10 +1966,10 @@ mod tests {
 
             // Match NOT clauses
             (
-                Qual::Not(inner),
+                Qual::Not(_inner),
                 SearchQueryInput::Boolean {
                     must,
-                    should,
+                    should: _,
                     must_not,
                 },
             ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,

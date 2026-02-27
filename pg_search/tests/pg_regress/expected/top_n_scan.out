@@ -99,6 +99,7 @@ USING bm25 (
 ======== EXECUTION METHOD TESTS ========
 \echo 'Tests to identify when TopNScanExecState vs NormalScanExecState is used'
 Tests to identify when TopNScanExecState vs NormalScanExecState is used
+-- TODO: Many queries won't get TopN due to https://github.com/paradedb/paradedb/issues/2688
 -- Test 1: Simple query with LIMIT (should use TopNScanExecState)
 \echo 'Test 1: Simple query with LIMIT (should use TopNScanExecState)'
 Test 1: Simple query with LIMIT (should use TopNScanExecState)
@@ -136,6 +137,7 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: records)
                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -163,6 +165,7 @@ WHERE tenant_id = 'tenant-1'
   AND (NOT id @@@ paradedb.exists('removed_at'))
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: records)
                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -254,6 +257,7 @@ WHERE tenant_id = 'tenant-1'
   AND id @@@ paradedb.match('notes', 'check')
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: records)
                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -310,6 +314,7 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: records)
                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -334,6 +339,7 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.match('notes', 'check'))
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: records)
                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -371,6 +377,76 @@ LIMIT 10000;
             Queries: 1
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"state"}}]}}]}}
 (11 rows)
+
+-- Test 12: 4-column ORDER BY uses TopN (issue #3148)
+\echo 'Test 12: 4-column ORDER BY uses TopN'
+Test 12: 4-column ORDER BY uses TopN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, state, flow_type, currency_code
+FROM records
+WHERE id @@@ paradedb.all()
+ORDER BY state, flow_type, currency_code, id
+    LIMIT 25;
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on records
+         Table: records
+         Index: records_search_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: state asc, flow_type asc, currency_code asc, id asc
+            TopN Limit: 25
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+-- Test 13: 5-column ORDER BY uses TopN (issue #3148)
+\echo 'Test 13: 5-column ORDER BY uses TopN'
+Test 13: 5-column ORDER BY uses TopN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, state, flow_type, currency_code, tenant_id
+FROM records
+WHERE id @@@ paradedb.all()
+ORDER BY state, flow_type, currency_code, tenant_id, id
+    LIMIT 25;
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on records
+         Table: records
+         Index: records_search_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: state asc, flow_type asc, currency_code asc, tenant_id asc, id asc
+            TopN Limit: 25
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+-- Test 14: 6-column ORDER BY exceeds MAX_TOPN_FEATURES, falls back to NormalScan
+\echo 'Test 14: 6-column ORDER BY falls back to NormalScan'
+Test 14: 6-column ORDER BY falls back to NormalScan
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, state, flow_type, currency_code, tenant_id, source_id
+FROM records
+WHERE id @@@ paradedb.all()
+ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
+    LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY has 6 columns but TopN supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.check_topn_scan = false (table: records)
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: state, flow_type, currency_code, tenant_id, source_id, id
+         ->  Custom Scan (ParadeDB Scan) on records
+               Table: records
+               Index: records_search_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
 
 -- Cleanup
 DROP INDEX IF EXISTS records_search_idx;

@@ -1,0 +1,37 @@
+coverage:
+  precision: 2
+  round: down
+  range: 70..100
+
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 5%
+        informational: true
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: true
+  require_base: false
+  require_head: true
+
+ignore:
+  - "**/*_test.rs"
+  - "**/*.md"
+  - "**/*.toml"
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/.pgrx/**/*"
+  - "**/Makefile"
+  - "**/tests/**"
+  - "benchmarks/**/*"
+  - "docs/**/*"
+  - "node_modules/**/*"
+  - "target/**/*"

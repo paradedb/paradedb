@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
-    DateOptions, DateTimePrecision, IpAddrOptions, JsonObjectOptions, NumericOptions,
+    BytesOptions, DateOptions, DateTimePrecision, IpAddrOptions, JsonObjectOptions, NumericOptions,
     TextFieldIndexing, TextOptions,
 };
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -38,6 +38,8 @@ pub enum SearchFieldConfig {
         fieldnorms: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
+        #[serde(default)]
+        search_tokenizer: Option<SearchTokenizer>,
         #[serde(default = "default_as_freqs_and_positions")]
         record: IndexRecordOption,
         #[serde(default)]
@@ -62,6 +64,8 @@ pub enum SearchFieldConfig {
         expand_dots: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
+        #[serde(default)]
+        search_tokenizer: Option<SearchTokenizer>,
         #[serde(default = "default_as_freqs_and_positions")]
         record: IndexRecordOption,
         #[serde(default)]
@@ -78,6 +82,10 @@ pub enum SearchFieldConfig {
         indexed: bool,
         #[serde(default = "default_as_true")]
         fast: bool,
+        /// Scale for NUMERIC(p,s) columns stored as I64 fixed-point.
+        /// None for F64 storage or NumericBytes storage.
+        #[serde(default)]
+        scale: Option<i16>,
     },
     Boolean {
         #[serde(default = "default_as_true")]
@@ -203,6 +211,18 @@ impl SearchFieldConfig {
             _ => None,
         }
     }
+
+    pub fn search_tokenizer(&self) -> Option<&SearchTokenizer> {
+        match self {
+            Self::Text {
+                search_tokenizer, ..
+            }
+            | Self::Json {
+                search_tokenizer, ..
+            } => search_tokenizer.as_ref(),
+            _ => None,
+        }
+    }
 }
 
 impl SearchFieldConfig {
@@ -235,6 +255,24 @@ impl SearchFieldConfig {
 
     pub fn default_numeric() -> Self {
         Self::from_json(json!({"Numeric": {}}))
+    }
+
+    /// Default config for NUMERIC(p,s) where p <= 18 (stored as I64 fixed-point).
+    pub fn default_numeric64(scale: i16) -> Self {
+        Self::Numeric {
+            indexed: true,
+            fast: true,
+            scale: Some(scale),
+        }
+    }
+
+    /// Default config for NUMERIC with precision > 18 or unlimited (stored as bytes).
+    pub fn default_numeric_bytes(scale: Option<i16>) -> Self {
+        Self::Numeric {
+            indexed: true,
+            fast: true,
+            scale,
+        }
     }
 
     pub fn default_boolean() -> Self {
@@ -279,6 +317,23 @@ impl From<SearchFieldConfig> for TextOptions {
                     text_options = text_options.set_indexing_options(text_field_indexing);
                 }
             }
+            // NumericBytes fields are stored as hex-encoded text strings.
+            // They don't need tokenization since they're exact values.
+            SearchFieldConfig::Numeric { indexed, fast, .. } => {
+                if fast {
+                    // Use raw normalizer for hex strings (no transformation needed)
+                    text_options = text_options.set_fast(Some("raw"));
+                }
+                if indexed {
+                    // Use raw tokenizer (no tokenization) for exact matching
+                    let text_field_indexing = TextFieldIndexing::default()
+                        .set_index_option(tantivy::schema::IndexRecordOption::Basic)
+                        .set_fieldnorms(false)
+                        .set_tokenizer("raw");
+
+                    text_options = text_options.set_indexing_options(text_field_indexing);
+                }
+            }
             _ => panic!("attempted to convert non-text search field config to tantivy text config"),
         }
         text_options
@@ -314,7 +369,7 @@ impl From<SearchFieldConfig> for NumericOptions {
             SearchFieldConfig::Numeric {
                 indexed,
                 fast,
-                ..
+                scale: _, // Scale is metadata for ParadeDB, not used by Tantivy's NumericOptions
             }
             // Following the example of Quickwit, which uses NumericOptions for boolean options.
             | SearchFieldConfig::Boolean { indexed, fast, .. } => {
@@ -399,6 +454,32 @@ impl From<SearchFieldConfig> for DateOptions {
             }
         }
         date_options
+    }
+}
+
+impl From<SearchFieldConfig> for BytesOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut bytes_options = BytesOptions::default();
+        match config {
+            SearchFieldConfig::Numeric {
+                indexed,
+                fast,
+                scale: _, // Scale is metadata for ParadeDB, not used by Tantivy's BytesOptions
+            } => {
+                if fast {
+                    bytes_options = bytes_options.set_fast();
+                }
+                if indexed {
+                    bytes_options = bytes_options.set_indexed();
+                }
+            }
+            _ => {
+                panic!(
+                    "attempted to convert non-numeric search field config to tantivy bytes config"
+                )
+            }
+        }
+        bytes_options
     }
 }
 

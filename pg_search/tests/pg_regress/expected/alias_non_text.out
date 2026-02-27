@@ -27,11 +27,10 @@ SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
  Custom Scan (ParadeDB Scan) on dates
    Table: dates
    Index: idx_dates
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: id, d
+   Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"d","value":3,"is_datetime":false}}]}}
-(7 rows)
+(6 rows)
 
 SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
  id |     d      
@@ -46,11 +45,10 @@ SELECT * FROM dates WHERE d = '2025-01-01' AND id @@@ pdb.all();
  Custom Scan (ParadeDB Scan) on dates
    Table: dates
    Index: idx_dates
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: id, d
+   Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(d = '01-01-2025'::date)"}]}}]}}
-(7 rows)
+(6 rows)
 
 DROP TABLE dates;
 -- Integer expressions
@@ -65,11 +63,10 @@ SELECT * FROM ints WHERE i = 1 AND id @@@ pdb.all();
  Custom Scan (ParadeDB Scan) on ints
    Table: ints
    Index: idx_ints
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: id, i
+   Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(i = 1)"}]}}]}}
-(7 rows)
+(6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE (i * 3) = 1 AND id @@@ pdb.all();
@@ -78,11 +75,10 @@ SELECT * FROM ints WHERE (i * 3) = 1 AND id @@@ pdb.all();
  Custom Scan (ParadeDB Scan) on ints
    Table: ints
    Index: idx_ints
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: id, i
+   Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"((i * 3) = 1)"}]}}]}}
-(7 rows)
+(6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE (i * 2) = 1 AND id @@@ pdb.all();
@@ -91,11 +87,10 @@ SELECT * FROM ints WHERE (i * 2) = 1 AND id @@@ pdb.all();
  Custom Scan (ParadeDB Scan) on ints
    Table: ints
    Index: idx_ints
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: id, i
+   Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"i","value":1,"is_datetime":false}}]}}
-(7 rows)
+(6 rows)
 
 DROP TABLE ints;
 -- Issue 3760: abs() indexed expression should not accept bare i - j predicate
@@ -261,9 +256,9 @@ CREATE TABLE alias_test (
 INSERT INTO alias_test (col) VALUES (1);
 CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
- id | col 
-----+-----
-  1 |   1
+ id |            col            
+----+---------------------------
+  1 | 1.00000000000000000000000
 (1 row)
 
 DROP TABLE alias_test;

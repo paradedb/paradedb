@@ -32,6 +32,9 @@ static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Allows the user to toggle the use of our "ParadeDB Join Scan".
+static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -45,6 +48,10 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `true`.
 static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Allows the user to enable or disable sorted execution for MixedFastFieldExecState.
+/// When disabled, sorted paths will not be created even if the index has sort_by.
+static ENABLE_MIXED_FAST_FIELD_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// In a TopN query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
@@ -95,6 +102,26 @@ static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Validate TopN scan eligibility for LIMIT queries
+static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// When true, queries with expensive scorer construction (fuzzy, regex, range)
+/// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
+static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Minimum number of rows per parallel worker.
+/// Controls how many workers are spawned based on estimated row count.
+/// Based on benchmarks, the crossover point where parallel becomes beneficial
+/// is around 300K rows total. Setting to 300K ensures tables under ~300K rows
+/// won't use parallel, and larger tables scale workers appropriately.
+static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
+
+/// Override the scanner batch size when dynamic filters are pushed down.
+/// 0 means disabled (use the scanner's default). When > 0, the scanner's batch
+/// size is capped to this value during filter pushdown so that TopK can tighten
+/// its threshold between batches.
+static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -113,6 +140,15 @@ pub fn init() {
         c"Enable ParadeDB's custom aggregate scan",
         c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
         &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_join_custom_scan",
+        c"Enable ParadeDB's experimental join custom scan",
+        c"Enable ParadeDB's experimental join custom scan. Default is false.",
+        &ENABLE_JOIN_CUSTOM_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -153,9 +189,17 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_mixed_fast_field_sort",
+        c"Enable sorted execution for MixedFastFieldExecState",
+        c"Enable sorted execution for MixedFastFieldExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
+                &ENABLE_MIXED_FAST_FIELD_SORT,
+                GucContext::Userset,
+                GucFlags::default(),
+            );
+
     GucRegistry::define_int_guc(
-        MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME,
-        c"Threshold of fetched columns below which MixedFastFieldExecState will be used.",
+                MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which MixedFastFieldExecState will be used.",
         c"The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather \
          than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas \
          the Normal mode fetches data as row-oriented.",
@@ -280,6 +324,51 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.check_topn_scan",
+        c"Validate TopN scan eligibility for LIMIT queries",
+        c"When enabled, logs a warning if a query with LIMIT cannot use TopN scan. \
+          This helps detect performance issues during development where queries expected \
+          to use TopN optimization fall back to slower execution methods.",
+        &CHECK_TOPN_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_heuristic_selectivity",
+        c"Use heuristic selectivity for expensive query types",
+        c"When enabled, fuzzy, regex, and range queries use a cheap heuristic for planner selectivity estimation instead of constructing a full Tantivy scorer. Default is true.",
+        &ENABLE_HEURISTIC_SELECTIVITY,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.min_rows_per_worker",
+        c"Minimum rows per parallel worker",
+        c"Controls how many parallel workers are used based on estimated row count. \
+          Workers are limited so each processes at least this many rows. \
+          Set to 0 to disable this check and use segment-based parallelism only.",
+        &MIN_ROWS_PER_WORKER,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.dynamic_filter_batch_size",
+        c"Scanner batch size override for dynamic filter pushdown",
+        c"When > 0, caps the scanner batch size during dynamic filter pushdown so that \
+          TopK can tighten its threshold between batches. 0 disables the override.",
+        &DYNAMIC_FILTER_BATCH_SIZE,
+        0,
+        128_000,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -288,6 +377,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_join_custom_scan() -> bool {
+    ENABLE_JOIN_CUSTOM_SCAN.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {
@@ -304,6 +397,10 @@ pub fn is_fast_field_exec_enabled() -> bool {
 
 pub fn is_mixed_fast_field_exec_enabled() -> bool {
     ENABLE_MIXED_FAST_FIELD_EXEC.get()
+}
+
+pub fn is_mixed_fast_field_sort_enabled() -> bool {
+    ENABLE_MIXED_FAST_FIELD_SORT.get()
 }
 
 pub fn mixed_fast_field_exec_column_threshold() -> usize {
@@ -420,8 +517,24 @@ pub fn explain_recursive_estimates() -> bool {
     EXPLAIN_RECURSIVE_ESTIMATES.get()
 }
 
+pub fn check_topn_scan() -> bool {
+    CHECK_TOPN_SCAN.get()
+}
+
+pub fn enable_heuristic_selectivity() -> bool {
+    ENABLE_HEURISTIC_SELECTIVITY.get()
+}
+
+pub fn min_rows_per_worker() -> i32 {
+    MIN_ROWS_PER_WORKER.get()
+}
+
 pub fn add_doc_count_to_aggs() -> bool {
     ADD_DOC_COUNT_TO_AGGS.get()
+}
+
+pub fn dynamic_filter_batch_size() -> i32 {
+    DYNAMIC_FILTER_BATCH_SIZE.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

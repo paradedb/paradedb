@@ -24,7 +24,7 @@ use std::ffi::CStr;
 pub(crate) mod pdb {
     use crate::api::tokenizers::{
         CowString, DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker,
-        TextArrayMarker, VarcharArrayMarker,
+        TextArrayMarker, UuidMarker, VarcharArrayMarker,
     };
     use macros::generate_tokenizer_sql;
     use paste::paste;
@@ -161,7 +161,7 @@ pub(crate) mod pdb {
     }
 
     macro_rules! define_tokenizer_type {
-        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $text_array_cast_name:ident, $varchar_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
+        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $uuid_cast_name:ident, $text_array_cast_name:ident, $varchar_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
             pub struct $rust_name(pg_sys::Datum);
 
             impl TokenizerCtor for $rust_name {
@@ -290,6 +290,11 @@ pub(crate) mod pdb {
                     const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
                 }
 
+                struct [<$rust_name UuidMarker>];
+                impl SqlNameMarker for [<$rust_name UuidMarker>] {
+                    const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
+                }
+
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
                 fn $json_cast_name(
                     json: GenericTypeWrapper<pgrx::Json, JsonMarker>,
@@ -302,6 +307,13 @@ pub(crate) mod pdb {
                     jsonb: GenericTypeWrapper<pgrx::JsonB, JsonbMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name JsonbMarker>]> {
                     GenericTypeWrapper::new(jsonb.datum, jsonb.typoid)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                unsafe fn $uuid_cast_name(
+                    uuid: GenericTypeWrapper<pgrx::datum::Uuid, UuidMarker>,
+                ) -> GenericTypeWrapper<$rust_name, [<$rust_name UuidMarker>]> {
+                    GenericTypeWrapper::new(uuid.datum, uuid.typoid)
                 }
 
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
@@ -327,6 +339,7 @@ pub(crate) mod pdb {
                 custom_typmod = $custom_typmod,
                 json_cast_name = $json_cast_name,
                 jsonb_cast_name = $jsonb_cast_name,
+                uuid_cast_name = $uuid_cast_name,
                 text_array_cast_name = $text_array_cast_name,
                 varchar_array_cast_name = $varchar_array_cast_name,
                 schema = pdb
@@ -340,6 +353,7 @@ pub(crate) mod pdb {
         tokenize_alias,
         json_to_alias,
         jsonb_to_alias,
+        uuid_to_alias,
         text_array_to_alias,
         varchar_array_to_alias,
         "alias",
@@ -403,6 +417,7 @@ pub(crate) mod pdb {
         tokenize_simple,
         json_to_simple,
         jsonb_to_simple,
+        uuid_to_simple,
         text_array_to_simple,
         varchar_array_to_simple,
         "simple",
@@ -416,6 +431,7 @@ pub(crate) mod pdb {
         tokenize_whitespace,
         json_to_whitespace,
         jsonb_to_whitespace,
+        uuid_to_whitespace,
         text_array_to_whitespace,
         varchar_array_to_whitespace,
         "whitespace",
@@ -429,6 +445,7 @@ pub(crate) mod pdb {
         tokenize_literal,
         json_to_literal,
         jsonb_to_literal,
+        uuid_to_literal,
         text_array_to_literal,
         varchar_array_to_literal,
         "literal",
@@ -442,6 +459,7 @@ pub(crate) mod pdb {
         tokenize_literal_normalized,
         json_to_literal_normalized,
         jsonb_to_literal_normalized,
+        uuid_to_literal_normalized,
         text_array_to_literal_normalized,
         varchar_array_to_literal_normalized,
         "literal_normalized",
@@ -455,6 +473,7 @@ pub(crate) mod pdb {
         tokenize_chinese_compatible,
         json_to_chinese_compatible,
         jsonb_to_chinese_compatible,
+        uuid_to_chinese_compatible,
         text_array_to_chinese_compatible,
         varchar_array_to_chinese_compatible,
         "chinese_compatible",
@@ -468,6 +487,7 @@ pub(crate) mod pdb {
         tokenize_lindera,
         json_to_lindera,
         jsonb_to_lindera,
+        uuid_to_lindera,
         text_array_to_lindera,
         varchar_array_to_lindera,
         "lindera",
@@ -484,6 +504,7 @@ pub(crate) mod pdb {
         tokenize_jieba,
         json_to_jieba,
         jsonb_to_jieba,
+        uuid_to_jieba,
         text_array_to_jieba,
         varchar_array_to_jieba,
         "jieba",
@@ -497,6 +518,7 @@ pub(crate) mod pdb {
         tokenize_source_code,
         json_to_source_code,
         jsonb_to_source_code,
+        uuid_to_source_code,
         text_array_to_source_code,
         varchar_array_to_source_code,
         "source_code",
@@ -504,13 +526,13 @@ pub(crate) mod pdb {
         custom_typmod = false
     );
 
-    #[cfg(feature = "icu")]
     define_tokenizer_type!(
-        ICU,
+        Icu,
         SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         tokenize_icu,
         json_to_icu,
         jsonb_to_icu,
+        uuid_to_icu,
         text_array_to_icu,
         varchar_array_to_icu,
         "icu",
@@ -524,11 +546,13 @@ pub(crate) mod pdb {
             min_gram: 1,
             max_gram: 3,
             prefix_only: false,
+            positions: false,
             filters: SearchTokenizerFilters::default(),
         },
         tokenize_ngram,
         json_to_ngram,
         jsonb_to_ngram,
+        uuid_to_ngram,
         text_array_to_ngram,
         varchar_array_to_ngram,
         "ngram",
@@ -545,6 +569,7 @@ pub(crate) mod pdb {
         tokenize_regex,
         json_to_regex,
         jsonb_to_regex,
+        uuid_to_regex_pattern,
         text_array_to_regex_pattern,
         varchar_array_to_regex_pattern,
         "regex_pattern",
@@ -561,6 +586,7 @@ pub(crate) mod pdb {
         tokenize_unicode_words,
         json_to_unicode_words,
         jsonb_to_unicode_words,
+        uuid_to_unicode_words,
         text_array_to_unicode_words,
         varchar_array_to_unicode_words,
         "unicode_words",
@@ -576,7 +602,6 @@ pub(crate) mod pdb {
     // allow the following types to be cast to `pdb.alias` at CREATE INDEX time
     cast_alias!("text", Text, String, text, pg_sys::TEXTOID);
     cast_alias!("varchar", Varchar, String, varchar, pg_sys::VARCHAROID);
-    cast_alias!("uuid", Uuid, pgrx::datum::Uuid, uuid, pg_sys::UUIDOID);
     cast_alias!("smallint", SmallInt, i16, smallint, pg_sys::INT2OID);
     cast_alias!("integer", Integer, i32, integer, pg_sys::INT4OID);
     cast_alias!("bigint", BigInt, i64, bigint, pg_sys::INT8OID);
@@ -747,7 +772,6 @@ pub(crate) mod pdb {
         r#"
         CREATE CAST (text AS pdb.alias) WITH FUNCTION pdb.text_to_alias AS ASSIGNMENT;
         CREATE CAST (varchar AS pdb.alias) WITH FUNCTION pdb.varchar_to_alias AS ASSIGNMENT;
-        CREATE CAST (uuid AS pdb.alias) WITH FUNCTION pdb.uuid_to_alias AS ASSIGNMENT;
         CREATE CAST (smallint AS pdb.alias) WITH FUNCTION pdb.smallint_to_alias AS ASSIGNMENT;
         CREATE CAST (integer AS pdb.alias) WITH FUNCTION pdb.integer_to_alias AS ASSIGNMENT;
         CREATE CAST (bigint AS pdb.alias) WITH FUNCTION pdb.bigint_to_alias AS ASSIGNMENT;
@@ -787,7 +811,6 @@ pub(crate) mod pdb {
             "alias_definition",
             text_to_alias,
             varchar_to_alias,
-            uuid_to_alias,
             smallint_to_alias,
             integer_to_alias,
             bigint_to_alias,

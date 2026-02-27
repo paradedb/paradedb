@@ -634,12 +634,13 @@ impl TryFrom<TantivyValue> for f64 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::F64(val) = value.0 {
-            Ok(val)
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            OwnedValue::F64(val) => Ok(val),
+            OwnedValue::I64(val) => Ok(val as f64),
+            OwnedValue::U64(val) => Ok(val as f64),
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "f64".to_string(),
-            ))
+            )),
         }
     }
 }
@@ -690,13 +691,144 @@ impl TryFrom<TantivyValue> for u64 {
     }
 }
 
+/// Convert NUMERIC to string representation to preserve precision.
+/// The string will be converted to the appropriate type (I64, Bytes, or F64)
+/// later when schema context is available.
+///
+/// For document indexing with known field types, use
+/// try_from_numeric_i64/try_from_numeric_bytes instead.
 impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
-            val.try_into()?,
+        // Store as string to preserve full precision until we know the field type
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
+            val.normalize().to_string(),
         )))
+    }
+}
+
+impl TantivyValue {
+    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with I64 fixed-point storage.
+    /// Used for NUMERIC(p,s) where p <= 18.
+    ///
+    /// The value is scaled by 10^scale to convert to integer representation.
+    /// For example, NUMERIC(10,2) value 123.45 with scale=2 becomes I64(12345).
+    ///
+    /// Delegates to the centralized `scale_i64` in the numeric module.
+    pub unsafe fn try_from_numeric_i64(
+        datum: Datum,
+        scale: i16,
+    ) -> Result<Self, TantivyValueError> {
+        use crate::query::numeric::scale_i64;
+
+        let numeric =
+            pgrx::AnyNumeric::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        let numeric_str = numeric.normalize().to_string();
+
+        let scaled = scale_i64(&numeric_str, scale).map_err(|e| {
+            TantivyValueError::NumericConversion(format!(
+                "Failed to convert NUMERIC '{}' to I64 with scale {}: {}",
+                numeric_str, scale, e
+            ))
+        })?;
+
+        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(scaled)))
+    }
+
+    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with raw bytes storage.
+    /// Used for NUMERIC with precision > 18 or unlimited precision.
+    ///
+    /// The byte encoding is lexicographically sortable, supporting range queries.
+    pub unsafe fn try_from_numeric_bytes(datum: Datum) -> Result<Self, TantivyValueError> {
+        use decimal_bytes::Decimal;
+        use std::str::FromStr;
+
+        let numeric =
+            pgrx::AnyNumeric::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        // Convert AnyNumeric to string, then to lexicographically sortable bytes
+        let numeric_str = numeric.normalize().to_string();
+
+        let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+            TantivyValueError::NumericConversion(format!(
+                "Failed to convert NUMERIC '{}' to bytes: {:?}",
+                numeric_str, e
+            ))
+        })?;
+
+        // Store as raw bytes for Bytes field storage
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+            decimal.into_bytes(),
+        )))
+    }
+
+    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with I64 fixed-point storage.
+    /// Used for NUMERIC arrays with precision <= 18.
+    ///
+    /// Delegates to the centralized `scale_i64` in the numeric module.
+    pub unsafe fn try_from_numeric_array_i64(
+        datum: Datum,
+        scale: i16,
+    ) -> Result<Vec<Self>, TantivyValueError> {
+        use crate::query::numeric::scale_i64;
+
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        array
+            .iter()
+            .flatten()
+            .map(|element_datum| {
+                let numeric = pgrx::AnyNumeric::from_datum(element_datum, false)
+                    .ok_or(TantivyValueError::DatumDeref)?;
+
+                let numeric_str = numeric.normalize().to_string();
+                let scaled = scale_i64(&numeric_str, scale).map_err(|e| {
+                    TantivyValueError::NumericConversion(format!(
+                        "Failed to convert NUMERIC array element '{}' with scale {}: {}",
+                        numeric_str, scale, e
+                    ))
+                })?;
+
+                Ok(TantivyValue(tantivy::schema::OwnedValue::I64(scaled)))
+            })
+            .collect()
+    }
+
+    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with raw bytes storage.
+    /// Used for NUMERIC arrays with precision > 18 or unlimited precision.
+    pub unsafe fn try_from_numeric_array_bytes(
+        datum: Datum,
+    ) -> Result<Vec<Self>, TantivyValueError> {
+        use decimal_bytes::Decimal;
+        use std::str::FromStr;
+
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        array
+            .iter()
+            .flatten()
+            .map(|element_datum| {
+                let numeric = pgrx::AnyNumeric::from_datum(element_datum, false)
+                    .ok_or(TantivyValueError::DatumDeref)?;
+
+                let numeric_str = numeric.normalize().to_string();
+                let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+                    TantivyValueError::NumericConversion(format!(
+                        "Failed to convert NUMERIC array element '{}' to bytes: {:?}",
+                        numeric_str, e
+                    ))
+                })?;
+
+                // Store as raw bytes for Bytes field storage
+                Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+                    decimal.into_bytes(),
+                )))
+            })
+            .collect()
     }
 }
 
@@ -825,12 +957,17 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        let posix_time = val.to_posix_time();
-        let date = time::OffsetDateTime::from_unix_timestamp(posix_time)
-            .map_err(|err| TantivyValueError::DateOutOfRange(val, err.to_string()))?;
-        let tantivy_date =
-            tantivy::DateTime::from_timestamp_nanos(date.unix_timestamp_nanos() as i64);
-        Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
+        let posix_secs = val.to_posix_time();
+        let nanos = posix_secs.checked_mul(1_000_000_000).ok_or_else(|| {
+            TantivyValueError::DateOutOfRange(
+                val,
+                "date is outside Tantivy DateTime nanosecond range (~year 1678 to ~year 2262)"
+                    .to_string(),
+            )
+        })?;
+        Ok(TantivyValue(OwnedValue::Date(
+            tantivy::DateTime::from_timestamp_nanos(nanos),
+        )))
     }
 }
 
@@ -890,11 +1027,13 @@ impl TryFrom<pgrx::datum::Timestamp> for TantivyValue {
 
     #[allow(static_mut_refs)]
     fn try_from(val: pgrx::datum::Timestamp) -> Result<Self, Self::Error> {
+        use crate::postgres::datetime::micros_to_tantivy_datetime;
         static mut EPOCH_TS: Option<pg_sys::Timestamp> = None;
         let epoch_ts = unsafe { EPOCH_TS.get_or_insert_with(|| pg_sys::SetEpochTimestamp()) };
-        let dt = chrono::DateTime::from_timestamp_micros(val.into_inner() - *epoch_ts)
-            .expect("postgres Timestamp should be valid DateTime");
-        let tantivy_date = tantivy::DateTime::from_timestamp_micros(dt.timestamp_micros());
+        let micros = val.into_inner().checked_sub(*epoch_ts).ok_or(
+            TantivyValueError::DateTimeConversionError(DateTimeConversionError::OutOfRange),
+        )?;
+        let tantivy_date = micros_to_tantivy_datetime(micros)?;
 
         Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }
@@ -1131,6 +1270,9 @@ pub enum TantivyValueError {
 
     #[error(transparent)]
     PgrxNumericError(#[from] pgrx::datum::numeric_support::error::Error),
+
+    #[error("NUMERIC conversion error: {0}")]
+    NumericConversion(String),
 
     #[error(transparent)]
     UuidError(#[from] uuid::Error),

@@ -6,6 +6,9 @@
 name: Test pg_search
 
 on:
+  # We run nightly to update the code coverage baseline without excessive post-PR runs
+  schedule:
+    - cron: "0 7 * * *" # daily 07:00 UTC (~2am ET)
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
@@ -36,12 +39,12 @@ jobs:
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         run: |
-          if [[ ${{ github.event_name }} == "push" ]]; then
+          if [[ ${{ github.event_name }} == "push" || ${{ github.event_name }} == "schedule" ]]; then
             echo "Push event detected; using only PostgreSQL version 18."
             echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
             echo "Pull request event detected, using all PostgreSQL versions."
-            echo "matrix=[14, 15, 16, 17, 18]" >> $GITHUB_OUTPUT
+            echo "matrix=[15, 16, 17, 18]" >> $GITHUB_OUTPUT
           fi
 
   test-pg_search:
@@ -55,21 +58,18 @@ jobs:
         # Base: system Postgres on regular runner for all versions
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
         pg_impl: [system]
-        # TODO: See https://github.com/paradedb/paradedb/issues/3613
-        runner: [ubicloud-standard-8-ubuntu-2204]
+        runner: [ubicloud-standard-8-ubuntu-2404]
         arch: [amd64]
         include:
           # Add pgrx-managed Postgres for PG 18 (regular runner)
           - pg_version: 18
             pg_impl: pgrx
-            # TODO: See https://github.com/paradedb/paradedb/issues/3613
-            runner: ubicloud-standard-8-ubuntu-2204
+            runner: ubicloud-standard-8-ubuntu-2404
             arch: amd64
           # Add ARM run for PG 18 (system Postgres)
           - pg_version: 18
             pg_impl: system
-            # TODO: See https://github.com/paradedb/paradedb/issues/3613
-            runner: ubicloud-standard-8-arm-ubuntu-2204
+            runner: ubicloud-standard-8-arm-ubuntu-2404
             arch: arm64
 
     steps:
@@ -102,6 +102,9 @@ jobs:
 
       - name: Install cargo-pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
 
       # ---------- System-managed Postgres setup ----------
       - name: Install & Configure Supported PostgreSQL Version (system)
@@ -139,59 +142,80 @@ jobs:
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
 
       # Needed for Citus compatibility tests
-      # Note: Citus doesn't support ARM architecture or PostgreSQL 18 yet
-      # Citus 12.1 for PG 14-16, Citus 13.0 for PG 17
-      - name: Install Citus 12.1 (system, PG 14-16)
-        if: matrix.pg_impl == 'system' && matrix.arch == 'amd64' && matrix.pg_version >= 14 && matrix.pg_version <= 16
+      # Citus 13 supports PG 15-17, Citus 14 supports PG 16-18
+      - name: Build & install Citus 13 (PG 15)
+        if: matrix.pg_version == 15
+        env:
+          CITUS_VERSION: v13.0.1
         run: |
-          curl https://install.citusdata.com/community/deb.sh | sudo bash
-          sudo apt-get install -y postgresql-${{ matrix.pg_version }}-citus-12.1
+          set -euxo pipefail
 
-      - name: Install Citus 13.0 (system, PG 17)
-        if: matrix.pg_impl == 'system' && matrix.arch == 'amd64' && matrix.pg_version == 17
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang flex bison pkg-config ca-certificates git \
+            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev
+
+          git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
+          cd citus
+
+          if [ "${{ matrix.pg_impl }}" = "system" ]; then
+            PG_CONFIG="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          else
+            PG_CONFIG="$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n1)/pg_config"
+          fi
+
+          PG_CONFIG="${PG_CONFIG}" ./configure --without-libcurl
+          PG_CONFIG="${PG_CONFIG}" make -j"$(nproc)"
+          sudo PG_CONFIG="${PG_CONFIG}" make install -j"$(nproc)"
+
+      - name: Build & install Citus 14 (PG 16-18)
+        if: matrix.pg_version >= 16
+        env:
+          CITUS_VERSION: v14.0.0
         run: |
-          curl https://install.citusdata.com/community/deb.sh | sudo bash
-          sudo apt-get install -y postgresql-${{ matrix.pg_version }}-citus-13.0
+          set -euxo pipefail
 
-      - name: Install Citus 12.1 (pgrx, PG 14-16)
-        if: matrix.pg_impl == 'pgrx' && matrix.arch == 'amd64' && matrix.pg_version >= 14 && matrix.pg_version <= 16
-        run: |
-          git clone --branch v12.1.5 https://github.com/citusdata/citus.git
-          cd citus/
-          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config ./configure
-          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
-          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang flex bison pkg-config ca-certificates git \
+            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
+            libcurl4-openssl-dev
 
-      - name: Install Citus 13.0 (pgrx, PG 17)
-        if: matrix.pg_impl == 'pgrx' && matrix.arch == 'amd64' && matrix.pg_version == 17
-        run: |
-          git clone --branch v13.0.0 https://github.com/citusdata/citus.git
-          cd citus/
-          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config ./configure
-          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
-          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
+          git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
+          cd citus
 
-      - name: Add extensions to shared_preload_libraries (with Citus)
-        if: matrix.arch == 'amd64' && matrix.pg_version >= 14 && matrix.pg_version <= 17
+          if [ "${{ matrix.pg_impl }}" = "system" ]; then
+            PG_CONFIG="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          else
+            PG_CONFIG="$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n1)/pg_config"
+          fi
+
+          PG_CONFIG="${PG_CONFIG}" ./configure
+          PG_CONFIG="${PG_CONFIG}" make -j"$(nproc)"
+          sudo PG_CONFIG="${PG_CONFIG}" make install -j"$(nproc)"
+
+      - name: Add extensions to shared_preload_libraries
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: |
           sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
           sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
 
-      - name: Add extensions to shared_preload_libraries (without Citus)
-        if: matrix.arch != 'amd64' || matrix.pg_version < 14 || matrix.pg_version > 17
-        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
-
       - name: Compile & install pg_search extension (system)
         if: matrix.pg_impl == 'system'
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --features "icu,block_tracker" --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+
+      - name: Source LLVM coverage environment (pgrx)
+        if: matrix.pg_impl == 'pgrx'
+        run: |
+          source <(cargo llvm-cov show-env --export-prefix)
+          cargo llvm-cov clean --workspace
+          env | grep -E '^(RUSTC_WRAPPER=|LLVM_PROFILE_FILE=|CARGO_LLVM_COV|__CARGO_LLVM_COV)' >> "$GITHUB_ENV"
 
       - name: Compile & install pg_search extension (pgrx)
         if: matrix.pg_impl == 'pgrx'
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},icu,block_tracker"
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},block_tracker"
 
       # ---------- Start Postgres ----------
       - name: Start Postgres (system)
@@ -214,7 +238,7 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features icu --package tests --package tokenizers
+          RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --package tests --package tokenizers --lcov --output-path coverage-integration-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
 
       - name: Run pg_search Unit Tests (system)
         if: matrix.pg_impl == 'system'
@@ -222,21 +246,64 @@ jobs:
         run: |
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
+          RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features --lcov --output-path ../coverage-unit-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
 
       - name: Run pg_search Integration Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --features=icu --package tests --package tokenizers -- --skip replication --skip ephemeral
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
 
       - name: Run pg_search Regression Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
         run: |
           set -e
-          if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --features=icu --auto; then
+          if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto; then
             git diff
             exit 1
           fi
 
+      - name: Stop PostgreSQL to flush coverage data (pgrx)
+        if: matrix.pg_impl == 'pgrx' && always()
+        working-directory: pg_search/
+        run: cargo pgrx stop pg${{ matrix.pg_version }}
+
+      - name: Generate combined LCOV report (pgrx)
+        if: matrix.pg_impl == 'pgrx' && always()
+        run: cargo llvm-cov report --lcov --output-path coverage-combined-pgrx-${{ matrix.pg_version }}.lcov
+
+      - name: Upload Coverage Artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
+          path: coverage-*.lcov
+          retention-days: 1
+
       - name: Print the Postgres Logs
         if: always()
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log
+
+  upload-coverage:
+    name: Upload Combined Coverage to Codecov
+    runs-on: ubuntu-latest
+    needs: test-pg_search
+    if: success()
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+
+      - name: Download All Coverage Artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: coverage-*
+          path: coverage-reports
+          merge-multiple: true
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          directory: ./coverage-reports
+          files: "*.lcov"
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

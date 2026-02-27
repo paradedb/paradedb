@@ -17,7 +17,7 @@ CREATE TABLE products (
     description TEXT,
     rating INTEGER,
     category TEXT,
-    price NUMERIC,
+    price FLOAT,
     in_stock BOOLEAN
 );
 
@@ -153,7 +153,7 @@ CREATE TABLE type_test (
     int_val INTEGER,
     bigint_val BIGINT,
     smallint_val SMALLINT,
-    numeric_val NUMERIC(10,2),
+    numeric_val FLOAT,
     float_val FLOAT,
     double_val DOUBLE PRECISION,
     text_val TEXT

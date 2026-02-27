@@ -44,3 +44,54 @@ SELECT 'Tokenize me!'::pdb.ngram(3,3,'prefix_only=true')::text[];
  {tok}
 (1 row)
 ```
+
+## Phrase and Proximity Queries with Ngram
+
+Because multiple ngram tokens can overlap, the ngram tokenizer does not store token positions. As a result,
+queries that rely on token positions like [phrase](/documentation/full-text/phrase), [phrase prefix](/documentation/query-builder/phrase/phrase-prefix), [regex phrase](/documentation/query-builder/phrase/regex-phrase) and [proximity](/documentation/full-text/proximity) are not supported over ngram-tokenized
+fields.
+
+An exception is if the min gram size equals the max gram size, which guarantees unique token positions. In this case, setting
+`positions=true` enables these queries.
+
+```sql
+SELECT 'Tokenize me!'::pdb.ngram(3,3,'positions=true')::text[];
+```
+
+### Exact Substring Matching with Phrase Queries
+
+With `positions=true`, [phrase queries](/documentation/full-text/phrase) over ngram fields perform exact substring matching.
+This is faster than using [match conjunction](/documentation/full-text/match#match-conjunction) on an ngram field, which
+creates a `Must` clause for every ngram token and intersects them independently. A phrase query uses a single positional
+intersection instead.
+
+The tradeoff is that phrase queries are stricter: they require tokens at consecutive positions within a single field value,
+while match conjunction only requires all tokens to appear somewhere in the document.
+
+```sql
+CREATE TABLE books (id SERIAL PRIMARY KEY, titles TEXT[]);
+INSERT INTO books (titles) VALUES
+    (ARRAY['The Dragon Hatchling', 'Wings of Gold']),
+    (ARRAY['Dragon Slayer', 'Hatchling Care']);
+
+CREATE INDEX ON books
+USING bm25 (id, (titles::pdb.ngram(4,4,'positions=true')))
+WITH (key_field='id');
+
+-- Phrase: matches exact substring "Dragon Hatchling" — only row 1
+SELECT * FROM books WHERE titles ### 'Dragon Hatchling';
+
+-- Match conjunction: matches all ngrams anywhere — also only row 1 here,
+-- but on larger datasets could match rows where the ngrams are scattered
+SELECT * FROM books WHERE titles ||| 'Dragon Hatchling';
+
+DROP TABLE books;
+```
+
+When constructing queries as [JSON](/documentation/query-builder/json), use `tokenized_phrase` to achieve the same
+result as the `###` operator. It tokenizes the input string with the field's tokenizer and builds
+a phrase query from the resulting tokens:
+
+```json
+{ "tokenized_phrase": { "field": "titles", "phrase": "Dragon Hatchling" } }
+```

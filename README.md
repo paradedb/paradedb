@@ -21,6 +21,7 @@
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/paradedb)](https://artifacthub.io/packages/search?repo=paradedb)
 [![Docker Pulls](https://img.shields.io/docker/pulls/paradedb/paradedb)](https://hub.docker.com/r/paradedb/paradedb)
 [![License](https://img.shields.io/github/license/paradedb/paradedb?color=blue)](https://github.com/paradedb/paradedb?tab=AGPL-3.0-1-ov-file#readme)
+[![Codecov](https://codecov.io/gh/paradedb/paradedb/branch/main/graph/badge.svg)](https://codecov.io/gh/paradedb/paradedb)
 [![Slack URL](https://img.shields.io/badge/Join%20Slack-purple?logo=slack&link=https%3A%2F%2Fjoin.slack.com%2Ft%2Fparadedbcommunity%2Fshared_invite%2Fzt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)
 [![X URL](https://img.shields.io/twitter/url?url=https%3A%2F%2Ftwitter.com%2Fparadedb&label=Follow%20%40paradedb)](https://x.com/paradedb)
 
@@ -42,9 +43,9 @@ For more information, including enterprise features and support, please [contact
 
 ### Extensions
 
-You can find prebuilt binaries for the ParadeDB Postgres extensions on Debian 12, 13, Ubuntu 22.04 and 24.04, Red Hat Enterprise Linux 9 and 10, and macOS 14 (Sonoma) and 15 (Sequoia) for Postgres 14+ in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest).
+You can find prebuilt binaries for the ParadeDB Postgres extensions on Debian 12, 13, Ubuntu 22.04 and 24.04, Red Hat Enterprise Linux 9 and 10, and macOS 14 (Sonoma) and 15 (Sequoia) for Postgres 15+ in the [GitHub Releases](https://github.com/paradedb/paradedb/releases).
 
-ParadeDB supports all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 14+, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
+ParadeDB supports all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 15+, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
 
 ### Docker Image
 

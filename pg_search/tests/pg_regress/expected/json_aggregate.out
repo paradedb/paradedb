@@ -851,7 +851,7 @@ FROM json_special_agg
 WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
  count 
 -------
-     0
+     1
 (1 row)
 
 -- Clean up

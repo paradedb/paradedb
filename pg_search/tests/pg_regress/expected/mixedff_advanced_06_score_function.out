@@ -297,6 +297,16 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
 );
+-- Update statistics for consistent query planning
+ANALYZE mixed_numeric_string_test;
+ANALYZE documents;
+ANALYZE files;
+ANALYZE pages;
+ANALYZE categories;
+ANALYZE products;
+ANALYZE conversion_test;
+ANALYZE union_test_a;
+ANALYZE union_test_b;
 \echo 'Test: Score function behavior'
 Test: Score function behavior
 -- Create test table with mixed field types
@@ -390,19 +400,18 @@ FROM score_test
 WHERE content @@@ 'research'
 ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: title, author, rating, views, (pdb.score(id)) DESC
-         ->  Custom Scan (ParadeDB Scan) on score_test
-               Table: score_test
-               Index: score_test_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: author, id, views, rating, title
-               Scores: true
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+   ->  Custom Scan (ParadeDB Scan) on score_test
+         Table: score_test
+         Index: score_test_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: title asc, author asc, rating asc, views asc, pdb.score() desc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
 
 SELECT title, author, rating, views, pdb.score(id)
 FROM score_test
@@ -447,8 +456,8 @@ ORDER BY title, author, pdb.score(id) DESC;
  Post 28                    | Author 4      | 2.7986248
  Post 49                    | Author 5      |  2.796766
  Post 63                    | Author 4      | 2.7958398
- Post 84                    | Author 5      | 2.7945328
- Post 98                    | Author 4      | 2.7936544
+ Post 84                    | Author 5      | 2.7945325
+ Post 98                    | Author 4      | 2.7936542
  Special Technology Post    | Author Expert | 2.8048325
  Technology Trends Analysis | Author Expert | 2.8048325
 (8 rows)
@@ -781,11 +790,10 @@ ORDER BY title, author, pdb.score(id) DESC;
    ->  Custom Scan (ParadeDB Scan) on score_test
          Table: score_test
          Index: score_test_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: author, id, rating, title
+         Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research OR development","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4},"upper_bound":null,"is_datetime":false}}]}}
-(9 rows)
+(8 rows)
 
 SELECT
     title,

@@ -1,0 +1,1462 @@
+-- Comprehensive tests for sorted index scan feature
+-- Tests sorted path activation, pathkey matching, data types, edge cases,
+-- parallel execution, lazy segment checkout, and execution method verification.
+--
+-- Note: sort_by syntax validation is in sort_by.sql
+-- Note: sort_by with composite types is in composite_advanced.sql
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- Explicitly enable mixed fast field sorted paths for this test suite
+SET paradedb.enable_mixed_fast_field_sort = true;
+-- =============================================================================
+-- MAIN TEST TABLE: sorted_scan_test
+-- Used for most sorted index tests (pathkey, projection, LIMIT, aggregates, etc.)
+-- =============================================================================
+DROP TABLE IF EXISTS sorted_scan_test CASCADE;
+CREATE TABLE sorted_scan_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    category TEXT,
+    priority INTEGER,
+    score FLOAT
+);
+-- Insert base data
+INSERT INTO sorted_scan_test (content, category, priority, score) VALUES
+    ('searchable product alpha', 'electronics', 100, 4.5),
+    ('searchable product beta', 'electronics', 50, 3.8),
+    ('searchable product gamma', 'clothing', 150, 4.9),
+    ('searchable product delta', 'clothing', 75, 4.2),
+    ('searchable product epsilon', 'electronics', 200, 4.7);
+-- Create index with sort_by DESC NULLS LAST (v2 style)
+CREATE INDEX sorted_scan_test_idx ON sorted_scan_test
+USING bm25 (id, content, category, priority, score)
+WITH (
+    key_field = 'id',
+    sort_by = 'priority DESC NULLS LAST',
+    mutable_segment_rows = 5
+);
+-- Insert batches to create multiple segments for parallel tests
+INSERT INTO sorted_scan_test (content, category, priority, score)
+SELECT 'searchable batch1 item ' || i, 'batch1', 10 + i, 2.0 + (i * 0.1)
+FROM generate_series(1, 8) AS i;
+INSERT INTO sorted_scan_test (content, category, priority, score)
+SELECT 'searchable batch2 item ' || i, 'batch2', 20 + i, 3.0 + (i * 0.1)
+FROM generate_series(1, 8) AS i;
+INSERT INTO sorted_scan_test (content, category, priority, score)
+SELECT 'searchable batch3 item ' || i, 'batch3', 30 + i, 4.0 + (i * 0.1)
+FROM generate_series(1, 8) AS i;
+-- =============================================================================
+-- SECTION 1: SORTED PATH ACTIVATION VIA PATHKEYS
+-- Tests that sorted path is only used when ORDER BY exactly matches index's sort_by
+-- =============================================================================
+\echo '=== SECTION 1: Sorted Path Activation via Pathkeys ==='
+=== SECTION 1: Sorted Path Activation via Pathkeys ===
+\echo 'Test 1.1: ORDER BY matching sort_by exactly (DESC NULLS LAST) - no Sort node'
+Test 1.1: ORDER BY matching sort_by exactly (DESC NULLS LAST) - no Sort node
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority DESC NULLS LAST;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on sorted_scan_test
+   Table: sorted_scan_test
+   Index: sorted_scan_test_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, priority
+   Order By: priority DESC
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+\echo 'Test 1.2: ORDER BY DESC only (default NULLS FIRST) - Sort node expected'
+Test 1.2: ORDER BY DESC only (default NULLS FIRST) - Sort node expected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority DESC;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: priority DESC
+   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
+         Table: sorted_scan_test
+         Index: sorted_scan_test_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, priority
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+\echo 'Test 1.3: ORDER BY ASC (opposite direction) - Sort node expected'
+Test 1.3: ORDER BY ASC (opposite direction) - Sort node expected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority ASC NULLS FIRST;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: priority NULLS FIRST
+   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
+         Table: sorted_scan_test
+         Index: sorted_scan_test_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, priority
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+\echo 'Test 1.4: No ORDER BY clause - Unsorted path chosen'
+Test 1.4: No ORDER BY clause - Unsorted path chosen
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
+WHERE content @@@ 'searchable';
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on sorted_scan_test
+   Table: sorted_scan_test
+   Index: sorted_scan_test_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, priority
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+\echo 'Test 1.5: Verify correct data order when sorted path is used'
+Test 1.5: Verify correct data order when sorted path is used
+SELECT id, priority FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority DESC NULLS LAST;
+ id | priority 
+----+----------
+  5 |      200
+  3 |      150
+  1 |      100
+  4 |       75
+  2 |       50
+ 29 |       38
+ 28 |       37
+ 27 |       36
+ 26 |       35
+ 25 |       34
+ 24 |       33
+ 23 |       32
+ 22 |       31
+ 21 |       28
+ 20 |       27
+ 19 |       26
+ 18 |       25
+ 17 |       24
+ 16 |       23
+ 15 |       22
+ 14 |       21
+ 13 |       18
+ 12 |       17
+ 11 |       16
+ 10 |       15
+  9 |       14
+  8 |       13
+  7 |       12
+  6 |       11
+(29 rows)
+
+\echo 'Test 1.6: ORDER BY prefix + extra key (parallel) - Gather Merge with worker Sort expected'
+Test 1.6: ORDER BY prefix + extra key (parallel) - Gather Merge with worker Sort expected
+SET paradedb.min_rows_per_worker = 0;
+SET max_parallel_workers_per_gather = 2;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET min_parallel_index_scan_size = 0;
+SET enable_gathermerge = on;
+ALTER TABLE sorted_scan_test SET (parallel_workers = 2);
+SET enable_incremental_sort = on;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority DESC NULLS LAST, id ASC;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 2
+   ->  Incremental Sort
+         Sort Key: priority DESC NULLS LAST, id
+         Presorted Key: priority
+         ->  Parallel Custom Scan (ParadeDB Scan) on sorted_scan_test
+               Table: sorted_scan_test
+               Index: sorted_scan_test_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: id, priority
+               Order By: priority DESC
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
+\echo 'Test 1.7: ORDER BY exact match (parallel) - Gather Merge only expected'
+Test 1.7: ORDER BY exact match (parallel) - Gather Merge only expected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority DESC NULLS LAST;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 2
+   ->  Parallel Custom Scan (ParadeDB Scan) on sorted_scan_test
+         Table: sorted_scan_test
+         Index: sorted_scan_test_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, priority
+         Order By: priority DESC
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+RESET enable_incremental_sort;
+RESET enable_gathermerge;
+RESET min_parallel_index_scan_size;
+RESET min_parallel_table_scan_size;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+RESET paradedb.min_rows_per_worker;
+SET max_parallel_workers_per_gather = 0;
+\echo 'Test 1.8: ORDER BY prefix + extra key (single worker) - Incremental Sort expected'
+Test 1.8: ORDER BY prefix + extra key (single worker) - Incremental Sort expected
+SET enable_incremental_sort = on;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority DESC NULLS LAST, id ASC;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort
+   Sort Key: priority DESC NULLS LAST, id
+   Presorted Key: priority
+   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
+         Table: sorted_scan_test
+         Index: sorted_scan_test_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, priority
+         Order By: priority DESC
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+RESET enable_incremental_sort;
+\echo 'Test 1.9: ORDER BY non-prefix (single worker) - Sort expected'
+Test 1.9: ORDER BY non-prefix (single worker) - Sort expected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY id ASC, priority DESC NULLS LAST;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id, priority DESC NULLS LAST
+   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
+         Table: sorted_scan_test
+         Index: sorted_scan_test_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, priority
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+-- =============================================================================
+-- SECTION 2: ASC NULLS FIRST INDEX
+-- =============================================================================
+\echo '=== SECTION 2: ASC NULLS FIRST Index ==='
+=== SECTION 2: ASC NULLS FIRST Index ===
+DROP TABLE IF EXISTS asc_sort_test CASCADE;
+CREATE TABLE asc_sort_test (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    value INTEGER
+);
+INSERT INTO asc_sort_test (description, value) VALUES
+    ('item one', 50),
+    ('item two', 20),
+    ('item three', NULL),
+    ('item four', 80),
+    ('item five', NULL),
+    ('item six', 10);
+CREATE INDEX asc_sort_test_idx ON asc_sort_test
+USING bm25 (id, description, value)
+WITH (key_field = 'id', sort_by = 'value ASC NULLS FIRST');
+\echo 'Test 2.1: ORDER BY ASC NULLS FIRST (exact match)'
+Test 2.1: ORDER BY ASC NULLS FIRST (exact match)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, description, value FROM asc_sort_test
+WHERE description @@@ 'item'
+ORDER BY value ASC NULLS FIRST;
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: value NULLS FIRST
+   ->  Custom Scan (ParadeDB Scan) on asc_sort_test
+         Table: asc_sort_test
+         Index: asc_sort_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+\echo 'Test 2.2: ORDER BY ASC only (default NULLS LAST for ASC) - Sort node expected'
+Test 2.2: ORDER BY ASC only (default NULLS LAST for ASC) - Sort node expected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, description, value FROM asc_sort_test
+WHERE description @@@ 'item'
+ORDER BY value ASC;
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: value
+   ->  Custom Scan (ParadeDB Scan) on asc_sort_test
+         Table: asc_sort_test
+         Index: asc_sort_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+\echo 'Test 2.3: Verify NULLs appear first with ASC NULLS FIRST'
+Test 2.3: Verify NULLs appear first with ASC NULLS FIRST
+SELECT id, value FROM asc_sort_test
+WHERE description @@@ 'item'
+ORDER BY value ASC NULLS FIRST;
+ id | value 
+----+-------
+  3 |      
+  5 |      
+  6 |    10
+  2 |    20
+  1 |    50
+  4 |    80
+(6 rows)
+
+DROP TABLE asc_sort_test CASCADE;
+-- =============================================================================
+-- SECTION 3: COLUMN PROJECTION
+-- Tests the scenario where ORDER BY column is excluded from SELECT list
+-- =============================================================================
+\echo '=== SECTION 3: Column Projection (ORDER BY column not in SELECT) ==='
+=== SECTION 3: Column Projection (ORDER BY column not in SELECT) ===
+\echo 'Test 3.1: SELECT content only, ORDER BY priority'
+Test 3.1: SELECT content only, ORDER BY priority
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT content FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority DESC NULLS LAST;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: priority DESC NULLS LAST
+   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
+         Table: sorted_scan_test
+         Index: sorted_scan_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+\echo 'Test 3.2: Verify results are correctly ordered even when priority not selected'
+Test 3.2: Verify results are correctly ordered even when priority not selected
+SELECT content FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority DESC NULLS LAST;
+          content           
+----------------------------
+ searchable product epsilon
+ searchable product gamma
+ searchable product alpha
+ searchable product delta
+ searchable product beta
+ searchable batch3 item 8
+ searchable batch3 item 7
+ searchable batch3 item 6
+ searchable batch3 item 5
+ searchable batch3 item 4
+ searchable batch3 item 3
+ searchable batch3 item 2
+ searchable batch3 item 1
+ searchable batch2 item 8
+ searchable batch2 item 7
+ searchable batch2 item 6
+ searchable batch2 item 5
+ searchable batch2 item 4
+ searchable batch2 item 3
+ searchable batch2 item 2
+ searchable batch2 item 1
+ searchable batch1 item 8
+ searchable batch1 item 7
+ searchable batch1 item 6
+ searchable batch1 item 5
+ searchable batch1 item 4
+ searchable batch1 item 3
+ searchable batch1 item 2
+ searchable batch1 item 1
+(29 rows)
+
+\echo 'Test 3.3: SELECT id only, ORDER BY priority'
+Test 3.3: SELECT id only, ORDER BY priority
+SELECT id FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority DESC NULLS LAST;
+ id 
+----
+  5
+  3
+  1
+  4
+  2
+ 29
+ 28
+ 27
+ 26
+ 25
+ 24
+ 23
+ 22
+ 21
+ 20
+ 19
+ 18
+ 17
+ 16
+ 15
+ 14
+ 13
+ 12
+ 11
+ 10
+  9
+  8
+  7
+  6
+(29 rows)
+
+-- =============================================================================
+-- SECTION 4: DATA TYPE TESTS
+-- Verify sorted index works with different fast field types
+-- =============================================================================
+\echo '=== SECTION 4: Data Type Tests ==='
+=== SECTION 4: Data Type Tests ===
+-- 4.1: INTEGER type (using main table)
+\echo 'Test 4.1: INTEGER field sorting (using main table priority column)'
+Test 4.1: INTEGER field sorting (using main table priority column)
+SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'searchable' ORDER BY priority DESC NULLS LAST;
+ id | priority 
+----+----------
+  5 |      200
+  3 |      150
+  1 |      100
+  4 |       75
+  2 |       50
+ 29 |       38
+ 28 |       37
+ 27 |       36
+ 26 |       35
+ 25 |       34
+ 24 |       33
+ 23 |       32
+ 22 |       31
+ 21 |       28
+ 20 |       27
+ 19 |       26
+ 18 |       25
+ 17 |       24
+ 16 |       23
+ 15 |       22
+ 14 |       21
+ 13 |       18
+ 12 |       17
+ 11 |       16
+ 10 |       15
+  9 |       14
+  8 |       13
+  7 |       12
+  6 |       11
+(29 rows)
+
+-- 4.2: FLOAT type
+\echo 'Test 4.2: FLOAT field sorting'
+Test 4.2: FLOAT field sorting
+DROP TABLE IF EXISTS dtype_float_test CASCADE;
+CREATE TABLE dtype_float_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    rating FLOAT
+);
+INSERT INTO dtype_float_test (content, rating) VALUES
+    ('movie a', 8.5), ('movie b', 7.2), ('movie c', 9.1), ('movie d', 6.8), ('movie e', 8.9);
+CREATE INDEX dtype_float_test_idx ON dtype_float_test
+USING bm25 (id, content, rating)
+WITH (key_field = 'id', sort_by = 'rating DESC NULLS LAST');
+SELECT id, rating FROM dtype_float_test WHERE content @@@ 'movie' ORDER BY rating DESC NULLS LAST;
+ id | rating 
+----+--------
+  3 |    9.1
+  5 |    8.9
+  1 |    8.5
+  2 |    7.2
+  4 |    6.8
+(5 rows)
+
+DROP TABLE dtype_float_test CASCADE;
+-- 4.3: TIMESTAMP type
+\echo 'Test 4.3: TIMESTAMP field sorting'
+Test 4.3: TIMESTAMP field sorting
+DROP TABLE IF EXISTS dtype_ts_test CASCADE;
+CREATE TABLE dtype_ts_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    created_at TIMESTAMP
+);
+INSERT INTO dtype_ts_test (content, created_at) VALUES
+    ('event a', '2024-01-15 10:00:00'),
+    ('event b', '2024-03-20 14:30:00'),
+    ('event c', '2024-01-01 08:00:00'),
+    ('event d', '2024-06-10 16:45:00'),
+    ('event e', '2024-02-28 12:00:00');
+CREATE INDEX dtype_ts_test_idx ON dtype_ts_test
+USING bm25 (id, content, created_at)
+WITH (key_field = 'id', sort_by = 'created_at DESC NULLS LAST');
+SELECT id, created_at FROM dtype_ts_test WHERE content @@@ 'event' ORDER BY created_at DESC NULLS LAST;
+ id |        created_at        
+----+--------------------------
+  4 | Mon Jun 10 16:45:00 2024
+  2 | Wed Mar 20 14:30:00 2024
+  5 | Wed Feb 28 12:00:00 2024
+  1 | Mon Jan 15 10:00:00 2024
+  3 | Mon Jan 01 08:00:00 2024
+(5 rows)
+
+DROP TABLE dtype_ts_test CASCADE;
+-- 4.4: DATE type
+\echo 'Test 4.4: DATE field sorting'
+Test 4.4: DATE field sorting
+DROP TABLE IF EXISTS dtype_date_test CASCADE;
+CREATE TABLE dtype_date_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    event_date DATE
+);
+INSERT INTO dtype_date_test (content, event_date) VALUES
+    ('appointment a', '2024-05-15'),
+    ('appointment b', '2024-03-01'),
+    ('appointment c', '2024-07-20'),
+    ('appointment d', '2024-01-10'),
+    ('appointment e', '2024-04-25');
+CREATE INDEX dtype_date_test_idx ON dtype_date_test
+USING bm25 (id, content, event_date)
+WITH (key_field = 'id', sort_by = 'event_date ASC NULLS FIRST');
+SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER BY event_date ASC NULLS FIRST;
+ id | event_date 
+----+------------
+  4 | 01-10-2024
+  2 | 03-01-2024
+  5 | 04-25-2024
+  1 | 05-15-2024
+  3 | 07-20-2024
+(5 rows)
+
+DROP TABLE dtype_date_test CASCADE;
+-- 4.5: UUID type
+\echo 'Test 4.5: UUID field sorting'
+Test 4.5: UUID field sorting
+DROP TABLE IF EXISTS dtype_uuid_test CASCADE;
+CREATE TABLE dtype_uuid_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    uuid_col UUID
+);
+INSERT INTO dtype_uuid_test (content, uuid_col) VALUES
+    ('uuid', '00000000-0000-0000-0000-000000000002'),
+    ('uuid', '00000000-0000-0000-0000-000000000010'),
+    ('uuid', '00000000-0000-0000-0000-000000000001'),
+    ('uuid', NULL),
+    ('uuid', '00000000-0000-0000-0000-000000000003'),
+    ('uuid', '00000000-0000-0000-0000-000000000100');
+CREATE INDEX dtype_uuid_test_idx ON dtype_uuid_test
+USING bm25 (id, content, uuid_col)
+WITH (
+    key_field = 'id',
+    text_fields = '{"content": {}, "uuid_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+    sort_by = 'uuid_col ASC NULLS FIRST'
+);
+SELECT id, uuid_col::text FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
+ id |               uuid_col               
+----+--------------------------------------
+  4 | 
+  3 | 00000000-0000-0000-0000-000000000001
+  1 | 00000000-0000-0000-0000-000000000002
+  5 | 00000000-0000-0000-0000-000000000003
+  2 | 00000000-0000-0000-0000-000000000010
+  6 | 00000000-0000-0000-0000-000000000100
+(6 rows)
+
+DROP TABLE dtype_uuid_test CASCADE;
+-- 4.6: NUMERIC type (NumericBytes)
+\echo 'Test 4.6: NUMERIC field sorting (NumericBytes)'
+Test 4.6: NUMERIC field sorting (NumericBytes)
+DROP TABLE IF EXISTS dtype_numeric_test CASCADE;
+CREATE TABLE dtype_numeric_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    amount NUMERIC(30,0)
+);
+INSERT INTO dtype_numeric_test (content, amount) VALUES
+    ('num', NULL),
+    ('num', 100000000000000000000000000000),
+    ('num', 5),
+    ('num', 10),
+    ('num', 1),
+    ('num', 100000000000000000000000000001),
+    ('num', 500),
+    ('num', 50);
+CREATE INDEX dtype_numeric_test_idx ON dtype_numeric_test
+USING bm25 (id, content, amount)
+WITH (
+    key_field = 'id',
+    text_fields = '{"content": {}}',
+    numeric_fields = '{"amount": {"fast": true}}',
+    sort_by = 'amount ASC NULLS FIRST'
+);
+-- Order by the source NUMERIC column to avoid sorting text output lexicographically.
+SELECT id, amount::text FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY dtype_numeric_test.amount ASC NULLS FIRST;
+ id |             amount             
+----+--------------------------------
+  1 | 
+  5 | 1
+  3 | 5
+  4 | 10
+  8 | 50
+  7 | 500
+  2 | 100000000000000000000000000000
+  6 | 100000000000000000000000000001
+(8 rows)
+
+DROP TABLE dtype_numeric_test CASCADE;
+-- =============================================================================
+-- SECTION 5: EDGE CASES
+-- =============================================================================
+\echo '=== SECTION 5: Edge Cases ==='
+=== SECTION 5: Edge Cases ===
+DROP TABLE IF EXISTS edge_case_test CASCADE;
+CREATE TABLE edge_case_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    value INTEGER
+);
+-- 5.1: Empty result set
+\echo 'Test 5.1: Empty result set'
+Test 5.1: Empty result set
+INSERT INTO edge_case_test (content, value) VALUES ('searchable', 100);
+CREATE INDEX edge_case_test_idx ON edge_case_test
+USING bm25 (id, content, value)
+WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+SELECT id, value FROM edge_case_test WHERE content @@@ 'nonexistent' ORDER BY value DESC NULLS LAST;
+ id | value 
+----+-------
+(0 rows)
+
+-- Reset for next edge case
+DROP INDEX edge_case_test_idx;
+TRUNCATE edge_case_test RESTART IDENTITY;
+-- 5.2: Duplicate values in sort column
+\echo 'Test 5.2: Duplicate values in sort column'
+Test 5.2: Duplicate values in sort column
+INSERT INTO edge_case_test (content, value) VALUES
+    ('doc alpha', 50),
+    ('doc beta', 50),
+    ('doc gamma', 100),
+    ('doc delta', 50),
+    ('doc epsilon', 100);
+CREATE INDEX edge_case_test_idx ON edge_case_test
+USING bm25 (id, content, value)
+WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+SELECT id, value FROM edge_case_test WHERE content @@@ 'doc' ORDER BY value DESC NULLS LAST;
+ id | value 
+----+-------
+  3 |   100
+  5 |   100
+  1 |    50
+  2 |    50
+  4 |    50
+(5 rows)
+
+-- Reset for next edge case
+DROP INDEX edge_case_test_idx;
+TRUNCATE edge_case_test RESTART IDENTITY;
+-- 5.3: All NULL values in sort column
+\echo 'Test 5.3: All NULL values in sort column'
+Test 5.3: All NULL values in sort column
+INSERT INTO edge_case_test (content, value) VALUES
+    ('item one', NULL),
+    ('item two', NULL),
+    ('item three', NULL);
+CREATE INDEX edge_case_test_idx ON edge_case_test
+USING bm25 (id, content, value)
+WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+SELECT id, value FROM edge_case_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+ id | value 
+----+-------
+  1 |      
+  2 |      
+  3 |      
+(3 rows)
+
+-- Reset for next edge case
+DROP INDEX edge_case_test_idx;
+TRUNCATE edge_case_test RESTART IDENTITY;
+-- 5.4: Single row result
+\echo 'Test 5.4: Single row result'
+Test 5.4: Single row result
+INSERT INTO edge_case_test (content, value) VALUES ('unique', 42), ('other', 99);
+CREATE INDEX edge_case_test_idx ON edge_case_test
+USING bm25 (id, content, value)
+WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+SELECT id, value FROM edge_case_test WHERE content @@@ 'unique' ORDER BY value DESC NULLS LAST;
+ id | value 
+----+-------
+  1 |    42
+(1 row)
+
+DROP TABLE edge_case_test CASCADE;
+-- =============================================================================
+-- SECTION 6: LIMIT AND OFFSET TESTS (using main table)
+-- =============================================================================
+\echo '=== SECTION 6: LIMIT and OFFSET Tests ==='
+=== SECTION 6: LIMIT and OFFSET Tests ===
+-- Add more searchable data for LIMIT tests
+INSERT INTO sorted_scan_test (content, category, priority, score)
+SELECT 'searchable document ' || i, 'docs', 1000 - i, 5.0 - (i * 0.1)
+FROM generate_series(1, 20) AS i;
+\echo 'Test 6.1: LIMIT 5'
+Test 6.1: LIMIT 5
+SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST LIMIT 5;
+ id | priority 
+----+----------
+ 30 |      999
+ 31 |      998
+ 32 |      997
+ 33 |      996
+ 34 |      995
+(5 rows)
+
+\echo 'Test 6.2: LIMIT 5 OFFSET 5'
+Test 6.2: LIMIT 5 OFFSET 5
+SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST LIMIT 5 OFFSET 5;
+ id | priority 
+----+----------
+ 35 |      994
+ 36 |      993
+ 37 |      992
+ 38 |      991
+ 39 |      990
+(5 rows)
+
+\echo 'Test 6.3: FETCH FIRST 3 ROWS ONLY'
+Test 6.3: FETCH FIRST 3 ROWS ONLY
+SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST FETCH FIRST 3 ROWS ONLY;
+ id | priority 
+----+----------
+ 30 |      999
+ 31 |      998
+ 32 |      997
+(3 rows)
+
+\echo 'Test 6.4: LIMIT larger than result set'
+Test 6.4: LIMIT larger than result set
+SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'document' ORDER BY priority DESC NULLS LAST LIMIT 100;
+ id | priority 
+----+----------
+ 30 |      999
+ 31 |      998
+ 32 |      997
+ 33 |      996
+ 34 |      995
+ 35 |      994
+ 36 |      993
+ 37 |      992
+ 38 |      991
+ 39 |      990
+ 40 |      989
+ 41 |      988
+ 42 |      987
+ 43 |      986
+ 44 |      985
+ 45 |      984
+ 46 |      983
+ 47 |      982
+ 48 |      981
+ 49 |      980
+(20 rows)
+
+-- =============================================================================
+-- SECTION 7: MULTI-SEGMENT SORTING
+-- Verifies sorting works across multiple segments
+-- =============================================================================
+\echo '=== SECTION 7: Multi-Segment Sorting ==='
+=== SECTION 7: Multi-Segment Sorting ===
+DROP TABLE IF EXISTS multi_segment_test CASCADE;
+CREATE TABLE multi_segment_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    priority INTEGER
+);
+CREATE INDEX multi_segment_test_idx ON multi_segment_test
+USING bm25 (id, content, priority)
+WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 10);
+-- Insert batches to create multiple segments
+INSERT INTO multi_segment_test (content, priority)
+SELECT 'searchable batch1 item ' || i, 100 + (i % 5)
+FROM generate_series(1, 15) AS i;
+INSERT INTO multi_segment_test (content, priority)
+SELECT 'searchable batch2 item ' || i, 200 + (i % 5)
+FROM generate_series(1, 15) AS i;
+INSERT INTO multi_segment_test (content, priority)
+SELECT 'searchable batch3 item ' || i, 50 + (i % 5)
+FROM generate_series(1, 15) AS i;
+\echo 'Test 7.1: Results from multiple segments should be globally sorted'
+Test 7.1: Results from multiple segments should be globally sorted
+SELECT id, priority FROM multi_segment_test
+WHERE content @@@ 'searchable'
+ORDER BY priority DESC NULLS LAST
+LIMIT 10;
+ id | priority 
+----+----------
+ 29 |      204
+ 19 |      204
+ 24 |      204
+ 28 |      203
+ 18 |      203
+ 23 |      203
+ 27 |      202
+ 17 |      202
+ 22 |      202
+ 26 |      201
+(10 rows)
+
+\echo 'Test 7.2: Verify all 45 rows are correctly sorted'
+Test 7.2: Verify all 45 rows are correctly sorted
+SELECT
+    CASE WHEN count(*) = 0 THEN 'ALL SORTED' ELSE 'SORTING ERROR' END as sort_validation
+FROM (
+    SELECT priority, LAG(priority) OVER () as prev_priority
+    FROM (
+        SELECT priority FROM multi_segment_test
+        WHERE content @@@ 'searchable'
+        ORDER BY priority DESC NULLS LAST
+    ) sub
+) check_order
+WHERE prev_priority IS NOT NULL AND priority > prev_priority;
+ sort_validation 
+-----------------
+ ALL SORTED
+(1 row)
+
+-- =============================================================================
+-- SECTION 8: INTERLEAVED INSERT PATTERNS
+-- Tests sorting with interleaved inserts across segments
+-- =============================================================================
+\echo '=== SECTION 8: Interleaved Insert Patterns ==='
+=== SECTION 8: Interleaved Insert Patterns ===
+-- Reuse multi_segment_test with ASC order
+DROP INDEX multi_segment_test_idx;
+TRUNCATE multi_segment_test RESTART IDENTITY;
+CREATE INDEX multi_segment_test_idx ON multi_segment_test
+USING bm25 (id, content, priority)
+WITH (key_field = 'id', sort_by = 'priority ASC NULLS FIRST', mutable_segment_rows = 5);
+-- Insert interleaved values across segments
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 10);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 2);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 15);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 5);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 20);
+-- Force new segment
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 1);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 25);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 8);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 12);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 3);
+-- Force new segment
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 18);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 7);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 22);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 4);
+INSERT INTO multi_segment_test (content, priority) VALUES ('item', 16);
+\echo 'Test 8.1: Interleaved inserts should be globally sorted'
+Test 8.1: Interleaved inserts should be globally sorted
+SELECT id, priority FROM multi_segment_test
+WHERE content @@@ 'item'
+ORDER BY priority ASC NULLS FIRST;
+ id | priority 
+----+----------
+  6 |        1
+  2 |        2
+ 10 |        3
+ 14 |        4
+  4 |        5
+ 12 |        7
+  8 |        8
+  1 |       10
+  9 |       12
+  3 |       15
+ 15 |       16
+ 11 |       18
+  5 |       20
+ 13 |       22
+  7 |       25
+(15 rows)
+
+\echo 'Test 8.2: Verify ascending order'
+Test 8.2: Verify ascending order
+SELECT
+    CASE WHEN count(*) = 0 THEN 'ALL SORTED ASC' ELSE 'SORTING ERROR' END as sort_validation
+FROM (
+    SELECT priority, LAG(priority) OVER () as prev_priority
+    FROM (
+        SELECT priority FROM multi_segment_test
+        WHERE content @@@ 'item'
+        ORDER BY priority ASC NULLS FIRST
+    ) sub
+) check_order
+WHERE prev_priority IS NOT NULL AND priority < prev_priority;
+ sort_validation 
+-----------------
+ ALL SORTED ASC
+(1 row)
+
+DROP TABLE multi_segment_test CASCADE;
+-- =============================================================================
+-- SECTION 9: DATA MODIFICATION TESTS
+-- Verifies sorting remains correct after INSERT, UPDATE, DELETE
+-- =============================================================================
+\echo '=== SECTION 9: Data Modification Tests ==='
+=== SECTION 9: Data Modification Tests ===
+DROP TABLE IF EXISTS mod_test CASCADE;
+CREATE TABLE mod_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    value INTEGER
+);
+CREATE INDEX mod_test_idx ON mod_test
+USING bm25 (id, content, value)
+WITH (key_field = 'id', sort_by = 'value DESC NULLS LAST');
+-- Initial data
+INSERT INTO mod_test (content, value) VALUES
+    ('item alpha', 50),
+    ('item beta', 30),
+    ('item gamma', 70);
+\echo 'Test 9.1: Initial order'
+Test 9.1: Initial order
+SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+ id | value 
+----+-------
+  3 |    70
+  1 |    50
+  2 |    30
+(3 rows)
+
+\echo 'Test 9.2: After INSERT of new highest value'
+Test 9.2: After INSERT of new highest value
+INSERT INTO mod_test (content, value) VALUES ('item delta', 100);
+SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+ id | value 
+----+-------
+  4 |   100
+  3 |    70
+  1 |    50
+  2 |    30
+(4 rows)
+
+\echo 'Test 9.3: After UPDATE to change order'
+Test 9.3: After UPDATE to change order
+UPDATE mod_test SET value = 999 WHERE id = 2;
+SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+ id | value 
+----+-------
+  2 |   999
+  4 |   100
+  3 |    70
+  1 |    50
+(4 rows)
+
+\echo 'Test 9.4: After DELETE of highest value'
+Test 9.4: After DELETE of highest value
+DELETE FROM mod_test WHERE id = 2;
+SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULLS LAST;
+ id | value 
+----+-------
+  4 |   100
+  3 |    70
+  1 |    50
+(3 rows)
+
+DROP TABLE mod_test CASCADE;
+-- =============================================================================
+-- SECTION 10: EXECUTION METHOD VERIFICATION
+-- Verifies MixedFastFieldExec is used and Sort node is eliminated
+-- =============================================================================
+\echo '=== SECTION 10: Execution Method Verification ==='
+=== SECTION 10: Execution Method Verification ===
+DROP TABLE IF EXISTS exec_method_test CASCADE;
+CREATE TABLE exec_method_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    fast_field INTEGER,
+    non_fast_field TEXT
+);
+INSERT INTO exec_method_test (content, fast_field, non_fast_field) VALUES
+    ('searchable one', 100, 'description one'),
+    ('searchable two', 50, 'description two'),
+    ('searchable three', 150, 'description three');
+CREATE INDEX exec_method_test_idx ON exec_method_test
+USING bm25 (id, content, fast_field)
+WITH (key_field = 'id', sort_by = 'fast_field DESC NULLS LAST');
+\echo 'Test 10.1: Fast fields only - should use sorted path (no Sort node)'
+Test 10.1: Fast fields only - should use sorted path (no Sort node)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, fast_field FROM exec_method_test
+WHERE content @@@ 'searchable'
+ORDER BY fast_field DESC NULLS LAST;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on exec_method_test
+   Table: exec_method_test
+   Index: exec_method_test_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: fast_field, id
+   Order By: fast_field DESC
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+\echo 'Test 10.2: Non-fast field included - should add Sort node'
+Test 10.2: Non-fast field included - should add Sort node
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, non_fast_field, fast_field FROM exec_method_test
+WHERE content @@@ 'searchable'
+ORDER BY fast_field DESC NULLS LAST;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: fast_field DESC NULLS LAST
+   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+         Table: exec_method_test
+         Index: exec_method_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+\echo 'Test 10.3: With enable_mixed_fast_field_exec OFF - should add Sort node'
+Test 10.3: With enable_mixed_fast_field_exec OFF - should add Sort node
+SET paradedb.enable_mixed_fast_field_exec = false;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, fast_field FROM exec_method_test
+WHERE content @@@ 'searchable'
+ORDER BY fast_field DESC NULLS LAST;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: fast_field DESC NULLS LAST
+   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+         Table: exec_method_test
+         Index: exec_method_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SET paradedb.enable_mixed_fast_field_exec = true;
+DROP TABLE exec_method_test CASCADE;
+-- =============================================================================
+-- SECTION 11: AGGREGATES WITH SORTED INDEX
+-- =============================================================================
+\echo '=== SECTION 11: Aggregates with Sorted Index ==='
+=== SECTION 11: Aggregates with Sorted Index ===
+\echo 'Test 11.1: MAX aggregate'
+Test 11.1: MAX aggregate
+SELECT MAX(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
+ max 
+-----
+ 999
+(1 row)
+
+\echo 'Test 11.2: MIN aggregate'
+Test 11.2: MIN aggregate
+SELECT MIN(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
+ min 
+-----
+  11
+(1 row)
+
+\echo 'Test 11.3: SUM aggregate'
+Test 11.3: SUM aggregate
+SELECT SUM(priority) FROM sorted_scan_test WHERE content @@@ 'searchable';
+  sum  
+-------
+ 20953
+(1 row)
+
+\echo 'Test 11.4: COUNT aggregate'
+Test 11.4: COUNT aggregate
+SELECT COUNT(*) FROM sorted_scan_test WHERE content @@@ 'searchable';
+ count 
+-------
+    49
+(1 row)
+
+-- =============================================================================
+-- SECTION 12: OPPOSITE DIRECTION ORDER BY
+-- Tests that explicit ORDER BY in opposite direction from sort_by still works
+-- =============================================================================
+\echo '=== SECTION 12: Opposite Direction ORDER BY ==='
+=== SECTION 12: Opposite Direction ORDER BY ===
+\echo 'Test 12.1: ORDER BY opposite direction (ASC when index is DESC)'
+Test 12.1: ORDER BY opposite direction (ASC when index is DESC)
+SELECT id, priority FROM sorted_scan_test
+WHERE content @@@ 'searchable'
+ORDER BY priority ASC;
+ id | priority 
+----+----------
+  6 |       11
+  7 |       12
+  8 |       13
+  9 |       14
+ 10 |       15
+ 11 |       16
+ 12 |       17
+ 13 |       18
+ 14 |       21
+ 15 |       22
+ 16 |       23
+ 17 |       24
+ 18 |       25
+ 19 |       26
+ 20 |       27
+ 21 |       28
+ 22 |       31
+ 23 |       32
+ 24 |       33
+ 25 |       34
+ 26 |       35
+ 27 |       36
+ 28 |       37
+ 29 |       38
+  2 |       50
+  4 |       75
+  1 |      100
+  3 |      150
+  5 |      200
+ 49 |      980
+ 48 |      981
+ 47 |      982
+ 46 |      983
+ 45 |      984
+ 44 |      985
+ 43 |      986
+ 42 |      987
+ 41 |      988
+ 40 |      989
+ 39 |      990
+ 38 |      991
+ 37 |      992
+ 36 |      993
+ 35 |      994
+ 34 |      995
+ 33 |      996
+ 32 |      997
+ 31 |      998
+ 30 |      999
+(49 rows)
+
+\echo 'Test 12.2: Verify ascending order'
+Test 12.2: Verify ascending order
+SELECT
+    CASE WHEN count(*) = 0 THEN 'ALL SORTED ASC' ELSE 'SORTING ERROR' END as sort_validation
+FROM (
+    SELECT priority, LAG(priority) OVER () as prev_priority
+    FROM (
+        SELECT priority FROM sorted_scan_test
+        WHERE content @@@ 'searchable'
+        ORDER BY priority ASC
+    ) sub
+) check_order
+WHERE prev_priority IS NOT NULL AND priority < prev_priority;
+ sort_validation 
+-----------------
+ ALL SORTED ASC
+(1 row)
+
+-- =============================================================================
+-- SECTION 13: CONTROL TEST (Index Without sort_by)
+-- Verifies that index WITHOUT sort_by does NOT guarantee sorted output
+-- =============================================================================
+\echo '=== SECTION 13: Control Test (No sort_by) ==='
+=== SECTION 13: Control Test (No sort_by) ===
+DROP TABLE IF EXISTS no_sortby_test CASCADE;
+CREATE TABLE no_sortby_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    value INTEGER
+);
+-- Index WITHOUT sort_by option
+CREATE INDEX no_sortby_test_idx ON no_sortby_test
+USING bm25 (id, content, value)
+WITH (key_field = 'id');
+INSERT INTO no_sortby_test (content, value) VALUES
+    ('test data one', 5),
+    ('test data two', 3),
+    ('test data three', 8),
+    ('test data four', 1),
+    ('test data five', 9);
+-- Second batch
+INSERT INTO no_sortby_test (content, value) VALUES
+    ('test data six', 2),
+    ('test data seven', 7),
+    ('test data eight', 4),
+    ('test data nine', 6),
+    ('test data ten', 10);
+\echo 'Test 13.1: ORDER BY with no sort_by - Sort node expected'
+Test 13.1: ORDER BY with no sort_by - Sort node expected
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, value FROM no_sortby_test
+WHERE content @@@ 'test'
+ORDER BY value DESC;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: value DESC
+   ->  Custom Scan (ParadeDB Scan) on no_sortby_test
+         Table: no_sortby_test
+         Index: no_sortby_test_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, value
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+DROP TABLE no_sortby_test CASCADE;
+-- =============================================================================
+-- SECTION 14: PARALLEL SORTED EXECUTION WITH GATHER MERGE
+-- Verifies parallel workers use Gather Merge for sorted output
+-- Per Stu: we CAN use parallel workers because Gather Merge is inserted
+-- automatically when custom scan claims sorted output
+-- =============================================================================
+\echo '=== SECTION 14: Parallel Sorted Execution with Gather Merge ==='
+=== SECTION 14: Parallel Sorted Execution with Gather Merge ===
+DROP TABLE IF EXISTS parallel_sorted_test CASCADE;
+CREATE TABLE parallel_sorted_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    priority INTEGER
+);
+CREATE INDEX parallel_sorted_test_idx ON parallel_sorted_test
+USING bm25 (id, content, priority)
+WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
+-- Insert enough data across multiple segments for meaningful parallel test
+INSERT INTO parallel_sorted_test (content, priority)
+SELECT 'searchable document batch1 ' || i, 900 + (i % 100)
+FROM generate_series(1, 200) AS i;
+INSERT INTO parallel_sorted_test (content, priority)
+SELECT 'searchable document batch2 ' || i, 800 + (i % 100)
+FROM generate_series(1, 200) AS i;
+INSERT INTO parallel_sorted_test (content, priority)
+SELECT 'searchable document batch3 ' || i, 700 + (i % 100)
+FROM generate_series(1, 200) AS i;
+INSERT INTO parallel_sorted_test (content, priority)
+SELECT 'searchable document batch4 ' || i, 600 + (i % 100)
+FROM generate_series(1, 200) AS i;
+\echo 'Test 14.1: Verify segment count for parallel test'
+Test 14.1: Verify segment count for parallel test
+SELECT
+    'Segment count' as info,
+    count(*) as value
+FROM paradedb.index_info('parallel_sorted_test_idx');
+     info      | value 
+---------------+-------
+ Segment count |     6
+(1 row)
+
+\echo 'Test 14.2: Parallel sorted scan should use Gather Merge (not plain Gather)'
+Test 14.2: Parallel sorted scan should use Gather Merge (not plain Gather)
+SET paradedb.min_rows_per_worker = 0;
+SET max_parallel_workers_per_gather = 4;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET min_parallel_index_scan_size = 0;
+SET enable_gathermerge = on;
+ALTER TABLE parallel_sorted_test SET (parallel_workers = 4);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM parallel_sorted_test
+WHERE content @@@ 'document'
+ORDER BY priority DESC NULLS LAST;
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 4
+   ->  Parallel Custom Scan (ParadeDB Scan) on parallel_sorted_test
+         Table: parallel_sorted_test
+         Index: parallel_sorted_test_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, priority
+         Order By: priority DESC
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+\echo 'Test 14.3: Verify parallel sorted results are correctly ordered'
+Test 14.3: Verify parallel sorted results are correctly ordered
+SELECT
+    CASE WHEN count(*) = 0 THEN 'ALL SORTED CORRECTLY' ELSE 'SORTING ERROR' END as sort_validation
+FROM (
+    SELECT priority, LAG(priority) OVER () as prev_priority
+    FROM (
+        SELECT priority FROM parallel_sorted_test
+        WHERE content @@@ 'document'
+        ORDER BY priority DESC NULLS LAST
+    ) sub
+) check_order
+WHERE prev_priority IS NOT NULL AND priority > prev_priority;
+   sort_validation    
+----------------------
+ ALL SORTED CORRECTLY
+(1 row)
+
+\echo 'Test 14.4: Parallel sorted scan with LIMIT'
+Test 14.4: Parallel sorted scan with LIMIT
+SELECT id, priority FROM parallel_sorted_test
+WHERE content @@@ 'document'
+ORDER BY priority DESC NULLS LAST
+LIMIT 10;
+ id  | priority 
+-----+----------
+  99 |      999
+ 199 |      999
+  98 |      998
+ 198 |      998
+  97 |      997
+ 197 |      997
+  96 |      996
+ 196 |      996
+  95 |      995
+ 195 |      995
+(10 rows)
+
+\echo 'Test 14.5: Parallel sorted scan with prefix pathkeys uses Incremental Sort'
+Test 14.5: Parallel sorted scan with prefix pathkeys uses Incremental Sort
+SET enable_incremental_sort = on;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM parallel_sorted_test
+WHERE content @@@ 'document'
+ORDER BY priority DESC NULLS LAST, id ASC;
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 4
+   ->  Incremental Sort
+         Sort Key: priority DESC NULLS LAST, id
+         Presorted Key: priority
+         ->  Parallel Custom Scan (ParadeDB Scan) on parallel_sorted_test
+               Table: parallel_sorted_test
+               Index: parallel_sorted_test_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: id, priority
+               Order By: priority DESC
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
+RESET enable_incremental_sort;
+RESET enable_gathermerge;
+RESET min_parallel_index_scan_size;
+RESET min_parallel_table_scan_size;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+RESET paradedb.min_rows_per_worker;
+SET max_parallel_workers_per_gather = 0;
+DROP TABLE parallel_sorted_test CASCADE;
+-- =============================================================================
+-- SECTION 15: LAZY SEGMENT CHECKOUT VERIFICATION
+-- Verifies segment count and lazy checkout behavior
+-- =============================================================================
+\echo '=== SECTION 15: Lazy Segment Checkout Verification ==='
+=== SECTION 15: Lazy Segment Checkout Verification ===
+DROP TABLE IF EXISTS lazy_checkout_test CASCADE;
+CREATE TABLE lazy_checkout_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    priority INTEGER
+);
+CREATE INDEX lazy_checkout_test_idx ON lazy_checkout_test
+USING bm25 (id, content, priority)
+WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST', mutable_segment_rows = 50);
+-- Insert multiple batches to create segments
+INSERT INTO lazy_checkout_test (content, priority)
+SELECT 'searchable document batch1 ' || i, 900 + (i % 10)
+FROM generate_series(1, 100) AS i;
+INSERT INTO lazy_checkout_test (content, priority)
+SELECT 'searchable document batch2 ' || i, 800 + (i % 10)
+FROM generate_series(1, 100) AS i;
+INSERT INTO lazy_checkout_test (content, priority)
+SELECT 'searchable document batch3 ' || i, 700 + (i % 10)
+FROM generate_series(1, 100) AS i;
+\echo 'Test 15.1: Verify segment count via index_info'
+Test 15.1: Verify segment count via index_info
+SELECT
+    'Segment count' as info,
+    count(*) as value
+FROM paradedb.index_info('lazy_checkout_test_idx');
+     info      | value 
+---------------+-------
+ Segment count |     5
+(1 row)
+
+\echo 'Test 15.2: Multi-segment sorted scan results'
+Test 15.2: Multi-segment sorted scan results
+SELECT id, priority FROM lazy_checkout_test
+WHERE content @@@ 'document'
+ORDER BY priority DESC NULLS LAST
+FETCH FIRST 20 ROWS ONLY;
+ id | priority 
+----+----------
+ 59 |      909
+ 69 |      909
+ 79 |      909
+ 89 |      909
+ 99 |      909
+  9 |      909
+ 19 |      909
+ 29 |      909
+ 39 |      909
+ 49 |      909
+ 58 |      908
+ 68 |      908
+ 78 |      908
+ 88 |      908
+ 98 |      908
+  8 |      908
+ 18 |      908
+ 28 |      908
+ 38 |      908
+ 48 |      908
+(20 rows)
+
+\echo 'Test 15.3: Verify all results from multiple segments are correctly sorted'
+Test 15.3: Verify all results from multiple segments are correctly sorted
+SELECT
+    CASE WHEN count(*) = 0 THEN 'ALL SORTED CORRECTLY' ELSE 'SORTING ERROR' END as sort_validation
+FROM (
+    SELECT priority, LAG(priority) OVER () as prev_priority
+    FROM (
+        SELECT priority FROM lazy_checkout_test
+        WHERE content @@@ 'document'
+        ORDER BY priority DESC NULLS LAST
+    ) sub
+) check_order
+WHERE prev_priority IS NOT NULL AND priority > prev_priority;
+   sort_validation    
+----------------------
+ ALL SORTED CORRECTLY
+(1 row)
+
+DROP TABLE lazy_checkout_test CASCADE;
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+DROP TABLE IF EXISTS sorted_scan_test CASCADE;
+\echo '=== All sorted index scan tests completed ==='
+=== All sorted index scan tests completed ===
+RESET paradedb.enable_mixed_fast_field_sort;

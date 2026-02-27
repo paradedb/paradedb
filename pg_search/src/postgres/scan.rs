@@ -16,16 +16,17 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::searchqueryinput_typoid;
-use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
+use crate::api::HashSet;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
-use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::{parallel, ScanStrategy};
+use crate::postgres::{parallel, ParallelScanState, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
+use tantivy::index::SegmentId;
 
 pub struct Bm25ScanState {
     fast_fields: FFHelper,
@@ -126,6 +127,15 @@ pub extern "C-unwind" fn amrescan(
         assert!(!keys.is_null());
         assert!(nkeys > 0); // Ensure there's at least one key provided for the search.
 
+        // Clean up any previous scan state before creating a new one.
+        // This is necessary for rescans - PostgreSQL may call amrescan multiple times
+        // without calling amendscan in between.
+        if !(*scan).opaque.is_null() {
+            let old_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
+            drop(old_state);
+            (*scan).opaque = std::ptr::null_mut();
+        }
+
         let indexrel = (*scan).indexRelation;
         let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
 
@@ -146,34 +156,64 @@ pub extern "C-unwind" fn amrescan(
 
     let ambulkdelete_epoch = MetaPage::open(&indexrel).ambulkdelete_epoch();
 
-    // Create the index and scan state
-    let search_reader = SearchIndexReader::open(&indexrel, search_query_input, false, unsafe {
-        if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {
-            // the leader only sees snapshot-visible segments.
-            // we're the leader because our WorkerNumber is -1
-            // alternatively, we're not actually a parallel scan because (*scan).parallen_scan is null
-            MvccSatisfies::Snapshot
-        } else {
-            // the workers have their own rules, which is literally every segment
-            // this is because the workers pick a specific segment to query that
-            // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-            // visibility test due to concurrent merges/garbage collects
-            MvccSatisfies::ParallelWorker(
-                list_segment_ids(scan).expect("IndexScan parallel state should have segments"),
-            )
-        }
-    })
-    .expect("amrescan: should be able to open a SearchIndexReader");
-    unsafe {
-        parallel::maybe_init_parallel_scan(scan, &search_reader);
+    // Parallel scan coordination:
+    // - The leader opens with Snapshot visibility to see all currently-visible segments
+    // - The leader then populates shared state with its segment list
+    // - Workers WAIT for the leader to initialize, then get segment IDs from shared state
+    // - Workers open with ParallelWorker visibility, which restricts them to ONLY those segments
+    //
+    // This ensures all participants see the exact same segment list, even if segment merges
+    // occur between when the leader opens and when workers open. The segment FILES remain
+    // on disk (pinned by the leader), so workers can access them.
+    //
+    // DON'T claim segments here - claim lazily in amgettuple/amgetbitmap.
+    // Reason: PostgreSQL might call amrescan for a worker but never call amgettuple/amgetbitmap,
+    // which would leave claimed segments unprocessed, causing data loss.
+    let search_reader = unsafe {
+        let is_parallel = !(*scan).parallel_scan.is_null();
+        let is_worker = pg_sys::ParallelWorkerNumber >= 0;
 
+        if is_parallel && is_worker {
+            // Workers use ParallelWorker visibility with the segment IDs from shared state.
+            // This is because workers pick specific segments to query that are known to be
+            // held open/pinned by the leader, but might not pass a ::Snapshot visibility
+            // test due to concurrent merges/garbage collects.
+            let segment_ids = wait_for_segment_ids(scan);
+            SearchIndexReader::open(
+                &indexrel,
+                search_query_input,
+                false,
+                MvccSatisfies::ParallelWorker(segment_ids),
+            )
+            .expect("amrescan: worker should be able to open a SearchIndexReader")
+        } else {
+            // The leader (ParallelWorkerNumber == -1) or non-parallel scans use Snapshot
+            // visibility to see all currently snapshot-visible segments.
+            let reader = SearchIndexReader::open(
+                &indexrel,
+                search_query_input,
+                false,
+                MvccSatisfies::Snapshot,
+            )
+            .expect("amrescan: should be able to open a SearchIndexReader");
+
+            // For parallel scans, leader initializes shared state with its segment list
+            if is_parallel {
+                parallel::maybe_init_parallel_scan(scan, &reader);
+            }
+
+            reader
+        }
+    };
+
+    unsafe {
         let results = if (*scan).parallel_scan.is_null() {
-            // not a parallel scan
+            // not a parallel scan - search all segments
             Some(search_reader.search())
         } else {
-            // a parallel scan: see if there is another segment to query
-            parallel::maybe_claim_segment(scan)
-                .map(|segment_number| search_reader.search_segments([segment_number].into_iter()))
+            // parallel scan: DON'T claim segments here
+            // Segments will be claimed lazily in search_next_segment during amgettuple/amgetbitmap
+            None
         };
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
@@ -182,22 +222,13 @@ pub extern "C-unwind" fn amrescan(
             Bm25ScanState {
                 fast_fields: FFHelper::with_fields(
                     &search_reader,
-                    &[(
-                        schema.key_field_name(),
-                        FastFieldType::from(schema.key_field_type()),
-                    )
-                        .into()],
+                    &[(schema.key_field_name(), schema.key_field_type()).into()],
                 ),
                 reader: search_reader,
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
                 key_field_oid: PgOid::from({
-                    #[cfg(any(
-                        feature = "pg14",
-                        feature = "pg15",
-                        feature = "pg16",
-                        feature = "pg17"
-                    ))]
+                    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                     {
                         (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
                     }
@@ -228,6 +259,11 @@ pub extern "C-unwind" fn amrescan(
 #[pg_guard]
 pub extern "C-unwind" fn amendscan(scan: pg_sys::IndexScanDesc) {
     unsafe {
+        // Safety check: opaque might be NULL if amrescan was never called
+        // This can happen in parallel workers that are terminated early
+        if scan.is_null() || (*scan).opaque.is_null() {
+            return;
+        }
         let scan_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
         drop(scan_state);
     }
@@ -304,7 +340,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
                                 heap_compute_data_size((*scan).xs_hitupdesc, values, nulls);
                             let td = (*(*scan).xs_hitup).t_data;
 
-                            // TODO:  seems like this could crash with a varlena "key_field" of varrying sizes per row
+                            // TODO:  seems like this could crash with a varlena "key_field" of varying sizes per row
                             heap_fill_tuple(
                                 (*scan).xs_hitupdesc,
                                 values,
@@ -373,6 +409,41 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
     }
 
     cnt
+}
+
+/// Wait for parallel scan state to be initialized by the leader, then return the segment IDs.
+/// This ensures workers see the exact same segments as the leader, preventing race conditions
+/// where workers might see different segments due to concurrent merges.
+unsafe fn wait_for_segment_ids(scan: IndexScanDesc) -> HashSet<SegmentId> {
+    let state = get_parallel_scan_state(scan)
+        .expect("wait_for_segment_ids called but no parallel scan state");
+
+    // segments() internally calls wait_for_initialization() and returns segment IDs
+    state.segments().into_keys().collect()
+}
+
+/// Get the parallel scan state from an IndexScanDesc, if it's a parallel scan.
+unsafe fn get_parallel_scan_state(scan: IndexScanDesc) -> Option<&'static mut ParallelScanState> {
+    if (*scan).parallel_scan.is_null() {
+        return None;
+    }
+
+    let ps = (*scan).parallel_scan;
+    let offset = {
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        {
+            (*ps).ps_offset
+        }
+        #[cfg(feature = "pg18")]
+        {
+            (*ps).ps_offset_am
+        }
+    };
+
+    ps.cast::<std::ffi::c_void>()
+        .add(offset)
+        .cast::<ParallelScanState>()
+        .as_mut()
 }
 
 // if there's a segment to be claimed for parallel query execution, do that now

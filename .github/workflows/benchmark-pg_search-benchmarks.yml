@@ -17,9 +17,6 @@ on:
       - "**/*.toml"
   pull_request:
     types: [labeled, synchronize]
-    branches:
-      - main
-      - 0.*.x # Release branches
   workflow_dispatch:
     inputs:
       commit:
@@ -41,10 +38,17 @@ jobs:
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
-      - family=z1d.metal # 48 vCPUs, 384 GiBs Memory, 1.8 TiBs local NVMe
+      - family=z1d.metal
       - image=ubuntu24-full-x64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-queries')
+      - volume=500gb:gp3
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
+      )
     env:
       pg_version: 18
 
@@ -53,11 +57,15 @@ jobs:
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
         uses: actions-ecosystem/action-remove-labels@v1
-        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark' || github.event_name == 'pull_request' && github.event.label.name == 'benchmark-queries'
+        if: >-
+          github.event_name == 'pull_request' &&
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
         with:
           labels: |
             benchmark
             benchmark-queries
+            benchmark-queries-logs
+            benchmark-queries-docs
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -81,7 +89,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Derive Short Commit
         id: commit_info
@@ -91,7 +99,8 @@ jobs:
           echo "Deriving short commit: $short_commit"
 
       - name: Fetch the Latest Composite Actions
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-queries'
+        if: >-
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
         uses: actions/checkout@v6
         with:
           repository: ${{ github.repository }}
@@ -101,16 +110,19 @@ jobs:
           ref: main
 
       - name: Copy latest actions into place
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-queries'
+        if: >-
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-queries'
+        if: >-
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
         run: rm -rf actions-temp
 
       # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
       - name: Fetch latest benchmark code, suites
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-queries'
+        if: >-
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -207,7 +219,7 @@ jobs:
         run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
 
       - name: Compile & install pg_search extension
-        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
+        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }} --no-default-features
 
       - name: Configure PostgreSQL settings
         working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
@@ -230,20 +242,85 @@ jobs:
         working-directory: pg_search/
         run: psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
 
-      - name: Benchmark "logs" Dataset
+      # Benchmark "logs" dataset at multiple scales (10K, 100K, 1M, 10M, 100M)
+      - name: Benchmark "logs" Dataset (10K rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: logs
+          rows: 10000
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
 
-      - name: Benchmark "docs" Dataset
+      - name: Benchmark "logs" Dataset (100K rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 100000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark "logs" Dataset (1M rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 1000000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark "logs" Dataset (10M rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 10000000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark "logs" Dataset (100M rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 100000000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark "docs" Dataset (25M rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-docs"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: docs
+          rows: 25000000
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
@@ -255,4 +332,4 @@ jobs:
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           MESSAGE="<!here> \`benchmark-pg_search-benchmarks\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
-          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

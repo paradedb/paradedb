@@ -24,15 +24,13 @@ struct MessageQueueHandle {
     handle: NonNull<pg_sys::shm_mq_handle>,
 }
 
-impl Drop for MessageQueueHandle {
-    fn drop(&mut self) {
-        unsafe {
-            if pg_sys::IsInParallelMode() {
-                pg_sys::shm_mq_detach(self.handle.as_ptr());
-            }
+crate::impl_safe_drop!(MessageQueueHandle, |self| {
+    unsafe {
+        if pg_sys::IsInParallelMode() {
+            pg_sys::shm_mq_detach(self.handle.as_ptr());
         }
     }
-}
+});
 
 impl MessageQueueHandle {
     unsafe fn attach_sender(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
@@ -109,15 +107,6 @@ impl MessageQueueSender {
     pub fn send<B: AsRef<[u8]>>(&self, msg: B) -> Result<(), MessageQueueSendError> {
         unsafe {
             let msg = msg.as_ref();
-            #[cfg(feature = "pg14")]
-            let result = pg_sys::shm_mq_send(
-                self.handle.as_ptr(),
-                msg.len(),
-                msg.as_ptr() as *mut std::ffi::c_void,
-                false,
-            );
-
-            #[cfg(not(feature = "pg14"))]
             let result = pg_sys::shm_mq_send(
                 self.handle.as_ptr(),
                 msg.len(),
@@ -136,15 +125,6 @@ impl MessageQueueSender {
     #[allow(dead_code)]
     pub fn try_send(&self, msg: &[u8]) -> Result<Option<()>, MessageQueueSendError> {
         unsafe {
-            #[cfg(feature = "pg14")]
-            let result = pg_sys::shm_mq_send(
-                self.handle.as_ptr(),
-                msg.len(),
-                msg.as_ptr() as *mut std::ffi::c_void,
-                true,
-            );
-
-            #[cfg(not(feature = "pg14"))]
             let result = pg_sys::shm_mq_send(
                 self.handle.as_ptr(),
                 msg.len(),

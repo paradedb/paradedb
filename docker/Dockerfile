@@ -9,8 +9,8 @@ ARG ENABLE_ANTITHESIS_INSTRUMENTATION=false
 # First Stage: Builder
 ###############################################
 
-# Note: Debian Bookworm = Debian 12
-FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
+# Note: Debian Trixie = Debian 13
+FROM postgres:${PG_VERSION_MAJOR}-trixie AS builder
 
 ARG PG_VERSION_MAJOR
 ARG RUST_VERSION=stable
@@ -23,7 +23,6 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
     ca-certificates \
     build-essential \
     gnupg \
@@ -69,20 +68,6 @@ ENV COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_VERSION=${PARADEDB_VERSION} \
     ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
-# Download the ICU 76.1 library source. The version we use must be compatible with
-# https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
-WORKDIR /tmp
-RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
-    tar xzvf icu4c-76_1-src.tgz && \
-    rm -rf icu4c-76_1-src.tgz
-
-# Compile and install the ICU library
-WORKDIR /tmp/icu/source/
-RUN ./runConfigureICU Linux --prefix=/usr/local && \
-    make "-j$(nproc)" && \
-    make install && \
-    ldconfig && ldconfig # Yes, running it twice
-
 # Copy the full project. This layer will invalidate if any project file changes.
 COPY . /tmp/
 
@@ -93,7 +78,7 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
     export RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id  -L/usr/lib/libvoidstar.so -lvoidstar" ; \
   fi; \
   cd /tmp/pg_search && \
-  cargo pgrx package --features icu --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+  cargo pgrx package --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 # Strip debug symbols from the extension and add a debug link
 RUN LIB_PATH="/tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so" && \
@@ -157,7 +142,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 # Second Stage: PostgreSQL and Barman Cloud
 ###############################################
 
-FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
+FROM postgres:${PG_VERSION_MAJOR}-trixie AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - The Transactional Elasticsearch Alternative Built on Postgres" \
@@ -215,33 +200,15 @@ RUN apt-get update \
 # The `postgres` database is the default database that exists in every Postgres installation. The pg_cron
 # extension requires a database to store its metadata tables. By using `postgres`, we ensure that it has a
 # stable, always-available database for its operations, no matter what other databases are created or deleted.
-RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_cron'/" /usr/share/postgresql/postgresql.conf.sample && \
-    grep "shared_preload_libraries = 'pg_search,pg_cron'" /usr/share/postgresql/postgresql.conf.sample && \
-    echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
+RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_cron,pg_stat_statements'/" /usr/share/postgresql/postgresql.conf.sample && \
+    grep "shared_preload_libraries = 'pg_search,pg_cron,pg_stat_statements'" /usr/share/postgresql/postgresql.conf.sample && \
+    echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample && \
+    echo "pg_stat_statements.track = 'top'" >> /usr/share/postgresql/postgresql.conf.sample
 
-# The pg_search extension requires the ICU library binaries to be installed at runtime. Therefore, we download
-# and install the ICU library binaries in the final stage as well.
-#
-# Download the ICU 76.1 library source and required build tools. The version we use must be compatible with
-# https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
+
 WORKDIR /tmp
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    wget \
-    make \
-    gcc && \
-    wget -q https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
-    tar xzvf icu4c-76_1-src.tgz && \
-    rm -rf icu4c-76_1-src.tgz && \
+RUN apt-get update && apt-get install -y --no-install-recommends wget && \
     rm -rf /var/lib/apt/lists/*
-
-# Compile and install the ICU library and remove the source code to minimize the image size.
-WORKDIR /tmp/icu/source/
-RUN ./runConfigureICU Linux --prefix=/usr/local && \
-    make "-j$(nproc)" && \
-    make install && \
-    rm -rf /tmp/icu && \
-    ldconfig && ldconfig # Yes, running it twice
 
 # Copy the ParadeDB extension from its builder stage
 COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
@@ -254,17 +221,20 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
    ln -s /usr/lib/postgresql/18/lib/pg_search.so /symbols/pg_search.so ; \
  fi
 
-# In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
-# ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.
-# To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
-# downloading the packages. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
-# extension(s) if/when the time comes. This keeps the image as small as possible for each user's specific use case.
+# In order for users to manually install additional PostgreSQL extensions
+# (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not ship with by default,
+# we ensure the PostgreSQL APT (PGDG) repository is present in the image.
 #
-# We also uninstall `wget` and the build tools used for compiling `icu` after adding the PostgreSQL APT repository to the list of sources to
-# minimize the surface area for potential security risks.
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
-    wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
-    apt-get purge -y build-essential wget make gcc && \
+# The upstream `postgres` image already installs the PGDG signing key into
+# /usr/local/share/keyrings/postgres.gpg.asc. We reference that key explicitly
+# via `signed-by` so the repository can be verified correctly.
+#
+# We intentionally do NOT run `apt-get update` here to avoid downloading
+# package indexes during image build. Users can run `apt-get update`
+# themselves before installing additional packages.
+RUN echo "deb [signed-by=/usr/local/share/keyrings/postgres.gpg.asc] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list && \
+    apt-get purge -y wget && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 

@@ -1399,6 +1399,24 @@ GROUP BY category;
 
 -- Re-enable for cleanup
 SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test 47b: COUNT(*) OVER () should NOT use custom scan when paradedb.enable_custom_scan is off
+SET paradedb.enable_custom_scan TO off;
+SELECT COUNT(*) OVER ()
+FROM logs
+WHERE description @@@ 'error'
+ORDER BY timestamp DESC LIMIT 10;
+ count 
+-------
+     7
+     7
+     7
+     7
+     7
+     7
+     7
+(7 rows)
+
+SET paradedb.enable_custom_scan TO on;
 -- Test 48: pdb.agg() as window function with WHERE clause when filter_pushdown is disabled
 -- The custom scan will reject queries where quals can't be extracted
 -- Result: Query executes correctly via PostgreSQL (not custom scan), returns filtered results
@@ -1535,7 +1553,7 @@ CREATE TABLE products (
     category TEXT,
     brand TEXT,
     rating INTEGER,
-    price NUMERIC
+    price FLOAT
 );
 INSERT INTO products (description, category, brand, rating, price) VALUES
     ('Laptop with fast processor', 'Electronics', 'Apple', 5, 1299.99),
@@ -2256,3 +2274,38 @@ ORDER BY id DESC LIMIT 3;
 
 -- Cleanup
 DROP TABLE mvcc_test CASCADE;
+-- =====================================================================
+-- SECTION 15: Window Function with ORDER BY and LIMIT
+-- =====================================================================
+-- Test that window functions work correctly when combined with ORDER BY and LIMIT
+-- and when the ORDER BY column is not fast/columnar.
+SET paradedb.enable_mixed_fast_field_exec = true;
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+CREATE TABLE test_window_order (
+    id INT PRIMARY KEY,
+    name TEXT,
+    group_id INT
+);
+INSERT INTO test_window_order VALUES
+(1, 'A', 10),
+(2, 'B', 10),
+(3, 'C', 20);
+CREATE INDEX idx_window_order ON test_window_order USING bm25 (id, name, group_id) WITH (key_field='id');
+-- NOTE: This query can _not_ be pushed down, because `name` is not fast/columnar.
+SELECT
+    COUNT(*) OVER(),
+    id
+  FROM test_window_order
+  WHERE id @@@ paradedb.boolean(must => ARRAY[
+      paradedb.term('group_id', 10)
+  ])
+  ORDER BY name ASC
+  LIMIT 25;
+ count | id 
+-------+----
+     2 |  1
+     2 |  2
+(2 rows)
+
+DROP TABLE test_window_order;

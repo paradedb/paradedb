@@ -1,3 +1,20 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 // Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
@@ -344,16 +361,24 @@ fn default_log_tps() -> bool {
 /// A full suite of jobs, plus optional name, setup, teardown, monitor.
 #[derive(Deserialize, Debug)]
 pub struct SuiteDefinition {
+    /// The file path to the suite definition.
     #[serde(skip_serializing)]
     pub path: Option<PathBuf>,
 
+    /// The display name of the suite.
     pub name: Option<String>,
 
+    /// The list of jobs to run as part of the suite.
     pub jobs: Vec<Job>,
 
+    /// The list of servers (Postgres instances) involved in the suite.
     #[serde(deserialize_with = "validate_server_list")]
     #[serde(rename = "server")]
     pub servers: Vec<Server>,
+
+    /// A list of error message substrings that should be ignored during execution and termination.
+    #[serde(default)]
+    pub ignore_errors: Vec<String>,
 }
 
 pub struct Suite {
@@ -427,6 +452,10 @@ impl Suite {
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "<no name>".to_string())
         })
+    }
+
+    pub fn ignore_errors(&self) -> &[String] {
+        &self.definition.ignore_errors
     }
 
     pub fn jobs(&self) -> impl Iterator<Item = &Job> {

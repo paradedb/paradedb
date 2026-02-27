@@ -70,11 +70,11 @@ LIMIT 5;
 
 ## Sorting by Text
 
-If a text field is present in the `ORDER BY` clause, it must be indexed with the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer.
-The reason is that the literal tokenizer preserves the original text, which is necessary for accurate sorting.
+If a text field is present in the `ORDER BY` clause, it must be indexed with the [literal](/documentation/tokenizers/available-tokenizers/literal) or
+[literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized) tokenizer.
 
-Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, first ensure that `lower(<text_field>)` is indexed with the literal tokenizer.
-See [indexing expressions](/documentation/indexing/indexing-expressions) for more information.
+Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, the expression `lower(<text_field>)` must be indexed
+with either the literal or literal normalized tokenizer. See [indexing expressions](/documentation/indexing/indexing-expressions) for more information.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -89,5 +89,18 @@ SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'sleek running shoes'
 ORDER BY lower(description)
+LIMIT 5;
+```
+
+## Sorting by JSON
+
+Ordering by JSON subfield is on the roadmap but not yet supported. For example, this query will not receive an optimized
+Top N scan:
+
+```sql
+SELECT id, description, metadata
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY metadata->'weight'
 LIMIT 5;
 ```

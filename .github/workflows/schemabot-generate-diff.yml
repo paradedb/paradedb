@@ -13,6 +13,7 @@ on:
       - 0.*.x # Release branches
     paths:
       - ".github/workflows/schemabot-generate-diff.yml"
+      - ".github/scripts/check_migration_diff.py"
       - "pg_search/**"
       - "!pg_search/README.md"
   workflow_dispatch:
@@ -24,14 +25,13 @@ concurrency:
 jobs:
   schemabot-generate-diff:
     name: SchemaBot
-    # TODO: See https://github.com/paradedb/paradedb/issues/3613
-    runs-on: ubicloud-standard-8-ubuntu-2204
+    runs-on: ubicloud-standard-8-ubuntu-2404
     defaults:
       run:
         shell: bash -eo pipefail {0}
     strategy:
       matrix:
-        pg_version: [14] # pg_search's minimum supported Postgres version
+        pg_version: [15] # pg_search's minimum supported Postgres version
 
     steps:
       - name: Checkout Git Repository
@@ -162,22 +162,18 @@ jobs:
 
             echo "Found migration file: $MIGRATION_FILE"
             echo
-            echo "Checking if migration file contains the exact schema diff as a contiguous block..."
+            echo "Checking if migration file contains all schema changes (order-independent)..."
 
-            # Check if the entire diff content exists as a contiguous sequence in the migration file
-            if ! grep -Fzo "$(cat ~/diff.sql)" "$MIGRATION_FILE" > /dev/null 2>&1; then
-              echo "❌ ERROR: Migration file does not contain the exact schema diff as a contiguous block."
+            # Compare schema changes independent of order, since pg-schema-diff output order is non-deterministic
+            if ! python3 .github/scripts/check_migration_diff.py ~/diff.sql "$MIGRATION_FILE" --debug; then
               echo
               echo "The migration file at $MIGRATION_FILE needs to be updated."
-              echo "Please copy the entire suggested upgrade script shown above into your migration file as-is."
+              echo "Please ensure all the schema changes shown above are in your migration file."
               echo
               echo "ℹ️  NOTE: If you need to modify the SchemaBot-generated diff because it's incorrect,"
               echo "   please update the schema diff generation logic at:"
               echo "   https://github.com/paradedb/pg-schema-diff"
-              echo "   Do not manually modify the diff in the migration file, as CI will fail."
               exit 1
-            else
-              echo "✅ Migration file contains the exact schema diff in the correct sequence"
             fi
           else
             echo "✅ No schema difference detected"

@@ -12,8 +12,8 @@ CREATE TABLE products (
     description TEXT,
     category TEXT,
     brand TEXT,
-    price NUMERIC,
-    rating NUMERIC,
+    price FLOAT,
+    rating FLOAT,
     in_stock BOOLEAN,
     sales INTEGER
 );

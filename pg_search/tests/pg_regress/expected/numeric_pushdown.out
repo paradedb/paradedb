@@ -1,0 +1,3429 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- ============================================================================
+-- NUMERIC PUSHDOWN TESTS
+-- ============================================================================
+-- Tests for NUMERIC column pushdown with two storage strategies:
+-- 1. Numeric64 (I64 fixed-point): NUMERIC(p,s) where p <= 18
+-- 2. NumericBytes (lexicographic bytes): NUMERIC with p > 18 or unlimited
+-- ============================================================================
+-- ============================================================================
+-- PART 1: Numeric64 (I64 fixed-point) Tests
+-- ============================================================================
+-- NUMERIC(10,2) has precision 10 and scale 2, stored as I64
+CREATE TABLE numeric64_test (
+    id SERIAL PRIMARY KEY,
+    price NUMERIC(10, 2),
+    quantity NUMERIC(5, 0),
+    rate NUMERIC(18, 6)
+);
+INSERT INTO numeric64_test (price, quantity, rate) VALUES
+    (100.50, 10, 1.234567),
+    (200.75, 20, 2.345678),
+    (300.00, 30, 3.456789),
+    (400.25, 40, 4.567890),
+    (500.99, 50, 5.678901),
+    (99.99, 5, 0.123456),
+    (1000.00, 100, 10.000000),
+    (0.01, 1, 0.000001),
+    (9999999.99, 999, 999999.999999),
+    (123.45, 15, 1.500000);
+CREATE INDEX numeric64_idx ON numeric64_test USING bm25 (
+    id, price, quantity, rate
+) WITH (key_field = 'id');
+-- Test 1.1: Equality on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 100.50
+ORDER BY id;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"price","value":"100.5","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 100.50
+ORDER BY id;
+ id | price  | quantity |   rate   
+----+--------+----------+----------
+  1 | 100.50 |       10 | 1.234567
+(1 row)
+
+-- Test 1.2: Range on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price > 200.00
+ORDER BY id;
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"excluded":"200"},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price > 200.00
+ORDER BY id;
+ id |   price    | quantity |     rate      
+----+------------+----------+---------------
+  2 |     200.75 |       20 |      2.345678
+  3 |     300.00 |       30 |      3.456789
+  4 |     400.25 |       40 |      4.567890
+  5 |     500.99 |       50 |      5.678901
+  7 |    1000.00 |      100 |     10.000000
+  9 | 9999999.99 |      999 | 999999.999999
+(6 rows)
+
+-- Test 1.3: BETWEEN on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price BETWEEN 100.00 AND 500.00
+ORDER BY id;
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"included":"100"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":"500"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price BETWEEN 100.00 AND 500.00
+ORDER BY id;
+ id | price  | quantity |   rate   
+----+--------+----------+----------
+  1 | 100.50 |       10 | 1.234567
+  2 | 200.75 |       20 | 2.345678
+  3 | 300.00 |       30 | 3.456789
+  4 | 400.25 |       40 | 4.567890
+ 10 | 123.45 |       15 | 1.500000
+(5 rows)
+
+-- Test 1.4: Equality on NUMERIC(5,0) (integer-like)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND quantity = 30
+ORDER BY id;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"quantity","value":"30","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND quantity = 30
+ORDER BY id;
+ id | price  | quantity |   rate   
+----+--------+----------+----------
+  3 | 300.00 |       30 | 3.456789
+(1 row)
+
+-- Test 1.5: Range on NUMERIC(18,6) (high precision)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND rate >= 2.0 AND rate <= 5.0
+ORDER BY id;
+                                                                                                                                   QUERY PLAN                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"rate","lower_bound":{"included":"2"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rate","lower_bound":null,"upper_bound":{"included":"5"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND rate >= 2.0 AND rate <= 5.0
+ORDER BY id;
+ id | price  | quantity |   rate   
+----+--------+----------+----------
+  2 | 200.75 |       20 | 2.345678
+  3 | 300.00 |       30 | 3.456789
+  4 | 400.25 |       40 | 4.567890
+(3 rows)
+
+-- Test 1.6: Less than on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price < 150.00
+ORDER BY id;
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"150"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price < 150.00
+ORDER BY id;
+ id | price  | quantity |   rate   
+----+--------+----------+----------
+  1 | 100.50 |       10 | 1.234567
+  6 |  99.99 |        5 | 0.123456
+  8 |   0.01 |        1 | 0.000001
+ 10 | 123.45 |       15 | 1.500000
+(4 rows)
+
+-- Test 1.7: Boundary value (smallest positive)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 0.01
+ORDER BY id;
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"price","value":"0.01","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 0.01
+ORDER BY id;
+ id | price | quantity |   rate   
+----+-------+----------+----------
+  8 |  0.01 |        1 | 0.000001
+(1 row)
+
+DROP TABLE numeric64_test;
+-- ============================================================================
+-- PART 2: NumericBytes (lexicographic bytes) Tests
+-- ============================================================================
+-- NUMERIC without precision or with precision > 18 stored as bytes
+CREATE TABLE numeric_bytes_test (
+    id SERIAL PRIMARY KEY,
+    big_value NUMERIC,
+    huge_precision NUMERIC(30, 10)
+);
+INSERT INTO numeric_bytes_test (big_value, huge_precision) VALUES
+    (12345678901234567890.12345, 12345678901234567890.1234567890),
+    (99999999999999999999.99999, 99999999999999999999.9999999999),
+    (0.00000000000000000001, 0.0000000001),
+    (1.0, 1.0000000000),
+    (100.5, 100.5000000000),
+    (-12345678901234567890.12345, -12345678901234567890.1234567890),
+    (-1.0, -1.0000000000);
+CREATE INDEX numeric_bytes_idx ON numeric_bytes_test USING bm25 (
+    id, big_value, huge_precision
+) WITH (key_field = 'id');
+-- Test 2.1: Equality on unlimited NUMERIC
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value = 1.0
+ORDER BY id;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_value, huge_precision
+   Sort Key: numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+         Output: id, big_value, huge_precision
+         Table: numeric_bytes_test
+         Index: numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_value","value":"1","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value = 1.0
+ORDER BY id;
+ id | big_value | huge_precision 
+----+-----------+----------------
+  4 |       1.0 |   1.0000000000
+(1 row)
+
+-- Test 2.2: Range on unlimited NUMERIC
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value > 100.0
+ORDER BY id;
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_value, huge_precision
+   Sort Key: numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+         Output: id, big_value, huge_precision
+         Table: numeric_bytes_test
+         Index: numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":{"excluded":"100"},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value > 100.0
+ORDER BY id;
+ id |         big_value          |         huge_precision          
+----+----------------------------+---------------------------------
+  1 | 12345678901234567890.12345 | 12345678901234567890.1234567890
+  2 | 99999999999999999999.99999 | 99999999999999999999.9999999999
+  5 |                      100.5 |                  100.5000000000
+(3 rows)
+
+-- Test 2.3: Equality on high-precision NUMERIC(30,10)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision = 1.0000000000
+ORDER BY id;
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_value, huge_precision
+   Sort Key: numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+         Output: id, big_value, huge_precision
+         Table: numeric_bytes_test
+         Index: numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"huge_precision","value":"1","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision = 1.0000000000
+ORDER BY id;
+ id | big_value | huge_precision 
+----+-----------+----------------
+  4 |       1.0 |   1.0000000000
+(1 row)
+
+-- Test 2.4: Range on high-precision NUMERIC(30,10)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision >= 0.0 AND huge_precision <= 200.0
+ORDER BY id;
+                                                                                                                                              QUERY PLAN                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_value, huge_precision
+   Sort Key: numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+         Output: id, big_value, huge_precision
+         Table: numeric_bytes_test
+         Index: numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"huge_precision","lower_bound":{"included":"0"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"huge_precision","lower_bound":null,"upper_bound":{"included":"200"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision >= 0.0 AND huge_precision <= 200.0
+ORDER BY id;
+ id |       big_value        | huge_precision 
+----+------------------------+----------------
+  3 | 0.00000000000000000001 |   0.0000000001
+  4 |                    1.0 |   1.0000000000
+  5 |                  100.5 | 100.5000000000
+(3 rows)
+
+-- Test 2.5: Negative values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value < 0
+ORDER BY id;
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_value, huge_precision
+   Sort Key: numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+         Output: id, big_value, huge_precision
+         Table: numeric_bytes_test
+         Index: numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":null,"upper_bound":{"excluded":"0"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value < 0
+ORDER BY id;
+ id |          big_value          |          huge_precision          
+----+-----------------------------+----------------------------------
+  6 | -12345678901234567890.12345 | -12345678901234567890.1234567890
+  7 |                        -1.0 |                    -1.0000000000
+(2 rows)
+
+DROP TABLE numeric_bytes_test;
+-- ============================================================================
+-- PART 3: Mixed precision columns in same table
+-- ============================================================================
+CREATE TABLE numeric_mixed_test (
+    id SERIAL PRIMARY KEY,
+    small_numeric NUMERIC(8, 2),
+    large_numeric NUMERIC(25, 5),
+    unlimited_numeric NUMERIC
+);
+INSERT INTO numeric_mixed_test (small_numeric, large_numeric, unlimited_numeric) VALUES
+    (100.00, 12345678901234567890.12345, 999999999999999999999.9999),
+    (200.50, 98765432109876543210.54321, 888888888888888888888.8888),
+    (50.25, 11111111111111111111.11111, 777777777777777777777.7777);
+CREATE INDEX numeric_mixed_idx ON numeric_mixed_test USING bm25 (
+    id, small_numeric, large_numeric, unlimited_numeric
+) WITH (key_field = 'id');
+-- Test 3.1: Query on small NUMERIC (Numeric64)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric = 100.00
+ORDER BY id;
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, small_numeric, large_numeric, unlimited_numeric
+   Sort Key: numeric_mixed_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_test
+         Output: id, small_numeric, large_numeric, unlimited_numeric
+         Table: numeric_mixed_test
+         Index: numeric_mixed_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"small_numeric","value":"100","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric = 100.00
+ORDER BY id;
+ id | small_numeric |       large_numeric        |     unlimited_numeric      
+----+---------------+----------------------------+----------------------------
+  1 |        100.00 | 12345678901234567890.12345 | 999999999999999999999.9999
+(1 row)
+
+-- Test 3.2: Query on large NUMERIC (NumericBytes)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, small_numeric, large_numeric, unlimited_numeric
+   Sort Key: numeric_mixed_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_test
+         Output: id, small_numeric, large_numeric, unlimited_numeric
+         Table: numeric_mixed_test
+         Index: numeric_mixed_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"large_numeric","lower_bound":{"excluded":"50000000000000000000"},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+ id | small_numeric |       large_numeric        |     unlimited_numeric      
+----+---------------+----------------------------+----------------------------
+  2 |        200.50 | 98765432109876543210.54321 | 888888888888888888888.8888
+(1 row)
+
+-- Test 3.3: Combined query on both column types
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric > 50.00
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+                                                                                                                                                      QUERY PLAN                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, small_numeric, large_numeric, unlimited_numeric
+   Sort Key: numeric_mixed_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_test
+         Output: id, small_numeric, large_numeric, unlimited_numeric
+         Table: numeric_mixed_test
+         Index: numeric_mixed_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"small_numeric","lower_bound":{"excluded":"50"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"large_numeric","lower_bound":{"excluded":"50000000000000000000"},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric > 50.00
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+ id | small_numeric |       large_numeric        |     unlimited_numeric      
+----+---------------+----------------------------+----------------------------
+  2 |        200.50 | 98765432109876543210.54321 | 888888888888888888888.8888
+(1 row)
+
+DROP TABLE numeric_mixed_test;
+-- ============================================================================
+-- PART 4: Edge cases
+-- ============================================================================
+CREATE TABLE numeric_edge_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(10, 2)
+);
+INSERT INTO numeric_edge_test (val) VALUES
+    (0.00),
+    (0.01),
+    (-0.01),
+    (99999999.99),
+    (-99999999.99);
+CREATE INDEX numeric_edge_idx ON numeric_edge_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Test 4.1: Zero value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 0.00
+ORDER BY id;
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_edge_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+         Output: id, val
+         Table: numeric_edge_test
+         Index: numeric_edge_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 0.00
+ORDER BY id;
+ id | val  
+----+------
+  1 | 0.00
+(1 row)
+
+-- Test 4.2: Maximum positive value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 99999999.99
+ORDER BY id;
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_edge_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+         Output: id, val
+         Table: numeric_edge_test
+         Index: numeric_edge_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"99999999.99","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 99999999.99
+ORDER BY id;
+ id |     val     
+----+-------------
+  4 | 99999999.99
+(1 row)
+
+-- Test 4.3: Negative value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = -99999999.99
+ORDER BY id;
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_edge_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+         Output: id, val
+         Table: numeric_edge_test
+         Index: numeric_edge_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"-99999999.99","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = -99999999.99
+ORDER BY id;
+ id |     val      
+----+--------------
+  5 | -99999999.99
+(1 row)
+
+-- Test 4.4: Range across zero
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val >= -0.01 AND val <= 0.01
+ORDER BY id;
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_edge_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+         Output: id, val
+         Table: numeric_edge_test
+         Index: numeric_edge_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-0.01"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"0.01"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val >= -0.01 AND val <= 0.01
+ORDER BY id;
+ id |  val  
+----+-------
+  1 |  0.00
+  2 |  0.01
+  3 | -0.01
+(3 rows)
+
+DROP TABLE numeric_edge_test;
+-- ============================================================================
+-- PART 5: Precision Tests - Verify no precision loss in query constants
+-- ============================================================================
+-- These tests verify that NUMERIC query constants don't lose precision
+-- when converted for comparison with indexed values.
+-- Test 5.1: High-precision Numeric64 values
+-- NUMERIC(18,0) can store 18-digit integers exactly as I64
+-- But f64 can only represent ~15-17 significant digits exactly
+CREATE TABLE numeric_precision_test (
+    id SERIAL PRIMARY KEY,
+    big_int NUMERIC(18, 0)
+);
+-- Insert values that would lose precision if converted to f64
+-- 123456789012345678 has 18 digits - f64 cannot represent this exactly
+INSERT INTO numeric_precision_test (big_int) VALUES
+    (123456789012345678),
+    (123456789012345679),
+    (999999999999999999);
+CREATE INDEX numeric_precision_idx ON numeric_precision_test USING bm25 (
+    id, big_int
+) WITH (key_field = 'id');
+-- This should find exactly 1 row - the value 123456789012345678
+-- If f64 conversion loses precision, this might return wrong results
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int = 123456789012345678
+ORDER BY id;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_int
+   Sort Key: numeric_precision_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_test
+         Output: id, big_int
+         Table: numeric_precision_test
+         Index: numeric_precision_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: big_int, id
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_int","value":"123456789012345678","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int = 123456789012345678
+ORDER BY id;
+ id |      big_int       
+----+--------------------
+  1 | 123456789012345678
+(1 row)
+
+-- Verify with PostgreSQL (no pushdown) - should return 1 row
+SELECT * FROM numeric_precision_test
+WHERE big_int = 123456789012345678;
+ id |      big_int       
+----+--------------------
+  1 | 123456789012345678
+(1 row)
+
+-- Test 5.2: Range query with high-precision bounds
+-- This should find exactly 2 rows (the first two values)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int >= 123456789012345678 AND big_int <= 123456789012345679
+ORDER BY id;
+                                                                                                                                                       QUERY PLAN                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_int
+   Sort Key: numeric_precision_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_test
+         Output: id, big_int
+         Table: numeric_precision_test
+         Index: numeric_precision_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: big_int, id
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_int","lower_bound":{"included":"123456789012345678"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"big_int","lower_bound":null,"upper_bound":{"included":"123456789012345679"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int >= 123456789012345678 AND big_int <= 123456789012345679
+ORDER BY id;
+ id |      big_int       
+----+--------------------
+  1 | 123456789012345678
+  2 | 123456789012345679
+(2 rows)
+
+-- Verify with PostgreSQL (no pushdown) - should return 2 rows
+SELECT * FROM numeric_precision_test
+WHERE big_int >= 123456789012345678 AND big_int <= 123456789012345679;
+ id |      big_int       
+----+--------------------
+  1 | 123456789012345678
+  2 | 123456789012345679
+(2 rows)
+
+DROP TABLE numeric_precision_test;
+-- Test 5.3: NumericBytes precision with large decimals
+CREATE TABLE numeric_bytes_precision_test (
+    id SERIAL PRIMARY KEY,
+    precise_value NUMERIC
+);
+-- Insert values with high precision that require NumericBytes storage
+INSERT INTO numeric_bytes_precision_test (precise_value) VALUES
+    (12345678901234567890.123456789012345678901234567890),
+    (12345678901234567890.123456789012345678901234567891);
+CREATE INDEX numeric_bytes_precision_idx ON numeric_bytes_precision_test USING bm25 (
+    id, precise_value
+) WITH (key_field = 'id');
+-- This should find exactly 1 row
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_precision_test
+WHERE id @@@ paradedb.all()
+AND precise_value = 12345678901234567890.123456789012345678901234567890
+ORDER BY id;
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, precise_value
+   Sort Key: numeric_bytes_precision_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_precision_test
+         Output: id, precise_value
+         Table: numeric_bytes_precision_test
+         Index: numeric_bytes_precision_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, precise_value
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"precise_value","value":"12345678901234567890.12345678901234567890123456789","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_bytes_precision_test
+WHERE id @@@ paradedb.all()
+AND precise_value = 12345678901234567890.123456789012345678901234567890
+ORDER BY id;
+ id |                   precise_value                    
+----+----------------------------------------------------
+  1 | 12345678901234567890.12345678901234567890123456789
+(1 row)
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT * FROM numeric_bytes_precision_test
+WHERE precise_value = 12345678901234567890.123456789012345678901234567890;
+ id |                    precise_value                    
+----+-----------------------------------------------------
+  1 | 12345678901234567890.123456789012345678901234567890
+(1 row)
+
+DROP TABLE numeric_bytes_precision_test;
+-- ============================================================================
+-- PART 6: Range Field Precision Tests
+-- ============================================================================
+-- These tests verify precision behavior for range_term queries on different range types.
+-- Test 6.1: int8range - Large integers should preserve precision
+-- int8range is stored as i64, so values up to i64::MAX should work correctly
+CREATE TABLE int8range_precision_test (
+    id SERIAL PRIMARY KEY,
+    val int8range
+);
+-- Insert ranges with large i64 values that exceed f64 precision (~15-17 digits)
+-- 9007199254740993 = 2^53 + 1, the first integer not exactly representable as f64
+INSERT INTO int8range_precision_test (val) VALUES
+    ('[9007199254740992, 9007199254740994)'::int8range),  -- id=1: contains 9007199254740992, 9007199254740993
+    ('[9007199254740994, 9007199254740996)'::int8range),  -- id=2: contains 9007199254740994, 9007199254740995
+    ('[9007199254740996, 9007199254740998)'::int8range);  -- id=3: contains 9007199254740996, 9007199254740997
+CREATE INDEX int8range_precision_idx ON int8range_precision_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query for 9007199254740993 - should find only row 1
+-- If we used f64 conversion, this would fail because 9007199254740993 rounds to 9007199254740992 in f64
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM int8range_precision_test
+WHERE id @@@ paradedb.range_term('val', 9007199254740993::int8)
+ORDER BY id;
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: int8range_precision_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.int8range_precision_test
+         Output: id, val
+         Table: int8range_precision_test
+         Index: int8range_precision_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"range_term":{"field":"val","value":9007199254740993,"is_datetime":false}}}}
+(10 rows)
+
+SELECT * FROM int8range_precision_test
+WHERE id @@@ paradedb.range_term('val', 9007199254740993::int8)
+ORDER BY id;
+ id |                 val                 
+----+-------------------------------------
+  1 | [9007199254740992,9007199254740994)
+(1 row)
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT * FROM int8range_precision_test
+WHERE val @> 9007199254740993::int8
+ORDER BY id;
+ id |                 val                 
+----+-------------------------------------
+  1 | [9007199254740992,9007199254740994)
+(1 row)
+
+DROP TABLE int8range_precision_test;
+-- Test 6.2: numrange - Precision preservation with hex-encoded sortable bytes
+-- numrange values are stored using hex-encoded lexicographically sortable bytes,
+-- which preserves full NUMERIC precision. This test verifies precision is preserved
+-- for large integers beyond f64's precision (2^53 ≈ 9007199254740992).
+CREATE TABLE numrange_precision_test (
+    id SERIAL PRIMARY KEY,
+    val numrange
+);
+-- Insert ranges using large integers that exceed f64 precision
+-- 9007199254740993, 9007199254740994, 9007199254740995 are consecutive integers
+-- but f64 rounds them all to approximately 9007199254740992 or 9007199254740994
+INSERT INTO numrange_precision_test (val) VALUES
+    ('[9007199254740992, 9007199254740994)'::numrange),  -- id=1: should contain 9007199254740992, 9007199254740993
+    ('[9007199254740994, 9007199254740996)'::numrange),  -- id=2: should contain 9007199254740994, 9007199254740995
+    ('[9007199254740996, 9007199254740998)'::numrange);  -- id=3: should contain 9007199254740996, 9007199254740997
+CREATE INDEX numrange_precision_idx ON numrange_precision_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query for 9007199254740995 - should find row 2
+-- With hex-encoded sortable bytes, BM25 preserves full precision and matches PostgreSQL.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numrange_precision_test
+WHERE id @@@ paradedb.range_term('val', 9007199254740995::numeric)
+ORDER BY id;
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numrange_precision_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numrange_precision_test
+         Output: id, val
+         Table: numrange_precision_test
+         Index: numrange_precision_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"range_term":{"field":"val","value":"9007199254740995","is_datetime":false}}}}
+(10 rows)
+
+SELECT * FROM numrange_precision_test
+WHERE id @@@ paradedb.range_term('val', 9007199254740995::numeric)
+ORDER BY id;
+ id |                 val                 
+----+-------------------------------------
+  2 | [9007199254740994,9007199254740996)
+(1 row)
+
+-- Verify with PostgreSQL (no pushdown) - should return row 2
+SELECT * FROM numrange_precision_test
+WHERE val @> 9007199254740995::numeric
+ORDER BY id;
+ id |                 val                 
+----+-------------------------------------
+  2 | [9007199254740994,9007199254740996)
+(1 row)
+
+-- Both BM25 and PostgreSQL return row 2, confirming precision is preserved.
+-- This works because numrange uses hex-encoded lexicographically sortable bytes,
+-- which correctly represent arbitrary precision NUMERIC values.
+DROP TABLE numrange_precision_test;
+--------------------------------------------------------------------------------
+-- PART 7: Numeric Array Tests
+--------------------------------------------------------------------------------
+-- Test 7.1: Basic numeric array indexing and querying
+CREATE TABLE numeric_array_test (
+    id SERIAL PRIMARY KEY,
+    vals numeric[]
+);
+INSERT INTO numeric_array_test (vals) VALUES
+    ('{1.5, 2.5, 3.5}'::numeric[]),
+    ('{10, 20, 30}'::numeric[]),
+    ('{100.123, 200.456, 300.789}'::numeric[]);
+CREATE INDEX numeric_array_idx ON numeric_array_test USING bm25 (
+    id, vals
+) WITH (key_field = 'id');
+-- Query for array containing value 2.5
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_array_test
+WHERE id @@@ paradedb.term('vals', 2.5::numeric)
+ORDER BY id;
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, vals
+   Sort Key: numeric_array_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_array_test
+         Output: id, vals
+         Table: numeric_array_test
+         Index: numeric_array_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"vals","value":"2.5","is_datetime":false}}}}
+(10 rows)
+
+SELECT * FROM numeric_array_test
+WHERE id @@@ paradedb.term('vals', 2.5::numeric)
+ORDER BY id;
+ id |     vals      
+----+---------------
+  1 | {1.5,2.5,3.5}
+(1 row)
+
+-- Query for array containing integer value 20
+SELECT * FROM numeric_array_test
+WHERE id @@@ paradedb.term('vals', 20::numeric)
+ORDER BY id;
+ id |    vals    
+----+------------
+  2 | {10,20,30}
+(1 row)
+
+DROP TABLE numeric_array_test;
+-- Test 7.2: High-precision numeric array (tests Numeric64 vs NumericBytes handling)
+CREATE TABLE numeric_array_precision_test (
+    id SERIAL PRIMARY KEY,
+    small_precision numeric(10,2)[],  -- Should use Numeric64
+    large_precision numeric[]          -- Unlimited precision, uses NumericBytes
+);
+INSERT INTO numeric_array_precision_test (small_precision, large_precision) VALUES
+    ('{1.23, 4.56}'::numeric(10,2)[], '{12345678901234567890.123456789}'::numeric[]),
+    ('{7.89, 10.11}'::numeric(10,2)[], '{98765432109876543210.987654321}'::numeric[]);
+CREATE INDEX numeric_array_precision_idx ON numeric_array_precision_test USING bm25 (
+    id, small_precision, large_precision
+) WITH (key_field = 'id');
+-- Query small_precision array
+SELECT * FROM numeric_array_precision_test
+WHERE id @@@ paradedb.term('small_precision', 4.56::numeric)
+ORDER BY id;
+ id | small_precision |         large_precision          
+----+-----------------+----------------------------------
+  1 | {1.23,4.56}     | {12345678901234567890.123456789}
+(1 row)
+
+DROP TABLE numeric_array_precision_test;
+--------------------------------------------------------------------------------
+-- PART 8: Large Decimal Precision Tests
+--------------------------------------------------------------------------------
+-- Test 8.1: NumericBytes with large decimal values (many decimal places)
+CREATE TABLE large_decimal_test (
+    id SERIAL PRIMARY KEY,
+    val numeric  -- Unlimited precision, uses NumericBytes
+);
+-- Insert values with many significant decimal digits
+-- These values differ only in the last decimal places
+INSERT INTO large_decimal_test (val) VALUES
+    (1.123456789012345678901234567890123456789),   -- id=1
+    (1.123456789012345678901234567890123456788),   -- id=2 (differs in last digit)
+    (1.123456789012345678901234567890123456790),   -- id=3 (differs in last digit)
+    (12345678901234567890.12345678901234567890),   -- id=4 (large integer + decimal)
+    (0.000000000000000000000000000000000000001);   -- id=5 (very small)
+CREATE INDEX large_decimal_idx ON large_decimal_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query for exact match - should find only row 1
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM large_decimal_test
+WHERE id @@@ paradedb.term('val', 1.123456789012345678901234567890123456789::numeric)
+ORDER BY id;
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: large_decimal_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.large_decimal_test
+         Output: id, val
+         Table: large_decimal_test
+         Index: large_decimal_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"val","value":"1.123456789012345678901234567890123456789","is_datetime":false}}}}
+(11 rows)
+
+SELECT * FROM large_decimal_test
+WHERE id @@@ paradedb.term('val', 1.123456789012345678901234567890123456789::numeric)
+ORDER BY id;
+ id |                    val                    
+----+-------------------------------------------
+  1 | 1.123456789012345678901234567890123456789
+(1 row)
+
+-- Verify with PostgreSQL
+SELECT * FROM large_decimal_test
+WHERE val = 1.123456789012345678901234567890123456789::numeric
+ORDER BY id;
+ id |                    val                    
+----+-------------------------------------------
+  1 | 1.123456789012345678901234567890123456789
+(1 row)
+
+-- Query for the large integer+decimal value
+SELECT * FROM large_decimal_test
+WHERE id @@@ paradedb.term('val', 12345678901234567890.12345678901234567890::numeric)
+ORDER BY id;
+ id |                   val                    
+----+------------------------------------------
+  4 | 12345678901234567890.1234567890123456789
+(1 row)
+
+-- Query for very small value
+SELECT * FROM large_decimal_test
+WHERE id @@@ paradedb.term('val', 0.000000000000000000000000000000000000001::numeric)
+ORDER BY id;
+ id |                    val                    
+----+-------------------------------------------
+  5 | 0.000000000000000000000000000000000000001
+(1 row)
+
+DROP TABLE large_decimal_test;
+-- Test 8.2: Range query with large decimals on NumericBytes field
+CREATE TABLE large_decimal_range_test (
+    id SERIAL PRIMARY KEY,
+    val numeric
+);
+INSERT INTO large_decimal_range_test (val) VALUES
+    (1.000000000000000000000000000000000000001),   -- id=1
+    (1.000000000000000000000000000000000000002),   -- id=2
+    (1.000000000000000000000000000000000000003),   -- id=3
+    (1.000000000000000000000000000000000000004),   -- id=4
+    (1.000000000000000000000000000000000000005);   -- id=5
+CREATE INDEX large_decimal_range_idx ON large_decimal_range_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Range query should find rows 2, 3, 4 (exclusive bounds)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM large_decimal_range_test
+WHERE id @@@ paradedb.range(
+    'val',
+    '[1.000000000000000000000000000000000000002, 1.000000000000000000000000000000000000005)'::numrange
+)
+ORDER BY id;
+                                                                                                                 QUERY PLAN                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: large_decimal_range_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.large_decimal_range_test
+         Output: id, val
+         Table: large_decimal_range_test
+         Index: large_decimal_range_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"val","lower_bound":{"included":"1.000000000000000000000000000000000000002"},"upper_bound":{"excluded":"1.000000000000000000000000000000000000005"},"is_datetime":false}}}}
+(11 rows)
+
+SELECT * FROM large_decimal_range_test
+WHERE id @@@ paradedb.range(
+    'val',
+    '[1.000000000000000000000000000000000000002, 1.000000000000000000000000000000000000005)'::numrange
+)
+ORDER BY id;
+ id |                    val                    
+----+-------------------------------------------
+  2 | 1.000000000000000000000000000000000000002
+  3 | 1.000000000000000000000000000000000000003
+  4 | 1.000000000000000000000000000000000000004
+(3 rows)
+
+-- Verify with PostgreSQL
+SELECT * FROM large_decimal_range_test
+WHERE val >= 1.000000000000000000000000000000000000002::numeric
+  AND val < 1.000000000000000000000000000000000000005::numeric
+ORDER BY id;
+ id |                    val                    
+----+-------------------------------------------
+  2 | 1.000000000000000000000000000000000000002
+  3 | 1.000000000000000000000000000000000000003
+  4 | 1.000000000000000000000000000000000000004
+(3 rows)
+
+DROP TABLE large_decimal_range_test;
+-- Test 8.3: numrange with large decimal bounds
+CREATE TABLE numrange_large_decimal_test (
+    id SERIAL PRIMARY KEY,
+    val numrange
+);
+INSERT INTO numrange_large_decimal_test (val) VALUES
+    ('[1.111111111111111111111111111111, 1.111111111111111111111111111112)'::numrange),  -- id=1
+    ('[1.111111111111111111111111111112, 1.111111111111111111111111111113)'::numrange),  -- id=2
+    ('[1.111111111111111111111111111113, 1.111111111111111111111111111114)'::numrange);  -- id=3
+CREATE INDEX numrange_large_decimal_idx ON numrange_large_decimal_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query for value in row 2's range
+SELECT * FROM numrange_large_decimal_test
+WHERE id @@@ paradedb.range_term('val', 1.1111111111111111111111111111125::numeric)
+ORDER BY id;
+ id |                                 val                                 
+----+---------------------------------------------------------------------
+  2 | [1.111111111111111111111111111112,1.111111111111111111111111111113)
+(1 row)
+
+-- Verify with PostgreSQL
+SELECT * FROM numrange_large_decimal_test
+WHERE val @> 1.1111111111111111111111111111125::numeric
+ORDER BY id;
+ id |                                 val                                 
+----+---------------------------------------------------------------------
+  2 | [1.111111111111111111111111111112,1.111111111111111111111111111113)
+(1 row)
+
+DROP TABLE numrange_large_decimal_test;
+-- Test 8.4: Numeric64 with maximum precision (18 digits)
+CREATE TABLE numeric64_max_precision_test (
+    id SERIAL PRIMARY KEY,
+    val numeric(18, 9)  -- 18 total digits, 9 decimal places (uses Numeric64)
+);
+INSERT INTO numeric64_max_precision_test (val) VALUES
+    (123456789.123456789),   -- id=1: max precision for Numeric64
+    (123456789.123456788),   -- id=2: differs in last digit
+    (123456789.123456790),   -- id=3: differs in last digit
+    (999999999.999999999);   -- id=4: max value
+CREATE INDEX numeric64_max_idx ON numeric64_max_precision_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query for exact match
+SELECT * FROM numeric64_max_precision_test
+WHERE id @@@ paradedb.term('val', 123456789.123456789::numeric)
+ORDER BY id;
+ id |         val         
+----+---------------------
+  1 | 123456789.123456789
+(1 row)
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric64_max_precision_test
+WHERE val = 123456789.123456789::numeric
+ORDER BY id;
+ id |         val         
+----+---------------------
+  1 | 123456789.123456789
+(1 row)
+
+-- Range query on Numeric64 field
+SELECT * FROM numeric64_max_precision_test
+WHERE id @@@ paradedb.range(
+    'val',
+    '[123456789.123456788, 123456789.123456790]'::numrange
+)
+ORDER BY id;
+ id |         val         
+----+---------------------
+  1 | 123456789.123456789
+  2 | 123456789.123456788
+  3 | 123456789.123456790
+(3 rows)
+
+DROP TABLE numeric64_max_precision_test;
+-- Test 8.5: Numeric64 decimal comparison edge cases
+-- Verifies that decimal scaling works correctly for comparisons
+CREATE TABLE numeric64_decimal_compare_test (
+    id SERIAL PRIMARY KEY,
+    val numeric(5, 2)  -- 5 total digits, 2 decimal places
+);
+-- Insert values that differ only in decimal places
+INSERT INTO numeric64_decimal_compare_test (val) VALUES
+    (12.34),   -- id=1: stored as 1234 (scaled by 100)
+    (12.35),   -- id=2: stored as 1235
+    (12.36),   -- id=3: stored as 1236
+    (123.40),  -- id=4: stored as 12340
+    (1.23);    -- id=5: stored as 123
+CREATE INDEX numeric64_decimal_compare_idx ON numeric64_decimal_compare_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Exact decimal match
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_decimal_compare_test
+WHERE id @@@ paradedb.term('val', 12.35::numeric)
+ORDER BY id;
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric64_decimal_compare_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_decimal_compare_test
+         Output: id, val
+         Table: numeric64_decimal_compare_test
+         Index: numeric64_decimal_compare_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"val","value":"12.35","is_datetime":false}}}}
+(11 rows)
+
+SELECT * FROM numeric64_decimal_compare_test
+WHERE id @@@ paradedb.term('val', 12.35::numeric)
+ORDER BY id;
+ id |  val  
+----+-------
+  2 | 12.35
+(1 row)
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric64_decimal_compare_test
+WHERE val = 12.35::numeric
+ORDER BY id;
+ id |  val  
+----+-------
+  2 | 12.35
+(1 row)
+
+-- Range with decimal bounds
+SELECT * FROM numeric64_decimal_compare_test
+WHERE id @@@ paradedb.range('val', '[12.34, 12.36]'::numrange)
+ORDER BY id;
+ id |  val  
+----+-------
+  1 | 12.34
+  2 | 12.35
+  3 | 12.36
+(3 rows)
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric64_decimal_compare_test
+WHERE val >= 12.34 AND val <= 12.36
+ORDER BY id;
+ id |  val  
+----+-------
+  1 | 12.34
+  2 | 12.35
+  3 | 12.36
+(3 rows)
+
+-- Test that 12.3 does NOT match 12.30 vs 1.23
+-- 12.30 scaled = 1230, 1.23 scaled = 123 (different!)
+SELECT * FROM numeric64_decimal_compare_test
+WHERE id @@@ paradedb.term('val', 1.23::numeric)
+ORDER BY id;
+ id | val  
+----+------
+  5 | 1.23
+(1 row)
+
+DROP TABLE numeric64_decimal_compare_test;
+-- ============================================================================
+-- PART 9: Large Precision NUMERIC Tests
+-- ============================================================================
+-- Tests for NUMERIC types with precision > 18 (stored as NumericBytes)
+-- Test 9.1: NUMERIC(36,18) - Double the Numeric64 precision
+CREATE TABLE numeric_large_precision_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(36, 18)
+);
+INSERT INTO numeric_large_precision_test (val) VALUES
+    (123456789012345678.123456789012345678),   -- id=1: max precision value
+    (123456789012345678.123456789012345679),   -- id=2: differs in last digit
+    (999999999999999999.999999999999999999),   -- id=3: max value
+    (-123456789012345678.123456789012345678),  -- id=4: negative max
+    (0.000000000000000001),                    -- id=5: smallest positive
+    (1.0),                                     -- id=6: simple value
+    (0.5);                                     -- id=7: half
+CREATE INDEX numeric_large_precision_idx ON numeric_large_precision_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Exact match on large precision
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_large_precision_test
+WHERE id @@@ paradedb.all()
+AND val = 1.0
+ORDER BY id;
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_large_precision_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_large_precision_test
+         Output: id, val
+         Table: numeric_large_precision_test
+         Index: numeric_large_precision_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"1","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_large_precision_test
+WHERE id @@@ paradedb.all()
+AND val = 1.0
+ORDER BY id;
+ id |         val          
+----+----------------------
+  6 | 1.000000000000000000
+(1 row)
+
+-- Range query on large precision
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_large_precision_test
+WHERE id @@@ paradedb.all()
+AND val > 0 AND val < 2
+ORDER BY id;
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_large_precision_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_large_precision_test
+         Output: id, val
+         Table: numeric_large_precision_test
+         Index: numeric_large_precision_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"2"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_large_precision_test
+WHERE id @@@ paradedb.all()
+AND val > 0 AND val < 2
+ORDER BY id;
+ id |         val          
+----+----------------------
+  5 | 0.000000000000000001
+  6 | 1.000000000000000000
+  7 | 0.500000000000000000
+(3 rows)
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric_large_precision_test
+WHERE val > 0 AND val < 2
+ORDER BY id;
+ id |         val          
+----+----------------------
+  5 | 0.000000000000000001
+  6 | 1.000000000000000000
+  7 | 0.500000000000000000
+(3 rows)
+
+-- Test negative range
+SELECT * FROM numeric_large_precision_test
+WHERE id @@@ paradedb.all()
+AND val < 0
+ORDER BY id;
+ id |                  val                   
+----+----------------------------------------
+  4 | -123456789012345678.123456789012345678
+(1 row)
+
+DROP TABLE numeric_large_precision_test;
+-- Test 9.2: NUMERIC(38,10) - Near PostgreSQL's typical max
+CREATE TABLE numeric_very_large_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(38, 10)
+);
+INSERT INTO numeric_very_large_test (val) VALUES
+    (1234567890123456789012345678.1234567890),   -- id=1: large integer part
+    (9999999999999999999999999999.9999999999),   -- id=2: max value
+    (-9999999999999999999999999999.9999999999),  -- id=3: min value
+    (0.0000000001),                              -- id=4: smallest decimal
+    (42.1234567890);                             -- id=5: normal value
+CREATE INDEX numeric_very_large_idx ON numeric_very_large_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query on very large precision
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_very_large_test
+WHERE id @@@ paradedb.all()
+AND val = 42.1234567890
+ORDER BY id;
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_very_large_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_very_large_test
+         Output: id, val
+         Table: numeric_very_large_test
+         Index: numeric_very_large_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"42.123456789","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_very_large_test
+WHERE id @@@ paradedb.all()
+AND val = 42.1234567890
+ORDER BY id;
+ id |      val      
+----+---------------
+  5 | 42.1234567890
+(1 row)
+
+-- Range query spanning positive and negative
+SELECT * FROM numeric_very_large_test
+WHERE id @@@ paradedb.all()
+AND val >= -100 AND val <= 100
+ORDER BY id;
+ id |      val      
+----+---------------
+  4 |  0.0000000001
+  5 | 42.1234567890
+(2 rows)
+
+DROP TABLE numeric_very_large_test;
+-- Test 9.3: Unbounded NUMERIC (no precision/scale)
+CREATE TABLE numeric_unbounded_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC
+);
+INSERT INTO numeric_unbounded_test (val) VALUES
+    (12345678901234567890123456789012345678901234567890),                    -- id=1: huge integer
+    (0.00000000000000000000000000000000000000000000000001),                  -- id=2: tiny decimal
+    (123456789.123456789123456789123456789123456789),                        -- id=3: mixed
+    (-99999999999999999999999999999999999999999999999999.9999999999999999),  -- id=4: large negative
+    (1),                                                                     -- id=5: one
+    (0),                                                                     -- id=6: zero
+    (-1),                                                                    -- id=7: negative one
+    (3.14159265358979323846264338327950288419716939937510);                 -- id=8: pi with many digits
+CREATE INDEX numeric_unbounded_idx ON numeric_unbounded_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query exact match on unbounded
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_unbounded_test
+WHERE id @@@ paradedb.all()
+AND val = 1
+ORDER BY id;
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_unbounded_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_unbounded_test
+         Output: id, val
+         Table: numeric_unbounded_test
+         Index: numeric_unbounded_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"1","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_unbounded_test
+WHERE id @@@ paradedb.all()
+AND val = 1
+ORDER BY id;
+ id | val 
+----+-----
+  5 |   1
+(1 row)
+
+-- Range query on unbounded
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_unbounded_test
+WHERE id @@@ paradedb.all()
+AND val >= -2 AND val <= 5
+ORDER BY id;
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_unbounded_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_unbounded_test
+         Output: id, val
+         Table: numeric_unbounded_test
+         Index: numeric_unbounded_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-2"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"5"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_unbounded_test
+WHERE id @@@ paradedb.all()
+AND val >= -2 AND val <= 5
+ORDER BY id;
+ id |                         val                          
+----+------------------------------------------------------
+  2 | 0.00000000000000000000000000000000000000000000000001
+  5 |                                                    1
+  6 |                                                    0
+  7 |                                                   -1
+  8 |  3.1415926535897932384626433832795028841971693993751
+(5 rows)
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric_unbounded_test
+WHERE val >= -2 AND val <= 5
+ORDER BY id;
+ id |                         val                          
+----+------------------------------------------------------
+  2 | 0.00000000000000000000000000000000000000000000000001
+  5 |                                                    1
+  6 |                                                    0
+  7 |                                                   -1
+  8 | 3.14159265358979323846264338327950288419716939937510
+(5 rows)
+
+-- Test pi approximation range
+SELECT * FROM numeric_unbounded_test
+WHERE id @@@ paradedb.all()
+AND val > 3.14 AND val < 3.15
+ORDER BY id;
+ id |                         val                         
+----+-----------------------------------------------------
+  8 | 3.1415926535897932384626433832795028841971693993751
+(1 row)
+
+DROP TABLE numeric_unbounded_test;
+-- Test 9.4: High-scale NUMERIC (many decimal places)
+CREATE TABLE numeric_high_scale_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(40, 35)  -- 40 total digits, 35 after decimal point
+);
+INSERT INTO numeric_high_scale_test (val) VALUES
+    (1.12345678901234567890123456789012345),    -- id=1: full precision decimal
+    (2.99999999999999999999999999999999999),    -- id=2: many 9s
+    (0.00000000000000000000000000000000001),    -- id=3: smallest positive
+    (-1.12345678901234567890123456789012345),   -- id=4: negative
+    (9999.9);                                    -- id=5: larger integer part
+CREATE INDEX numeric_high_scale_idx ON numeric_high_scale_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query on high-scale numeric
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_high_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 0 AND val < 3
+ORDER BY id;
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_high_scale_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_high_scale_test
+         Output: id, val
+         Table: numeric_high_scale_test
+         Index: numeric_high_scale_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"3"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM numeric_high_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 0 AND val < 3
+ORDER BY id;
+ id |                  val                  
+----+---------------------------------------
+  1 | 1.12345678901234567890123456789012345
+  2 | 2.99999999999999999999999999999999999
+  3 | 0.00000000000000000000000000000000001
+(3 rows)
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric_high_scale_test
+WHERE val > 0 AND val < 3
+ORDER BY id;
+ id |                  val                  
+----+---------------------------------------
+  1 | 1.12345678901234567890123456789012345
+  2 | 2.99999999999999999999999999999999999
+  3 | 0.00000000000000000000000000000000001
+(3 rows)
+
+DROP TABLE numeric_high_scale_test;
+-- Test 9.5: Aggregates on unbounded NUMERIC
+CREATE TABLE numeric_unbounded_agg_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    amount NUMERIC
+);
+INSERT INTO numeric_unbounded_agg_test (category, amount) VALUES
+    ('A', 100.123456789012345678901234567890),
+    ('A', 200.987654321098765432109876543210),
+    ('B', 50.111111111111111111111111111111),
+    ('B', 75.222222222222222222222222222222),
+    ('B', 25.333333333333333333333333333333);
+CREATE INDEX numeric_unbounded_agg_idx ON numeric_unbounded_agg_test USING bm25 (
+    id, category, amount
+) WITH (key_field = 'id');
+-- SUM aggregate on unbounded NUMERIC
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, SUM(amount) as total
+FROM numeric_unbounded_agg_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, sum(amount)
+   Group Key: numeric_unbounded_agg_test.category
+   ->  Sort
+         Output: category, amount
+         Sort Key: numeric_unbounded_agg_test.category
+         ->  Custom Scan (ParadeDB Scan) on public.numeric_unbounded_agg_test
+               Output: category, amount
+               Table: numeric_unbounded_agg_test
+               Index: numeric_unbounded_agg_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Full Index Scan: true
+               Tantivy Query: {"with_index":{"query":"all"}}
+(14 rows)
+
+SELECT category, SUM(amount) as total
+FROM numeric_unbounded_agg_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+ category |               total                
+----------+------------------------------------
+ A        | 301.111111110111111111011111111100
+ B        | 150.666666666666666666666666666666
+(2 rows)
+
+-- Verify with PostgreSQL
+SELECT category, SUM(amount) as total
+FROM numeric_unbounded_agg_test
+GROUP BY category
+ORDER BY category;
+ category |               total                
+----------+------------------------------------
+ A        | 301.111111110111111111011111111100
+ B        | 150.666666666666666666666666666666
+(2 rows)
+
+DROP TABLE numeric_unbounded_agg_test;
+-- Test 9.6: Mix of bounded high-precision and unbounded in same table
+CREATE TABLE numeric_mixed_precision_test (
+    id SERIAL PRIMARY KEY,
+    bounded_high NUMERIC(30, 15),    -- bounded but > 18 precision
+    unbounded NUMERIC                 -- unlimited
+);
+INSERT INTO numeric_mixed_precision_test (bounded_high, unbounded) VALUES
+    (123456789012345.123456789012345, 999999999999999999999999999999.999999),
+    (1.5, 2.5),
+    (100.0, 100.0),
+    (-50.123456789012345, -75.987654321);
+CREATE INDEX numeric_mixed_precision_idx ON numeric_mixed_precision_test USING bm25 (
+    id, bounded_high, unbounded
+) WITH (key_field = 'id');
+-- Query on bounded high-precision
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_precision_test
+WHERE id @@@ paradedb.all()
+AND bounded_high = 100.0
+ORDER BY id;
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, bounded_high, unbounded
+   Sort Key: numeric_mixed_precision_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_precision_test
+         Output: id, bounded_high, unbounded
+         Table: numeric_mixed_precision_test
+         Index: numeric_mixed_precision_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"bounded_high","value":"100","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_mixed_precision_test
+WHERE id @@@ paradedb.all()
+AND bounded_high = 100.0
+ORDER BY id;
+ id |    bounded_high     | unbounded 
+----+---------------------+-----------
+  3 | 100.000000000000000 |     100.0
+(1 row)
+
+-- Query on unbounded
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_precision_test
+WHERE id @@@ paradedb.all()
+AND unbounded = 100.0
+ORDER BY id;
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, bounded_high, unbounded
+   Sort Key: numeric_mixed_precision_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_precision_test
+         Output: id, bounded_high, unbounded
+         Table: numeric_mixed_precision_test
+         Index: numeric_mixed_precision_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"unbounded","value":"100","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_mixed_precision_test
+WHERE id @@@ paradedb.all()
+AND unbounded = 100.0
+ORDER BY id;
+ id |    bounded_high     | unbounded 
+----+---------------------+-----------
+  3 | 100.000000000000000 |     100.0
+(1 row)
+
+-- Combined query
+SELECT * FROM numeric_mixed_precision_test
+WHERE id @@@ paradedb.all()
+AND bounded_high > 0 AND unbounded > 0
+ORDER BY id;
+ id |          bounded_high           |               unbounded               
+----+---------------------------------+---------------------------------------
+  1 | 123456789012345.123456789012345 | 999999999999999999999999999999.999999
+  2 |               1.500000000000000 |                                   2.5
+  3 |             100.000000000000000 |                                 100.0
+(3 rows)
+
+DROP TABLE numeric_mixed_precision_test;
+-- ============================================================================
+-- PART 10: Backwards Compatibility Documentation
+-- ============================================================================
+-- This section documents how backwards compatibility is maintained for indexes
+-- created before the Numeric64/NumericBytes storage types were introduced.
+--
+-- LEGACY BEHAVIOR (before this feature):
+-- - NUMERIC columns were stored as SearchFieldType::F64(NUMERICOID)
+-- - Values were stored as f64 in tantivy, losing precision beyond ~15 digits
+--
+-- NEW BEHAVIOR (after this feature):
+-- - NUMERIC(p,s) with p <= 18: stored as SearchFieldType::Numeric64(NUMERICOID, scale)
+--   Values are stored as I64 fixed-point, preserving exact decimal precision
+-- - NUMERIC with p > 18 or unbounded: stored as SearchFieldType::NumericBytes(NUMERICOID)
+--   Values are stored as lexicographically sortable bytes
+--
+-- BACKWARDS COMPATIBILITY:
+-- The implementation is backwards compatible because:
+-- 1. SearchFieldType is serialized in the index schema using Serde
+-- 2. Old variants (F64) deserialize correctly even after new variants are added
+-- 3. Query code branches on SearchFieldType, handling all three cases:
+--    - SearchFieldType::Numeric64 -> scale to I64 fixed-point
+--    - SearchFieldType::NumericBytes -> convert to sortable bytes
+--    - SearchFieldType::F64 -> convert to f64 (handles legacy indexes)
+--
+-- This means:
+-- - Old indexes with F64 storage remain queryable
+-- - Queries on old indexes use f64 comparison (same as before)
+-- - New indexes benefit from improved precision
+-- - No reindexing is required for old indexes (they just keep using f64)
+--
+-- Helper methods added to SearchFieldType:
+-- - is_legacy_numeric(): Returns true for F64(NUMERICOID)
+-- - is_any_numeric(): Returns true for Numeric64, NumericBytes, or legacy F64
+-- ============================================================================
+-- Test 10.1: Document that F64 storage still works for numeric-like queries
+-- This test uses FLOAT8 (which uses F64 storage) to demonstrate that
+-- the F64 query path works correctly - same path used by legacy NUMERIC indexes
+CREATE TABLE float8_test (
+    id SERIAL PRIMARY KEY,
+    value FLOAT8
+);
+INSERT INTO float8_test (value) VALUES
+    (100.5),
+    (200.75),
+    (300.0),
+    (400.25),
+    (500.99);
+CREATE INDEX float8_idx ON float8_test USING bm25 (
+    id, value
+) WITH (key_field = 'id');
+-- Equality query on F64 field
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM float8_test
+WHERE id @@@ paradedb.all()
+AND value = 100.5
+ORDER BY id;
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, value
+   Sort Key: float8_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.float8_test
+         Output: id, value
+         Table: float8_test
+         Index: float8_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, value
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":100.5,"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM float8_test
+WHERE id @@@ paradedb.all()
+AND value = 100.5
+ORDER BY id;
+ id | value 
+----+-------
+  1 | 100.5
+(1 row)
+
+-- Range query on F64 field
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM float8_test
+WHERE id @@@ paradedb.all()
+AND value > 200.0 AND value < 500.0
+ORDER BY id;
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, value
+   Sort Key: float8_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.float8_test
+         Output: id, value
+         Table: float8_test
+         Index: float8_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, value
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"excluded":200.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"excluded":500.0},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM float8_test
+WHERE id @@@ paradedb.all()
+AND value > 200.0 AND value < 500.0
+ORDER BY id;
+ id | value  
+----+--------
+  2 | 200.75
+  3 |    300
+  4 | 400.25
+(3 rows)
+
+DROP TABLE float8_test;
+-- ============================================================================
+-- PART 11: Edge Cases
+-- ============================================================================
+-- Tests for edge cases: scientific notation, very small decimals, maximum scale
+-- ----------------------------------------------------------------------------
+-- TEST: Scientific Notation
+-- ----------------------------------------------------------------------------
+-- PostgreSQL NUMERIC accepts scientific notation in input
+CREATE TABLE sci_notation_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(18,2)
+);
+INSERT INTO sci_notation_test (val) VALUES
+    (1.23e10),   -- 12300000000.00
+    (4.56e5),    -- 456000.00
+    (7.89e-3),   -- 0.01 (rounded to 2 decimal places)
+    (1e6),       -- 1000000.00
+    (2.5e3);     -- 2500.00
+CREATE INDEX sci_notation_idx ON sci_notation_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query with scientific notation comparison
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM sci_notation_test
+WHERE id @@@ paradedb.all()
+AND val > 1e6
+ORDER BY id;
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: sci_notation_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.sci_notation_test
+         Output: id, val
+         Table: sci_notation_test
+         Index: sci_notation_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"1000000"},"upper_bound":null,"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM sci_notation_test
+WHERE id @@@ paradedb.all()
+AND val > 1e6
+ORDER BY id;
+ id |      val       
+----+----------------
+  1 | 12300000000.00
+(1 row)
+
+-- Query for exact match (scientific notation input)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM sci_notation_test
+WHERE id @@@ paradedb.all()
+AND val = 2.5e3
+ORDER BY id;
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: sci_notation_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.sci_notation_test
+         Output: id, val
+         Table: sci_notation_test
+         Index: sci_notation_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"2500","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM sci_notation_test
+WHERE id @@@ paradedb.all()
+AND val = 2.5e3
+ORDER BY id;
+ id |   val   
+----+---------
+  5 | 2500.00
+(1 row)
+
+DROP TABLE sci_notation_test;
+-- ----------------------------------------------------------------------------
+-- TEST: Very Small Decimals (High Scale)
+-- ----------------------------------------------------------------------------
+-- Test precision preservation with many decimal places
+CREATE TABLE small_decimal_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(18,16)
+);
+INSERT INTO small_decimal_test (val) VALUES
+    (0.0000000000000001),  -- 1e-16
+    (0.0000000000000002),  -- 2e-16
+    (0.0000000000000010),  -- 1e-15
+    (0.0000000000000100),  -- 1e-14
+    (0.1234567890123456);  -- 16 decimal places
+CREATE INDEX small_decimal_idx ON small_decimal_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Exact match on very small value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM small_decimal_test
+WHERE id @@@ paradedb.all()
+AND val = 0.0000000000000001
+ORDER BY id;
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: small_decimal_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.small_decimal_test
+         Output: id, val
+         Table: small_decimal_test
+         Index: small_decimal_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0.0000000000000001","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM small_decimal_test
+WHERE id @@@ paradedb.all()
+AND val = 0.0000000000000001
+ORDER BY id;
+ id |        val         
+----+--------------------
+  1 | 0.0000000000000001
+(1 row)
+
+-- Range query on very small values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM small_decimal_test
+WHERE id @@@ paradedb.all()
+AND val > 0.0000000000000001 AND val < 0.0000000000000100
+ORDER BY id;
+                                                                                                                                                  QUERY PLAN                                                                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: small_decimal_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.small_decimal_test
+         Output: id, val
+         Table: small_decimal_test
+         Index: small_decimal_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0.0000000000000001"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.00000000000001"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM small_decimal_test
+WHERE id @@@ paradedb.all()
+AND val > 0.0000000000000001 AND val < 0.0000000000000100
+ORDER BY id;
+ id |        val         
+----+--------------------
+  2 | 0.0000000000000002
+  3 | 0.0000000000000010
+(2 rows)
+
+DROP TABLE small_decimal_test;
+-- ----------------------------------------------------------------------------
+-- TEST: Maximum Scale (NUMERIC(18,18) - all decimal places)
+-- ----------------------------------------------------------------------------
+-- Edge case: precision equals scale (value must be between -1 and 1)
+CREATE TABLE max_scale_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(18,18)
+);
+INSERT INTO max_scale_test (val) VALUES
+    (0.000000000000000001),  -- smallest positive
+    (0.123456789012345678),  -- 18 decimal places
+    (0.999999999999999999),  -- near 1
+    (-0.500000000000000000), -- negative
+    (0.0);                   -- zero
+CREATE INDEX max_scale_idx ON max_scale_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Exact match
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM max_scale_test
+WHERE id @@@ paradedb.all()
+AND val = 0.123456789012345678
+ORDER BY id;
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: max_scale_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.max_scale_test
+         Output: id, val
+         Table: max_scale_test
+         Index: max_scale_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0.123456789012345678","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM max_scale_test
+WHERE id @@@ paradedb.all()
+AND val = 0.123456789012345678
+ORDER BY id;
+ id |         val          
+----+----------------------
+  2 | 0.123456789012345678
+(1 row)
+
+-- Range query on max scale values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM max_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 0.0 AND val < 0.5
+ORDER BY id;
+                                                                                                                                   QUERY PLAN                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: max_scale_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.max_scale_test
+         Output: id, val
+         Table: max_scale_test
+         Index: max_scale_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.5"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM max_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 0.0 AND val < 0.5
+ORDER BY id;
+ id |         val          
+----+----------------------
+  1 | 0.000000000000000001
+  2 | 0.123456789012345678
+(2 rows)
+
+-- Aggregate on max scale
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(val), AVG(val), MIN(val), MAX(val)
+FROM max_scale_test
+WHERE id @@@ paradedb.all();
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Aggregate
+   Output: sum(val), avg(val), min(val), max(val)
+   ->  Custom Scan (ParadeDB Scan) on public.max_scale_test
+         Output: val
+         Table: max_scale_test
+         Index: max_scale_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: val
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
+
+SELECT SUM(val), AVG(val), MIN(val), MAX(val)
+FROM max_scale_test
+WHERE id @@@ paradedb.all();
+         sum          |          avg           |          min          |         max          
+----------------------+------------------------+-----------------------+----------------------
+ 0.623456789012345678 | 0.12469135780246913560 | -0.500000000000000000 | 0.999999999999999999
+(1 row)
+
+DROP TABLE max_scale_test;
+-- ----------------------------------------------------------------------------
+-- TEST: Negative Scale (NUMERIC(5,-3) - rounds to nearest 1000)
+-- ----------------------------------------------------------------------------
+-- PostgreSQL allows negative scale, which rounds values to the left of decimal point.
+-- NUMERIC(5,-3) means: 5 non-rounded digits, rounded to nearest 1000.
+-- This is documented at: https://www.postgresql.org/docs/current/datatype-numeric.html
+-- "a column declared as NUMERIC(2, -3) will round values to the nearest thousand"
+CREATE TABLE negative_scale_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(5, -3)
+);
+-- Values are rounded to nearest 1000
+INSERT INTO negative_scale_test (val) VALUES
+    (12000),
+    (15000),
+    (18000),
+    (99000),   -- max value with 5 digits
+    (-12000),  -- negative
+    (0);       -- zero
+CREATE INDEX negative_scale_idx ON negative_scale_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Exact match
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+AND val = 12000
+ORDER BY id;
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: negative_scale_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.negative_scale_test
+         Output: id, val
+         Table: negative_scale_test
+         Index: negative_scale_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"12000","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+AND val = 12000
+ORDER BY id;
+ id |  val  
+----+-------
+  1 | 12000
+(1 row)
+
+-- Range query
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 10000 AND val < 20000
+ORDER BY id;
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: negative_scale_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.negative_scale_test
+         Output: id, val
+         Table: negative_scale_test
+         Index: negative_scale_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"10000"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"20000"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 10000 AND val < 20000
+ORDER BY id;
+ id |  val  
+----+-------
+  1 | 12000
+  2 | 15000
+  3 | 18000
+(3 rows)
+
+-- Negative value query
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+AND val = -12000
+ORDER BY id;
+ id |  val   
+----+--------
+  5 | -12000
+(1 row)
+
+-- Aggregate on negative scale
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(val), AVG(val), MIN(val), MAX(val)
+FROM negative_scale_test
+WHERE id @@@ paradedb.all();
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Aggregate
+   Output: sum(val), avg(val), min(val), max(val)
+   ->  Custom Scan (ParadeDB Scan) on public.negative_scale_test
+         Output: val
+         Table: negative_scale_test
+         Index: negative_scale_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: val
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
+
+SELECT SUM(val), AVG(val), MIN(val), MAX(val)
+FROM negative_scale_test
+WHERE id @@@ paradedb.all();
+  sum   |        avg         |  min   |  max  
+--------+--------------------+--------+-------
+ 132000 | 22000.000000000000 | -12000 | 99000
+(1 row)
+
+-- Verify all rows
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+ id |  val   
+----+--------
+  1 |  12000
+  2 |  15000
+  3 |  18000
+  4 |  99000
+  5 | -12000
+  6 |      0
+(6 rows)
+
+DROP TABLE negative_scale_test;
+-- ----------------------------------------------------------------------------
+-- TEST: Special Values (NaN, Infinity, -Infinity)
+-- ----------------------------------------------------------------------------
+-- PostgreSQL NUMERIC supports special values: NaN, Infinity, -Infinity
+-- (See: https://www.postgresql.org/docs/current/datatype-numeric.html)
+--
+-- Key constraints from PostgreSQL documentation:
+-- - "an infinity can only be stored in an unconstrained numeric column,
+--    because it notionally exceeds any finite precision limit"
+-- - NaN is treated as equal to itself and greater than all non-NaN values
+--
+-- Actual behavior (verified by tests below):
+-- - Infinity/-Infinity: ONLY allowed in unbounded NUMERIC (per docs)
+-- - NaN: ALLOWED in both bounded and unbounded NUMERIC (not explicitly restricted)
+-- ----------------------------------------------------------------------------
+-- TEST: NaN with bounded NUMERIC(18,2) - Numeric64 storage
+-- ----------------------------------------------------------------------------
+-- Test if NaN alone (without Infinity) works with bounded NUMERIC
+CREATE TABLE nan_numeric64_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(18,2)
+);
+-- Try to insert NaN into bounded NUMERIC
+-- (PostgreSQL may or may not allow this - documenting actual behavior)
+INSERT INTO nan_numeric64_test (val) VALUES
+    (100.00),
+    (200.00),
+    ('NaN'::numeric),
+    (300.00);
+-- If insert succeeded, create index and test queries
+CREATE INDEX nan_numeric64_idx ON nan_numeric64_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query for NaN in Numeric64 storage
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val = 'NaN'::numeric
+ORDER BY id;
+ id | val 
+----+-----
+  3 | NaN
+(1 row)
+
+-- Verify all rows
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+ id |  val   
+----+--------
+  1 | 100.00
+  2 | 200.00
+  3 |    NaN
+  4 | 300.00
+(4 rows)
+
+-- Range query tests for NaN ordering in Numeric64 (I64 storage)
+-- NaN is encoded as i64::MAX, so it sorts correctly as greater than all real numbers.
+-- Test: val > 200 should include NaN (since NaN > all real numbers)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val > 200.00
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+         Output: id, val
+         Table: nan_numeric64_test
+         Index: nan_numeric64_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null,"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val > 200.00
+ORDER BY id;
+ id |  val   
+----+--------
+  3 |    NaN
+  4 | 300.00
+(2 rows)
+
+-- Test: val < 200 should NOT include NaN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val < 200.00
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+         Output: id, val
+         Table: nan_numeric64_test
+         Index: nan_numeric64_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val < 200.00
+ORDER BY id;
+ id |  val   
+----+--------
+  1 | 100.00
+(1 row)
+
+-- Test: val >= 300 should include NaN (since NaN > 300)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val >= 300.00
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+         Output: id, val
+         Table: nan_numeric64_test
+         Index: nan_numeric64_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null,"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val >= 300.00
+ORDER BY id;
+ id |  val   
+----+--------
+  3 |    NaN
+  4 | 300.00
+(2 rows)
+
+-- Test: val <= 300 should NOT include NaN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val <= 300.00
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+         Output: id, val
+         Table: nan_numeric64_test
+         Index: nan_numeric64_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val <= 300.00
+ORDER BY id;
+ id |  val   
+----+--------
+  1 | 100.00
+  2 | 200.00
+  4 | 300.00
+(3 rows)
+
+-- Test: val BETWEEN should NOT include NaN (NaN is outside any finite range)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.00 AND 300.00
+ORDER BY id;
+                                                                                                                                    QUERY PLAN                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+         Output: id, val
+         Table: nan_numeric64_test
+         Index: nan_numeric64_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.00 AND 300.00
+ORDER BY id;
+ id |  val   
+----+--------
+  1 | 100.00
+  2 | 200.00
+  4 | 300.00
+(3 rows)
+
+DROP TABLE nan_numeric64_test;
+-- ----------------------------------------------------------------------------
+-- TEST: NaN with bounded NUMERIC(30,10) - NumericBytes storage
+-- ----------------------------------------------------------------------------
+-- Test if NaN alone works with bounded high-precision NUMERIC
+CREATE TABLE nan_numeric_bytes_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(30,10)
+);
+-- Try to insert NaN into bounded NUMERIC
+INSERT INTO nan_numeric_bytes_test (val) VALUES
+    (100.0000000000),
+    (200.0000000000),
+    ('NaN'::numeric),
+    (300.0000000000);
+-- If insert succeeded, create index and test queries
+CREATE INDEX nan_numeric_bytes_idx ON nan_numeric_bytes_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query for NaN in NumericBytes storage
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val = 'NaN'::numeric
+ORDER BY id;
+ id | val 
+----+-----
+  3 | NaN
+(1 row)
+
+-- Verify all rows
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+ id |      val       
+----+----------------
+  1 | 100.0000000000
+  2 | 200.0000000000
+  3 |            NaN
+  4 | 300.0000000000
+(4 rows)
+
+-- Range query tests for NaN ordering in NumericBytes (hex-encoded string storage)
+-- NumericBytes correctly orders NaN as greater than all real numbers because
+-- the decimal-bytes encoding produces bytes that sort lexicographically correct.
+-- Test: val > 200 should include NaN (CORRECT - NaN is greater than all real numbers)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val > 200.0000000000
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric_bytes_test
+         Output: id, val
+         Table: nan_numeric_bytes_test
+         Index: nan_numeric_bytes_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null,"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val > 200.0000000000
+ORDER BY id;
+ id |      val       
+----+----------------
+  3 |            NaN
+  4 | 300.0000000000
+(2 rows)
+
+-- Test: val < 200 should NOT include NaN (CORRECT)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val < 200.0000000000
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric_bytes_test
+         Output: id, val
+         Table: nan_numeric_bytes_test
+         Index: nan_numeric_bytes_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val < 200.0000000000
+ORDER BY id;
+ id |      val       
+----+----------------
+  1 | 100.0000000000
+(1 row)
+
+-- Test: val BETWEEN should NOT include NaN (CORRECT - NaN is outside finite ranges)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.0000000000 AND 300.0000000000
+ORDER BY id;
+                                                                                                                                    QUERY PLAN                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric_bytes_test
+         Output: id, val
+         Table: nan_numeric_bytes_test
+         Index: nan_numeric_bytes_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.0000000000 AND 300.0000000000
+ORDER BY id;
+ id |      val       
+----+----------------
+  1 | 100.0000000000
+  2 | 200.0000000000
+  4 | 300.0000000000
+(3 rows)
+
+DROP TABLE nan_numeric_bytes_test;
+-- ----------------------------------------------------------------------------
+-- TEST: All special values with unbounded NUMERIC
+-- ----------------------------------------------------------------------------
+-- Unbounded NUMERIC is required for Infinity/-Infinity per PostgreSQL docs.
+-- This uses NumericBytes storage.
+CREATE TABLE special_values_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC  -- unbounded NUMERIC required for Infinity values
+);
+-- Insert regular values and special values
+INSERT INTO special_values_test (val) VALUES
+    (100),
+    (200),
+    ('NaN'::numeric),
+    ('Infinity'::numeric),
+    ('-Infinity'::numeric),
+    (300),
+    (-100),
+    (0);
+CREATE INDEX special_values_idx ON special_values_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Query for regular value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = 100
+ORDER BY id;
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"100","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = 100
+ORDER BY id;
+ id | val 
+----+-----
+  1 | 100
+(1 row)
+
+-- Query for NaN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = 'NaN'::numeric
+ORDER BY id;
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"NaN","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = 'NaN'::numeric
+ORDER BY id;
+ id | val 
+----+-----
+  3 | NaN
+(1 row)
+
+-- Query for Infinity
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = 'Infinity'::numeric
+ORDER BY id;
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"Infinity","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = 'Infinity'::numeric
+ORDER BY id;
+ id |   val    
+----+----------
+  4 | Infinity
+(1 row)
+
+-- Query for -Infinity
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = '-Infinity'::numeric
+ORDER BY id;
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"-Infinity","is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = '-Infinity'::numeric
+ORDER BY id;
+ id |    val    
+----+-----------
+  5 | -Infinity
+(1 row)
+
+-- Range query (should only return finite values in range)
+-- Per PostgreSQL: NaN is greater than all non-NaN values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val > 50 AND val < 250
+ORDER BY id;
+                                                                                                                                   QUERY PLAN                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"50"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"250"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val > 50 AND val < 250
+ORDER BY id;
+ id | val 
+----+-----
+  1 | 100
+  2 | 200
+(2 rows)
+
+-- Greater than query - Infinity should be greater than finite values
+-- NaN should also appear (PostgreSQL: NaN > all non-NaN)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val > 250
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"250"},"upper_bound":null,"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val > 250
+ORDER BY id;
+ id |   val    
+----+----------
+  3 |      NaN
+  4 | Infinity
+  6 |      300
+(3 rows)
+
+-- Less than query - -Infinity should be less than finite values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val < -50
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"-50"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val < -50
+ORDER BY id;
+ id |    val    
+----+-----------
+  5 | -Infinity
+  7 |      -100
+(2 rows)
+
+-- Query for zero
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = 0
+ORDER BY id;
+ id | val 
+----+-----
+  8 |   0
+(1 row)
+
+-- Query for negative value
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = -100
+ORDER BY id;
+ id | val  
+----+------
+  7 | -100
+(1 row)
+
+-- Verify all rows can be retrieved
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+ id |    val    
+----+-----------
+  1 |       100
+  2 |       200
+  3 |       NaN
+  4 |  Infinity
+  5 | -Infinity
+  6 |       300
+  7 |      -100
+  8 |         0
+(8 rows)
+
+-- ----------------------------------------------------------------------------
+-- Additional NaN ordering tests for unbounded NUMERIC (NumericBytes storage)
+-- NumericBytes uses lexicographically sortable bytes where NaN sorts highest.
+-- ----------------------------------------------------------------------------
+-- Test: val >= 300 should include NaN and Infinity (NaN > Infinity > 300)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= 300
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null,"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= 300
+ORDER BY id;
+ id |   val    
+----+----------
+  3 |      NaN
+  4 | Infinity
+  6 |      300
+(3 rows)
+
+-- Test: val <= 200 should NOT include NaN or Infinity
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 200
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"200"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 200
+ORDER BY id;
+ id |    val    
+----+-----------
+  1 |       100
+  2 |       200
+  5 | -Infinity
+  7 |      -100
+  8 |         0
+(5 rows)
+
+-- Test: val >= -Infinity should include everything (all values >= -Infinity)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= '-Infinity'::numeric
+ORDER BY id;
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-Infinity"},"upper_bound":null,"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= '-Infinity'::numeric
+ORDER BY id;
+ id |    val    
+----+-----------
+  1 |       100
+  2 |       200
+  3 |       NaN
+  4 |  Infinity
+  5 | -Infinity
+  6 |       300
+  7 |      -100
+  8 |         0
+(8 rows)
+
+-- Test: val <= Infinity should include everything EXCEPT NaN (NaN > Infinity)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 'Infinity'::numeric
+ORDER BY id;
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"Infinity"},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 'Infinity'::numeric
+ORDER BY id;
+ id |    val    
+----+-----------
+  1 |       100
+  2 |       200
+  4 |  Infinity
+  5 | -Infinity
+  6 |       300
+  7 |      -100
+  8 |         0
+(7 rows)
+
+DROP TABLE special_values_test;
+-- ----------------------------------------------------------------------------
+-- TEST: NUMERIC(p) without explicit scale - scale defaults to 0
+-- ----------------------------------------------------------------------------
+-- PostgreSQL documentation states:
+-- "If the scale of a value to be stored is greater than the declared scale
+--  of the column, the system will round the value to the specified number
+--  of fractional digits."
+-- When scale is not specified, it defaults to 0, meaning values are integers.
+-- See: https://www.postgresql.org/docs/current/datatype-numeric.html
+-- Test with NUMERIC(10) - precision only, scale defaults to 0
+CREATE TABLE numeric_precision_only_test (
+    id SERIAL PRIMARY KEY,
+    val_small NUMERIC(5),      -- precision 5, scale 0 (implicit)
+    val_large NUMERIC(15)      -- precision 15, scale 0 (implicit)
+);
+-- Insert integer values (scale 0 means integers)
+INSERT INTO numeric_precision_only_test (val_small, val_large) VALUES
+    (100, 1000000000000),
+    (200, 2000000000000),
+    (12345, 123456789012345),  -- max 5-digit / 15-digit integers
+    (-500, -500000000000),     -- negative integers
+    (0, 0);                     -- zero
+-- Insert values with decimals - they should be rounded to integers
+INSERT INTO numeric_precision_only_test (val_small, val_large) VALUES
+    (123, 999999999999);  -- Will be stored as-is (already integers)
+-- This shows PostgreSQL rounds to scale 0:
+-- (99.9 becomes 100, 12345.678 rounds to 12346)
+INSERT INTO numeric_precision_only_test (val_small, val_large) VALUES
+    (100, 12346);  -- Pre-rounded values
+CREATE INDEX numeric_prec_only_idx ON numeric_precision_only_test USING bm25 (
+    id, val_small, val_large
+) WITH (key_field = 'id');
+-- Test: Exact match on NUMERIC(5) - should use Numeric64 storage with scale=0
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all()
+AND val_small = 100
+ORDER BY id;
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val_small, val_large
+   Sort Key: numeric_precision_only_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_only_test
+         Output: id, val_small, val_large
+         Table: numeric_precision_only_test
+         Index: numeric_prec_only_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val_small","value":"100","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all()
+AND val_small = 100
+ORDER BY id;
+ id | val_small |   val_large   
+----+-----------+---------------
+  1 |       100 | 1000000000000
+  7 |       100 |         12346
+(2 rows)
+
+-- Test: Range query on NUMERIC(15) - also Numeric64 with scale=0
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all()
+AND val_large > 100000000000 AND val_large < 1500000000000
+ORDER BY id;
+                                                                                                                                                   QUERY PLAN                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val_small, val_large
+   Sort Key: numeric_precision_only_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_only_test
+         Output: id, val_small, val_large
+         Table: numeric_precision_only_test
+         Index: numeric_prec_only_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val_large","lower_bound":{"excluded":"100000000000"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val_large","lower_bound":null,"upper_bound":{"excluded":"1500000000000"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all()
+AND val_large > 100000000000 AND val_large < 1500000000000
+ORDER BY id;
+ id | val_small |   val_large   
+----+-----------+---------------
+  1 |       100 | 1000000000000
+  6 |       123 |  999999999999
+(2 rows)
+
+-- Test: Aggregate on NUMERIC(p) columns
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
+FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all();
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Aggregate
+   Output: sum(val_small), avg(val_small), min(val_small), max(val_small)
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_only_test
+         Output: val_small
+         Table: numeric_precision_only_test
+         Index: numeric_prec_only_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: val_small
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
+
+SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
+FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all();
+  sum  |          avg          | min  |  max  
+-------+-----------------------+------+-------
+ 12368 | 1766.8571428571428571 | -500 | 12345
+(1 row)
+
+SELECT SUM(val_large), AVG(val_large), MIN(val_large), MAX(val_large)
+FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all();
+       sum       |         avg         |      min      |       max       
+-----------------+---------------------+---------------+-----------------
+ 126956789024690 | 18136684146384.2857 | -500000000000 | 123456789012345
+(1 row)
+
+-- Verify all rows
+SELECT * FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+ id | val_small |    val_large    
+----+-----------+-----------------
+  1 |       100 |   1000000000000
+  2 |       200 |   2000000000000
+  3 |     12345 | 123456789012345
+  4 |      -500 |   -500000000000
+  5 |         0 |               0
+  6 |       123 |    999999999999
+  7 |       100 |           12346
+(7 rows)
+
+DROP TABLE numeric_precision_only_test;
+-- ----------------------------------------------------------------------------
+-- TEST: Compare NUMERIC(p) vs NUMERIC(p,0) - should be equivalent
+-- ----------------------------------------------------------------------------
+-- This test verifies that NUMERIC(10) and NUMERIC(10,0) behave identically
+CREATE TABLE numeric_explicit_scale_zero (
+    id SERIAL PRIMARY KEY,
+    implicit_scale NUMERIC(10),    -- scale defaults to 0
+    explicit_scale NUMERIC(10, 0)  -- scale explicitly 0
+);
+INSERT INTO numeric_explicit_scale_zero (implicit_scale, explicit_scale) VALUES
+    (12345, 12345),
+    (67890, 67890),
+    (-11111, -11111),
+    (0, 0);
+CREATE INDEX numeric_scale_zero_idx ON numeric_explicit_scale_zero USING bm25 (
+    id, implicit_scale, explicit_scale
+) WITH (key_field = 'id');
+-- Both columns should produce identical results
+SELECT * FROM numeric_explicit_scale_zero
+WHERE id @@@ paradedb.all()
+AND implicit_scale = 12345
+ORDER BY id;
+ id | implicit_scale | explicit_scale 
+----+----------------+----------------
+  1 |          12345 |          12345
+(1 row)
+
+SELECT * FROM numeric_explicit_scale_zero
+WHERE id @@@ paradedb.all()
+AND explicit_scale = 12345
+ORDER BY id;
+ id | implicit_scale | explicit_scale 
+----+----------------+----------------
+  1 |          12345 |          12345
+(1 row)
+
+-- Aggregates should also be identical
+SELECT SUM(implicit_scale), SUM(explicit_scale)
+FROM numeric_explicit_scale_zero
+WHERE id @@@ paradedb.all();
+  sum  |  sum  
+-------+-------
+ 69124 | 69124
+(1 row)
+
+DROP TABLE numeric_explicit_scale_zero;
+-- ----------------------------------------------------------------------------
+-- TEST: Empty ranges should match nothing
+-- ----------------------------------------------------------------------------
+-- PostgreSQL supports an 'empty' range that contains no values.
+-- Our implementation should correctly return no rows for empty range queries.
+CREATE TABLE empty_range_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(10, 2)
+);
+INSERT INTO empty_range_test (val) VALUES
+    (0.00),
+    (100.50),
+    (200.00),
+    (-50.25);
+CREATE INDEX empty_range_idx ON empty_range_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Empty numrange should match nothing (not even rows with value 0)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM empty_range_test
+WHERE id @@@ paradedb.range('val', 'empty'::numrange)
+ORDER BY id;
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: empty_range_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.empty_range_test
+         Output: id, val
+         Table: empty_range_test
+         Index: empty_range_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, val
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"empty":{"field":"val"}}}}
+(11 rows)
+
+SELECT * FROM empty_range_test
+WHERE id @@@ paradedb.range('val', 'empty'::numrange)
+ORDER BY id;
+ id | val 
+----+-----
+(0 rows)
+
+-- Verify that a real range containing 0 DOES match rows with 0
+SELECT * FROM empty_range_test
+WHERE id @@@ paradedb.range('val', '[-1, 1]'::numrange)
+ORDER BY id;
+ id | val  
+----+------
+  1 | 0.00
+(1 row)
+
+DROP TABLE empty_range_test;
+-- ============================================================================
+-- PART 8: Window Aggregate Tests for NUMERIC columns (TopN queries)
+-- ============================================================================
+-- Tests that window aggregates work correctly with Numeric64 fields
+-- and are properly rejected for NumericBytes fields.
+-- NOTE: Window aggregate pushdown only occurs for TopN queries (ORDER BY + LIMIT)
+-- ----------------------------------------------------------------------------
+-- TEST: Window aggregates on Numeric64 fields in TopN query (should work)
+-- ----------------------------------------------------------------------------
+-- NUMERIC(10,2) has precision 10, which is <= 18, so uses Numeric64 storage
+CREATE TABLE window_agg_numeric64_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    price NUMERIC(10, 2)
+);
+INSERT INTO window_agg_numeric64_test (category, price) VALUES
+    ('electronics', 100.50),
+    ('electronics', 200.75),
+    ('electronics', 150.25),
+    ('clothing', 50.00),
+    ('clothing', 75.50),
+    ('books', 25.99);
+CREATE INDEX window_agg_numeric64_idx ON window_agg_numeric64_test USING bm25 (
+    id, category, price
+) WITH (key_field = 'id');
+-- Window aggregate SUM on Numeric64 field in TopN query - should be pushed down
+-- Note: Must have ORDER BY and LIMIT for window aggregate pushdown
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category, price,
+       SUM(price) OVER () as total_price
+FROM window_agg_numeric64_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
+SELECT id, category, price,
+       SUM(price) OVER () as total_price
+FROM window_agg_numeric64_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
+-- Window aggregate AVG on Numeric64 field in TopN query
+SELECT id, category, price,
+       AVG(price) OVER () as avg_price
+FROM window_agg_numeric64_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
+-- Window aggregate MIN/MAX on Numeric64 field in TopN query
+SELECT id, category, price,
+       MIN(price) OVER () as min_price,
+       MAX(price) OVER () as max_price
+FROM window_agg_numeric64_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
+DROP TABLE window_agg_numeric64_test;
+-- ----------------------------------------------------------------------------
+-- TEST: Window aggregates on NumericBytes fields in TopN query (should error)
+-- ----------------------------------------------------------------------------
+-- Unbounded NUMERIC uses NumericBytes storage which cannot be aggregated
+CREATE TABLE window_agg_numericbytes_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    amount NUMERIC  -- unbounded NUMERIC -> NumericBytes storage
+);
+INSERT INTO window_agg_numericbytes_test (category, amount) VALUES
+    ('a', 100.50),
+    ('a', 200.75),
+    ('b', 50.00);
+CREATE INDEX window_agg_numericbytes_idx ON window_agg_numericbytes_test USING bm25 (
+    id, category, amount
+) WITH (key_field = 'id');
+-- Window aggregate on NumericBytes field in TopN query should error
+-- This query should fail with an error about NumericBytes not being aggregatable
+SELECT id, category, amount,
+        SUM(amount) OVER () as total
+FROM window_agg_numericbytes_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+ERROR:  Aggregate on NUMERIC field 'amount' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
+DROP TABLE window_agg_numericbytes_test;
+-- ----------------------------------------------------------------------------
+-- TEST: Window aggregates on high-precision NUMERIC in TopN query (should error)
+-- ----------------------------------------------------------------------------
+-- NUMERIC(30,10) has precision > 18, so uses NumericBytes storage
+CREATE TABLE window_agg_highprec_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    value NUMERIC(30, 10)  -- precision > 18 -> NumericBytes storage
+);
+INSERT INTO window_agg_highprec_test (category, value) VALUES
+    ('x', 12345678901234567890.1234567890),
+    ('x', 98765432109876543210.9876543210),
+    ('y', 11111111111111111111.1111111111);
+CREATE INDEX window_agg_highprec_idx ON window_agg_highprec_test USING bm25 (
+    id, category, value
+) WITH (key_field = 'id');
+-- Window aggregate on high-precision NUMERIC in TopN query should error
+SELECT id, category, value,
+        AVG(value) OVER () as avg_val
+FROM window_agg_highprec_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+ERROR:  Aggregate on NUMERIC field 'value' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
+DROP TABLE window_agg_highprec_test;

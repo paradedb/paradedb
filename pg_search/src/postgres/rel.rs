@@ -96,24 +96,22 @@ impl Debug for PgSearchRelation {
     }
 }
 
-impl Drop for PgSearchRelation {
-    fn drop(&mut self) {
-        let Some(rc) = self.0.take() else {
-            return;
-        };
-        let Some((relation, need_close, lockmode, ..)) = Rc::into_inner(rc) else {
-            return;
-        };
-        unsafe {
-            if need_close && pg_sys::IsTransactionState() {
-                match lockmode {
-                    Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
-                    None => pg_sys::RelationClose(relation.as_ptr()),
-                }
+crate::impl_safe_drop!(PgSearchRelation, |self| {
+    let Some(rc) = self.0.take() else {
+        return;
+    };
+    let Some((relation, need_close, lockmode, ..)) = Rc::into_inner(rc) else {
+        return;
+    };
+    unsafe {
+        if need_close && pg_sys::IsTransactionState() {
+            match lockmode {
+                Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
+                None => pg_sys::RelationClose(relation.as_ptr()),
             }
         }
     }
-}
+});
 
 impl Deref for PgSearchRelation {
     type Target = pg_sys::RelationData;
@@ -309,5 +307,13 @@ impl PgSearchRelation {
             Ok(schema) => Ok(schema.clone()),
             Err(e) => Err(e.clone()),
         }
+    }
+
+    /// Check if a field supports aggregate pushdown.
+    ///
+    /// Returns `Ok(false)` for NUMERIC fields, `Ok(true)` for other fields,
+    /// or an error if the schema cannot be loaded.
+    pub fn field_supports_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
+        self.schema().map(|s| s.field_supports_aggregate(field))
     }
 }

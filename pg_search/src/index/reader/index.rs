@@ -22,27 +22,30 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::aggregate::vischeck::TSVisibilityChecker;
-use crate::api::{HashMap, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
+use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::SearchQueryInput;
+use crate::scan::info::RowEstimate;
 use crate::schema::SearchIndexSchema;
 
 use anyhow::Result;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::collector::sort_key::{
-    ComparatorEnum, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue, SortByString,
+    ComparatorEnum, SortByBytes, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue,
+    SortByString,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
-use tantivy::index::{Index, SegmentId};
+use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{
@@ -52,7 +55,7 @@ use tantivy::{
 
 /// The maximum number of sort-features/`OrderByInfo`s supported for
 /// `SearchIndexReader::search_top_n_in_segments`.
-pub const MAX_TOPN_FEATURES: usize = 3;
+pub const MAX_TOPN_FEATURES: usize = 5;
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
@@ -174,7 +177,7 @@ pub struct MultiSegmentSearchResults {
 
 /// A score which sorts in ascending direction.
 #[derive(PartialEq, Clone, Debug)]
-pub struct AscendingScore {
+struct AscendingScore {
     score: Score,
 }
 
@@ -200,6 +203,37 @@ impl MultiSegmentSearchResults {
 
     pub fn current_segment_pop(&mut self) -> Option<ScorerIter> {
         self.iterators.pop()
+    }
+
+    /// Returns the total estimated number of documents across all segments in these results.
+    ///
+    /// This has no visible sideeffects, but it requires actually opening all DeferredScorers
+    /// for this iterator.
+    pub fn estimated_doc_count(&self) -> u64 {
+        self.iterators
+            .iter()
+            .map(|iter| iter.estimated_doc_count() as u64)
+            .sum()
+    }
+
+    /// Consumes and returns all segment iterators along with the searcher.
+    ///
+    /// This is useful for DataFusion integration where each segment iterator
+    /// becomes a separate partition in the execution plan. The searcher is needed
+    /// to create single-segment wrappers via `from_single_segment`.
+    pub fn into_segments(self) -> (Searcher, Vec<ScorerIter>) {
+        (self.searcher, self.iterators)
+    }
+
+    /// Creates a new `MultiSegmentSearchResults` from a single segment iterator.
+    ///
+    /// This is used for per-segment partition scanning in DataFusion integration.
+    pub fn from_single_segment(searcher: Searcher, scorer_iter: ScorerIter) -> Self {
+        Self {
+            searcher,
+            ctid_column: None,
+            iterators: vec![scorer_iter],
+        }
     }
 }
 
@@ -251,10 +285,10 @@ pub struct TopNAuxiliaryCollector {
     pub aggregation_collector: DistributedAggregationCollector,
     /// If MVCC filtering should be applied, then the visibility checker to use for that.
     ///
-    /// Note: If enabled, visibility checking is applied to to _both_ the TopN and to any
+    /// Note: If enabled, visibility checking is applied to _both_ the TopN and to any
     /// aggregation collector: this is because once you've bothered to filter for MVCC, you might
     /// as well feed the filtered result to TopN too.
-    pub vischeck: Option<TSVisibilityChecker>,
+    pub vischeck: Option<VisibilityChecker>,
 }
 
 pub struct SearchIndexReader {
@@ -265,6 +299,8 @@ pub struct SearchIndexReader {
     underlying_index: Index,
     query: Box<dyn Query>,
     need_scores: bool,
+    total_segment_count: usize,
+    total_docs: u64,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -283,6 +319,8 @@ impl Clone for SearchIndexReader {
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
             need_scores: self.need_scores,
+            total_segment_count: self.total_segment_count,
+            total_docs: self.total_docs,
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -334,7 +372,15 @@ impl SearchIndexReader {
         let cleanup_lock = MetaPage::open(index_relation).cleanup_lock_pinned();
 
         let directory = mvcc_style.directory(index_relation);
-        let mut index = Index::open(directory)?;
+        let mut index = Index::open(directory.clone())?;
+        // The total_segment_count in the directory is updated as part of Index::open (via load_metas).
+        // It reflects the total number of visible segments, even if we are in LargestSegment mode.
+        let total_segment_count = directory
+            .total_segment_count()
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let total_docs = directory
+            .total_docs()
+            .load(std::sync::atomic::Ordering::Relaxed) as u64;
         let schema = index_relation.schema()?;
         setup_tokenizers(index_relation, &mut index)?;
 
@@ -372,6 +418,8 @@ impl SearchIndexReader {
             underlying_index: index,
             query,
             need_scores,
+            total_segment_count,
+            total_docs,
             _cleanup_lock: Arc::new(cleanup_lock),
         })
     }
@@ -458,6 +506,31 @@ impl SearchIndexReader {
 
     pub fn searcher(&self) -> &Searcher {
         &self.searcher
+    }
+
+    /// Returns the total number of segments in the index, according to the MVCC directory.
+    pub fn total_segment_count(&self) -> usize {
+        self.total_segment_count
+    }
+
+    /// Returns the total number of docs in the index, according to the MVCC directory.
+    pub fn total_docs(&self) -> u64 {
+        self.total_docs
+    }
+
+    /// Returns the sort order of the index segments, if the index was created with `sort_by`.
+    ///
+    /// This reads from the Tantivy index settings stored in the index metadata.
+    /// Returns `None` if the index was not created with segment sorting.
+    pub fn sort_order(&self) -> Option<SortByField> {
+        let settings = self.underlying_index.settings();
+        settings.sort_by_field.as_ref().map(|sort_field| {
+            let direction = match sort_field.order {
+                Order::Asc => SortByDirection::Asc,
+                Order::Desc => SortByDirection::Desc,
+            };
+            SortByField::new(FieldName::from(sort_field.field.clone()), direction)
+        })
     }
 
     pub fn validate_checksum(&self) -> Result<std::collections::HashSet<PathBuf>> {
@@ -655,6 +728,20 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
+                    tantivy::schema::Type::Bytes => TopNSearchResults::new_for_discarded_field(
+                        &self.searcher,
+                        self.top_in_segments(
+                            segment_ids,
+                            (SortByBytes::for_field(sort_field), order),
+                            erased_features,
+                            n,
+                            offset,
+                            aux_collector,
+                        ),
+                    ),
+                    tantivy::schema::Type::Facet => {
+                        unimplemented!("Cannot sort by facet field")
+                    }
                     x => {
                         // NOTE: This list of supported field types must be synced with
                         // `SearchField::is_sortable`.
@@ -662,6 +749,10 @@ impl SearchIndexReader {
                     }
                 }
             }
+            OrderByInfo {
+                feature: OrderByFeature::Var { .. },
+                ..
+            } => unimplemented!("Sorting by variable is not supported in raw index search"),
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
@@ -781,6 +872,60 @@ impl SearchIndexReader {
                     aggregation_results,
                 )
             }
+            3 => {
+                let erased_feature3 = erased_features.pop().unwrap();
+                let erased_feature2 = erased_features.pop().unwrap();
+                let erased_feature1 = erased_features.pop().unwrap();
+                let top_docs_collector = TopDocs::with_limit(n).and_offset(offset).order_by((
+                    first_feature,
+                    erased_feature1,
+                    erased_feature2,
+                    erased_feature3,
+                ));
+
+                let (top_docs, aggregation_results) =
+                    self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
+
+                (
+                    top_docs
+                        .into_iter()
+                        .map(|((f, erased1, erased2, erased3), doc)| {
+                            let maybe_score =
+                                erased_features.try_get_score(&[erased1, erased2, erased3]);
+                            ((f, maybe_score), doc)
+                        })
+                        .collect(),
+                    aggregation_results,
+                )
+            }
+            4 => {
+                let erased_feature4 = erased_features.pop().unwrap();
+                let erased_feature3 = erased_features.pop().unwrap();
+                let erased_feature2 = erased_features.pop().unwrap();
+                let erased_feature1 = erased_features.pop().unwrap();
+                let top_docs_collector = TopDocs::with_limit(n).and_offset(offset).order_by((
+                    first_feature,
+                    erased_feature1,
+                    erased_feature2,
+                    erased_feature3,
+                    erased_feature4,
+                ));
+
+                let (top_docs, aggregation_results) =
+                    self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
+
+                (
+                    top_docs
+                        .into_iter()
+                        .map(|((f, erased1, erased2, erased3, erased4), doc)| {
+                            let maybe_score = erased_features
+                                .try_get_score(&[erased1, erased2, erased3, erased4]);
+                            ((f, maybe_score), doc)
+                        })
+                        .collect(),
+                    aggregation_results,
+                )
+            }
             x => {
                 if erased_features.score_index() == Some(x - 1) {
                     panic!(
@@ -848,15 +993,16 @@ impl SearchIndexReader {
         }
     }
 
-    /// Given an estimate of the total number of rows in the relation, return an estimate of the
-    /// number of rows which will be matched by the configured query.
+    /// Given an estimate of the total number of rows in the relation, return estimates of:
+    /// 1. The number of rows which will be matched by the configured query.
+    /// 2. The total number of rows in the index (estimated if total_docs is Unknown).
     ///
     /// Expects to be called using an index opened with `MvccSatisfies::LargestSegment`, and thus
     /// to contain exactly 0 or 1 Segment.
-    pub fn estimate_docs(&self, total_docs: f64) -> usize {
+    pub fn estimate_docs(&self, total_docs: RowEstimate) -> (usize, u64) {
         match self.searcher.segment_readers().len() {
             1 => {}
-            0 => return 0,
+            0 => return (0, 0),
             x => {
                 panic!(
                     "estimate_docs(): expected an index with only one segment, \
@@ -876,9 +1022,22 @@ impl SearchIndexReader {
             // but when it doesn't, we need to do a full count
             count = scorer.count_including_deleted() as usize;
         }
-        let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
 
-        (count as f64 / segment_doc_proportion).ceil() as usize
+        match total_docs {
+            RowEstimate::Known(total_docs) if total_docs > 0 => {
+                let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
+                let matching = (count as f64 / segment_doc_proportion).ceil() as usize;
+                (matching, total_docs)
+            }
+            _ => {
+                // If total docs is unknown or 0, we can't use proportion of heap.
+                // Instead, we scale by the total number of docs in the index.
+                let total_docs = self.total_docs();
+                let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
+                let matching = (count as f64 / segment_doc_proportion).ceil() as usize;
+                (matching, total_docs)
+            }
+        }
     }
 
     /// Build a query tree with recursive estimates for EXPLAIN output.
@@ -1096,6 +1255,10 @@ impl SearchIndexReader {
                 } => {
                     erased_features.push_score_feature(*direction);
                 }
+                OrderByInfo {
+                    feature: OrderByFeature::Var { .. },
+                    ..
+                } => unimplemented!("Sorting by variable is not supported in raw index search"),
             }
         }
 

@@ -22,6 +22,7 @@ mod bootstrap;
 mod index;
 mod postgres;
 mod query;
+pub(crate) mod scan;
 mod schema;
 
 pub mod gucs;
@@ -41,6 +42,18 @@ const PARAMETERIZED_SELECTIVITY: f64 = 0.10;
 
 /// The selectivity value indicating the entire relation will be returned
 const FULL_RELATION_SELECTIVITY: f64 = 1.0;
+
+/// Heuristic selectivity for fuzzy queries with distance <= 1
+const FUZZY_LOW_SELECTIVITY: f64 = 0.01;
+
+/// Heuristic selectivity for fuzzy queries with distance >= 2
+const FUZZY_HIGH_SELECTIVITY: f64 = 0.05;
+
+/// Heuristic selectivity for regex queries
+const REGEX_SELECTIVITY: f64 = 0.01;
+
+/// Heuristic selectivity for more-like-this queries
+const MORE_LIKE_THIS_SELECTIVITY: f64 = 0.01;
 
 /// An arbitrary value for what it costs for a plan with one of our operators (@@@) to do whatever
 /// initial work it needs to do (open tantivy index, start the query, etc).  The value is largely
@@ -74,12 +87,18 @@ pub fn available_parallelism() -> usize {
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn _PG_init() {
-    // initialize environment logging (to stderr) for dependencies that do logging
-    // we can't implement our own logger that sends messages to Postgres `ereport()` because
-    // of threading concerns
-    std::env::set_var("RUST_LOG", "warn");
-    std::env::set_var("RUST_LOG_STYLE", "never");
-    env_logger::init();
+    // Optional: initialize env_logger for dependency debug output (tantivy, lindera, etc.)
+    // Enable with: cargo build --features debug-logging
+    // Without this feature, log! macros (to stderr) in dependencies become no-ops.
+    // We can't implement our own logger that sends messages to Postgres `ereport()` because
+    // of threading concerns.
+    #[cfg(feature = "debug-logging")]
+    {
+        std::env::set_var("RUST_LOG", "warn");
+        std::env::set_var("RUST_LOG_STYLE", "never");
+        // Use try_init() because parallel workers may call _PG_init() multiple times
+        let _ = env_logger::try_init();
+    }
 
     if cfg!(not(any(feature = "pg17", feature = "pg18")))
         && !pg_sys::process_shared_preload_libraries_in_progress
@@ -95,8 +114,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
-    customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);
+    customscan::register_rel_pathlist(customscan::basescan::BaseScan);
     customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
+    customscan::register_join_pathlist(customscan::joinscan::JoinScan);
 
     // Register global planner hook for window function support
     customscan::register_window_aggregate_hook();

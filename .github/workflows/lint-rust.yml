@@ -21,7 +21,7 @@ concurrency:
 jobs:
   lint-rust:
     name: Lint Rust Files
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     strategy:
       matrix:
         pg_version: [18]
@@ -35,6 +35,9 @@ jobs:
         with:
           components: rustfmt, clippy
           cache: false
+
+      - name: Check Cargo.lock
+        run: cargo metadata --format-version 1 --locked > /dev/null
 
       # Required by Stressgres
       - name: Install fontconfig

@@ -18,5 +18,8 @@ CREATE INDEX idx_recursive_estimates
         USING bm25 (id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
     WITH (key_field='id');
 
+-- Update statistics for consistent query planning
+ANALYZE recursive_test.estimate_items;
+
 -- Enable recursive estimates feature
 SET paradedb.explain_recursive_estimates = ON;

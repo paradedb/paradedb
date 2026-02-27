@@ -49,13 +49,12 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::customscan::{
-    range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
-};
+use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::types::TantivyValue;
+use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::PgSearchRelation;
 
+use chrono::{DateTime as ChronoDateTime, Utc};
 use pgrx::{pg_sys, IntoDatum, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 use tantivy::schema::OwnedValue;
@@ -69,14 +68,36 @@ impl CustomScan for AggregateScan {
     type State = AggregateScanState;
     type PrivateData = PrivateData;
 
-    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+    fn exec_methods() -> pg_sys::CustomExecMethods {
+        pg_sys::CustomExecMethods {
+            CustomName: Self::NAME.as_ptr(),
+            BeginCustomScan: Some(crate::postgres::customscan::exec::begin_custom_scan::<Self>),
+            ExecCustomScan: Some(crate::postgres::customscan::exec::exec_custom_scan::<Self>),
+            EndCustomScan: Some(crate::postgres::customscan::exec::end_custom_scan::<Self>),
+            ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
+            MarkPosCustomScan: None,
+            RestrPosCustomScan: None,
+            EstimateDSMCustomScan: None,
+            InitializeDSMCustomScan: None,
+            ReInitializeDSMCustomScan: None,
+            InitializeWorkerCustomScan: None,
+            ShutdownCustomScan: Some(
+                crate::postgres::customscan::exec::shutdown_custom_scan::<Self>,
+            ),
+            ExplainCustomScan: Some(crate::postgres::customscan::exec::explain_custom_scan::<Self>),
+        }
+    }
+
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         // We can only handle single base relations as input
         if builder.args().input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
-            return None;
+            return Vec::new();
         }
 
         let parent_relids = builder.args().input_rel().relids;
-        let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
+        let Some(heap_rti) = (unsafe { range_table::bms_exactly_one_member(parent_relids) }) else {
+            return Vec::new();
+        };
         let heap_rte = unsafe {
             // NOTE: The docs indicate that `simple_rte_array` is always the same length
             // as `simple_rel_array`.
@@ -84,16 +105,28 @@ impl CustomScan for AggregateScan {
                 builder.args().root().simple_rel_array_size as usize,
                 builder.args().root().simple_rte_array,
                 heap_rti,
-            )?
+            )
         };
-        let (table, index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
-        let (builder, aggregate_clause) = AggregateCSClause::build(builder, heap_rti, &index)?;
+        let Some(heap_rte) = heap_rte else {
+            return Vec::new();
+        };
+        let Some((_table, index)) = rel_get_bm25_index(unsafe { (*heap_rte).relid }) else {
+            return Vec::new();
+        };
+        let Some((builder, aggregate_clause)) = AggregateCSClause::build(builder, heap_rti, &index)
+        else {
+            return Vec::new();
+        };
 
-        Some(builder.build(PrivateData {
+        // TODO: Audit whether AggregateScan is parallel-safe and call set_parallel_safe(true) if so.
+        // See BaseScan::init_search_reader for an explanation of parallel execution scenarios.
+        // Currently, it defaults to parallel_safe=false, meaning it forces execution on the leader.
+
+        vec![builder.build(PrivateData {
             heap_rti,
             indexrelid: index.oid(),
             aggregate_clause,
-        }))
+        })]
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
@@ -142,7 +175,7 @@ impl CustomScan for AggregateScan {
 
     fn explain_custom_scan(
         state: &CustomScanStateWrapper<Self>,
-        ancestors: *mut pg_sys::List,
+        _ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
         explainer.add_text("Index", state.custom_state().indexrel().name());
@@ -164,7 +197,7 @@ impl CustomScan for AggregateScan {
     fn begin_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         estate: *mut pg_sys::EState,
-        eflags: i32,
+        _eflags: i32,
     ) {
         unsafe {
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
@@ -172,7 +205,7 @@ impl CustomScan for AggregateScan {
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
             let planstate = state.planstate();
             // TODO: Opening of the index could be deduped between custom scans: see
-            // `PdbScanState::open_relations`.
+            // `BaseScanState::open_relations`.
             state.custom_state_mut().open_relations(lockmode);
 
             state
@@ -190,7 +223,7 @@ impl CustomScan for AggregateScan {
             let plan_targetlist = (*(*planstate).plan).targetlist;
             // This creates a copy of the plan's targetlist with FuncExpr placeholders replaced
             // by Const nodes. The Const nodes will be mutated with actual aggregate values
-            // before each ExecBuildProjectionInfo call in exec_custom_scan (pdbscan pattern).
+            // before each ExecBuildProjectionInfo call in exec_custom_scan (basescan pattern).
             let (placeholder_tlist, const_nodes, needs_projection) =
                 create_placeholder_targetlist(plan_targetlist);
             if needs_projection && !placeholder_tlist.is_null() {
@@ -255,7 +288,9 @@ impl CustomScan for AggregateScan {
                         // Check if this is a NULL sentinel (handles both MIN and MAX sentinels)
                         // Note: U64/Bool use string sentinel for MIN (since 0 is valid).
                         // Bool uses 2 as MAX sentinel (0=false, 1=true, 2=null).
+                        // DateTime columns don't have a missing sentinel (NULLs are excluded).
                         let is_bool_type = expected_typoid == pg_sys::BOOLOID;
+                        let is_datetime = is_datetime_type(expected_typoid);
                         let is_null_sentinel = match &key.0 {
                             OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
                             OwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
@@ -265,6 +300,46 @@ impl CustomScan for AggregateScan {
                         };
                         if is_null_sentinel {
                             None
+                        } else if is_datetime {
+                            // For datetime types, Tantivy's terms aggregation returns the date as
+                            // an ISO 8601 string (e.g., "2025-12-26T00:00:00Z"). We need to parse
+                            // this string and convert it to the appropriate PostgreSQL date type.
+                            match &key.0 {
+                                OwnedValue::Str(date_str) => {
+                                    // Parse ISO 8601 datetime string using chrono
+                                    match date_str.parse::<ChronoDateTime<Utc>>() {
+                                        Ok(chrono_dt) => {
+                                            // Convert to nanoseconds since epoch for Tantivy DateTime
+                                            let nanos =
+                                                chrono_dt.timestamp_nanos_opt().unwrap_or(0);
+                                            let datetime =
+                                                tantivy::DateTime::from_timestamp_nanos(nanos);
+                                            TantivyValue(OwnedValue::Date(datetime))
+                                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                                .expect(
+                                                    "should be able to convert datetime to datum",
+                                                )
+                                        }
+                                        Err(e) => {
+                                            pgrx::error!(
+                                                "Failed to parse datetime string '{}': {}",
+                                                date_str,
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                                OwnedValue::I64(nanos) => {
+                                    // Fallback for I64 (nanoseconds timestamp)
+                                    let datetime = tantivy::DateTime::from_timestamp_nanos(*nanos);
+                                    TantivyValue(OwnedValue::Date(datetime))
+                                        .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                        .expect("should be able to convert datetime to datum")
+                                }
+                                _ => key
+                                    .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                    .expect("should be able to convert to datum"),
+                            }
                         } else {
                             key.try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
@@ -314,7 +389,7 @@ impl CustomScan for AggregateScan {
             (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
             (*slot).tts_nvalid = natts as i16;
 
-            // If we have wrapped aggregates, project the expressions using pdbscan pattern:
+            // If we have wrapped aggregates, project the expressions using basescan pattern:
             // 1. Mutate Const nodes with actual aggregate values (directly, not from slot)
             // 2. Build projection in per-tuple memory context (bakes Const values in)
             // 3. ExecProject
@@ -332,7 +407,7 @@ impl CustomScan for AggregateScan {
                 // We DON'T use the slot's datums because those were converted using the
                 // output tuple descriptor's types (e.g., TEXT for jsonb_pretty output),
                 // but we need the native aggregate type (e.g., JSONB for pdb.agg).
-                // This matches pdbscan's approach of setting Const values directly.
+                // This matches basescan's approach of setting Const values directly.
                 let mut agg_iter = row.aggregates.iter();
                 for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
                     let TargetListEntry::Aggregate(agg_type) = entry else {
@@ -398,7 +473,7 @@ impl CustomScan for AggregateScan {
                 // Set the scan tuple for expression evaluation context
                 (*expr_context).ecxt_scantuple = slot;
 
-                // Build projection and execute in per-tuple memory context (pdbscan pattern)
+                // Build projection and execute in per-tuple memory context (basescan pattern)
                 // This ensures ExecBuildProjectionInfo allocations are cleaned up each row
                 return per_tuple_context.switch_to(|_| {
                     let proj_info = pg_sys::ExecBuildProjectionInfo(
@@ -416,7 +491,7 @@ impl CustomScan for AggregateScan {
         }
     }
 
-    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
+    fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Clean up the reusable scan slot
@@ -427,14 +502,6 @@ impl CustomScan for AggregateScan {
         }
     }
 }
-
-impl ExecMethod for AggregateScan {
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        <AggregateScan as PlainExecCapable>::exec_methods()
-    }
-}
-
-impl PlainExecCapable for AggregateScan {}
 
 pub trait CustomScanClause<CS: CustomScan> {
     type Args;

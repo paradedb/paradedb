@@ -119,7 +119,7 @@ ORDER BY fileid, page_number;
          Table: pages
          Index: pages_search
          Exec Method: MixedFastFieldExecState
-         Fast Fields: page_number, fileid
+         Fast Fields: fileid, page_number
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
 (9 rows)

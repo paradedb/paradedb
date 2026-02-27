@@ -19,7 +19,6 @@ use std::error::Error;
 use std::ptr::NonNull;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::api::HashSet;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -29,8 +28,9 @@ use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
@@ -293,7 +293,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                 .expect("index should belong to a heap relation");
             let mvcc_collector = MVCCFilterCollector::new(
                 base_collector,
-                TSVisibilityChecker::with_rel_and_snap(heaprel.as_ptr(), unsafe {
+                VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
                     pg_sys::GetActiveSnapshot()
                 }),
             );
@@ -574,12 +574,25 @@ fn set_missing_on_terms(
                 // theoretically collide with valid data values, though this is unlikely in practice.
                 // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
                 let sentinel = match schema.get_field_type(&terms.field) {
-                    Some(SearchFieldType::I64(_)) | Some(SearchFieldType::Date(_)) => {
+                    Some(SearchFieldType::I64(_)) => {
                         if use_min {
                             Key::I64(i64::MIN)
                         } else {
                             Key::I64(i64::MAX)
                         }
+                    }
+                    Some(SearchFieldType::Date(_)) => {
+                        // DateTime fields: Tantivy's terms aggregation doesn't accept Key::I64
+                        // for DateTime columns (it validates the Key type against column type).
+                        // We skip setting a missing value, which means NULL dates will be
+                        // excluded from GROUP BY results rather than appearing as a separate group.
+                        // This matches standard SQL behavior where NULLs are typically excluded
+                        // from aggregations unless explicitly handled.
+                        //
+                        // TODO: When Tantivy adds Key::Date support to its aggregation Key enum,
+                        // we should use that here to properly handle NULL datetime values in
+                        // GROUP BY, similar to how other types use sentinels.
+                        continue;
                     }
                     Some(SearchFieldType::U64(_)) => {
                         // For U64, 0 is a common value so we use string for MIN
@@ -625,13 +638,24 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
-    use crate::aggregate::vischeck::TSVisibilityChecker;
     use crate::index::fast_fields_helper::FFType;
+    use crate::postgres::heap::VisibilityChecker;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
+
+    // Buffer size for batching visibility checks.
+    //
+    // This is significantly larger than COLLECT_BLOCK_BUFFER_LEN (64) to reduce the overhead
+    // of visibility checks. Specifically:
+    // 1. It amortizes the dynamic dispatch overhead of looking up ctids from the fast field.
+    // 2. It allows `VisibilityChecker` to process ctids in sorted order, which is critical because
+    //    checking visibility requires acquiring locks on the visibility map (VM) pages and potentially
+    //    tuple locks on the heap. Accessing these in a sorted, batched manner reduces lock contention
+    //    and random I/O.
+    const BATCH_SIZE: usize = 2048;
 
     pub struct MVCCFilterCollector<C: Collector> {
         inner: C,
-        lock: Arc<Mutex<TSVisibilityChecker>>,
+        lock: Arc<Mutex<VisibilityChecker>>,
     }
 
     unsafe impl<C: Collector> Send for MVCCFilterCollector<C> {}
@@ -646,12 +670,28 @@ pub mod mvcc_collector {
             segment_local_id: SegmentOrdinal,
             segment: &SegmentReader,
         ) -> tantivy::Result<Self::Child> {
+            let inner = self.inner.for_segment(segment_local_id, segment)?;
+            let requires_scoring = self.inner.requires_scoring();
+
             Ok(MVCCFilterSegmentCollector {
-                inner: self.inner.for_segment(segment_local_id, segment)?,
+                inner,
                 lock: self.lock.clone(),
                 ctid_ff: FFType::new(segment.fast_fields(), "ctid"),
-                ctids_buffer: Vec::new(),
-                filtered_buffer: Vec::new(),
+                doc_buffer: Vec::with_capacity(BATCH_SIZE),
+                score_buffer: if requires_scoring {
+                    Vec::with_capacity(BATCH_SIZE)
+                } else {
+                    Vec::new()
+                },
+                ctids_buffer: Vec::with_capacity(BATCH_SIZE),
+                visibility_buffer: Vec::with_capacity(BATCH_SIZE),
+                filtered_doc_buffer: Vec::with_capacity(BATCH_SIZE),
+                filtered_score_buffer: if requires_scoring {
+                    Vec::with_capacity(BATCH_SIZE)
+                } else {
+                    Vec::new()
+                },
+                requires_scoring,
             })
         }
 
@@ -669,7 +709,7 @@ pub mod mvcc_collector {
 
     #[allow(clippy::arc_with_non_send_sync)]
     impl<C: Collector> MVCCFilterCollector<C> {
-        pub fn new(wrapped: C, vischeck: TSVisibilityChecker) -> Self {
+        pub fn new(wrapped: C, vischeck: VisibilityChecker) -> Self {
             Self {
                 inner: wrapped,
                 lock: Arc::new(Mutex::new(vischeck)),
@@ -679,133 +719,108 @@ pub mod mvcc_collector {
 
     pub struct MVCCFilterSegmentCollector<SC: SegmentCollector> {
         inner: SC,
-        lock: Arc<Mutex<TSVisibilityChecker>>,
+        lock: Arc<Mutex<VisibilityChecker>>,
         ctid_ff: FFType,
+
+        // Incoming buffers
+        doc_buffer: Vec<DocId>,
+        score_buffer: Vec<Score>,
+
+        // Processing buffers
         ctids_buffer: Vec<Option<u64>>,
-        filtered_buffer: Vec<u32>,
+        visibility_buffer: Vec<Option<u64>>,
+
+        // Outgoing buffers
+        filtered_doc_buffer: Vec<DocId>,
+        filtered_score_buffer: Vec<Score>,
+
+        requires_scoring: bool,
     }
     unsafe impl<C: SegmentCollector> Send for MVCCFilterSegmentCollector<C> {}
     unsafe impl<C: SegmentCollector> Sync for MVCCFilterSegmentCollector<C> {}
+
+    impl<SC: SegmentCollector> MVCCFilterSegmentCollector<SC> {
+        fn flush(&mut self) {
+            if self.doc_buffer.is_empty() {
+                return;
+            }
+
+            // Get the ctids for these docs.
+            self.ctids_buffer.resize(self.doc_buffer.len(), None);
+            self.ctid_ff
+                .as_u64s(&self.doc_buffer, &mut self.ctids_buffer);
+
+            // Determine which ctids are visible.
+            let mut vischeck = self.lock.lock();
+            self.visibility_buffer.resize(self.doc_buffer.len(), None);
+            vischeck.check_batch(&self.ctids_buffer, &mut self.visibility_buffer);
+            drop(vischeck);
+
+            // Filter visible docs.
+            self.filtered_doc_buffer.clear();
+            if self.requires_scoring {
+                self.filtered_score_buffer.clear();
+            }
+
+            for (i, visible_ctid) in self.visibility_buffer.iter().enumerate() {
+                if visible_ctid.is_some() {
+                    self.filtered_doc_buffer.push(self.doc_buffer[i]);
+                    if self.requires_scoring {
+                        self.filtered_score_buffer.push(self.score_buffer[i]);
+                    }
+                }
+            }
+
+            // Pass to inner collector
+            if self.requires_scoring {
+                for (doc, score) in self
+                    .filtered_doc_buffer
+                    .iter()
+                    .zip(self.filtered_score_buffer.iter())
+                {
+                    self.inner.collect(*doc, *score);
+                }
+            } else if !self.filtered_doc_buffer.is_empty() {
+                self.inner.collect_block(&self.filtered_doc_buffer);
+            }
+
+            self.doc_buffer.clear();
+            if self.requires_scoring {
+                self.score_buffer.clear();
+            }
+        }
+    }
 
     impl<SC: SegmentCollector> SegmentCollector for MVCCFilterSegmentCollector<SC> {
         type Fruit = SC::Fruit;
 
         fn collect(&mut self, doc: DocId, score: Score) {
-            let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
-            if self.lock.lock().is_visible(ctid) {
-                self.inner.collect(doc, score);
+            self.doc_buffer.push(doc);
+            if self.requires_scoring {
+                self.score_buffer.push(score);
+            }
+
+            if self.doc_buffer.len() >= BATCH_SIZE {
+                self.flush();
             }
         }
 
         fn collect_block(&mut self, docs: &[DocId]) {
-            // Get the ctids for these docs.
-            if self.ctids_buffer.len() < docs.len() {
-                self.ctids_buffer.resize(docs.len(), None);
+            self.doc_buffer.extend_from_slice(docs);
+            if self.requires_scoring {
+                // collect_block does not provide scores, but we must maintain score_buffer alignment.
+                // We pad with 0.0 or equivalent.
+                self.score_buffer.resize(self.doc_buffer.len(), 0.0);
             }
-            self.ctid_ff
-                .as_u64s(docs, &mut self.ctids_buffer[..docs.len()]);
 
-            // Determine which ctids are visible.
-            self.filtered_buffer.clear();
-            let mut vischeck = self.lock.lock();
-            for (doc, ctid) in docs.iter().zip(self.ctids_buffer.iter()) {
-                let ctid = ctid.expect("ctid should be present");
-                if vischeck.is_visible(ctid) {
-                    self.filtered_buffer.push(*doc);
-                }
+            if self.doc_buffer.len() >= BATCH_SIZE {
+                self.flush();
             }
-            drop(vischeck);
-
-            self.inner.collect_block(&self.filtered_buffer);
         }
 
-        fn harvest(self) -> Self::Fruit {
+        fn harvest(mut self) -> Self::Fruit {
+            self.flush();
             self.inner.harvest()
-        }
-    }
-}
-
-pub mod vischeck {
-    use crate::postgres::utils;
-    use pgrx::itemptr::item_pointer_get_block_number;
-    use pgrx::pg_sys;
-
-    pub struct TSVisibilityChecker {
-        scan: *mut pg_sys::IndexFetchTableData,
-        slot: *mut pg_sys::TupleTableSlot,
-        snapshot: pg_sys::Snapshot,
-        tid: pg_sys::ItemPointerData,
-        vmbuf: pg_sys::Buffer,
-    }
-
-    impl Clone for TSVisibilityChecker {
-        fn clone(&self) -> Self {
-            unsafe { Self::with_rel_and_snap((*self.scan).rel, self.snapshot) }
-        }
-    }
-
-    impl Drop for TSVisibilityChecker {
-        fn drop(&mut self) {
-            unsafe {
-                if !pg_sys::IsTransactionState() || std::thread::panicking() {
-                    // TODO: None of the below operations care about the transaction state: in
-                    // particular, `ReleaseBuffer` is only dropping a pin, rather than releasing a
-                    // lock. Consider removing this guard.
-                    return;
-                }
-
-                pg_sys::table_index_fetch_end(self.scan);
-                pg_sys::ExecClearTuple(self.slot);
-                if self.vmbuf != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                    pg_sys::ReleaseBuffer(self.vmbuf);
-                }
-            }
-        }
-    }
-
-    impl TSVisibilityChecker {
-        /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
-        /// `relation` and `snapshot`
-        pub fn with_rel_and_snap(heaprel: pg_sys::Relation, snapshot: pg_sys::Snapshot) -> Self {
-            unsafe {
-                Self {
-                    scan: pg_sys::table_index_fetch_begin(heaprel),
-                    slot: pg_sys::MakeTupleTableSlot(
-                        pg_sys::CreateTupleDesc(0, std::ptr::null_mut()),
-                        &pg_sys::TTSOpsBufferHeapTuple,
-                    ),
-                    snapshot,
-                    tid: pg_sys::ItemPointerData::default(),
-                    vmbuf: pg_sys::InvalidBuffer as _,
-                }
-            }
-        }
-
-        pub fn is_visible(&mut self, ctid: u64) -> bool {
-            unsafe {
-                utils::u64_to_item_pointer(ctid, &mut self.tid);
-
-                if pg_sys::visibilitymap_get_status(
-                    (*self.scan).rel,
-                    item_pointer_get_block_number(&self.tid),
-                    &mut self.vmbuf,
-                ) != 0
-                {
-                    return true;
-                }
-
-                let mut call_again = false;
-                let mut all_dead = false;
-                pg_sys::ExecClearTuple(self.slot);
-                pg_sys::table_index_fetch_tuple(
-                    self.scan,
-                    &mut self.tid,
-                    self.snapshot,
-                    self.slot,
-                    &mut call_again,
-                    &mut all_dead,
-                )
-            }
         }
     }
 }

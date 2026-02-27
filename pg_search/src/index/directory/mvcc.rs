@@ -19,6 +19,7 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -126,6 +127,7 @@ pub struct MVCCDirectory {
     all_entries: Arc<Mutex<HashMap<SegmentId, LoadedSegmentMetaEntry>>>,
     pin_cushion: Arc<Mutex<Option<PinCushion>>>,
     total_segment_count: Arc<AtomicUsize>,
+    total_docs: Arc<AtomicUsize>,
     heap_fetch_state: Arc<OnceLock<HeapFetchState>>,
     expression_state: Arc<OnceLock<ExpressionState>>,
 }
@@ -152,6 +154,7 @@ impl MVCCDirectory {
             pin_cushion: Default::default(),
             all_entries: Default::default(),
             total_segment_count: Default::default(),
+            total_docs: Default::default(),
             heap_fetch_state: Default::default(),
             expression_state: Default::default(),
         }
@@ -280,6 +283,10 @@ impl MVCCDirectory {
     /// segments rather than `1` (one).
     pub(crate) fn total_segment_count(&self) -> Arc<AtomicUsize> {
         self.total_segment_count.clone()
+    }
+
+    pub(crate) fn total_docs(&self) -> Arc<AtomicUsize> {
+        self.total_docs.clone()
     }
 }
 
@@ -503,6 +510,7 @@ impl Directory for MVCCDirectory {
                     *self.pin_cushion.lock() = Some(loaded.pin_cushion);
                     self.total_segment_count
                         .store(loaded.total_segments, Ordering::Relaxed);
+                    self.total_docs.store(loaded.total_docs, Ordering::Relaxed);
                     Ok(loaded.meta)
                 }
             }
@@ -721,6 +729,24 @@ pub fn index_memory_segment(
             let expr_results = expression_state.evaluate(heap_fetch_state.slot());
 
             let mut doc = tantivy::TantivyDocument::new();
+
+            // Unpack all composites upfront from expr_results
+            let unpacked_composites = CompositeSlotValues::from_composites(
+                categorized_fields.iter().filter_map(|(_, cat)| {
+                    if let FieldSource::CompositeField {
+                        expression_idx,
+                        composite_type_oid,
+                        ..
+                    } = cat.source
+                    {
+                        let (datum, is_null) = expr_results[expression_idx];
+                        Some((expression_idx, datum, is_null, composite_type_oid))
+                    } else {
+                        None
+                    }
+                }),
+            );
+
             row_to_search_document(
                 categorized_fields
                     .iter()
@@ -730,6 +756,15 @@ pub fn index_memory_segment(
                         }
                         FieldSource::Expression { att_idx } => {
                             let (datum, is_null) = expr_results[att_idx];
+                            (datum, is_null, field, categorized)
+                        }
+                        FieldSource::CompositeField {
+                            expression_idx,
+                            field_idx,
+                            ..
+                        } => {
+                            let (datum, is_null) =
+                                unpacked_composites.get(expression_idx, field_idx);
                             (datum, is_null, field, categorized)
                         }
                     }),
@@ -783,7 +818,6 @@ mod tests {
         let SegmentMetaEntryContent::Immutable(entry) = entry.content else {
             todo!("test_list_meta_entries");
         };
-        assert!(entry.store.is_some());
         assert!(entry.field_norms.is_some());
         assert!(entry.fast_fields.is_some());
         assert!(entry.postings.is_some());

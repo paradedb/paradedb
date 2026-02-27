@@ -327,11 +327,6 @@ impl SegmentMetaEntryImmutable {
             )
             .chain(self.terms.iter().map(|fe| (fe, SegmentComponent::Terms)))
             .chain(
-                self.temp_store
-                    .iter()
-                    .map(|fe| (fe, SegmentComponent::TempStore)),
-            )
-            .chain(
                 self.delete
                     .as_ref()
                     .map(|d| (&d.file_entry, SegmentComponent::Delete)),

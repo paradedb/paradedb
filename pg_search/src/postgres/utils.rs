@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::operator::row_expr_from_indexed_expr;
 use crate::api::tokenizers::definitions::pdb::AliasDatumWithType;
 use crate::api::tokenizers::{
     type_can_be_tokenized, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
@@ -23,7 +24,10 @@ use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
 use crate::postgres::build::is_bm25_index;
-use crate::postgres::customscan::pdbscan::text_lower_funcoid;
+use crate::postgres::composite::{
+    get_composite_fields_for_index, is_composite_type, CompositeSlotValues,
+};
+use crate::postgres::customscan::orderby::text_lower_funcoid;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
@@ -34,7 +38,9 @@ use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+
+use std::ptr::addr_of_mut;
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
 use tokenizers::SearchNormalizer;
@@ -43,6 +49,39 @@ extern "C-unwind" {
     // SAFETY: `IsTransactionState()` doesn't raise an ERROR.  As such, we can avoid the pgrx
     // sigsetjmp overhead by linking to the function directly.
     pub fn IsTransactionState() -> bool;
+}
+
+/// Implements Drop that skips cleanup during panic unwinding.
+///
+/// Because panics are used to propagate PostgreSQL errors via pgrx, it is almost never
+/// safe to interact with PostgreSQL APIs during Drop - doing so can cause a double-panic
+/// which results in SIGABRT. This macro ensures cleanup is skipped during unwinding.
+///
+/// PostgreSQL's transaction abort mechanism will clean up resources (buffers, relations, etc.)
+/// when the transaction is aborted due to the error.
+///
+/// # Example
+/// ```ignore
+/// impl_safe_drop!(MyStruct, |self| {
+///     unsafe {
+///         if crate::postgres::utils::IsTransactionState() {
+///             pg_sys::some_cleanup_function(self.handle);
+///         }
+///     }
+/// });
+/// ```
+#[macro_export]
+macro_rules! impl_safe_drop {
+    ($ty:ty, |$self:ident| $body:block) => {
+        impl Drop for $ty {
+            fn drop(&mut $self) {
+                if std::thread::panicking() {
+                    return;
+                }
+                $body
+            }
+        }
+    };
 }
 
 /// RAII guard for PostgreSQL standalone expression context
@@ -72,16 +111,12 @@ impl ExprContextGuard {
     }
 }
 
-impl Drop for ExprContextGuard {
-    fn drop(&mut self) {
-        unsafe {
-            // If this is an abort or other unclean shutdown, setting `isCommit = false` will avoid
-            // complex cleanup logic.
-            let is_commit = pg_sys::IsTransactionState() && !std::thread::panicking();
-            pg_sys::FreeExprContext(self.0, is_commit);
-        }
+impl_safe_drop!(ExprContextGuard, |self| {
+    unsafe {
+        let is_commit = pg_sys::IsTransactionState();
+        pg_sys::FreeExprContext(self.0, is_commit);
     }
-}
+});
 
 impl Default for ExprContextGuard {
     fn default() -> Self {
@@ -232,8 +267,98 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
 
 #[derive(Copy, Clone, Debug)]
 pub enum FieldSource {
+    /// Direct column from heap tuple
     Heap { attno: usize },
+
+    /// Expression index (scalar result)
     Expression { att_idx: usize },
+
+    /// Field extracted from a composite type
+    CompositeField {
+        /// Index attribute number (slot in values[] array for aminsert/build_callback)
+        index_attno: usize,
+
+        /// Expression index (position in expr_results[] array for MVCC build)
+        expression_idx: usize,
+
+        /// Field position within the composite (0-indexed)
+        field_idx: usize,
+
+        /// OID of the named composite type
+        composite_type_oid: pg_sys::Oid,
+    },
+}
+
+/// Collect composite slot info from categorized fields for upfront unpacking.
+///
+/// Returns a lazy iterator of (slot_index, datum, is_null, type_oid) for each unique
+/// composite slot in the categorized fields.
+///
+/// # Safety
+/// - `values` and `isnull` pointers are dereferenced lazily during iteration,
+///   not at call time. Caller must ensure these pointers remain valid until
+///   the returned iterator is fully consumed.
+/// - The iterator should be consumed immediately (e.g., via `from_composites()`).
+///   Storing the iterator and consuming it later risks UB if the underlying
+///   slot arrays have been invalidated.
+pub unsafe fn collect_composites_for_unpacking<'a>(
+    categorized_fields: impl Iterator<Item = &'a CategorizedFieldData> + 'a,
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+) -> impl Iterator<Item = (usize, pg_sys::Datum, bool, pg_sys::Oid)> + 'a {
+    let mut seen = rustc_hash::FxHashSet::default();
+
+    categorized_fields.filter_map(move |cat| {
+        if let FieldSource::CompositeField {
+            index_attno,
+            composite_type_oid,
+            ..
+        } = cat.source
+        {
+            if seen.insert(index_attno) {
+                let datum = *values.add(index_attno);
+                let is_null = *isnull.add(index_attno);
+                return Some((index_attno, datum, is_null, composite_type_oid));
+            }
+        }
+        None
+    })
+}
+
+/// Helper to extract field value from values[] array, handling composite fields.
+///
+/// **Works for**: aminsert (INSERT) and build_callback (CREATE INDEX) paths.
+/// **Does NOT work for**: MVCC build (which uses expr_results[] instead).
+///
+/// # Arguments
+/// * `source` - The field source (Heap, Expression, or CompositeField)
+/// * `index_attno` - Index attribute position (slot in values[] array)
+/// * `values` - Array of datums from PostgreSQL
+/// * `isnull` - Array of null flags from PostgreSQL
+/// * `unpacked_composites` - Pre-unpacked composite values
+///
+/// # Returns
+/// Tuple of (datum, is_null) for the field
+///
+/// # Safety
+/// Caller must ensure values and isnull pointers are valid.
+pub unsafe fn get_field_value(
+    source: &FieldSource,
+    index_attno: usize,
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+    unpacked_composites: &CompositeSlotValues,
+) -> (pg_sys::Datum, bool) {
+    match source {
+        FieldSource::Heap { .. } | FieldSource::Expression { .. } => {
+            (*values.add(index_attno), *isnull.add(index_attno))
+        }
+        FieldSource::CompositeField {
+            index_attno: comp_index_attno,
+            field_idx,
+            ..
+        } => unpacked_composites.get(*comp_index_attno, *field_idx),
+    }
 }
 
 /// Represents the metadata extracted from an index attribute
@@ -256,11 +381,48 @@ pub struct ExtractedFieldAttribute {
     pub normalizer: Option<SearchNormalizer>,
 }
 
+/// Recursively strips tokenizer casts (e.g. `pdb.literal`, `pdb.alias`) from an expression.
+pub unsafe fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        if type_is_tokenizer((*func).funcresulttype) {
+            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            if let Some(arg) = args.get_ptr(0) {
+                return strip_tokenizer_cast(arg);
+            }
+        }
+    } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
+        return strip_tokenizer_cast((*relabel).arg.cast());
+    } else if let Some(coerce) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
+        return strip_tokenizer_cast((*coerce).arg.cast());
+    } else if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
+        return strip_tokenizer_cast((*coerce).arg.cast());
+    }
+
+    node
+}
+
 /// Extracts the field attributes from the index relation.
 /// It returns a vector of tuples containing the field name and its type OID.
 pub unsafe fn extract_field_attributes(
     indexrel: pg_sys::Relation,
 ) -> HashMap<FieldName, ExtractedFieldAttribute> {
+    #[inline]
+    unsafe fn is_text_lower(expression: *mut pg_sys::Node) -> bool {
+        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression) {
+            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg) {
+                if (*func_expr).funcid == text_lower_funcoid() {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     let heap_relation = PgSearchRelation::from_pg(indexrel).heap_relation().unwrap();
     let heap_tupdesc = heap_relation.tuple_desc();
     let index_info = pg_sys::BuildIndexInfo(indexrel);
@@ -286,6 +448,67 @@ pub unsafe fn extract_field_attributes(
                 let mut inner_typoid = typoid;
                 let mut normalizer = None;
 
+                // Check if this expression is a composite type
+                if is_composite_type(typoid) {
+                    // Get composite fields (validates for nested composites, etc.)
+                    let composite_fields =
+                        get_composite_fields_for_index(typoid).unwrap_or_else(|e| panic!("{e}"));
+                    let row_args =
+                        row_expr_from_indexed_expr(expression.cast()).map(|row_expr| unsafe {
+                            PgList::<pg_sys::Node>::from_pg((*row_expr).args)
+                        });
+
+                    // Add each field from the composite to the index
+                    for comp_field in composite_fields {
+                        if comp_field.is_dropped {
+                            continue;
+                        }
+
+                        // Check for duplicate field name (reuse existing logic)
+                        if field_attributes.contains_key(&FieldName::from(&comp_field.field_name)) {
+                            panic!(
+                                "indexed attribute {} defined more than once",
+                                comp_field.field_name
+                            );
+                        }
+
+                        let pg_type = PgOid::from_untagged(comp_field.type_oid);
+                        let tantivy_type = SearchFieldType::try_from((
+                            pg_type,
+                            comp_field.typmod,
+                            comp_field.type_oid,
+                        ))
+                        .unwrap_or_else(|e| panic!("{e}"));
+
+                        field_attributes.insert(
+                            comp_field.field_name.clone().into(),
+                            ExtractedFieldAttribute {
+                                attno: attno as usize,
+                                source: FieldSource::CompositeField {
+                                    index_attno: attno as usize,
+                                    expression_idx,
+                                    field_idx: comp_field.field_index,
+                                    composite_type_oid: typoid,
+                                },
+                                pg_type,
+                                tantivy_type,
+                                inner_typoid: row_args
+                                    .as_ref()
+                                    .and_then(|args| args.get_ptr(comp_field.field_index))
+                                    .map(|arg| {
+                                        let inner_node = strip_tokenizer_cast(arg.cast());
+                                        pg_sys::exprType(inner_node)
+                                    })
+                                    .unwrap_or(comp_field.type_oid),
+                                normalizer: None,
+                            },
+                        );
+                    }
+
+                    // Skip normal expression handling for composite types
+                    continue;
+                }
+
                 if type_is_tokenizer(typoid) {
                     typmod = pg_sys::exprTypmod(node);
 
@@ -296,32 +519,38 @@ pub unsafe fn extract_field_attributes(
                     normalizer = parsed_typmod.normalizer();
                     attname = parsed_typmod.alias();
 
+                    // Attempt to determine inner_typoid by peeling the tokenizer cast/function.
+                    // This handles cases like `(a || b)::pdb.literal('alias=...')` where vars.len() > 1.
+                    if inner_typoid == typoid {
+                        let inner_node = strip_tokenizer_cast(expression.cast());
+                        inner_typoid = pg_sys::exprType(inner_node);
+                    }
+
                     if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
-                        let heap_attname = heap_relation
-                            .tuple_desc()
-                            .get((*var).varattno as usize - 1)
-                            .unwrap()
-                            .name()
-                            .to_string();
-
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
-                        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression) {
-                            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
-                            {
-                                if (*func_expr).funcid == text_lower_funcoid() {
-                                    normalizer = Some(SearchNormalizer::Lowercase);
-                                }
-                            }
+                        if is_text_lower(expression.cast()) {
+                            normalizer = Some(SearchNormalizer::Lowercase);
                         } else if let Some(relabel) =
                             nodecast!(RelabelType, T_RelabelType, expression)
                         {
                             if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
                                 inner_typoid = pg_sys::exprType((*relabel).arg.cast());
                             }
-                        }
 
-                        attname = Some(heap_attname);
+                            if is_text_lower((*relabel).arg.cast()) {
+                                normalizer = Some(SearchNormalizer::Lowercase);
+                            }
+                        }
+                        if attname.is_none() {
+                            let heap_attname = heap_relation
+                                .tuple_desc()
+                                .get((*var).varattno as usize - 1)
+                                .unwrap()
+                                .name()
+                                .to_string();
+                            attname = Some(heap_attname);
+                        }
                     }
 
                     if type_is_alias(typoid) {
@@ -464,12 +693,35 @@ pub unsafe fn row_to_search_document<'a>(
         };
 
         if *is_array {
-            for value in
-                TantivyValue::try_from_datum_array(actual_datum, *base_oid).unwrap_or_else(|e| {
-                    panic!("could not parse field `{}`: {e}", search_field.field_name())
-                })
-            {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+            // Check for NUMERIC array field types that need special handling
+            match search_field.field_type() {
+                SearchFieldType::Numeric64(_, scale) => {
+                    for value in TantivyValue::try_from_numeric_array_i64(actual_datum, scale)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
+                SearchFieldType::NumericBytes(..) => {
+                    for value in TantivyValue::try_from_numeric_array_bytes(actual_datum)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
+                _ => {
+                    for value in TantivyValue::try_from_datum_array(actual_datum, *base_oid)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
             }
         } else if *is_json {
             for value in
@@ -480,7 +732,17 @@ pub unsafe fn row_to_search_document<'a>(
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
-            let tv = TantivyValue::try_from_datum(actual_datum, *base_oid).unwrap_or_else(|e| {
+            // Check for NUMERIC field types that need special handling
+            let tv = match search_field.field_type() {
+                SearchFieldType::Numeric64(_, scale) => {
+                    TantivyValue::try_from_numeric_i64(actual_datum, scale)
+                }
+                SearchFieldType::NumericBytes(..) => {
+                    TantivyValue::try_from_numeric_bytes(actual_datum)
+                }
+                _ => TantivyValue::try_from_datum(actual_datum, *base_oid),
+            }
+            .unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
             document.add_field_value(search_field.field(), &OwnedValue::from(tv));
@@ -512,6 +774,8 @@ fn convert_pgrx_seconds_to_chrono(orig: f64) -> Result<(u32, u32, u32)> {
 }
 
 pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::DateTime {
+    use crate::postgres::datetime::micros_to_tantivy_datetime;
+
     match typeoid {
         PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID) => {
             let d = pgrx::datum::Date::from_str(date_string)
@@ -522,7 +786,8 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                 .expect("must be able to set date default time")
                 .and_utc()
                 .timestamp_micros();
-            tantivy::DateTime::from_timestamp_micros(micros)
+            micros_to_tantivy_datetime(micros)
+                .expect("date exceeds Tantivy DateTime nanosecond range")
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TSRANGEOID) => {
             // Since [`pgrx::Timestamp`]s are tied to the Postgres instance's timezone,
@@ -542,7 +807,8 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                     .expect("must be able to parse timestamp format")
                     .and_utc()
                     .timestamp_micros();
-            tantivy::DateTime::from_timestamp_micros(micros)
+            micros_to_tantivy_datetime(micros)
+                .expect("timestamp exceeds Tantivy DateTime nanosecond range")
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID | pg_sys::BuiltinOid::TSTZRANGEOID) => {
             let twtz = pgrx::datum::TimestampWithTimeZone::from_str(date_string)
@@ -557,7 +823,8 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                     .expect("must be able to parse timestamp with timezone")
                     .and_utc()
                     .timestamp_micros();
-            tantivy::DateTime::from_timestamp_micros(micros)
+            micros_to_tantivy_datetime(micros)
+                .expect("timestamptz exceeds Tantivy DateTime nanosecond range")
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
             let t =
@@ -568,7 +835,8 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                     .expect("must be able to parse time");
             let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).expect("default date");
             let micros = naive_date.and_time(naive_time).and_utc().timestamp_micros();
-            tantivy::DateTime::from_timestamp_micros(micros)
+            micros_to_tantivy_datetime(micros)
+                .expect("time exceeds Tantivy DateTime nanosecond range")
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
             let twtz = pgrx::datum::TimeWithTimeZone::from_str(date_string)
@@ -580,10 +848,55 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                     .expect("must be able to parse time with time zone");
             let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).expect("default date");
             let micros = naive_date.and_time(naive_time).and_utc().timestamp_micros();
-            tantivy::DateTime::from_timestamp_micros(micros)
+            micros_to_tantivy_datetime(micros)
+                .expect("timetz exceeds Tantivy DateTime nanosecond range")
         }
         _ => panic!("Unsupported typeoid: {typeoid:?}"),
     }
+}
+
+/// Extract precision and scale from PostgreSQL NUMERIC typmod.
+///
+/// PostgreSQL encodes NUMERIC precision and scale in the typmod as:
+/// `typmod = ((precision << 16) | (scale & 0x7ff)) + VARHDRSZ`
+///
+/// The scale is stored in 11 bits (0x7ff = 2047), supporting the range [-1000, 1000].
+/// Negative scales are stored in two's complement within those 11 bits.
+///
+/// # Returns
+/// - `(precision, Some(scale))` if typmod specifies precision/scale
+/// - `(0, None)` if typmod is -1 (unlimited/unspecified precision)
+///
+/// # Note
+/// - For NUMERIC columns declared without precision (e.g., `NUMERIC` instead of `NUMERIC(10,2)`),
+///   PostgreSQL uses typmod = -1, indicating arbitrary precision.
+/// - PostgreSQL 15+ supports negative scales (e.g., NUMERIC(5,-3) rounds to nearest 1000).
+///
+/// # Reference
+/// See PostgreSQL's `numeric_typmod_scale()` in src/backend/utils/adt/numeric.c:
+/// ```c
+/// return (((typmod - VARHDRSZ) & 0x7ff) ^ 1024) - 1024;
+/// ```
+pub fn extract_numeric_precision_scale(typmod: i32) -> (u16, Option<i16>) {
+    // PostgreSQL uses typmod = -1 for unlimited precision NUMERIC
+    if typmod < 0 {
+        return (0, None);
+    }
+
+    // Extract precision and scale from typmod
+    // See PostgreSQL's make_numeric_typmod() and numeric_typmod_scale()
+    let typmod_val = (typmod - pg_sys::VARHDRSZ as i32) as u32;
+
+    // Precision is in upper 16 bits
+    let precision = ((typmod_val >> 16) & 0xFFFF) as u16;
+
+    // Scale is stored in lower 11 bits (0x7ff), using two's complement for negatives.
+    // The formula (x ^ 1024) - 1024 sign-extends an 11-bit value to a full integer.
+    // This works because 1024 = 2^10, the midpoint of the 11-bit range.
+    let stored_scale = (typmod_val & 0x7ff) as i16;
+    let scale = (stored_scale ^ 1024) - 1024;
+
+    (precision, Some(scale))
 }
 
 type IsArray = bool;
@@ -699,6 +1012,103 @@ pub unsafe fn expr_contains_any_operator(
     context.found
 }
 
+/// Collects all unique RTIs (range table indices) from Var nodes in an expression tree.
+/// Returns a HashSet of RTIs referenced by the expression.
+pub unsafe fn expr_collect_rtis(
+    node: *mut pg_sys::Node,
+) -> std::collections::HashSet<pg_sys::Index> {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let rtis = &mut *(data as *mut HashSet<pg_sys::Index>);
+
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node as *mut pg_sys::Var;
+            let varno = (*var).varno as pg_sys::Index;
+            // Skip special RTIs like INNER_VAR/OUTER_VAR
+            if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index {
+                rtis.insert(varno);
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    let mut rtis = HashSet::new();
+    walker(node, addr_of_mut!(rtis).cast());
+    rtis
+}
+
+/// A Var reference with its range table index and attribute number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VarRef {
+    /// Range table index (varno)
+    pub rti: pg_sys::Index,
+    /// Attribute number (varattno), 1-indexed
+    pub attno: pg_sys::AttrNumber,
+}
+
+/// Collects all unique Var references (RTI + attribute number) from an expression tree.
+/// Returns a Vec of VarRef structs for each column referenced by the expression.
+///
+/// If `include_special_vars` is true, variables with special varnos (like INDEX_VAR) are included.
+/// If false, only variables referencing base relations (varno > 0 and < INNER_VAR) are included.
+pub unsafe fn expr_collect_vars(
+    node: *mut pg_sys::Node,
+    include_special_vars: bool,
+) -> Vec<VarRef> {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let (vars, include_special_vars) = &mut *(data as *mut (Vec<VarRef>, bool));
+
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node as *mut pg_sys::Var;
+            let varno = (*var).varno as pg_sys::Index;
+            let varattno = (*var).varattno;
+
+            // Standard check for base relation var:
+            let is_base_rel_var = varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index;
+
+            if *include_special_vars {
+                // Include if valid attno
+                if varattno > 0 {
+                    vars.push(VarRef {
+                        rti: varno,
+                        attno: varattno,
+                    });
+                }
+            } else {
+                // Only include base relation vars
+                if is_base_rel_var && varattno > 0 {
+                    vars.push(VarRef {
+                        rti: varno,
+                        attno: varattno,
+                    });
+                }
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    let mut context = (Vec::new(), include_special_vars);
+    walker(node, addr_of_mut!(context).cast());
+    context.0
+}
+
 /// Look up a function in the pdb schema by name and argument types.
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation).
 pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys::Oid {
@@ -725,6 +1135,99 @@ pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys
             true, // missing_ok = true, don't error if not found
         )
     }
+}
+
+/// Returns true if the pg_search extension is installed in the current database.
+///
+/// This is used to guard shared_preload_libraries hooks from touching schemas/types/functions
+/// that only exist after `CREATE EXTENSION pg_search`.
+pub fn pg_search_extension_installed() -> bool {
+    unsafe { pg_sys::get_extension_oid(c"pg_search".as_ptr(), true) != pg_sys::InvalidOid }
+}
+
+/// RAII wrapper for `pg_sys::List` that automatically frees the list on drop.
+///
+/// This is useful when you need to create a temporary PostgreSQL list for use with
+/// PostgreSQL functions and want to ensure it's properly freed even if the code
+/// returns early or panics.
+///
+/// # Example
+/// ```ignore
+/// let temp_list = TempPgList::new();
+/// temp_list.push(some_node as *mut std::ffi::c_void);
+/// let result = pg_sys::some_function(temp_list.as_ptr());
+/// // temp_list is automatically freed when it goes out of scope
+/// ```
+#[derive(Default)]
+pub struct TempPgList(*mut pg_sys::List);
+
+impl TempPgList {
+    /// Create a new empty temporary list.
+    pub fn new() -> Self {
+        Self(std::ptr::null_mut())
+    }
+
+    /// Append a cell to the list.
+    ///
+    /// # Safety
+    /// The caller must ensure that `datum` is a valid pointer that can be
+    /// stored in a PostgreSQL list.
+    pub unsafe fn push(&mut self, datum: *mut std::ffi::c_void) {
+        self.0 = pg_sys::lappend(self.0, datum);
+    }
+
+    /// Get the raw pointer to the list.
+    pub fn as_ptr(&self) -> *mut pg_sys::List {
+        self.0
+    }
+}
+
+impl Drop for TempPgList {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.0.is_null() {
+                pg_sys::list_free(self.0);
+            }
+        }
+    }
+}
+
+/// Filter out RestrictInfo entries whose clauses are implied by a partial index predicate.
+///
+/// When using a partial index (e.g., `CREATE INDEX ... WHERE deleted_at IS NULL`),
+/// the index only contains rows that satisfy the predicate. If the query's WHERE clause
+/// includes the same predicate, we don't need to create a heap filter for it since the
+/// partial index already guarantees it.
+///
+/// This function uses PostgreSQL's `predicate_implied_by` to check if the index predicate
+/// implies each query clause. If so, that clause is filtered out.
+pub unsafe fn filter_implied_predicates(
+    index_predicate: *mut pg_sys::List,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+) -> PgList<pg_sys::RestrictInfo> {
+    // If there's no partial index predicate, return the original list unchanged
+    if index_predicate.is_null() {
+        return PgList::from_pg(restrict_info.as_ptr());
+    }
+
+    // Build a new list with only the predicates that are NOT implied by the index predicate
+    let mut filtered_list: *mut pg_sys::List = std::ptr::null_mut();
+
+    for ri in restrict_info.iter_ptr() {
+        let clause = (*ri).clause;
+        let mut clause_list = TempPgList::new();
+        clause_list.push(clause as *mut std::ffi::c_void);
+
+        // Check if the index predicate implies this clause
+        // predicate_implied_by(A, B, false) returns true if B => A
+        let is_implied = pg_sys::predicate_implied_by(clause_list.as_ptr(), index_predicate, false);
+
+        if !is_implied {
+            filtered_list = pg_sys::lappend(filtered_list, ri as *mut std::ffi::c_void);
+        }
+    }
+
+    PgList::from_pg(filtered_list)
 }
 
 #[macro_export]

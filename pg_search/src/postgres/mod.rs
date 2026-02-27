@@ -24,8 +24,8 @@ use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::condition_variable::ConditionVariable;
+use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
 
 use pgrx::*;
@@ -48,6 +48,7 @@ mod validate;
 
 mod build_parallel;
 pub mod catalog;
+pub mod composite;
 mod condition_variable;
 pub mod customscan;
 pub mod datetime;
@@ -56,9 +57,10 @@ pub mod fake_aminsertcleanup;
 pub mod heap;
 pub mod index;
 mod jsonb_support;
+pub mod locks;
 mod parallel;
+pub mod planner_warnings;
 pub mod rel;
-pub mod spinlock;
 pub mod storage;
 pub mod types;
 pub mod types_arrow;
@@ -387,6 +389,30 @@ const WORKER_METRICS_MAX_COUNT: usize = 256;
 /// Workers must wait until this changes before reading segment data.
 const PARALLEL_STATE_UNINITIALIZED: usize = usize::MAX;
 
+/// Shared state for coordinating parallel scans across multiple workers.
+///
+/// # Concurrency Model
+///
+/// The `basescan` and IAM in ParadeDB use a "lazy checkout" model where parallel workers claim
+/// segments on-demand from a shared pool. This allows for dynamic work-sharing without needing to
+/// pre-assign segments to specific workers.
+///
+/// For this model to work effectively, it is critical that workers perform actual work (scanning)
+/// between checkouts. If a worker checks out segments in a tight loop without intermediate work,
+/// it may claim all segments before other workers have time to start up, resulting in poor
+/// parallelism.
+///
+/// This dynamic model is chosen because it is ~impossible to determine the exact number of parallel
+/// workers available to a Custom Scan at runtime. The `ParallelContext` is shared across all
+/// nodes in a plan subgraph, and the actual number of workers launched may be a fraction of the
+/// planned count. Assuming a fixed number of workers (e.g., for static partitioning) will lead to
+/// deadlocks if fewer workers are available than expected. On the other hand, our `aggregatescan`
+/// currently spawns its own workers, and so uses a different strategy.
+///
+/// When a parallel custom scan claims sorted output, PostgreSQL automatically handles merging
+/// the output from each worker using a sort-preserving merge (via `Gather Merge`). This allows
+/// us to maintain the lazy checkout model even for sorted scans, as each worker only needs
+/// to provide a sorted stream for the segments it dynamically claims.
 #[repr(C)]
 pub struct ParallelScanState {
     mutex: Spinlock,
@@ -398,10 +424,10 @@ pub struct ParallelScanState {
     /// Workers sleep on this CV instead of busy-waiting, and are woken
     /// when the leader calls `populate()`.
     init_cv: ConditionVariable,
+    /// Remaining segments to be claimed. Protected by mutex.
     remaining_segments: usize,
-    /// Number of segments in the index. Set to PARALLEL_STATE_UNINITIALIZED until the leader
-    /// initializes the parallel state. Workers must wait for this to be set before reading
-    /// segment data.
+    /// Number of segments. Set to PARALLEL_STATE_UNINITIALIZED until leader initializes.
+    /// Protected by mutex.
     nsegments: usize,
     queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
@@ -425,28 +451,39 @@ impl ParallelScanState {
     }
 
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
-    /// Used by Index Scan where the leader populates data after workers may have started.
+    /// Used by Index Scan where the leader initializes the segment pool.
+    ///
+    /// Caller must hold the mutex. After populating, broadcasts to wake any workers
+    /// waiting in `wait_for_initialization()`.
     fn populate(&mut self, segments: &[SegmentReader], query: &[u8], with_aggregates: bool) {
         self.payload.init(segments, query, with_aggregates);
-        self.remaining_segments = segments.len();
-        self.nsegments = segments.len();
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
+        self.remaining_segments = segments.len();
+        // Set nsegments LAST - this signals initialization is complete
+        self.nsegments = segments.len();
 
         // Wake up any workers waiting in `wait_for_initialization()`.
         self.init_cv.broadcast();
     }
 
     /// Phase 1: Create the mutex but mark state as uninitialized.
-    /// This is called by `aminitparallelscan` before workers are launched.
-    /// The leader will later call `populate` to set up the segment data.
+    /// This is called by `aminitparallelscan` before any participants are launched.
+    /// The leader will call `populate` to set up the segment data; workers wait for that.
     pub fn create(&mut self) {
         self.mutex.init();
         self.init_cv.init();
         // Mark as uninitialized so workers know to wait for the leader
-        self.nsegments = PARALLEL_STATE_UNINITIALIZED;
+        self.mark_uninitialized();
     }
 
-    fn acquire_mutex(&mut self) -> impl Drop {
+    /// Mark the state as uninitialized to signal that a new scan is starting.
+    /// Called by amparallelrescan before rescans.
+    pub fn mark_uninitialized(&mut self) {
+        self.nsegments = PARALLEL_STATE_UNINITIALIZED;
+        self.remaining_segments = 0;
+    }
+
+    pub fn acquire_mutex(&mut self) -> impl Drop {
         self.mutex.acquire()
     }
 
@@ -608,18 +645,24 @@ impl ParallelScanState {
         }
     }
 
-    /// Claim a segment for this worker to work on.
+    /// Claim a segment from the shared pool.
+    /// Waits for initialization if needed, then returns None if no segments remain.
     pub fn checkout_segment(&mut self) -> Option<SegmentId> {
-        #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+        let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+
+        // Wait for state to be initialized (defensive - should already be initialized
+        // by the time we get here since amrescan calls maybe_init_parallel_scan first)
+        self.wait_for_initialization();
+
+        #[cfg(not(feature = "pg15"))]
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
 
         loop {
             let _mutex = self.acquire_mutex();
-            if self.remaining_segments == 0 {
+            let remaining = self.remaining_segments;
+            if remaining == 0 {
                 break None;
             }
-
-            let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
 
             // If debug_parallel_query is enabled and we're the leader, then do not take the first
             // segment (unless a deadline has passed, since in some cases we may not have any workers:
@@ -628,10 +671,10 @@ impl ParallelScanState {
             // This significantly improves the reproducibility of parallel worker issues with small
             // datasets, since it means that unlike in the non-parallel case, the leader will be
             // unlikely to emit all of the segments before the workers have had a chance to start up.
-            #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+            #[cfg(not(feature = "pg15"))]
             if unsafe { pg_sys::debug_parallel_query } != 0
                 && parallel_worker_number == -1
-                && self.remaining_segments == self.nsegments
+                && remaining == self.nsegments
                 && std::time::Instant::now() < deadline
             {
                 continue;
@@ -653,11 +696,10 @@ impl ParallelScanState {
     /// This is necessary for parallel index scans where workers may call this before
     /// the leader has finished initializing the parallel state.
     pub fn segments(&mut self) -> HashMap<SegmentId, u32> {
-        // Wait for the leader to initialize the parallel state
+        // Wait for initialization, then read segment data while holding the mutex.
         self.wait_for_initialization();
 
         let _mutex = self.acquire_mutex();
-
         let mut segments = HashMap::default();
         for i in 0..self.nsegments {
             segments.insert(self.segment_id(i), self.num_deleted_docs(i));
@@ -665,8 +707,7 @@ impl ParallelScanState {
         segments
     }
 
-    /// Wait until the leader has initialized the parallel state.
-    /// Workers call this before reading segment data.
+    /// Wait for parallel state to be initialized by the leader.
     fn wait_for_initialization(&mut self) {
         loop {
             // Check for interrupts to allow query cancellation
@@ -681,7 +722,6 @@ impl ParallelScanState {
             {
                 let _mutex = self.acquire_mutex();
                 if self.nsegments != PARALLEL_STATE_UNINITIALIZED {
-                    // Leader has initialized the state
                     ConditionVariable::cancel_sleep();
                     return;
                 }
@@ -689,6 +729,10 @@ impl ParallelScanState {
 
             self.init_cv.sleep();
         }
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        self.nsegments != PARALLEL_STATE_UNINITIALIZED
     }
 
     /// Returns per-worker `ParallelExplainData`.
@@ -740,7 +784,8 @@ impl ParallelScanState {
         self.payload.query()
     }
 
-    fn reset(&mut self) {
+    /// Reset remaining_segments for a rescan. Called by amparallelrescan.
+    pub fn reset(&mut self) {
         self.remaining_segments = self.nsegments;
         // NOTE: We do not reset `queries_per_worker` here, so that it can be tracked across
         // rescans.

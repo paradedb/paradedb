@@ -56,9 +56,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::gucs;
+use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{lookup_pdb_function, ExprContextGuard};
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 
 fn aggregate_impl(
     index: PgRelation,
@@ -79,6 +81,15 @@ fn aggregate_impl(
         .unwrap_or_else(|_| pgrx::error!("bucket_limit must be <= {}", u32::MAX));
 
     let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
+
+    // Validate aggregation fields exist and are supported before executing.
+    // This path bypasses the planner, so we validate here directly.
+    if let Ok(schema) = SearchIndexSchema::open(&relation) {
+        if let Err(e) = validate_agg_json_fields(&agg.0, &schema) {
+            pgrx::error!("{}", e);
+        }
+    }
+
     let standalone_context = ExprContextGuard::new();
 
     let aggregate = execute_aggregate(

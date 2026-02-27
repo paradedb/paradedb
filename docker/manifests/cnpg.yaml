@@ -112,7 +112,7 @@ data:
           - max_tx_duration_seconds:
               usage: "GAUGE"
               description: "Maximum duration of a transaction in seconds"
-    
+
       backends_waiting:
         query: |
          SELECT count(*) AS total
@@ -135,7 +135,7 @@ data:
           - total:
               usage: "GAUGE"
               description: "Total number of backends that are currently waiting on other queries"
-    
+
       pg_database:
         query: |
           SELECT datname
@@ -157,7 +157,7 @@ data:
           - mxid_age:
               usage: "GAUGE"
               description: "Number of multiple transactions (Multixact) from the frozen XID to the current one"
-    
+
       pg_postmaster:
         query: |
           SELECT EXTRACT(EPOCH FROM pg_postmaster_start_time) AS start_time
@@ -166,7 +166,7 @@ data:
           - start_time:
               usage: "GAUGE"
               description: "Time at which postgres started (based on epoch)"
-    
+
       pg_replication:
         query: "SELECT CASE WHEN (
                   NOT pg_catalog.pg_is_in_recovery()
@@ -191,7 +191,7 @@ data:
           - streaming_replicas:
               usage: "GAUGE"
               description: "Number of streaming replicas connected to the instance"
-    
+
       pg_replication_slots:
         query: |
           SELECT slot_name,
@@ -220,7 +220,7 @@ data:
           - pg_wal_lsn_diff:
               usage: "GAUGE"
               description: "Replication lag in bytes"
-    
+
       pg_stat_archiver:
         query: |
           SELECT archived_count
@@ -261,7 +261,7 @@ data:
           - stats_reset_time:
               usage: "GAUGE"
               description: "Time at which these statistics were last reset"
-    
+
       pg_stat_bgwriter:
         runonserver: "<17.0.0"
         query: |
@@ -307,7 +307,7 @@ data:
           - buffers_alloc:
               usage: "COUNTER"
               description: "Number of buffers allocated"
-    
+
       pg_stat_bgwriter_17:
         runonserver: ">=17.0.0"
         name: pg_stat_bgwriter
@@ -330,7 +330,7 @@ data:
           - stats_reset_time:
               usage: "GAUGE"
               description: "Time at which these statistics were last reset"
-    
+
       pg_stat_checkpointer:
         runonserver: ">=17.0.0"
         query: |
@@ -372,7 +372,7 @@ data:
           - stats_reset_time:
               usage: "GAUGE"
               description: "Time at which these statistics were last reset"
-    
+
       pg_stat_database:
         query: |
           SELECT datname
@@ -441,7 +441,7 @@ data:
           - blk_write_time:
               usage: "COUNTER"
               description: "Time spent writing data file blocks by backends in this database, in milliseconds"
-    
+
       pg_stat_replication:
         primary: true
         query: |
@@ -499,7 +499,7 @@ data:
           - replay_lag_seconds:
               usage: "GAUGE"
               description: "Time elapsed between flushing recent WAL locally and receiving notification that this standby server has written, flushed and applied it"
-    
+
       pg_settings:
         query: |
           SELECT name,
@@ -514,7 +514,7 @@ data:
           - setting:
               usage: "GAUGE"
               description: "Setting value"
-    
+
       pg_extensions:
         query: |
           SELECT

@@ -1,27 +1,39 @@
 ---
-title: The Transactional Elasticsearch Alternative
-description: An open source, ACID-compliant alternative to Elasticsearch
+title: Simple, Elastic-Quality Search for Postgres
+description: ParadeDB is the modern Elastic alternative built as a Postgres extension.
 canonical: https://docs.paradedb.com/welcome/introduction
 ---
 
 ![ParadeDB Banner](/images/paradedb_banner.png)
 
-ParadeDB is an open source, ACID-compliant alternative to Elasticsearch. ParadeDB is built on Postgres as a Postgres extension, not a fork of Postgres.
+## Who is ParadeDB for?
+
+You are likely a good fit for ParadeDB if you identify with the following:
+
+1. Your **primary database is Postgres**, either managed (e.g. AWS RDS) or self-managed
+2. You **have used Postgres' built-in search** capabilities via `tsvector` and the GIN index, but have reached a scale where you're limited by **performance bottlenecks** or **missing features** like BM25 scoring or fuzzy search
+3. You are evaluating a search engine like Elasticsearch, but **don't want to introduce another cumbersome dependency** to your stack
 
 ## Why ParadeDB?
 
-There are many search engines in the world, but they are mostly built for static datasets and eventual consistency. ParadeDB is for users who
-want first-class search and analytics performance, but frequently update data and need consistency between their source and their indexes.
+For teams that already use Postgres, ParadeDB is the simplest way to bring Elastic-quality search to your application.
 
-ParadeDB may be a good fit for your stack if:
+### Zero ETL Required
 
-- **You frequently update** the data you want to run search queries over
-- **Elasticsearch lag, shard loss, or stale indexes** keep you up at night
-- You spend more time **babysitting ETL processes** than doing things that matter
-- You **enjoy using Postgres**, you **hate using Elasticsearch**, or something in between
-- **You have tried tsvector and the GIN index for Postgres text search**, but lack of fuzzy matching, BM25 relevance scoring, advanced query types, etc. leads to low-quality results
-- Analytical queries in Postgres (e.g. `COUNT`, `GROUP BY`, etc.) **hit timeouts**
-- You **value simplicity** when designing systems
+Syncing Postgres with an external search engine like Elastic can be a time-consuming, error-prone process that involves babysitting ETL pipelines
+and debugging data inconsistency issues. ParadeDB eliminates this class of problems because you can:
+
+- [Install](/deploy/self-hosted/extension) the ParadeDB extension directly inside your Postgres, if it is self-managed
+- [Run ParadeDB as a logical replica](/deploy/self-hosted/logical-replication/getting-started) of your primary Postgres, if you use managed Postgres providers like RDS
+
+### Search That Feels Like Postgres
+
+In ParadeDB, writing a search query is as simple as writing SQL. ParadeDB supports JOINs, which removes the complexity of denormalizing your existing schema.
+
+### As Reliable As Postgres
+
+ParadeDB supports Postgres transactions and ACID guarantees. This means that data is searchable immediately
+after it's written to ParadeDB, and durable thanks to Postgres write-ahead logging.
 
 ## ParadeDB vs. Alternatives
 
@@ -31,14 +43,14 @@ People usually compare ParadeDB to two other types of systems: OLTP databases li
 | --------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | **Primary role**            | System of record                                                         | Search and retrieval engine                                                                            | System of record **and** search/analytics engine                                                                          |
 | **Examples**                | Postgres, MySQL                                                          | Elasticsearch, OpenSearch                                                                              |                                                                                                                           |
-| **ACID guarantees**         | Full ACID compliance, read-after-write guarantees                        | No transactions, atomic only per-document, eventual consistency, durability not guaranteed until flush | Full ACID compliance, read-after-write guarantees                                                                         |
-| **Update & delete support** | Built for fast-changing data                                             | Struggles with updates/deletes                                                                         | Built for fast-changing data                                                                                              |
 | **Search features**         | Basic FTS (no BM25, weak ranking)                                        | Rich search features (BM25, fuzzy matching, faceting, hybrid search)                                   | Rich search features (BM25, fuzzy matching, faceting, hybrid search)                                                      |
 | **Analytics features**      | Not an analytical DB (no column store, batch processing, etc.)           | Column store, batch processing, parallelization via sharding                                           | Column store, batch processing, parallelization via Postgres [parallel workers](/documentation/performance-tuning/writes) |
 | **Lag**                     | None in a single cluster                                                 | At least network, ETL transformation, and indexing time                                                | None in a single cluster                                                                                                  |
 | **Operational complexity**  | Simple (single datastore)                                                | Complex (ETL pipelines, managing multiple systems)                                                     | Simple (single datastore)                                                                                                 |
 | **Scalability**             | Vertical scaling in a single node, horizontal scaling through Kubernetes | Horizontal scaling through sharding                                                                    | Vertical scaling in a single node, horizontal scaling through [Kubernetes](/deploy/self-hosted/kubernetes)                |
 | **Language**                | SQL                                                                      | Custom DSL                                                                                             | Standard SQL with custom search operators                                                                                 |
+| **ACID guarantees**         | Full ACID compliance, read-after-write guarantees                        | No transactions, atomic only per-document, eventual consistency, durability not guaranteed until flush | Full ACID compliance, read-after-write guarantees                                                                         |
+| **Update & delete support** | Built for fast-changing data                                             | Struggles with updates/deletes                                                                         | Built for fast-changing data                                                                                              |
 
 ## Production Readiness
 
@@ -49,10 +61,10 @@ production since December 2023.
 ParadeDB Enterprise, the durable and production-hardened edition of ParadeDB, powers core search and analytics use cases at enterprises ranging from Fortune 500s to fast-growing startups. A few
 examples include:
 
-- **Alibaba Cloud**, the largest Asia-Pacific cloud provider, uses ParadeDB to power search inside their data warehouse. [Case study available](https://www.paradedb.com/blog/case-study-alibaba).
-- **Bilt Rewards**, a rent payments technology company that processed over $36B in payments in 2024. [Case study available](https://www.paradedb.com/blog/case-study-bilt).
+- **Alibaba Cloud**, the largest Asia-Pacific cloud provider, uses ParadeDB to power search inside their data warehouse. [Case study available](https://www.paradedb.com/customers/case-study-alibaba).
+- **Bilt Rewards**, a rent payments technology company that processed over $36B in payments in 2024. [Case study available](https://www.paradedb.com/customers/case-study-bilt).
 - **Modern Treasury**<sup>1</sup>, a financial technology company that automates the full cycle of money movement.
-- **UnifyGTM**<sup>1</sup>, one of the fastest-growing startups in AI sales automation.
+- **Span**<sup>1</sup>, one of the fastest-growing AI developer productivity platforms
 - **TCDI**<sup>1</sup>, a giant in the legal software and litigation management space.
 
 _1. Case study coming soon_

@@ -297,6 +297,16 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
 );
+-- Update statistics for consistent query planning
+ANALYZE mixed_numeric_string_test;
+ANALYZE documents;
+ANALYZE files;
+ANALYZE pages;
+ANALYZE categories;
+ANALYZE products;
+ANALYZE conversion_test;
+ANALYZE union_test_a;
+ANALYZE union_test_b;
 \echo 'Test: Type conversion edge cases'
 Test: Type conversion edge cases
 -- Test implicit type conversions
@@ -310,7 +320,7 @@ WHERE content @@@ 'conversion test';
    Table: conversion_test
    Index: conversion_search
    Exec Method: MixedFastFieldExecState
-   Fast Fields: bigint_field, id, smallint_field, integer_field
+   Fast Fields: bigint_field, id, integer_field, smallint_field
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"conversion test","lenient":null,"conjunction_mode":null}}}}
 (7 rows)

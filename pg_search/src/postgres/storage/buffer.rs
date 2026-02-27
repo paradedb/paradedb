@@ -1,3 +1,20 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use crate::postgres::storage::fsm::v2::V2FSM;
@@ -86,6 +103,12 @@ mod block_tracker {
                                 || matches!(blockno, block_tracker::TrackedBlock::Read(_))
                                 || matches!(blockno, block_tracker::TrackedBlock::Write(_))
                                 || matches!(blockno, block_tracker::TrackedBlock::Conditional(_))
+                                // Allow ConditionalCleanup/Cleanup from Pinned because:
+                                // 1. Multiple segments can share the same pintest_blockno
+                                // 2. After one segment pins the block, another segment's recyclable()
+                                //    check may try to get a conditional cleanup lock on the same block
+                                || matches!(blockno, block_tracker::TrackedBlock::ConditionalCleanup(_))
+                                || matches!(blockno, block_tracker::TrackedBlock::Cleanup(_))
                         }
                         block_tracker::TrackedBlock::Read(_) => {
                             matches!(blockno, block_tracker::TrackedBlock::Pinned(_))
@@ -167,18 +190,33 @@ pub struct Buffer {
     pub(super) pg_buffer: pg_sys::Buffer,
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
+// must run unconditionally (even during panic) for correct bookkeeping. The macro would
+// skip the entire body during panic, but we only want to skip the PostgreSQL API call.
 impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe {
             if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                // block_tracker bookkeeping must run unconditionally
                 block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
-                // if it's not we're likely unwinding the stack due to a panic and unlocking buffers isn't possible anymore
-                if pg_sys::InterruptHoldoffCount > 0 && crate::postgres::utils::IsTransactionState()
+
+                // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics.
+                // InterruptHoldoffCount check is a PostgreSQL-level indicator of error handling.
+                if !std::thread::panicking()
+                    && pg_sys::InterruptHoldoffCount > 0
+                    && crate::postgres::utils::IsTransactionState()
                 {
                     pg_sys::UnlockReleaseBuffer(self.pg_buffer);
                 }
             }
         }
+    }
+}
+
+impl Deref for Buffer {
+    type Target = pg_sys::Buffer;
+    fn deref(&self) -> &Self::Target {
+        &self.pg_buffer
     }
 }
 
@@ -264,15 +302,13 @@ impl Deref for BufferMut {
     }
 }
 
-impl Drop for BufferMut {
-    fn drop(&mut self) {
-        unsafe {
-            if crate::postgres::utils::IsTransactionState() && self.dirty {
-                pg_sys::MarkBufferDirty(self.inner.pg_buffer);
-            }
+crate::impl_safe_drop!(BufferMut, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() && self.dirty {
+            pg_sys::MarkBufferDirty(self.inner.pg_buffer);
         }
     }
-}
+});
 
 impl BufferMut {
     pub fn init_page(&mut self) -> PageMut<'_> {
@@ -354,11 +390,17 @@ pub struct PinnedBuffer {
     pg_buffer: pg_sys::Buffer,
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
+// must run unconditionally (even during panic) for correct bookkeeping. The macro would
+// skip the entire body during panic, but we only want to skip the PostgreSQL API call.
 impl Drop for PinnedBuffer {
     fn drop(&mut self) {
         unsafe {
+            // block_tracker bookkeeping must run unconditionally
             block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
-            if crate::postgres::utils::IsTransactionState() {
+
+            // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics
+            if crate::postgres::utils::IsTransactionState() && !std::thread::panicking() {
                 pg_sys::ReleaseBuffer(self.pg_buffer);
             }
         }
@@ -394,16 +436,14 @@ impl BorrowedBuffer {
     }
 }
 
-impl Drop for BorrowedBuffer {
-    fn drop(&mut self) {
-        unsafe {
-            if crate::postgres::utils::IsTransactionState() {
-                // Only unlock, don't release
-                pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
-            }
+crate::impl_safe_drop!(BorrowedBuffer, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() {
+            // Only unlock, don't release
+            pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
         }
     }
-}
+});
 
 pub struct Page<'a> {
     pg_page: pg_sys::Page,

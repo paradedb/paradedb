@@ -1,7 +1,27 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 use crate::postgres::types::{TantivyValue, TantivyValueError};
+use crate::query::numeric::{bytes_to_hex, hex_to_decimal};
 use crate::schema::range::TantivyRangeBuilder;
+use decimal_bytes::Decimal;
 use pgrx::datum::{Date, DateTimeConversionError, RangeBound, Timestamp, TimestampWithTimeZone};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::str::FromStr;
 
 // When Tantivy reads JSON objects, it only recognizes RFC 3339 formatted strings as DateTime values.
 // Dates like "2021-01-01" or ISO formatted strings like "2021-01-01T00:00:00" are not recognized.
@@ -46,6 +66,48 @@ impl TryFrom<Timestamp> for TimestampWithTimeZoneUtc {
                 "UTC",
             )?,
         ))
+    }
+}
+
+/// A wrapper around `Decimal` that serializes to hex-encoded lexicographically sortable bytes.
+/// This allows string comparison in Tantivy's JSON fields to give correct numeric ordering.
+///
+/// Used for `numrange` to preserve full NUMERIC precision in range queries.
+#[derive(Clone, Debug)]
+pub(crate) struct SortableDecimal(pub Decimal);
+
+impl TryFrom<pgrx::AnyNumeric> for SortableDecimal {
+    type Error = decimal_bytes::DecimalError;
+
+    fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
+        let numeric_str = val.normalize().to_string();
+        let decimal = Decimal::from_str(&numeric_str)?;
+        Ok(SortableDecimal(decimal))
+    }
+}
+
+impl Serialize for SortableDecimal {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Serialize as hex-encoded sortable bytes.
+        // Hex encoding preserves lexicographic ordering since:
+        // - Each byte maps to exactly 2 hex chars
+        // - Hex chars compare in the same order as byte values
+        serializer.serialize_str(&bytes_to_hex(self.0.as_bytes()))
+    }
+}
+
+impl<'de> Deserialize<'de> for SortableDecimal {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hex_str = String::deserialize(deserializer)?;
+        let decimal = hex_to_decimal(&hex_str)
+            .ok_or_else(|| serde::de::Error::custom("invalid hex string"))?;
+        Ok(SortableDecimal(decimal))
     }
 }
 
@@ -96,7 +158,9 @@ where
 
 impl RangeToTantivyValue<i32, i32> for TantivyValue {}
 impl RangeToTantivyValue<i64, i64> for TantivyValue {}
-impl RangeToTantivyValue<pgrx::AnyNumeric, f64> for TantivyValue {}
+// numrange uses SortableDecimal which serializes as hex-encoded lexicographically sortable bytes.
+// This preserves full NUMERIC precision while allowing string comparison to give correct ordering.
+impl RangeToTantivyValue<pgrx::AnyNumeric, SortableDecimal> for TantivyValue {}
 impl RangeToTantivyValue<Date, TimestampWithTimeZoneUtc> for TantivyValue {}
 impl RangeToTantivyValue<Timestamp, TimestampWithTimeZoneUtc> for TantivyValue {}
 impl RangeToTantivyValue<TimestampWithTimeZone, TimestampWithTimeZone> for TantivyValue {}

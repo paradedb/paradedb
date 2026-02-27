@@ -16,6 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::query::numeric::{
+    convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
+    scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
+};
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
@@ -23,7 +27,7 @@ use crate::query::range::{Comparison, RangeField};
 use crate::query::{
     check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
 };
-use crate::schema::{IndexRecordOption, SearchIndexSchema};
+use crate::schema::{IndexRecordOption, SearchField, SearchFieldType, SearchIndexSchema};
 use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
 use serde_json::Value;
 use std::collections::Bound;
@@ -617,6 +621,53 @@ impl pdb::Query {
 
         Ok(query)
     }
+
+    /// Returns `true` if constructing a Tantivy Scorer for this query type is expensive.
+    /// Fuzzy term and regex queries require building DFAs/automata and scanning the term
+    /// dictionary during scorer construction, which can be too costly for planner selectivity
+    /// estimation.
+    ///
+    /// Range queries and Match-with-distance are intentionally excluded: range queries on
+    /// numeric fast fields are cheap to score, and their selectivity is highly data-dependent
+    /// making heuristics unreliable. Inaccurate heuristics for these types cause plan
+    /// regressions (e.g. wrong join strategies, wrong append methods).
+    pub fn is_expensive_to_estimate(&self) -> bool {
+        match self {
+            pdb::Query::FuzzyTerm { .. }
+            | pdb::Query::Regex { .. }
+            | pdb::Query::RegexPhrase { .. } => true,
+
+            pdb::Query::ParseWithField { fuzzy_data, .. } => fuzzy_data.is_some(),
+
+            pdb::Query::ScoreAdjusted { query, .. } => query.is_expensive_to_estimate(),
+
+            _ => false,
+        }
+    }
+
+    /// Returns a heuristic selectivity for this query type, avoiding expensive scorer construction.
+    pub fn selectivity_heuristic(&self) -> f64 {
+        use crate::{FUZZY_HIGH_SELECTIVITY, FUZZY_LOW_SELECTIVITY, REGEX_SELECTIVITY};
+
+        match self {
+            pdb::Query::FuzzyTerm { distance, .. } => {
+                let dist = distance.unwrap_or(1);
+                if dist <= 1 {
+                    FUZZY_LOW_SELECTIVITY
+                } else {
+                    FUZZY_HIGH_SELECTIVITY
+                }
+            }
+
+            pdb::Query::ParseWithField { .. } => FUZZY_LOW_SELECTIVITY,
+
+            pdb::Query::Regex { .. } | pdb::Query::RegexPhrase { .. } => REGEX_SELECTIVITY,
+
+            pdb::Query::ScoreAdjusted { query, .. } => query.selectivity_heuristic(),
+
+            _ => crate::UNKNOWN_SELECTIVITY,
+        }
+    }
 }
 
 impl InOutFuncs for pdb::Query {
@@ -672,10 +723,8 @@ fn proximity(
 
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.is_tokenized_with_freqs_and_positions() {
-        return Err(QueryError::InvalidTokenizer.into());
-    }
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
 
     let prox = ProximityQuery::new(search_field.field(), left, distance, right);
     Ok(Box::new(prox))
@@ -692,17 +741,26 @@ fn term_set(
     let field_type = search_field.field_entry().field_type();
     let tantivy_field = search_field.field();
     let is_date_time = search_field.is_datetime();
+    let search_field_type = search_field.field_type();
 
-    Ok(Box::new(TermSetQuery::new(terms.into_iter().map(|term| {
-        value_to_term(
-            tantivy_field,
-            &term,
-            field_type,
-            field.path().as_deref(),
-            is_date_time,
-        )
-        .expect("could not convert argument to search term")
-    }))))
+    // Convert terms based on field type (uses same logic as term())
+    let converted_terms: Vec<OwnedValue> = terms
+        .into_iter()
+        .map(|term| convert_value_for_field(term, &search_field_type).unwrap_or(OwnedValue::Null))
+        .collect();
+
+    Ok(Box::new(TermSetQuery::new(
+        converted_terms.into_iter().map(|term| {
+            value_to_term(
+                tantivy_field,
+                &term,
+                field_type,
+                field.path().as_deref(),
+                is_date_time,
+            )
+            .expect("could not convert argument to search term")
+        }),
+    )))
 }
 
 fn term(
@@ -717,9 +775,14 @@ fn term(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let is_datetime = search_field.is_datetime() || is_datetime;
+    let search_field_type = search_field.field_type();
+
+    // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)
+    let value = convert_value_for_field(value.clone(), &search_field_type)?;
+
     let term = value_to_term(
         search_field.field(),
-        value,
+        &value,
         field_type,
         field.path().as_deref(),
         is_datetime,
@@ -737,7 +800,9 @@ fn regex_phrase(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
     let mut query = RegexPhraseQuery::new(search_field.field(), regexes);
 
     if let Some(slop) = slop {
@@ -928,6 +993,14 @@ fn range_term(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    // Convert numeric values to appropriate types based on range field type.
+    // Range fields are indexed as JSON with specific element types:
+    // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
+    // - NUMRANGEOID: indexed as hex-encoded sortable bytes (see SortableDecimal) → convert to hex string
+    // - Date/time ranges: handled by is_datetime flag
+    let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
+
     let range_field = RangeField::new(search_field.field(), is_datetime);
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
@@ -949,7 +1022,7 @@ fn range_term(
                             Occur::Must,
                             Box::new(
                                 range_field
-                                    .compare_lower_bound(value, Comparison::GreaterThanOrEqual)?,
+                                    .compare_lower_bound(&value, Comparison::GreaterThanOrEqual)?,
                             ),
                         ),
                     ])),
@@ -964,7 +1037,7 @@ fn range_term(
                         (
                             Occur::Must,
                             Box::new(
-                                range_field.compare_lower_bound(value, Comparison::GreaterThan)?,
+                                range_field.compare_lower_bound(&value, Comparison::GreaterThan)?,
                             ),
                         ),
                     ])),
@@ -992,7 +1065,7 @@ fn range_term(
                             Occur::Must,
                             Box::new(
                                 range_field
-                                    .compare_upper_bound(value, Comparison::LessThanOrEqual)?,
+                                    .compare_upper_bound(&value, Comparison::LessThanOrEqual)?,
                             ),
                         ),
                     ])),
@@ -1006,7 +1079,9 @@ fn range_term(
                         ),
                         (
                             Occur::Must,
-                            Box::new(range_field.compare_upper_bound(value, Comparison::LessThan)?),
+                            Box::new(
+                                range_field.compare_upper_bound(&value, Comparison::LessThan)?,
+                            ),
                         ),
                     ])),
                 ),
@@ -1349,10 +1424,51 @@ fn range(
     let field_type = search_field.field_entry().field_type();
     let typeoid = search_field.field_type().typeoid();
     let is_datetime = search_field.is_datetime() || is_datetime;
+    let search_field_type = search_field.field_type();
 
-    let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
-    let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
-    let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
+    // Handle NUMERIC field types with special storage strategies
+    // Also handle string-encoded numeric values for JSON and other numeric fields
+    let (lower_bound, upper_bound) = match search_field_type {
+        SearchFieldType::Numeric64(_, scale) => {
+            // Scale bounds for I64 fixed-point storage
+            let lower = scale_numeric_bound(lower_bound, scale)?;
+            let upper = scale_numeric_bound(upper_bound, scale)?;
+            (lower, upper)
+        }
+        SearchFieldType::NumericBytes(..) => {
+            // Convert bounds to lexicographically sortable bytes
+            let lower = numeric_bound_to_bytes(lower_bound)?;
+            let upper = numeric_bound_to_bytes(upper_bound)?;
+            (lower, upper)
+        }
+        SearchFieldType::Json(_) => {
+            // For JSON fields, convert string numeric values to appropriate JSON types
+            let lower = map_bound(lower_bound, string_to_json_numeric);
+            let upper = map_bound(upper_bound, string_to_json_numeric);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::I64(_) => {
+            let lower = map_bound(lower_bound, string_to_i64);
+            let upper = map_bound(upper_bound, string_to_i64);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::U64(_) => {
+            let lower = map_bound(lower_bound, string_to_u64);
+            let upper = map_bound(upper_bound, string_to_u64);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::F64(_) => {
+            let lower = map_bound(lower_bound, string_to_f64);
+            let upper = map_bound(upper_bound, string_to_f64);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        _ => {
+            // Standard path for other field types
+            let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
+            let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
+            check_range_bounds(typeoid, lower_bound, upper_bound)?
+        }
+    };
 
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
@@ -1393,6 +1509,24 @@ fn range(
     Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
 }
 
+fn resolve_search_tokenizer(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+    searcher: &Searcher,
+) -> anyhow::Result<tantivy::tokenizer::TextAnalyzer> {
+    if let Some(st) = search_field.field_config().search_tokenizer() {
+        return Ok(st
+            .to_tantivy_tokenizer()
+            .expect("field-level search_tokenizer should be a valid tantivy tokenizer"));
+    }
+    if let Some(ref st) = schema.index_search_tokenizer() {
+        return Ok(st
+            .to_tantivy_tokenizer()
+            .expect("index-level search_tokenizer should be a valid tantivy tokenizer"));
+    }
+    Ok(searcher.index().tokenizer_for_field(search_field.field())?)
+}
+
 fn tokenized_phrase(
     field: &FieldName,
     schema: &SearchIndexSchema,
@@ -1402,9 +1536,11 @@ fn tokenized_phrase(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
     let field_type = search_field.field_entry().field_type();
-    let mut tokenizer = searcher.index().tokenizer_for_field(search_field.field())?;
+    let mut tokenizer = resolve_search_tokenizer(&search_field, schema, searcher)?;
     let mut stream = tokenizer.token_stream(phrase);
     let path = field.path();
 
@@ -1442,7 +1578,9 @@ fn phrase_prefix(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
     let field_type = search_field.field_entry().field_type();
     let terms = phrases.clone().into_iter().map(|phrase| {
         value_to_term(
@@ -1470,11 +1608,12 @@ fn phrase(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
     let field_type = search_field.field_entry().field_type();
 
     let mut terms = Vec::new();
-    let mut analyzer = searcher.index().tokenizer_for_field(search_field.field())?;
+    let mut analyzer = resolve_search_tokenizer(&search_field, schema, searcher)?;
     let mut should_warn = false;
 
     for phrase in phrases.into_iter() {
@@ -1522,7 +1661,8 @@ fn phrase_array(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
     let field_type = search_field.field_entry().field_type();
 
     let mut terms = Vec::with_capacity(tokens.len());
@@ -1593,19 +1733,46 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     conjunction_mode: Option<bool>,
     fuzzy_data: Option<FuzzyData>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let search_field = schema
+        .search_field(field)
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let field_type = search_field.field_type();
+
+    // Handle Numeric64 and NumericBytes fields specially
+    // Tantivy's QueryParser can't parse decimal strings directly for these types
+    if matches!(
+        field_type,
+        SearchFieldType::Numeric64(_, _) | SearchFieldType::NumericBytes(..)
+    ) {
+        // Convert the query string to the appropriate numeric format
+        let value = OwnedValue::Str(query_string.trim().to_string());
+        if let Ok(converted) = convert_value_for_field(value, &field_type) {
+            let tantivy_field_type = search_field.field_entry().field_type();
+            let term = value_to_term(
+                search_field.field(),
+                &converted,
+                tantivy_field_type,
+                field.path().as_deref(),
+                false,
+            )?;
+            return Ok(Box::new(TermQuery::new(
+                term,
+                IndexRecordOption::WithFreqsAndPositions.into(),
+            )));
+        }
+        // If conversion fails, fall through to standard parsing (will likely error)
+    }
+
     let mut parser = parser();
     let query_string = format!("{field}:({query_string})");
     if let Some(true) = conjunction_mode {
         parser.set_conjunction_by_default();
     }
-    let field = schema
-        .search_field(field)
-        .ok_or(QueryError::NonIndexedField(field.clone()))?
-        .field();
+    let tantivy_field = search_field.field();
 
     if let Some(fuzzy_data) = fuzzy_data {
         parser.set_field_fuzzy(
-            field,
+            tantivy_field,
             fuzzy_data.prefix,
             fuzzy_data.distance,
             fuzzy_data.transposition_cost_one,
@@ -1647,52 +1814,51 @@ fn match_query(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let mut analyzer = match tokenizer {
-        Some(tokenizer) => {
-            let tokenizer = SearchTokenizer::from_json_value(&tokenizer)
-                .map_err(|_| QueryError::InvalidTokenizer)?;
-            tokenizer
-                .to_tantivy_tokenizer()
-                .ok_or(QueryError::InvalidTokenizer)?
-        }
-        None => searcher.index().tokenizer_for_field(search_field.field())?,
+        Some(ref tokenizer) => SearchTokenizer::from_json_value(tokenizer)?
+            .to_tantivy_tokenizer()
+            .expect("tantivy should support tokenizer {tokenizer:?}"),
+        None => resolve_search_tokenizer(&search_field, schema, searcher)?,
     };
     let mut stream = analyzer.token_stream(value);
     let mut terms = Vec::new();
 
     while stream.advance() {
         let token = stream.token().text.clone();
-        let term = value_to_term(
+        terms.push(value_to_term(
             search_field.field(),
             &OwnedValue::Str(token),
             field_type,
             field.path().as_deref(),
             false,
-        )?;
-        let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
-            (0, _) => Box::new(TermQuery::new(
-                term,
-                IndexRecordOption::WithFreqsAndPositions.into(),
-            )),
-            (distance, true) => Box::new(FuzzyTermQuery::new_prefix(
-                term,
-                distance,
-                transposition_cost_one,
-            )),
-            (distance, false) => {
-                Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
-            }
-        };
-
-        let occur = if conjunction_mode {
-            Occur::Must
-        } else {
-            Occur::Should
-        };
-
-        terms.push((occur, term_query));
+        )?);
     }
 
-    Ok(Box::new(BooleanQuery::new(terms)))
+    // For conjunction mode, duplicate terms produce redundant Must clauses.
+    // This can happen with ngram tokenizers on strings with repeated substrings.
+    if conjunction_mode {
+        let mut seen = crate::api::HashSet::default();
+        terms.retain(|term| seen.insert(term.clone()));
+    }
+
+    let occur = if conjunction_mode {
+        Occur::Must
+    } else {
+        Occur::Should
+    };
+
+    let clauses: Vec<_> = terms
+        .into_iter()
+        .map(|term| {
+            let query: Box<dyn TantivyQuery> = match (distance, prefix) {
+                (0, _) => Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs.into())),
+                (d, true) => Box::new(FuzzyTermQuery::new_prefix(term, d, transposition_cost_one)),
+                (d, false) => Box::new(FuzzyTermQuery::new(term, d, transposition_cost_one)),
+            };
+            (occur, query)
+        })
+        .collect();
+
+    Ok(Box::new(BooleanQuery::new(clauses)))
 }
 #[allow(clippy::too_many_arguments)]
 fn match_array_query(

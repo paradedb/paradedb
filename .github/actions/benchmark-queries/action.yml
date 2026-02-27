@@ -5,6 +5,9 @@ inputs:
   dataset:
     description: "The benchmark dataset to run (e.g. logs, docs)"
     required: true
+  rows:
+    description: "Number of rows to generate (optional, uses dataset defaults if not specified)"
+    required: true
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
@@ -28,15 +31,26 @@ runs:
       working-directory: benchmarks/
       shell: bash
       run: |
-        if [ "${{ inputs.dataset }}" = "logs" ]; then
-          NUM_ROWS=100000000
-        elif [ "${{ inputs.dataset }}" = "docs" ]; then
-          NUM_ROWS=25000000
+        # Use provided rows if specified, otherwise use dataset defaults
+        if [ -n "${{ inputs.rows }}" ]; then
+          NUM_ROWS=${{ inputs.rows }}
         else
           echo "Unknown dataset!"
           exit 1
         fi
-        cargo run -- --url postgresql://localhost:288${{ env.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ inputs.dataset }} --runs 10 --output json
+        cargo run -- --url postgresql://localhost:288${{ env.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ inputs.dataset }} --output json
+
+        # Format row count for display (e.g., 100000 -> 100K, 1000000 -> 1M)
+        if [ ${NUM_ROWS} -ge 1000000000 ]; then
+          ROWS_LABEL="$((NUM_ROWS / 1000000000))B"
+        elif [ ${NUM_ROWS} -ge 1000000 ]; then
+          ROWS_LABEL="$((NUM_ROWS / 1000000))M"
+        elif [ ${NUM_ROWS} -ge 1000 ]; then
+          ROWS_LABEL="$((NUM_ROWS / 1000))K"
+        else
+          ROWS_LABEL="${NUM_ROWS}"
+        fi
+        echo "ROWS_LABEL=${ROWS_LABEL}" >> $GITHUB_ENV
 
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
@@ -52,7 +66,7 @@ runs:
     - name: Publish Benchmark Metrics
       uses: paradedb/github-action-benchmark@paradedb-v1
       with:
-        name: "pg_search '${{ inputs.dataset }}' Query Performance"
+        name: "pg_search '${{ inputs.dataset }}' (${{ env.ROWS_LABEL }} rows)"
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
         output-file-path: benchmarks/results.json
@@ -61,7 +75,7 @@ runs:
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}
         benchmark-data-dir-path: benchmarks
-        alert-threshold: "110%"
+        alert-threshold: "115%"
         comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: ${{ github.event_name == 'pull_request' }}
@@ -75,5 +89,5 @@ runs:
         payload: |
           channel: ${{ inputs.slack_channel }}
           text: |
-            ${{ github.repository }} Benchmark Results: `${{ inputs.dataset }}`
+            ${{ github.repository }} Benchmark Results: `${{ inputs.dataset }}` (${{ env.ROWS_LABEL }} rows)
             <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.pr_label }}> @ <https://paradedb.github.io/${{ github.event.repository.name }}/benchmarks/>

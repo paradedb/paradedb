@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772159559621,
+  "lastUpdate": 1772160519857,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21694,6 +21694,54 @@ window.BENCHMARK_DATA = {
             "value": 550.5448117430199,
             "unit": "median tps",
             "extra": "avg tps: 507.03664086400767, max tps: 694.255874424386, count: 107822"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb2340399b0a318db8a1aadc1225abdb66dac5f3",
+          "message": "feat: Backpressure writes if there are too many mutable segments (#4244)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nForces a foreground merge of mutable segments if there more than `2`\nduring an insert merge.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-26T17:29:30-08:00",
+          "tree_id": "91050fbbd82bdfc6e26c1177b6b304fc9800be82",
+          "url": "https://github.com/paradedb/paradedb/commit/cb2340399b0a318db8a1aadc1225abdb66dac5f3"
+        },
+        "date": 1772160515434,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 585.156486724087,
+            "unit": "median tps",
+            "extra": "avg tps: 586.7569747860097, max tps: 683.7329173520139, count: 53895"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 658.6084494004224,
+            "unit": "median tps",
+            "extra": "avg tps: 662.7592924707648, max tps: 837.074228394277, count: 53895"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 93.76429603187592,
+            "unit": "median tps",
+            "extra": "avg tps: 93.7477343664216, max tps: 96.92568537580948, count: 53895"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 565.0481961647506,
+            "unit": "median tps",
+            "extra": "avg tps: 518.8594053657207, max tps: 705.1944979314882, count: 107790"
           }
         ]
       }

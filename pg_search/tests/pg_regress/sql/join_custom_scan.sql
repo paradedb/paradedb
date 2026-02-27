@@ -2234,6 +2234,64 @@ ORDER BY t1.val DESC NULLS FIRST
 LIMIT 25;
 
 -- =============================================================================
+-- TEST 40: Explicit NULL handling with deferred columns
+-- =============================================================================
+
+-- TEST 40A: ORDER BY val ASC NULLS LAST
+-- NULLs should appear last, so the top 10 should be strictly non-NULL values.
+-- This verifies the dictionary decoder correctly sorts NULL_TERM_ORDINAL to the end.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, t1.val
+FROM null_val_t1 t1
+JOIN null_val_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val' OR t1.val IS NULL
+ORDER BY t1.val ASC NULLS LAST
+LIMIT 10;
+
+SELECT t1.id, t1.val
+FROM null_val_t1 t1
+JOIN null_val_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val' OR t1.val IS NULL
+ORDER BY t1.val ASC NULLS LAST
+LIMIT 10;
+
+-- TEST 40B: WHERE val IS NULL alone (no BM25 predicate)
+-- Should fetch exactly the 10 NULL rows. 
+-- Verifies the scanner can yield rows when the only filter is a NULL check.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, t1.val
+FROM null_val_t1 t1
+JOIN null_val_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val IS NULL
+ORDER BY t1.id
+LIMIT 25;
+
+SELECT t1.id, t1.val
+FROM null_val_t1 t1
+JOIN null_val_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val IS NULL
+ORDER BY t1.id
+LIMIT 25;
+
+-- TEST 40C: Mixed NULL and non-NULL rows in LIMIT results
+-- ORDER BY id DESC limits to the boundary where NULLs and non-NULLs meet.
+-- IDs 19991-20000 are NULL, IDs <= 19990 are non-NULL.
+-- A LIMIT 15 should return exactly 10 NULLs and 5 non-NULLs mixed in the same output batch.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.id, t1.val
+FROM null_val_t1 t1
+JOIN null_val_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val' OR t1.val IS NULL
+ORDER BY t1.id DESC
+LIMIT 15;
+
+SELECT t1.id, t1.val
+FROM null_val_t1 t1
+JOIN null_val_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val' OR t1.val IS NULL
+ORDER BY t1.id DESC
+LIMIT 15;
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

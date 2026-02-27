@@ -87,7 +87,7 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use datafusion::arrow::array::{ArrayRef, BooleanArray};
+use datafusion::arrow::array::{Array, ArrayRef, BooleanArray};
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode};
@@ -97,7 +97,7 @@ use datafusion::physical_expr::expressions::{BinaryExpr, Column, IsNullExpr, Lit
 use datafusion::physical_expr::PhysicalExpr;
 use tantivy::SegmentOrdinal;
 
-use crate::index::fast_fields_helper::{FFHelper, FFType};
+use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
 ///
@@ -353,7 +353,7 @@ fn rewrite_col_op_lit(
         let ord_opt = dict.term_ord(bytes).ok().flatten();
         // If the term does not exist, all non-null values match.
         // We use NULL_TERM_ORDINAL to represent an ordinal that does not exist in the data.
-        let target_ord = ord_opt.unwrap_or(crate::scan::batch_scanner::NULL_TERM_ORDINAL);
+        let target_ord = ord_opt.unwrap_or(NULL_TERM_ORDINAL);
 
         let col_expr = Arc::new(col.clone()) as Arc<dyn PhysicalExpr>;
         let lit_expr =

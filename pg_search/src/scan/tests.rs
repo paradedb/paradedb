@@ -99,6 +99,8 @@ mod tests {
             build_arrow_schema(&fields),
             SearchQueryInput::All,
             None,
+            Vec::new(),
+            None,
         );
 
         let task_ctx = Arc::new(TaskContext::default());

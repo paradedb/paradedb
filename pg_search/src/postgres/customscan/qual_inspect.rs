@@ -1315,26 +1315,37 @@ unsafe fn booltest(
     // For complex expressions, the optimizer will evaluate the condition later
     // Note: PushdownField::try_new requires PlannerInfo
     let root = context.planner_info()?;
-    let field = PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel)?;
+    let field = PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel);
 
-    // It's a simple field reference, handle as specific cases
-    let qual = match (*booltest).booltesttype {
-        pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),
-        pg_sys::BoolTestType::IS_NOT_FALSE => {
-            Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { field })))
+    if let Some(field) = field {
+        // It's a simple field reference, handle as specific cases
+        let qual = match (*booltest).booltesttype {
+            pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),
+            pg_sys::BoolTestType::IS_NOT_FALSE => {
+                Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { field })))
+            }
+            pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { field }),
+            pg_sys::BoolTestType::IS_NOT_TRUE => {
+                Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { field })))
+            }
+            _ => None,
+        };
+        if qual.is_some() {
+            state.uses_tantivy_to_query = true;
         }
-        pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { field }),
-        pg_sys::BoolTestType::IS_NOT_TRUE => {
-            Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { field })))
-        }
-        _ => None,
-    };
-
-    if qual.is_some() {
-        state.uses_tantivy_to_query = true;
+        return qual;
     }
 
-    qual
+    if gucs::enable_filter_pushdown() {
+        state.uses_heap_expr = true;
+        state.uses_tantivy_to_query = true;
+        return Some(Qual::HeapExpr {
+            expr_node: node,
+            expr_desc: deparse_expr(Some(context), indexrel, node),
+            search_query_input: Box::new(SearchQueryInput::All),
+        });
+    }
+    None
 }
 
 /// Extract join-level search predicates that are relevant for snippet/score generation

@@ -508,7 +508,7 @@ checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 
 [[package]]
 name = "benchmarks"
-version = "0.21.9"
+version = "0.21.10"
 dependencies = [
  "anyhow",
  "clap",
@@ -3539,7 +3539,7 @@ checksum = "ab6473172471198271ff72e9379150e9dfd70d8e533e0752a27e515b48dd375e"
 
 [[package]]
 name = "macros"
-version = "0.21.9"
+version = "0.21.10"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4109,7 +4109,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.21.9"
+version = "0.21.10"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -6194,7 +6194,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
-version = "0.21.9"
+version = "0.21.10"
 dependencies = [
  "anyhow",
  "clap",
@@ -6576,7 +6576,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.21.9"
+version = "0.21.10"
 dependencies = [
  "anyhow",
  "approx",
@@ -6746,7 +6746,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.21.9"
+version = "0.21.10"
 dependencies = [
  "anyhow",
  "emoji",

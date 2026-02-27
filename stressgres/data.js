@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772224131043,
+  "lastUpdate": 1772224137162,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23412,6 +23412,114 @@ window.BENCHMARK_DATA = {
             "value": 171.12890625,
             "unit": "median mem",
             "extra": "avg mem: 168.66135139308648, max mem: 172.01171875, count: 55753"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ppratik@umich.edu",
+            "name": "Pratik Patil",
+            "username": "quantitativepratik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ccf5780581cd4eabdc96973862d1aaf736d0f208",
+          "message": "perf: batch spinlock acquisition in parallel checkout (#3871)\n\n# Ticket(s) Closed\n\n- Closes #3851 \n\n## What\nRefactors ParallelAggregationWorker::checkout_segments to utilize a\nbatched checkout strategy.\n\n## Why\nPreviously, the worker would acquire the state.mutex spinlock for every\nsingle segment iteration (O(N) lock acquisitions). In high-concurrency\nscenarios, this creates unnecessary lock contention.\n\n## How\nThe new implementation calculates the required segment range upfront and\nacquires the lock once per worker (O(1) lock acquisitions). It then\nupdates the shared remaining_segments state in a single critical section\nbefore releasing the lock.\n\n## Tests\n\n- Verified the build passes locally with cargo check and cargo pgrx\ncheck.\n- Verified that pgrx environment initializes correctly with Postgres 14.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-02-27T11:16:26-08:00",
+          "tree_id": "6c6ddecd092add968b0fd7f6be84b7fd2a18abf9",
+          "url": "https://github.com/paradedb/paradedb/commit/ccf5780581cd4eabdc96973862d1aaf736d0f208"
+        },
+        "date": 1772224132553,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.856039290594246, max cpu: 42.772278, count: 55582"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 164.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 154.27787119424903, max mem: 176.359375, count: 55582"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.626132288864806, max cpu: 27.988338, count: 55582"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.43145508831546, max mem: 119.72265625, count: 55582"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.023401554657416, max cpu: 18.443804, count: 55582"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 164.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 143.95668828824978, max mem: 177.48046875, count: 55582"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16453,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16821.888812925048, max block_count: 31357.0, count: 55582"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.2907100541217975, max cpu: 4.729064, count: 55582"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 107.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 96.24040993205983, max mem: 137.015625, count: 55582"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.36909431110791, max segment_count: 37.0, count: 55582"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.009820359587057, max cpu: 28.318584, count: 111164"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 178.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.30036881741165, max mem: 179.67578125, count: 111164"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.096919875591436, max cpu: 27.961164, count: 55582"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.72169195119372, max mem: 172.02734375, count: 55582"
           }
         ]
       }

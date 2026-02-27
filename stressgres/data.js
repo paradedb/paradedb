@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772157547841,
+  "lastUpdate": 1772158576155,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11406,6 +11406,54 @@ window.BENCHMARK_DATA = {
             "value": 5.453635322340912,
             "unit": "median tps",
             "extra": "avg tps: 5.486872404350837, max tps: 7.725698696931895, count: 55839"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb2340399b0a318db8a1aadc1225abdb66dac5f3",
+          "message": "feat: Backpressure writes if there are too many mutable segments (#4244)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nForces a foreground merge of mutable segments if there more than `2`\nduring an insert merge.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-26T17:29:30-08:00",
+          "tree_id": "91050fbbd82bdfc6e26c1177b6b304fc9800be82",
+          "url": "https://github.com/paradedb/paradedb/commit/cb2340399b0a318db8a1aadc1225abdb66dac5f3"
+        },
+        "date": 1772158571862,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1094.9295420003286,
+            "unit": "median tps",
+            "extra": "avg tps: 1097.5184150236294, max tps: 1141.7769258730589, count: 56110"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1221.8826670075148,
+            "unit": "median tps",
+            "extra": "avg tps: 1214.4318374849454, max tps: 1242.7910793979788, count: 56110"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1889.0664927300477,
+            "unit": "median tps",
+            "extra": "avg tps: 1859.9800184714927, max tps: 2034.85633234055, count: 56110"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.304394605930479,
+            "unit": "median tps",
+            "extra": "avg tps: 5.352701911899348, max tps: 6.760936797295695, count: 56110"
           }
         ]
       }

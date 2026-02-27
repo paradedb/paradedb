@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772225405036,
+  "lastUpdate": 1772225411185,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11912,6 +11912,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.25650686715399, max segment_count: 127.0, count: 57593"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1223f87c786cfc9d5d74f15459ec8eb94e8850c",
+          "message": "perf: Only prefetch when producing sorted outputs (#4247)\n\n## What\n\nOnly call `prefetch_next` while creating a scan which needs to be\nsorted.\n\n## Why\n\nWe were calling `prefetch_next` for all scans, rather than only for\nthose which needed ahead-of-time load balancing.\n\nEagerly assigning work and prefetching prevents use of dynamic filtering\nfor the first batch of a segment, and can lead to lopsided work\ndistributions in the case of multiple segments per worker.\n\n## How\n\nDifferentiated between the three types of plans that we can create with\nour scan. For the `create_lazy_scan` case, directly adopted/shared the\nstrategy used in `MixedFF` and `Normal` base scans.\n\nBecause scans always need estimates, additionally produced a planning\ntime estimate for these lazy scans (which is also effectively what\nhappens for parallel workers in general).\n\n## Tests\n\n`semi_join_filter` shows a 40% speedup for warm runs: currently 20%\nfaster than a Postgres join for warm.",
+          "timestamp": "2026-02-27T12:11:27-08:00",
+          "tree_id": "4d4cc931868f3014e476a89bf274367ca9e77537",
+          "url": "https://github.com/paradedb/paradedb/commit/a1223f87c786cfc9d5d74f15459ec8eb94e8850c"
+        },
+        "date": 1772225406663,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.134507587937282, max cpu: 42.899704, count: 57821"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 232.69075898030127, max mem: 234.265625, count: 57821"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.455264637071352, max cpu: 33.267326, count: 57821"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.1372282021238, max mem: 176.2109375, count: 57821"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34220,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33565.598554158525, max block_count: 36183.0, count: 57821"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.37872053406201, max segment_count: 130.0, count: 57821"
           }
         ]
       }

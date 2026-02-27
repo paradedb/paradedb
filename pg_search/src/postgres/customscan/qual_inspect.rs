@@ -769,7 +769,7 @@ pub unsafe fn extract_quals(
             }
         }
 
-        pg_sys::NodeTag::T_BooleanTest => booltest(context, node, indexrel, state),
+        pg_sys::NodeTag::T_BooleanTest => booltest(context, node, rti, indexrel, state),
 
         pg_sys::NodeTag::T_Const => {
             let const_node = nodecast!(Const, T_Const, node)?;
@@ -1305,6 +1305,7 @@ unsafe fn contains_param(root: *mut pg_sys::Node) -> bool {
 unsafe fn booltest(
     context: &PlannerContext,
     node: *mut pg_sys::Node,
+    rti: pg_sys::Index,
     indexrel: &PgSearchRelation,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
@@ -1314,16 +1315,10 @@ unsafe fn booltest(
     // We only support boolean test for simple field references (Var nodes)
     // For complex expressions, the optimizer will evaluate the condition later
     // Note: PushdownField::try_new requires PlannerInfo
-    // let root = context.planner_info()?;
-    let root = match context.planner_info() {
-        Some(root) => root,
-        None => return None,
-    };
-    // let field = PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel);
+    let root = context.planner_info()?;
 
     if let Some(field) =
-        PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel)
-    {
+        PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel) {
         // It's a simple field reference, handle as specific cases
         let qual = match (*booltest).booltesttype {
             pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),
@@ -1342,7 +1337,9 @@ unsafe fn booltest(
         return qual;
     }
 
-    if gucs::enable_filter_pushdown() {
+    // Fallback: If the field isn't indexed but references our relation,
+    // evaluate the boolean test via heap access instead of abandoning the custom scan.
+    if gucs::enable_filter_pushdown() && contains_relation_reference(node, rti) {
         state.uses_heap_expr = true;
         state.uses_tantivy_to_query = true;
         return Some(Qual::HeapExpr {

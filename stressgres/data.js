@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772217045673,
+  "lastUpdate": 1772217052347,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6984,6 +6984,138 @@ window.BENCHMARK_DATA = {
             "value": 50.12109375,
             "unit": "median mem",
             "extra": "avg mem: 48.80354498410413, max mem: 58.546875, count: 35937"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f2405d9493361475211f60050ad68b473e6f59f",
+          "message": "feat: implement late materialization for payload columns (#4219)\n\n# Ticket(s) Closed\n\n- Closes #4154\n\n## What\nImplements late materialization for payload columns, deferring the\ndictionary decoding of strings and bytes until after joins and limits\nhave executed.\n\n## Why\nEagerly materializing all columns before a highly selective join causes\nunnecessary CPU and memory overhead. By deferring payload decoding until\nthe result set is narrowed down by anchor nodes (like Joins and TopK\nlimits), we only pay the materialization cost for the surviving rows.\n\n## How\n\nPacked DocAddress Encoding: Instead of passing a separate routing\ncolumn, batch_scanner.rs packs the segment_ord (high 32 bits) and doc_id\n(low 32 bits) into a single UInt64 column, and that wraps that in an\nextension type Union to indicate whether the column has actually been\nmaterialized yet. This column retains the original field name to safely\npropagate through the execution graph without being dropped by the\nlogical optimizer.\n\nPhysical Optimizer Rule: LateMaterializationRule identifies anchor nodes\n(e.g., HashJoinExec, LocalLimitExec) and injects a TantivyLookupExec\ndirectly above them in the physical plan.\n\nCache-Friendly Decoding: TantivyLookupExec receives the surviving UInt64\naddresses, unpacks them, groups them by segment, sorts the doc_ids for\nsequential access, and performs the first_vals() decode.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-02-27T10:08:40-08:00",
+          "tree_id": "fa3bd7b34a18a7e62cd62b2e82757ba484b44d03",
+          "url": "https://github.com/paradedb/paradedb/commit/4f2405d9493361475211f60050ad68b473e6f59f"
+        },
+        "date": 1772217047808,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.160957330825857, max cpu: 24.120604, count: 55100"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 62.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.68355816129764, max mem: 73.91015625, count: 55100"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6260045144270805, max cpu: 9.311348, count: 55100"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.768051128629764, max mem: 38.15234375, count: 55100"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.579327764786141, max cpu: 9.311348, count: 55100"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.66138639972777, max mem: 72.25, count: 55100"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.643088102099414, max cpu: 9.467456, count: 110200"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.2559326792196, max mem: 70.0, count: 110200"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.26833271643555, max cpu: 18.390804, count: 55100"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 62.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.77508471812614, max mem: 72.93359375, count: 55100"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1783,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1771.2750090744103, max block_count: 3110.0, count: 55100"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.638493647912886, max segment_count: 22.0, count: 55100"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.408156577587932, max cpu: 18.953604, count: 55100"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 61.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 61.56304503176044, max mem: 72.77734375, count: 55100"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.616777941261467, max cpu: 4.733728, count: 55100"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.727205081669695, max mem: 62.36328125, count: 55100"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6966734,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.000466068101404, max cpu: 9.239654, count: 55100"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 55.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.450967913452814, max mem: 67.12890625, count: 55100"
           }
         ]
       }

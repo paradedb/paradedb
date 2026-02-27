@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772216729800,
+  "lastUpdate": 1772216735749,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20664,6 +20664,114 @@ window.BENCHMARK_DATA = {
             "value": 170.70703125,
             "unit": "median mem",
             "extra": "avg mem: 167.84964718826186, max mem: 171.48828125, count: 55784"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af56c3393caf13a5200928f7f8ce013aaf89a6b1",
+          "message": "feat: add `search_tokenizer` index option for separate search-time tokenization (#4201)\n\n## Ticket(s) Closed\n\n- Closes #4197\n\n## What\n\nAdds a `search_tokenizer` WITH option to BM25 indexes that lets you use\na different tokenizer at search time than at index time. This is an\nindex-level setting that applies to all text/JSON fields.\n\n```sql\nCREATE INDEX idx ON products USING bm25\n    (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))\n    WITH (key_field = 'id', search_tokenizer = 'unicode_words');\n```\n\nAlso supports parameterized expressions:\n\n```sql\nWITH (key_field = 'id', search_tokenizer = 'simple(lowercase=false)')\n```\n\n## Why\n\nThe primary use case is autocomplete/typeahead search. With edge ngram\nindexing, `\"shoes\"` gets indexed as `s, sh, sho, shoe, shoes`. Without a\nseparate search tokenizer, typing `\"sho\"` would also be ngrammed into\n`s, sh, sho` — matching far too many documents. By using `unicode_words`\nat search time, `\"sho\"` stays as a single token and only matches titles\nthat actually start with `\"sho\"`.\n\nThis mirrors Elasticsearch's `search_analyzer` index setting. Making it\na WITH option (rather than a per-field typmod) means it can be changed\nat runtime via `ALTER INDEX ... SET (search_tokenizer = '...')` without\nreindexing.\n\n## How\n\n- Registered `search_tokenizer` as a validated string reloption in\n`options.rs`\n- Extracted `tokenizer_from_expression()` to parse parameterized\ntokenizer specs like `simple(lowercase=false)`\n- Added `resolve_search_tokenizer()` in `pdb_query.rs` to implement\nresolution priority: query cast → index-level WITH → index-time\ntokenizer\n- Registered index-level search tokenizer with Tantivy's\n`TokenizerManager` in `search.rs`\n- Removed `chinese_convert` from shared typmod rules (only jieba should\naccept it)\n\n## Tests\n\n- `search_tokenizer` — autocomplete with/without search_tokenizer,\nquery-level override, parameterized expressions\n- `search_tokenizer_index_level` — WITH option, query-level override,\nrejection as typmod param\n- `test_tokenizer_params` — per-tokenizer param validation (e.g.\n`chinese_convert` only on jieba)",
+          "timestamp": "2026-02-27T09:18:32-08:00",
+          "tree_id": "491868252023dfc78179d596ed9a543802cd6271",
+          "url": "https://github.com/paradedb/paradedb/commit/af56c3393caf13a5200928f7f8ce013aaf89a6b1"
+        },
+        "date": 1772216731375,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.759302947438705, max cpu: 55.49133, count: 55450"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 173.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 163.42827152840397, max mem: 176.41796875, count: 55450"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.670516734800097, max cpu: 27.961164, count: 55450"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 119.75454879114066, max mem: 121.06640625, count: 55450"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.735280993275126, max cpu: 18.514948, count: 55450"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 168.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.9858649402615, max mem: 174.5, count: 55450"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16630,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16930.948007213705, max block_count: 31692.0, count: 55450"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.528971632503888, max cpu: 4.6966734, count: 55450"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 111.125,
+            "unit": "median mem",
+            "extra": "avg mem: 96.76886539111813, max mem: 136.828125, count: 55450"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.457385031559966, max segment_count: 36.0, count: 55450"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.113728346970431, max cpu: 27.906979, count: 110900"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 178.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.75242479852344, max mem: 179.6484375, count: 110900"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.573556448599449, max cpu: 28.402367, count: 55450"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.58732141850766, max mem: 171.45703125, count: 55450"
           }
         ]
       }

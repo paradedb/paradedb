@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772220095026,
+  "lastUpdate": 1772220101274,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21576,6 +21576,114 @@ window.BENCHMARK_DATA = {
             "value": 170.78515625,
             "unit": "median mem",
             "extra": "avg mem: 167.58732141850766, max mem: 171.45703125, count: 55450"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f2405d9493361475211f60050ad68b473e6f59f",
+          "message": "feat: implement late materialization for payload columns (#4219)\n\n# Ticket(s) Closed\n\n- Closes #4154\n\n## What\nImplements late materialization for payload columns, deferring the\ndictionary decoding of strings and bytes until after joins and limits\nhave executed.\n\n## Why\nEagerly materializing all columns before a highly selective join causes\nunnecessary CPU and memory overhead. By deferring payload decoding until\nthe result set is narrowed down by anchor nodes (like Joins and TopK\nlimits), we only pay the materialization cost for the surviving rows.\n\n## How\n\nPacked DocAddress Encoding: Instead of passing a separate routing\ncolumn, batch_scanner.rs packs the segment_ord (high 32 bits) and doc_id\n(low 32 bits) into a single UInt64 column, and that wraps that in an\nextension type Union to indicate whether the column has actually been\nmaterialized yet. This column retains the original field name to safely\npropagate through the execution graph without being dropped by the\nlogical optimizer.\n\nPhysical Optimizer Rule: LateMaterializationRule identifies anchor nodes\n(e.g., HashJoinExec, LocalLimitExec) and injects a TantivyLookupExec\ndirectly above them in the physical plan.\n\nCache-Friendly Decoding: TantivyLookupExec receives the surviving UInt64\naddresses, unpacks them, groups them by segment, sorts the doc_ids for\nsequential access, and performs the first_vals() decode.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-02-27T10:08:40-08:00",
+          "tree_id": "fa3bd7b34a18a7e62cd62b2e82757ba484b44d03",
+          "url": "https://github.com/paradedb/paradedb/commit/4f2405d9493361475211f60050ad68b473e6f59f"
+        },
+        "date": 1772220096485,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.815342302370176, max cpu: 42.60355, count: 55541"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 163.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 153.71378189366865, max mem: 176.53125, count: 55541"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.65631318938572, max cpu: 37.065636, count: 55541"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.27461399574189, max mem: 119.5546875, count: 55541"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.722104986532713, max cpu: 18.60465, count: 55541"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 160.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 141.7174873488729, max mem: 177.15234375, count: 55541"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16544,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16866.166597648586, max block_count: 31611.0, count: 55541"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.302963381305493, max cpu: 4.655674, count: 55541"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 104.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 94.74850040398084, max mem: 136.69921875, count: 55541"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.352334311589637, max segment_count: 37.0, count: 55541"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.924479472474728, max cpu: 37.065636, count: 111082"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 176.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 158.86264278584738, max mem: 180.50390625, count: 111082"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.869810779474522, max cpu: 27.906979, count: 55541"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.55218540695162, max mem: 171.96484375, count: 55541"
           }
         ]
       }

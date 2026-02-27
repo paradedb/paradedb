@@ -47,6 +47,14 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
                 });
             }
         }
+
+        if let Some(search_tokenizer) = config.search_tokenizer() {
+            tokenizers.push(search_tokenizer.clone());
+        }
+    }
+
+    if let Some(index_search_tokenizer) = index_relation.options().search_tokenizer() {
+        tokenizers.push(index_search_tokenizer);
     }
 
     // In 0.19.0 we changed the default `remove_long` filter for the keyword tokenizer from `usize::MAX` to `None`

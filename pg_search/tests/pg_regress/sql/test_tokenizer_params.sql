@@ -1,0 +1,116 @@
+\i common/common_setup.sql
+
+CREATE TABLE test_tokenizer_params (
+  id SERIAL PRIMARY KEY,
+  content TEXT
+);
+
+INSERT INTO test_tokenizer_params (content) VALUES ('hello world');
+
+-------------------------------------------------------------
+-- Shared filter params accepted by all tokenizers
+-------------------------------------------------------------
+
+CREATE INDEX idx_simple ON test_tokenizer_params
+USING bm25 (id, (content::pdb.simple('lowercase=true', 'stemmer=English')))
+WITH (key_field = 'id');
+DROP INDEX idx_simple;
+
+CREATE INDEX idx_whitespace ON test_tokenizer_params
+USING bm25 (id, (content::pdb.whitespace('lowercase=true', 'ascii_folding=true')))
+WITH (key_field = 'id');
+DROP INDEX idx_whitespace;
+
+CREATE INDEX idx_icu ON test_tokenizer_params
+USING bm25 (id, (content::pdb.icu('lowercase=true', 'trim=true')))
+WITH (key_field = 'id');
+DROP INDEX idx_icu;
+
+-------------------------------------------------------------
+-- Tokenizer-specific params accepted by correct tokenizer
+-------------------------------------------------------------
+
+-- ngram: min, max, prefix_only, positions
+CREATE INDEX idx_ngram ON test_tokenizer_params
+USING bm25 (id, (content::pdb.ngram(2, 4, 'prefix_only=true')))
+WITH (key_field = 'id');
+DROP INDEX idx_ngram;
+
+-- lindera: language
+CREATE INDEX idx_lindera ON test_tokenizer_params
+USING bm25 (id, (content::pdb.lindera('japanese')))
+WITH (key_field = 'id');
+DROP INDEX idx_lindera;
+
+-- regex: pattern
+CREATE INDEX idx_regex ON test_tokenizer_params
+USING bm25 (id, (content::pdb.regex_pattern('[a-z]+')))
+WITH (key_field = 'id');
+DROP INDEX idx_regex;
+
+-- unicode_words: remove_emojis
+CREATE INDEX idx_unicode ON test_tokenizer_params
+USING bm25 (id, (content::pdb.unicode_words(remove_emojis)))
+WITH (key_field = 'id');
+DROP INDEX idx_unicode;
+
+-- jieba: chinese_convert
+CREATE INDEX idx_jieba ON test_tokenizer_params
+USING bm25 (id, (content::pdb.jieba('chinese_convert=t2s')))
+WITH (key_field = 'id');
+DROP INDEX idx_jieba;
+
+-------------------------------------------------------------
+-- Tokenizer-specific params rejected by wrong tokenizer
+-------------------------------------------------------------
+
+-- chinese_convert rejected by simple
+CREATE INDEX idx_bad ON test_tokenizer_params
+USING bm25 (id, (content::pdb.simple('chinese_convert=t2s')))
+WITH (key_field = 'id');
+
+-- chinese_convert rejected by ngram
+CREATE INDEX idx_bad ON test_tokenizer_params
+USING bm25 (id, (content::pdb.ngram(2, 4, 'chinese_convert=t2s')))
+WITH (key_field = 'id');
+
+-- chinese_convert rejected by whitespace
+CREATE INDEX idx_bad ON test_tokenizer_params
+USING bm25 (id, (content::pdb.whitespace('chinese_convert=t2s')))
+WITH (key_field = 'id');
+
+-- min/max rejected by simple (positional integer not allowed at position 0)
+CREATE INDEX idx_bad ON test_tokenizer_params
+USING bm25 (id, (content::pdb.simple('min=2')))
+WITH (key_field = 'id');
+
+-- language rejected by simple
+CREATE INDEX idx_bad ON test_tokenizer_params
+USING bm25 (id, (content::pdb.simple('language=chinese')))
+WITH (key_field = 'id');
+
+-- pattern rejected by simple (positional regex not allowed at position 0)
+CREATE INDEX idx_bad ON test_tokenizer_params
+USING bm25 (id, (content::pdb.simple('[a-z]+')))
+WITH (key_field = 'id');
+
+-- prefix_only rejected by jieba
+CREATE INDEX idx_bad ON test_tokenizer_params
+USING bm25 (id, (content::pdb.jieba('prefix_only=true')))
+WITH (key_field = 'id');
+
+-- language rejected by ngram
+CREATE INDEX idx_bad ON test_tokenizer_params
+USING bm25 (id, (content::pdb.ngram(2, 4, 'language=chinese')))
+WITH (key_field = 'id');
+
+-- min/max rejected by lindera (positional integer not expected)
+CREATE INDEX idx_bad ON test_tokenizer_params
+USING bm25 (id, (content::pdb.lindera('chinese', 'min=2')))
+WITH (key_field = 'id');
+
+-------------------------------------------------------------
+-- Cleanup
+-------------------------------------------------------------
+
+DROP TABLE test_tokenizer_params;

@@ -77,7 +77,8 @@
                               "documentation/tokenizers/available-tokenizers/source-code"
                             ]
                           },
-                          "documentation/tokenizers/multiple-per-field"
+                          "documentation/tokenizers/multiple-per-field",
+                          "documentation/tokenizers/search-tokenizer"
                         ]
                       },
                       {

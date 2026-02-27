@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772226977630,
+  "lastUpdate": 1772227461725,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20072,6 +20072,60 @@ window.BENCHMARK_DATA = {
             "value": 17.200571100034544,
             "unit": "median tps",
             "extra": "avg tps: 17.238747537726567, max tps: 19.689897891143023, count: 55539"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1223f87c786cfc9d5d74f15459ec8eb94e8850c",
+          "message": "perf: Only prefetch when producing sorted outputs (#4247)\n\n## What\n\nOnly call `prefetch_next` while creating a scan which needs to be\nsorted.\n\n## Why\n\nWe were calling `prefetch_next` for all scans, rather than only for\nthose which needed ahead-of-time load balancing.\n\nEagerly assigning work and prefetching prevents use of dynamic filtering\nfor the first batch of a segment, and can lead to lopsided work\ndistributions in the case of multiple segments per worker.\n\n## How\n\nDifferentiated between the three types of plans that we can create with\nour scan. For the `create_lazy_scan` case, directly adopted/shared the\nstrategy used in `MixedFF` and `Normal` base scans.\n\nBecause scans always need estimates, additionally produced a planning\ntime estimate for these lazy scans (which is also effectively what\nhappens for parallel workers in general).\n\n## Tests\n\n`semi_join_filter` shows a 40% speedup for warm runs: currently 20%\nfaster than a Postgres join for warm.",
+          "timestamp": "2026-02-27T12:11:27-08:00",
+          "tree_id": "4d4cc931868f3014e476a89bf274367ca9e77537",
+          "url": "https://github.com/paradedb/paradedb/commit/a1223f87c786cfc9d5d74f15459ec8eb94e8850c"
+        },
+        "date": 1772227457018,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.6457399126113,
+            "unit": "median tps",
+            "extra": "avg tps: 32.36091608517284, max tps: 35.70653668736153, count: 55618"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 247.24488829887832,
+            "unit": "median tps",
+            "extra": "avg tps: 275.5262720131332, max tps: 2901.790834039204, count: 55618"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 684.1742992817884,
+            "unit": "median tps",
+            "extra": "avg tps: 670.0644600220409, max tps: 787.8558084224951, count: 55618"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 163.60321398974926,
+            "unit": "median tps",
+            "extra": "avg tps: 181.99324077708192, max tps: 1107.7037166904197, count: 111236"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.58092025571342,
+            "unit": "median tps",
+            "extra": "avg tps: 16.607751016794143, max tps: 20.960600422268065, count: 55618"
           }
         ]
       }

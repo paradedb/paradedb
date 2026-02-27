@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772221115347,
+  "lastUpdate": 1772221880014,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18464,6 +18464,60 @@ window.BENCHMARK_DATA = {
             "value": 16.70455735864181,
             "unit": "median tps",
             "extra": "avg tps: 16.65810273311009, max tps: 19.780202391030866, count: 55541"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2746edf3e2b3e90e9c58dec6b0587f810a1daece",
+          "message": "fix: keep heap relation alive for the lifetime of HeapFetchState (#4248)\n\n## What\n- Potentially fixes a segfault when indexing a memory segment\n- Crash dump showed memory corruption in the `table_index_fetch_tuple`\ncall\n- It looks like `heap_fetch_state` is using a heap relation which was\nclosed by the time `table_index_fetch_tuple` is called\n\n## Why\n\n## How",
+          "timestamp": "2026-02-27T10:38:59-08:00",
+          "tree_id": "c15c278c678e97da4fc0b36c398dfdd8cc6f8b76",
+          "url": "https://github.com/paradedb/paradedb/commit/2746edf3e2b3e90e9c58dec6b0587f810a1daece"
+        },
+        "date": 1772221875256,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 33.05106060751662,
+            "unit": "median tps",
+            "extra": "avg tps: 32.81348382657003, max tps: 36.8771138490411, count: 55509"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.9095689072448,
+            "unit": "median tps",
+            "extra": "avg tps: 268.8582687522848, max tps: 2917.477253190938, count: 55509"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 693.0324076922776,
+            "unit": "median tps",
+            "extra": "avg tps: 681.7977805154744, max tps: 1040.6504106374744, count: 55509"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 164.9377115337282,
+            "unit": "median tps",
+            "extra": "avg tps: 183.91858387796492, max tps: 1297.952765062722, count: 111018"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.611898739375007,
+            "unit": "median tps",
+            "extra": "avg tps: 16.540707396417524, max tps: 19.094262922248294, count: 55509"
           }
         ]
       }

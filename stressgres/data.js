@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772219868378,
+  "lastUpdate": 1772220095026,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17852,6 +17852,60 @@ window.BENCHMARK_DATA = {
             "value": 16.614689681222103,
             "unit": "median tps",
             "extra": "avg tps: 16.656745040357325, max tps: 23.19810112407211, count: 55450"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f2405d9493361475211f60050ad68b473e6f59f",
+          "message": "feat: implement late materialization for payload columns (#4219)\n\n# Ticket(s) Closed\n\n- Closes #4154\n\n## What\nImplements late materialization for payload columns, deferring the\ndictionary decoding of strings and bytes until after joins and limits\nhave executed.\n\n## Why\nEagerly materializing all columns before a highly selective join causes\nunnecessary CPU and memory overhead. By deferring payload decoding until\nthe result set is narrowed down by anchor nodes (like Joins and TopK\nlimits), we only pay the materialization cost for the surviving rows.\n\n## How\n\nPacked DocAddress Encoding: Instead of passing a separate routing\ncolumn, batch_scanner.rs packs the segment_ord (high 32 bits) and doc_id\n(low 32 bits) into a single UInt64 column, and that wraps that in an\nextension type Union to indicate whether the column has actually been\nmaterialized yet. This column retains the original field name to safely\npropagate through the execution graph without being dropped by the\nlogical optimizer.\n\nPhysical Optimizer Rule: LateMaterializationRule identifies anchor nodes\n(e.g., HashJoinExec, LocalLimitExec) and injects a TantivyLookupExec\ndirectly above them in the physical plan.\n\nCache-Friendly Decoding: TantivyLookupExec receives the surviving UInt64\naddresses, unpacks them, groups them by segment, sorts the doc_ids for\nsequential access, and performs the first_vals() decode.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-02-27T10:08:40-08:00",
+          "tree_id": "fa3bd7b34a18a7e62cd62b2e82757ba484b44d03",
+          "url": "https://github.com/paradedb/paradedb/commit/4f2405d9493361475211f60050ad68b473e6f59f"
+        },
+        "date": 1772220090276,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.970485196988193,
+            "unit": "median tps",
+            "extra": "avg tps: 31.783990067149297, max tps: 36.29755237981817, count: 55541"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.53695235373982,
+            "unit": "median tps",
+            "extra": "avg tps: 271.02354861030256, max tps: 2897.2480473503297, count: 55541"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 719.1257306003595,
+            "unit": "median tps",
+            "extra": "avg tps: 708.8970077926914, max tps: 1237.9240088985368, count: 55541"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 167.19388234252227,
+            "unit": "median tps",
+            "extra": "avg tps: 184.60530532677757, max tps: 1107.2206182400641, count: 111082"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.70455735864181,
+            "unit": "median tps",
+            "extra": "avg tps: 16.65810273311009, max tps: 19.780202391030866, count: 55541"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772219862494,
+  "lastUpdate": 1772219868378,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10712,6 +10712,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.4583944376391, max segment_count: 129.0, count: 57961"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2746edf3e2b3e90e9c58dec6b0587f810a1daece",
+          "message": "fix: keep heap relation alive for the lifetime of HeapFetchState (#4248)\n\n## What\n- Potentially fixes a segfault when indexing a memory segment\n- Crash dump showed memory corruption in the `table_index_fetch_tuple`\ncall\n- It looks like `heap_fetch_state` is using a heap relation which was\nclosed by the time `table_index_fetch_tuple` is called\n\n## Why\n\n## How",
+          "timestamp": "2026-02-27T10:38:59-08:00",
+          "tree_id": "c15c278c678e97da4fc0b36c398dfdd8cc6f8b76",
+          "url": "https://github.com/paradedb/paradedb/commit/2746edf3e2b3e90e9c58dec6b0587f810a1daece"
+        },
+        "date": 1772219864037,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.52119674275719, max cpu: 43.070786, count: 57322"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 233.0102491190119, max mem: 234.625, count: 57322"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.359050386253568, max cpu: 33.300297, count: 57322"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.13690397011618, max mem: 176.0546875, count: 57322"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33854,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33392.09040159101, max block_count: 35860.0, count: 57322"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.89115871742088, max segment_count: 127.0, count: 57322"
           }
         ]
       }

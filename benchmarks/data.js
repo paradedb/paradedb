@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772158884737,
+  "lastUpdate": 1772213211100,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' (10K rows)": [
@@ -13118,6 +13118,360 @@ window.BENCHMARK_DATA = {
             "value": 3.7,
             "unit": "median ms",
             "extra": "cold_query_ms=140.642; query=SELECT * FROM benchmark_logs WHERE message @@@ 'research' AND country @@@ 'Canada' ORDER BY country LIMIT 10"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af56c3393caf13a5200928f7f8ce013aaf89a6b1",
+          "message": "feat: add `search_tokenizer` index option for separate search-time tokenization (#4201)\n\n## Ticket(s) Closed\n\n- Closes #4197\n\n## What\n\nAdds a `search_tokenizer` WITH option to BM25 indexes that lets you use\na different tokenizer at search time than at index time. This is an\nindex-level setting that applies to all text/JSON fields.\n\n```sql\nCREATE INDEX idx ON products USING bm25\n    (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))\n    WITH (key_field = 'id', search_tokenizer = 'unicode_words');\n```\n\nAlso supports parameterized expressions:\n\n```sql\nWITH (key_field = 'id', search_tokenizer = 'simple(lowercase=false)')\n```\n\n## Why\n\nThe primary use case is autocomplete/typeahead search. With edge ngram\nindexing, `\"shoes\"` gets indexed as `s, sh, sho, shoe, shoes`. Without a\nseparate search tokenizer, typing `\"sho\"` would also be ngrammed into\n`s, sh, sho` — matching far too many documents. By using `unicode_words`\nat search time, `\"sho\"` stays as a single token and only matches titles\nthat actually start with `\"sho\"`.\n\nThis mirrors Elasticsearch's `search_analyzer` index setting. Making it\na WITH option (rather than a per-field typmod) means it can be changed\nat runtime via `ALTER INDEX ... SET (search_tokenizer = '...')` without\nreindexing.\n\n## How\n\n- Registered `search_tokenizer` as a validated string reloption in\n`options.rs`\n- Extracted `tokenizer_from_expression()` to parse parameterized\ntokenizer specs like `simple(lowercase=false)`\n- Added `resolve_search_tokenizer()` in `pdb_query.rs` to implement\nresolution priority: query cast → index-level WITH → index-time\ntokenizer\n- Registered index-level search tokenizer with Tantivy's\n`TokenizerManager` in `search.rs`\n- Removed `chinese_convert` from shared typmod rules (only jieba should\naccept it)\n\n## Tests\n\n- `search_tokenizer` — autocomplete with/without search_tokenizer,\nquery-level override, parameterized expressions\n- `search_tokenizer_index_level` — WITH option, query-level override,\nrejection as typmod param\n- `test_tokenizer_params` — per-tokenizer param validation (e.g.\n`chinese_convert` only on jieba)",
+          "timestamp": "2026-02-27T09:18:32-08:00",
+          "tree_id": "491868252023dfc78179d596ed9a543802cd6271",
+          "url": "https://github.com/paradedb/paradedb/commit/af56c3393caf13a5200928f7f8ce013aaf89a6b1"
+        },
+        "date": 1772213206475,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "bucket-expr-filter",
+            "value": 7.462,
+            "unit": "median ms",
+            "extra": "cold_query_ms=117.816; query=SELECT date_trunc('year', timestamp) as year, COUNT(*) FROM benchmark_logs WHERE message @@@ 'research' GROUP BY year ORDER BY year"
+          },
+          {
+            "name": "bucket-expr-filter - alternative 1",
+            "value": 7.804,
+            "unit": "median ms",
+            "extra": "cold_query_ms=130.153; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT date_trunc('year', timestamp) as year, COUNT(*) FROM benchmark_logs WHERE message @@@ 'research' GROUP BY year ORDER BY year"
+          },
+          {
+            "name": "bucket-numeric-filter",
+            "value": 4.717,
+            "unit": "median ms",
+            "extra": "cold_query_ms=162.356; query=SELECT severity, COUNT(*) FROM benchmark_logs WHERE message @@@ 'research' GROUP BY severity ORDER BY severity"
+          },
+          {
+            "name": "bucket-numeric-filter - alternative 1",
+            "value": 1.959,
+            "unit": "median ms",
+            "extra": "cold_query_ms=102.827; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.term('message', 'research'), agg=>'{\"buckets\": { \"terms\": { \"field\": \"severity\" }}}', solve_mvcc=>true)"
+          },
+          {
+            "name": "bucket-numeric-filter - alternative 2",
+            "value": 1.631,
+            "unit": "median ms",
+            "extra": "cold_query_ms=101.502; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.term('message', 'research'), agg=>'{\"buckets\": { \"terms\": { \"field\": \"severity\" }}}', solve_mvcc=>false)"
+          },
+          {
+            "name": "bucket-numeric-filter - alternative 3",
+            "value": 2.741,
+            "unit": "median ms",
+            "extra": "cold_query_ms=135.727; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT severity, COUNT(*) FROM benchmark_logs WHERE message @@@ 'research' GROUP BY severity"
+          },
+          {
+            "name": "bucket-numeric-filter - alternative 4",
+            "value": 3.169,
+            "unit": "median ms",
+            "extra": "cold_query_ms=135.510; query=SELECT severity, pdb.agg('{\"terms\": {\"field\": \"severity\"}}'::jsonb) FROM benchmark_logs WHERE message @@@ 'research' GROUP BY severity"
+          },
+          {
+            "name": "bucket-numeric-nofilter",
+            "value": 4.823,
+            "unit": "median ms",
+            "extra": "cold_query_ms=152.410; query=SELECT severity, COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY severity ORDER BY severity"
+          },
+          {
+            "name": "bucket-numeric-nofilter - alternative 1",
+            "value": 1.761,
+            "unit": "median ms",
+            "extra": "cold_query_ms=99.057; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.all(), agg=>'{\"buckets\": { \"terms\": { \"field\": \"severity\" }}}', solve_mvcc=>true)"
+          },
+          {
+            "name": "bucket-numeric-nofilter - alternative 2",
+            "value": 1.745,
+            "unit": "median ms",
+            "extra": "cold_query_ms=95.405; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.all(), agg=>'{\"buckets\": { \"terms\": { \"field\": \"severity\" }}}', solve_mvcc=>false)"
+          },
+          {
+            "name": "bucket-numeric-nofilter - alternative 3",
+            "value": 2.478,
+            "unit": "median ms",
+            "extra": "cold_query_ms=123.648; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT severity, COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY severity"
+          },
+          {
+            "name": "bucket-numeric-nofilter - alternative 4",
+            "value": 2.972,
+            "unit": "median ms",
+            "extra": "cold_query_ms=122.877; query=SELECT severity, pdb.agg('{\"terms\": {\"field\": \"severity\"}}'::jsonb) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY severity"
+          },
+          {
+            "name": "bucket-string-filter",
+            "value": 6.077,
+            "unit": "median ms",
+            "extra": "cold_query_ms=166.169; query=SELECT country, COUNT(*) FROM benchmark_logs WHERE message @@@ 'research' GROUP BY country ORDER BY country"
+          },
+          {
+            "name": "bucket-string-filter - alternative 1",
+            "value": 2.442,
+            "unit": "median ms",
+            "extra": "cold_query_ms=106.202; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.term('message', 'research'), agg=>'{\"buckets\": { \"terms\": { \"field\": \"country\" }}}', solve_mvcc=>true)"
+          },
+          {
+            "name": "bucket-string-filter - alternative 2",
+            "value": 1.768,
+            "unit": "median ms",
+            "extra": "cold_query_ms=100.085; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.term('message', 'research'), agg=>'{\"buckets\": { \"terms\": { \"field\": \"country\" }}}', solve_mvcc=>false)"
+          },
+          {
+            "name": "bucket-string-filter - alternative 3",
+            "value": 3.132,
+            "unit": "median ms",
+            "extra": "cold_query_ms=139.005; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT country, COUNT(*) FROM benchmark_logs WHERE message @@@ 'research' GROUP BY country"
+          },
+          {
+            "name": "bucket-string-filter - alternative 4",
+            "value": 3.03,
+            "unit": "median ms",
+            "extra": "cold_query_ms=135.354; query=SELECT country, pdb.agg('{\"terms\": {\"field\": \"country\"}}'::jsonb) FROM benchmark_logs WHERE message @@@ 'research' GROUP BY country"
+          },
+          {
+            "name": "bucket-string-nofilter",
+            "value": 5.734,
+            "unit": "median ms",
+            "extra": "cold_query_ms=154.236; query=SELECT country, COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY country ORDER BY country"
+          },
+          {
+            "name": "bucket-string-nofilter - alternative 1",
+            "value": 1.752,
+            "unit": "median ms",
+            "extra": "cold_query_ms=100.075; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.all(), agg=>'{\"buckets\": { \"terms\": { \"field\": \"country\" }}}', solve_mvcc=>true)"
+          },
+          {
+            "name": "bucket-string-nofilter - alternative 2",
+            "value": 1.581,
+            "unit": "median ms",
+            "extra": "cold_query_ms=95.529; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.all(), agg=>'{\"buckets\": { \"terms\": { \"field\": \"country\" }}}', solve_mvcc=>false)"
+          },
+          {
+            "name": "bucket-string-nofilter - alternative 3",
+            "value": 2.733,
+            "unit": "median ms",
+            "extra": "cold_query_ms=122.237; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT country, COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY country"
+          },
+          {
+            "name": "bucket-string-nofilter - alternative 4",
+            "value": 3.001,
+            "unit": "median ms",
+            "extra": "cold_query_ms=123.160; query=SELECT country, pdb.agg('{\"terms\": {\"field\": \"country\"}}'::jsonb) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY country"
+          },
+          {
+            "name": "cardinality",
+            "value": 5.114,
+            "unit": "median ms",
+            "extra": "cold_query_ms=166.097; query=SELECT COUNT(DISTINCT severity) FROM benchmark_logs WHERE message @@@ 'research'"
+          },
+          {
+            "name": "cardinality - alternative 1",
+            "value": 4.933,
+            "unit": "median ms",
+            "extra": "cold_query_ms=164.332; query=SELECT COUNT(*) FROM (SELECT severity FROM benchmark_logs WHERE message @@@ 'research' GROUP BY severity ORDER BY severity)"
+          },
+          {
+            "name": "cardinality - alternative 2",
+            "value": 1.948,
+            "unit": "median ms",
+            "extra": "cold_query_ms=106.739; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.term('message', 'research'), agg=>'{\"buckets\": { \"terms\": { \"field\": \"severity\" }}}', solve_mvcc=>true)"
+          },
+          {
+            "name": "cardinality - alternative 3",
+            "value": 1.767,
+            "unit": "median ms",
+            "extra": "cold_query_ms=102.768; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.term('message', 'research'), agg=>'{\"buckets\": { \"terms\": { \"field\": \"severity\" }}}', solve_mvcc=>false)"
+          },
+          {
+            "name": "cardinality - alternative 4",
+            "value": 2.841,
+            "unit": "median ms",
+            "extra": "cold_query_ms=132.928; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM (SELECT severity FROM benchmark_logs WHERE message @@@ 'research' GROUP BY severity)"
+          },
+          {
+            "name": "cardinality - alternative 5",
+            "value": 2.751,
+            "unit": "median ms",
+            "extra": "cold_query_ms=136.420; query=SELECT pdb.agg('{\"terms\": {\"field\": \"severity\"}}'::jsonb) FROM benchmark_logs WHERE message @@@ 'research'"
+          },
+          {
+            "name": "count-filter",
+            "value": 2.493,
+            "unit": "median ms",
+            "extra": "cold_query_ms=119.062; query=SELECT COUNT(*) FROM benchmark_logs WHERE message @@@ 'team'"
+          },
+          {
+            "name": "count-filter - alternative 1",
+            "value": 1.955,
+            "unit": "median ms",
+            "extra": "cold_query_ms=105.813; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.term('message', 'team'), agg=>'{\"count\": { \"value_count\": { \"field\": \"ctid\" }}}', solve_mvcc=>true)"
+          },
+          {
+            "name": "count-filter - alternative 2",
+            "value": 1.727,
+            "unit": "median ms",
+            "extra": "cold_query_ms=105.090; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.term('message', 'team'), agg=>'{\"count\": { \"value_count\": { \"field\": \"ctid\" }}}', solve_mvcc=>false)"
+          },
+          {
+            "name": "count-filter - alternative 3",
+            "value": 2.572,
+            "unit": "median ms",
+            "extra": "cold_query_ms=132.442; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM benchmark_logs WHERE message @@@ 'team'"
+          },
+          {
+            "name": "count-filter - alternative 4",
+            "value": 2.572,
+            "unit": "median ms",
+            "extra": "cold_query_ms=132.650; query=SELECT pdb.agg('{\"value_count\": {\"field\": \"ctid\"}}'::jsonb) FROM benchmark_logs WHERE message @@@ 'team'"
+          },
+          {
+            "name": "count-nofilter",
+            "value": 2.697,
+            "unit": "median ms",
+            "extra": "cold_query_ms=106.298; query=SELECT COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all()"
+          },
+          {
+            "name": "count-nofilter - alternative 1",
+            "value": 1.834,
+            "unit": "median ms",
+            "extra": "cold_query_ms=101.157; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.all(), agg=>'{\"count\": { \"value_count\": { \"field\": \"ctid\" }}}', solve_mvcc=>true)"
+          },
+          {
+            "name": "count-nofilter - alternative 2",
+            "value": 1.611,
+            "unit": "median ms",
+            "extra": "cold_query_ms=97.117; query=SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.all(), agg=>'{\"count\": { \"value_count\": { \"field\": \"ctid\" }}}', solve_mvcc=>false)"
+          },
+          {
+            "name": "count-nofilter - alternative 3",
+            "value": 2.517,
+            "unit": "median ms",
+            "extra": "cold_query_ms=119.581; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all()"
+          },
+          {
+            "name": "count-nofilter - alternative 4",
+            "value": 2.549,
+            "unit": "median ms",
+            "extra": "cold_query_ms=119.783; query=SELECT pdb.agg('{\"value_count\": {\"field\": \"ctid\"}}'::jsonb) FROM benchmark_logs WHERE id @@@ paradedb.all()"
+          },
+          {
+            "name": "filtered-highcard",
+            "value": 3.798,
+            "unit": "median ms",
+            "extra": "cold_query_ms=139.333; query=SELECT * FROM benchmark_logs WHERE message @@@ 'research' AND country @@@ 'Canada' AND timestamp >= '2020-10-02T15:00:00Z' LIMIT 10"
+          },
+          {
+            "name": "filtered-lowcard",
+            "value": 3.829,
+            "unit": "median ms",
+            "extra": "cold_query_ms=129.271; query=SELECT * FROM benchmark_logs WHERE message @@@ 'research' AND country @@@ 'Canada' AND severity < 3 LIMIT 10"
+          },
+          {
+            "name": "filtered_json-range",
+            "value": 3.199,
+            "unit": "median ms",
+            "extra": "cold_query_ms=139.567; query=SELECT * FROM benchmark_logs WHERE id @@@ paradedb.term('metadata.label', 'critical system alert') AND id @@@ paradedb.range('metadata.value', int4range(10, NULL, '[)')) AND message @@@ 'research' LIMIT 10"
+          },
+          {
+            "name": "filtered_json",
+            "value": 3.914,
+            "unit": "median ms",
+            "extra": "cold_query_ms=136.309; query=SELECT * FROM benchmark_logs WHERE id @@@ paradedb.term('metadata.label', 'critical system alert') AND message @@@ 'research' AND severity < 3 LIMIT 10"
+          },
+          {
+            "name": "highlighting",
+            "value": 2.975,
+            "unit": "median ms",
+            "extra": "cold_query_ms=125.611; query=SELECT id, pdb.snippet(message), pdb.snippet(country) FROM benchmark_logs WHERE message @@@ 'research' AND country @@@ 'Canada' LIMIT 10"
+          },
+          {
+            "name": "regex-and-heap",
+            "value": 6.506,
+            "unit": "median ms",
+            "extra": "cold_query_ms=132.239; query=SELECT COUNT(*) FROM benchmark_logs WHERE (country @@@ pdb.regex('united.*') AND country ILIKE '% States')"
+          },
+          {
+            "name": "top_n-agg-avg",
+            "value": 3.204,
+            "unit": "median ms",
+            "extra": "cold_query_ms=143.065; query=SELECT id, message, country, severity, timestamp, pdb.agg('{\"avg\": {\"field\": \"severity\"}}'::jsonb) OVER () FROM benchmark_logs WHERE message @@@ 'research' ORDER BY timestamp DESC LIMIT 10"
+          },
+          {
+            "name": "top_n-agg-bucket-string",
+            "value": 3.229,
+            "unit": "median ms",
+            "extra": "cold_query_ms=144.842; query=SELECT id, message, country, severity, timestamp, pdb.agg('{\"terms\": {\"field\": \"country\"}}'::jsonb) OVER () FROM benchmark_logs WHERE message @@@ 'research' ORDER BY timestamp DESC LIMIT 10"
+          },
+          {
+            "name": "top_n-agg-count",
+            "value": 3.145,
+            "unit": "median ms",
+            "extra": "cold_query_ms=141.610; query=SELECT id, message, country, severity, timestamp, COUNT(*) OVER () FROM benchmark_logs WHERE message @@@ 'research' ORDER BY timestamp DESC LIMIT 10"
+          },
+          {
+            "name": "top_n-compound",
+            "value": 2.902,
+            "unit": "median ms",
+            "extra": "cold_query_ms=136.802; query=SELECT * FROM benchmark_logs WHERE message @@@ 'research' AND country @@@ 'Canada' ORDER BY severity, timestamp LIMIT 10"
+          },
+          {
+            "name": "top_n-numeric-highcard",
+            "value": 2.84,
+            "unit": "median ms",
+            "extra": "cold_query_ms=134.718; query=SELECT * FROM benchmark_logs WHERE message @@@ 'research' AND country @@@ 'Canada' ORDER BY timestamp LIMIT 10"
+          },
+          {
+            "name": "top_n-numeric-lowcard",
+            "value": 2.832,
+            "unit": "median ms",
+            "extra": "cold_query_ms=134.096; query=SELECT * FROM benchmark_logs WHERE message @@@ 'research' AND country @@@ 'Canada' ORDER BY severity LIMIT 10"
+          },
+          {
+            "name": "top_n-score-asc",
+            "value": 2.731,
+            "unit": "median ms",
+            "extra": "cold_query_ms=130.642; query=SELECT *, pdb.score(id) FROM benchmark_logs WHERE message @@@ 'research' ORDER BY pdb.score(id) LIMIT 10"
+          },
+          {
+            "name": "top_n-score-desc",
+            "value": 2.664,
+            "unit": "median ms",
+            "extra": "cold_query_ms=126.560; query=SELECT *, pdb.score(id) FROM benchmark_logs WHERE message @@@ 'research' ORDER BY pdb.score(id) DESC LIMIT 10"
+          },
+          {
+            "name": "top_n-score-multi-term-asc",
+            "value": 2.835,
+            "unit": "median ms",
+            "extra": "cold_query_ms=131.365; query=SELECT *, pdb.score(id) FROM benchmark_logs WHERE message ||| 'discovered analyzed monitored captured processed' ORDER BY pdb.score(id) LIMIT 10"
+          },
+          {
+            "name": "top_n-score-multi-term-desc",
+            "value": 2.824,
+            "unit": "median ms",
+            "extra": "cold_query_ms=129.717; query=SELECT *, pdb.score(id) FROM benchmark_logs WHERE message ||| 'discovered analyzed monitored captured processed' ORDER BY pdb.score(id) DESC LIMIT 10"
+          },
+          {
+            "name": "top_n-string",
+            "value": 2.742,
+            "unit": "median ms",
+            "extra": "cold_query_ms=131.620; query=SELECT * FROM benchmark_logs WHERE message @@@ 'research' AND country @@@ 'Canada' ORDER BY country LIMIT 10"
           }
         ]
       }

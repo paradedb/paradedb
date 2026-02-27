@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772157478952,
+  "lastUpdate": 1772158884737,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' (10K rows)": [
@@ -71914,6 +71914,186 @@ window.BENCHMARK_DATA = {
             "value": 2726.333,
             "unit": "median ms",
             "extra": "cold_query_ms=3394.369; query=SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, f.\"createdAt\" FROM files f WHERE f.\"documentId\" @@@ pdb.term_set(( SELECT array_agg(id) FROM documents WHERE parents @@@ 'PROJECT_ALPHA' AND title @@@ 'Document Title 1' )) ORDER BY f.title ASC LIMIT 25"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb2340399b0a318db8a1aadc1225abdb66dac5f3",
+          "message": "feat: Backpressure writes if there are too many mutable segments (#4244)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nForces a foreground merge of mutable segments if there more than `2`\nduring an insert merge.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-26T17:29:30-08:00",
+          "tree_id": "91050fbbd82bdfc6e26c1177b6b304fc9800be82",
+          "url": "https://github.com/paradedb/paradedb/commit/cb2340399b0a318db8a1aadc1225abdb66dac5f3"
+        },
+        "date": 1772158880042,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "aggregate_sort",
+            "value": 13449.767,
+            "unit": "median ms",
+            "extra": "cold_query_ms=19936.098; query=SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, MAX(p.\"createdAt\") as last_activity FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content @@@ 'Section' GROUP BY f.id, f.title ORDER BY last_activity DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_sort - alternative 1",
+            "value": 13437.205,
+            "unit": "median ms",
+            "extra": "cold_query_ms=20514.464; query=SET paradedb.enable_join_custom_scan TO on; SELECT f.id, f.title, MAX(p.\"createdAt\") as last_activity FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content @@@ 'Section' GROUP BY f.id, f.title ORDER BY last_activity DESC LIMIT 10"
+          },
+          {
+            "name": "disjunctive_search",
+            "value": 536.375,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2514.601; query=SET paradedb.enable_join_custom_scan TO off; SELECT DISTINCT f.id, f.title, paradedb.score(f.id) as score FROM files f LEFT JOIN documents d ON f.\"documentId\" = d.id WHERE d.parents LIKE 'PARENT_GROUP_2%' AND ( f.title @@@ 'Title' OR d.title @@@ 'Title' ) ORDER BY score DESC LIMIT 10"
+          },
+          {
+            "name": "disjunctive_search - alternative 1",
+            "value": 520.392,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2486.885; query=SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT f.id, f.title, paradedb.score(f.id) as score FROM files f LEFT JOIN documents d ON f.\"documentId\" = d.id WHERE d.parents LIKE 'PARENT_GROUP_2%' AND ( f.title @@@ 'Title' OR d.title @@@ 'Title' ) ORDER BY score DESC LIMIT 10"
+          },
+          {
+            "name": "distinct_parent_sort",
+            "value": 3183.361,
+            "unit": "median ms",
+            "extra": "cold_query_ms=11592.851; query=SET paradedb.enable_join_custom_scan TO off; SELECT DISTINCT d.id, d.title, d.parents FROM documents d JOIN files f ON d.id = f.\"documentId\" JOIN pages p ON f.id = p.\"fileId\" WHERE p.\"sizeInBytes\" > 5000 AND d.parents LIKE 'SFR%' ORDER BY d.title ASC LIMIT 50"
+          },
+          {
+            "name": "distinct_parent_sort - alternative 1",
+            "value": 3183.419,
+            "unit": "median ms",
+            "extra": "cold_query_ms=11616.513; query=SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT d.id, d.title, d.parents FROM documents d JOIN files f ON d.id = f.\"documentId\" JOIN pages p ON f.id = p.\"fileId\" WHERE p.\"sizeInBytes\" > 5000 AND d.parents LIKE 'SFR%' ORDER BY d.title ASC LIMIT 50"
+          },
+          {
+            "name": "foreign_filter_local_sort",
+            "value": 183.753,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2563.180; query=SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, f.\"createdAt\", d.title as document_title FROM files f JOIN documents d ON f.\"documentId\" = d.id WHERE d.parents LIKE 'PROJECT_ALPHA%' AND f.title @@@ 'collab12' ORDER BY f.\"createdAt\" DESC LIMIT 20"
+          },
+          {
+            "name": "foreign_filter_local_sort - alternative 1",
+            "value": 503.124,
+            "unit": "median ms",
+            "extra": "cold_query_ms=1180.906; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT f.id, f.title, f.\"createdAt\", d.title as document_title FROM files f JOIN documents d ON f.\"documentId\" = d.id WHERE d.parents LIKE 'PROJECT_ALPHA%' AND f.title @@@ 'collab12' ORDER BY f.\"createdAt\" DESC LIMIT 20"
+          },
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1320.396,
+            "unit": "median ms",
+            "extra": "cold_query_ms=22443.891; query=SET paradedb.enable_join_custom_scan TO off; SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-large - alternative 1",
+            "value": 1332.576,
+            "unit": "median ms",
+            "extra": "cold_query_ms=22444.494; query=SET paradedb.enable_join_custom_scan TO on; SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 652.295,
+            "unit": "median ms",
+            "extra": "cold_query_ms=1090.437; query=SET paradedb.enable_join_custom_scan TO off; SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small - alternative 1",
+            "value": 651.601,
+            "unit": "median ms",
+            "extra": "cold_query_ms=1097.562; query=SET paradedb.enable_join_custom_scan TO on; SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1622.473,
+            "unit": "median ms",
+            "extra": "cold_query_ms=22828.529; query=SET paradedb.enable_join_custom_scan TO off; SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 1247.337,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2259.176; query=WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 2",
+            "value": 2706.278,
+            "unit": "median ms",
+            "extra": "cold_query_ms=4762.502; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 686.373,
+            "unit": "median ms",
+            "extra": "cold_query_ms=1346.742; query=SET paradedb.enable_join_custom_scan TO off; SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-small - alternative 1",
+            "value": 2682.151,
+            "unit": "median ms",
+            "extra": "cold_query_ms=4745.483; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 15.579,
+            "unit": "median ms",
+            "extra": "cold_query_ms=169.992; query=SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 55.293,
+            "unit": "median ms",
+            "extra": "cold_query_ms=231.853; query=SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 71.239,
+            "unit": "median ms",
+            "extra": "cold_query_ms=251.854; query=SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "permissioned_search",
+            "value": 861.839,
+            "unit": "median ms",
+            "extra": "cold_query_ms=4979.542; query=SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, paradedb.score(f.id) as relevance FROM files f JOIN documents d ON f.\"documentId\" = d.id WHERE f.title @@@ 'File' AND d.parents LIKE 'PARENT_GROUP_10%' ORDER BY relevance DESC LIMIT 10"
+          },
+          {
+            "name": "permissioned_search - alternative 1",
+            "value": 1967.033,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2654.645; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT f.id, f.title, paradedb.score(f.id) as relevance FROM files f JOIN documents d ON f.\"documentId\" = d.id WHERE f.title @@@ 'File' AND d.parents LIKE 'PARENT_GROUP_10%' ORDER BY relevance DESC LIMIT 10"
+          },
+          {
+            "name": "semi_join_filter",
+            "value": 451.595,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2391.845; query=SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, f.\"createdAt\" FROM files f WHERE  f.\"documentId\" IN ( SELECT id FROM documents WHERE parents @@@ 'PROJECT_ALPHA' AND title @@@ 'Document Title 1' ) ORDER BY f.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 1",
+            "value": 512.628,
+            "unit": "median ms",
+            "extra": "cold_query_ms=1209.194; query=SET work_mem TO '4GB'; SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO on; SELECT f.id, f.title, f.\"createdAt\" FROM files f WHERE  f.\"documentId\" IN ( SELECT id FROM documents WHERE parents @@@ 'PROJECT_ALPHA' AND title @@@ 'Document Title 1' ) ORDER BY f.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 2",
+            "value": 457.69,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2396.594; query=SET paradedb.enable_mixed_fast_field_sort TO on; SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, f.\"createdAt\" FROM files f WHERE  f.\"documentId\" IN ( SELECT id FROM documents WHERE parents @@@ 'PROJECT_ALPHA' AND title @@@ 'Document Title 1' ) ORDER BY f.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 3",
+            "value": 2686.317,
+            "unit": "median ms",
+            "extra": "cold_query_ms=3333.188; query=SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, f.\"createdAt\" FROM files f WHERE f.\"documentId\" @@@ pdb.term_set(( SELECT array_agg(id) FROM documents WHERE parents @@@ 'PROJECT_ALPHA' AND title @@@ 'Document Title 1' )) ORDER BY f.title ASC LIMIT 25"
           }
         ]
       }

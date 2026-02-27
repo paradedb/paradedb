@@ -85,13 +85,7 @@ jobs:
       - name: Upload Schema to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-        run: |
-          # Retry in case publish-github-release.yml hasn't finished creating the release yet
-          for i in $(seq 1 10); do
-            gh release upload v${{ steps.version.outputs.version }} pg_search.schema.sql --clobber && break
-            echo "Release not ready yet, retrying in 30s... ($i/10)"
-            sleep 30
-          done
+        run: gh release upload v${{ steps.version.outputs.version }} pg_search.schema.sql --clobber
 
       - name: Notify ORM Repos of New Release
         env:

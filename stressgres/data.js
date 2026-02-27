@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772223981727,
+  "lastUpdate": 1772224131043,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19364,6 +19364,60 @@ window.BENCHMARK_DATA = {
             "value": 16.668666476252515,
             "unit": "median tps",
             "extra": "avg tps: 16.71151155228692, max tps: 20.728948395158596, count: 55753"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ppratik@umich.edu",
+            "name": "Pratik Patil",
+            "username": "quantitativepratik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ccf5780581cd4eabdc96973862d1aaf736d0f208",
+          "message": "perf: batch spinlock acquisition in parallel checkout (#3871)\n\n# Ticket(s) Closed\n\n- Closes #3851 \n\n## What\nRefactors ParallelAggregationWorker::checkout_segments to utilize a\nbatched checkout strategy.\n\n## Why\nPreviously, the worker would acquire the state.mutex spinlock for every\nsingle segment iteration (O(N) lock acquisitions). In high-concurrency\nscenarios, this creates unnecessary lock contention.\n\n## How\nThe new implementation calculates the required segment range upfront and\nacquires the lock once per worker (O(1) lock acquisitions). It then\nupdates the shared remaining_segments state in a single critical section\nbefore releasing the lock.\n\n## Tests\n\n- Verified the build passes locally with cargo check and cargo pgrx\ncheck.\n- Verified that pgrx environment initializes correctly with Postgres 14.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-02-27T11:16:26-08:00",
+          "tree_id": "6c6ddecd092add968b0fd7f6be84b7fd2a18abf9",
+          "url": "https://github.com/paradedb/paradedb/commit/ccf5780581cd4eabdc96973862d1aaf736d0f208"
+        },
+        "date": 1772224125993,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.985420683979793,
+            "unit": "median tps",
+            "extra": "avg tps: 31.845599585729687, max tps: 36.37239079396279, count: 55582"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.44128582640872,
+            "unit": "median tps",
+            "extra": "avg tps: 271.51641372068906, max tps: 2735.8071706710884, count: 55582"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 687.3753597954603,
+            "unit": "median tps",
+            "extra": "avg tps: 674.3282945177132, max tps: 1764.6844203392118, count: 55582"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 164.69616431260874,
+            "unit": "median tps",
+            "extra": "avg tps: 182.3040902498547, max tps: 1023.8080433136575, count: 111164"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.851308287002926,
+            "unit": "median tps",
+            "extra": "avg tps: 16.821716002632837, max tps: 20.316697080423587, count: 55582"
           }
         ]
       }

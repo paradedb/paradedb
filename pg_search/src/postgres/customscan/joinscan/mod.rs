@@ -654,6 +654,24 @@ impl CustomScan for JoinScan {
                         },
                 );
                 result_rows /= processes as f64;
+
+                let processes = processes as u64;
+                let partitioning_idx = join_clause.partitioning_source_index();
+                for (idx, source) in join_clause.sources.iter_mut().enumerate() {
+                    if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
+                        if idx == partitioning_idx {
+                            source.scan_info.estimated_rows_per_worker = Some(n / processes);
+                        } else {
+                            source.scan_info.estimated_rows_per_worker = Some(n);
+                        }
+                    }
+                }
+            } else {
+                for source in join_clause.sources.iter_mut() {
+                    if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
+                        source.scan_info.estimated_rows_per_worker = Some(n);
+                    }
+                }
             }
 
             builder = builder.set_rows(result_rows);

@@ -144,6 +144,7 @@ pub struct JoinSourceCandidate {
     pub sort_order: Option<SortByField>,
     pub estimate: Option<RowEstimate>,
     pub segment_count: Option<usize>,
+    pub estimated_rows_per_worker: Option<u64>,
 }
 
 impl JoinSourceCandidate {
@@ -324,6 +325,7 @@ impl From<JoinSource> for JoinSourceCandidate {
             sort_order: source.scan_info.sort_order.clone(),
             estimate: Some(source.scan_info.estimate),
             segment_count: Some(source.scan_info.segment_count),
+            estimated_rows_per_worker: source.scan_info.estimated_rows_per_worker,
         }
     }
 }
@@ -367,6 +369,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
+                estimated_rows_per_worker: candidate.estimated_rows_per_worker,
             },
         })
     }

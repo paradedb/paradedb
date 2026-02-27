@@ -112,6 +112,10 @@ pub struct ScanInfo {
     pub estimate: RowEstimate,
     /// The number of segments in the index.
     pub segment_count: usize,
+    /// Estimated number of rows each worker will process.
+    /// This is computed during parallel planning by dividing the total estimate
+    /// by the expected number of workers.
+    pub estimated_rows_per_worker: Option<u64>,
 }
 
 impl ScanInfo {

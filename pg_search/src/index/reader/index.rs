@@ -173,6 +173,8 @@ pub struct MultiSegmentSearchResults {
     searcher: Searcher,
     ctid_column: Option<FFType>,
     iterators: Vec<ScorerIter>,
+    lazy_iterators: Option<Box<dyn Iterator<Item = ScorerIter> + Send>>,
+    lazy_estimated_rows: Option<u64>,
 }
 
 /// A score which sorts in ascending direction.
@@ -198,6 +200,13 @@ impl Iterator for TopNSearchResults {
 
 impl MultiSegmentSearchResults {
     pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
+        if self.iterators.is_empty() {
+            if let Some(ref mut lazy) = self.lazy_iterators {
+                if let Some(next_iter) = lazy.next() {
+                    self.iterators.push(next_iter);
+                }
+            }
+        }
         self.iterators.last_mut()
     }
 
@@ -208,12 +217,16 @@ impl MultiSegmentSearchResults {
     /// Returns the total estimated number of documents across all segments in these results.
     ///
     /// This has no visible sideeffects, but it requires actually opening all DeferredScorers
-    /// for this iterator.
+    /// for this iterator (if they are not lazy).
     pub fn estimated_doc_count(&self) -> u64 {
-        self.iterators
-            .iter()
-            .map(|iter| iter.estimated_doc_count() as u64)
-            .sum()
+        if let Some(rows) = self.lazy_estimated_rows {
+            rows
+        } else {
+            self.iterators
+                .iter()
+                .map(|iter| iter.estimated_doc_count() as u64)
+                .sum()
+        }
     }
 
     /// Consumes and returns all segment iterators along with the searcher.
@@ -233,6 +246,8 @@ impl MultiSegmentSearchResults {
             searcher,
             ctid_column: None,
             iterators: vec![scorer_iter],
+            lazy_iterators: None,
+            lazy_estimated_rows: None,
         }
     }
 }
@@ -243,7 +258,7 @@ impl Iterator for MultiSegmentSearchResults {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let last = self.iterators.last_mut()?;
+            let last = self.current_segment()?;
             match last.next() {
                 Some((score, doc_address)) => {
                     let ctid_ff = self.ctid_column.get_or_insert_with(|| {
@@ -265,7 +280,7 @@ impl Iterator for MultiSegmentSearchResults {
                 None => {
                     // last iterator is empty, so pop it off, clear the fast field type cache,
                     // and loop back around to get the next one
-                    self.iterators.pop();
+                    self.current_segment_pop();
                     self.ctid_column = None;
                     continue;
                 }
@@ -608,6 +623,56 @@ impl SearchIndexReader {
             searcher: self.searcher.clone(),
             ctid_column: Default::default(),
             iterators,
+            lazy_iterators: None,
+            lazy_estimated_rows: None,
+        }
+    }
+
+    /// Search specific index segments lazily for matching documents.
+    ///
+    /// This defers opening of segment readers and scorers until they are actually needed
+    /// by the iteration.
+    ///
+    /// `estimated_rows` is required because a lazily-evaluated iterator does not inherently know
+    /// which or how many segments it will eventually open, and thus cannot compute an accurate
+    /// sum of matching documents by asking each segment upfront. It should be passed the value
+    /// computed during Postgres query planning.
+    pub fn search_lazy_segments(
+        &self,
+        segment_ids: impl Iterator<Item = SegmentId> + Send + 'static,
+        estimated_rows: u64,
+    ) -> MultiSegmentSearchResults {
+        let searcher = self.searcher.clone();
+        let query = self.query.box_clone();
+        let need_scores = self.need_scores;
+
+        let lazy_iterators = segment_ids.map(move |segment_id| {
+            let (segment_ord, segment_reader) = searcher
+                .segment_readers()
+                .iter()
+                .enumerate()
+                .find(|(_, reader)| reader.segment_id() == segment_id)
+                .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
+            let segment_ord = segment_ord as SegmentOrdinal;
+
+            ScorerIter::new(
+                DeferredScorer::new(
+                    query.box_clone(),
+                    need_scores,
+                    segment_reader.clone(),
+                    searcher.clone(),
+                ),
+                segment_ord,
+                segment_reader.clone(),
+            )
+        });
+
+        MultiSegmentSearchResults {
+            searcher: self.searcher.clone(),
+            ctid_column: Default::default(),
+            iterators: vec![],
+            lazy_iterators: Some(Box::new(lazy_iterators)),
+            lazy_estimated_rows: Some(estimated_rows),
         }
     }
 

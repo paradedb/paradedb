@@ -407,6 +407,11 @@ impl Scanner {
     ///
     /// This is used to force some work between parallel segment checkouts while
     /// preserving correctness (the prefetched batch will still be returned).
+    ///
+    /// **WARNING:** This method is specialized for multi-partition parallel workflows
+    /// (where all partitions must be opened concurrently and checked out via throttled loop).
+    /// It should **not** be used for single-partition lazy execution, as chaining segments
+    /// end-on-end dynamically does not require prefetching to yield time.
     pub fn prefetch_next(
         &mut self,
         ffhelper: &FFHelper,

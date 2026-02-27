@@ -29,7 +29,7 @@ use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::locks::Spinlock;
+use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
@@ -202,8 +202,10 @@ impl<'a> ParallelAggregationWorker<'a> {
         let nsegments = self.config.total_segments;
 
         let mut segment_ids = HashSet::default();
+
         let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number as usize);
-        while let Some(segment_id) = self.checkout_segment() {
+        let _lock = self.state.mutex.acquire();
+        while let Some(segment_id) = self.checkout_segment(&_lock) {
             segment_ids.insert(segment_id);
 
             if segment_ids.len() == many_segments {
@@ -211,11 +213,11 @@ impl<'a> ParallelAggregationWorker<'a> {
                 break;
             }
         }
+
         segment_ids
     }
 
-    fn checkout_segment(&mut self) -> Option<SegmentId> {
-        let _lock = self.state.mutex.acquire();
+    fn checkout_segment(&mut self, _guard: &AcquiredSpinLock) -> Option<SegmentId> {
         if self.state.remaining_segments == 0 {
             return None;
         }

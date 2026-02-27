@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772224137162,
+  "lastUpdate": 1772224412342,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2798,6 +2798,78 @@ window.BENCHMARK_DATA = {
             "value": 47.309104219249335,
             "unit": "median tps",
             "extra": "avg tps: 50.52846763648543, max tps: 730.7644526939632, count: 55099"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1223f87c786cfc9d5d74f15459ec8eb94e8850c",
+          "message": "perf: Only prefetch when producing sorted outputs (#4247)\n\n## What\n\nOnly call `prefetch_next` while creating a scan which needs to be\nsorted.\n\n## Why\n\nWe were calling `prefetch_next` for all scans, rather than only for\nthose which needed ahead-of-time load balancing.\n\nEagerly assigning work and prefetching prevents use of dynamic filtering\nfor the first batch of a segment, and can lead to lopsided work\ndistributions in the case of multiple segments per worker.\n\n## How\n\nDifferentiated between the three types of plans that we can create with\nour scan. For the `create_lazy_scan` case, directly adopted/shared the\nstrategy used in `MixedFF` and `Normal` base scans.\n\nBecause scans always need estimates, additionally produced a planning\ntime estimate for these lazy scans (which is also effectively what\nhappens for parallel workers in general).\n\n## Tests\n\n`semi_join_filter` shows a 40% speedup for warm runs: currently 20%\nfaster than a Postgres join for warm.",
+          "timestamp": "2026-02-27T12:11:27-08:00",
+          "tree_id": "4d4cc931868f3014e476a89bf274367ca9e77537",
+          "url": "https://github.com/paradedb/paradedb/commit/a1223f87c786cfc9d5d74f15459ec8eb94e8850c"
+        },
+        "date": 1772224407312,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 137.68520207778153,
+            "unit": "median tps",
+            "extra": "avg tps: 137.10216678298679, max tps: 146.46057109829664, count: 55147"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2991.103250566316,
+            "unit": "median tps",
+            "extra": "avg tps: 2976.9213372225545, max tps: 3003.8281372075708, count: 55147"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 466.59508175006806,
+            "unit": "median tps",
+            "extra": "avg tps: 465.87362980787645, max tps: 568.4038913214602, count: 55147"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3007.02051032685,
+            "unit": "median tps",
+            "extra": "avg tps: 3014.109827536131, max tps: 3058.137826790692, count: 110294"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 507.915199797808,
+            "unit": "median tps",
+            "extra": "avg tps: 507.28734148374303, max tps: 671.5952805656444, count: 55147"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 507.7576285298979,
+            "unit": "median tps",
+            "extra": "avg tps: 508.4605023591803, max tps: 649.913270784312, count: 55147"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1926.3741078926196,
+            "unit": "median tps",
+            "extra": "avg tps: 1907.8282284670445, max tps: 1933.359161711153, count: 55147"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.150955161308822,
+            "unit": "median tps",
+            "extra": "avg tps: 45.86288463963409, max tps: 730.4858022779468, count: 55147"
           }
         ]
       }

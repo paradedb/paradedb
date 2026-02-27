@@ -628,20 +628,35 @@ impl SearchIndexReader {
         }
     }
 
-    /// Search specific index segments lazily for matching documents.
-    ///
-    /// This defers opening of segment readers and scorers until they are actually needed
-    /// by the iteration.
+    /// Search all available index segments for matching documents using lazy checkout from the
+    /// parallel state to allow load balancing across parallel workers.
     ///
     /// `estimated_rows` is required because a lazily-evaluated iterator does not inherently know
     /// which or how many segments it will eventually open, and thus cannot compute an accurate
     /// sum of matching documents by asking each segment upfront. It should be passed the value
     /// computed during Postgres query planning.
-    pub fn search_lazy_segments(
+    pub fn search_lazy(
         &self,
-        segment_ids: impl Iterator<Item = SegmentId> + Send + 'static,
+        parallel_state: *mut crate::postgres::ParallelScanState,
         estimated_rows: u64,
     ) -> MultiSegmentSearchResults {
+        struct ParallelSegmentIterator {
+            parallel_state: *mut crate::postgres::ParallelScanState,
+        }
+        unsafe impl Send for ParallelSegmentIterator {}
+        unsafe impl Sync for ParallelSegmentIterator {}
+        impl Iterator for ParallelSegmentIterator {
+            type Item = tantivy::index::SegmentId;
+            fn next(&mut self) -> Option<Self::Item> {
+                pgrx::check_for_interrupts!();
+                unsafe {
+                    crate::postgres::customscan::parallel::checkout_segment(self.parallel_state)
+                }
+            }
+        }
+
+        let segment_ids = ParallelSegmentIterator { parallel_state };
+
         let searcher = self.searcher.clone();
         let query = self.query.box_clone();
         let need_scores = self.need_scores;

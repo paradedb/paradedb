@@ -372,21 +372,7 @@ impl PgSearchTableProvider {
         planner_estimated_rows: u64,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let search_results = if let Some(parallel_state) = self.parallel_state {
-            // Unsorted Parallel: Lazy checkout
-            struct ParallelSegmentIterator {
-                parallel_state: *mut ParallelScanState,
-            }
-            unsafe impl Send for ParallelSegmentIterator {}
-            unsafe impl Sync for ParallelSegmentIterator {}
-            impl Iterator for ParallelSegmentIterator {
-                type Item = tantivy::index::SegmentId;
-                fn next(&mut self) -> Option<Self::Item> {
-                    pgrx::check_for_interrupts!();
-                    unsafe { checkout_segment(self.parallel_state) }
-                }
-            }
-            let iter = ParallelSegmentIterator { parallel_state };
-            reader.search_lazy_segments(iter, planner_estimated_rows)
+            reader.search_lazy(parallel_state, planner_estimated_rows)
         } else {
             // Unsorted Serial
             reader.search()

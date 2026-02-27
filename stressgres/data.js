@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772226971385,
+  "lastUpdate": 1772226977630,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32990,6 +32990,186 @@ window.BENCHMARK_DATA = {
             "value": 32.85546875,
             "unit": "median mem",
             "extra": "avg mem: 32.1834355010661, max mem: 33.27734375, count: 53935"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "87611211+arrxy@users.noreply.github.com",
+            "name": "Aritro",
+            "username": "arrxy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4418419739b035bf9926ddfcca407710beda67b2",
+          "message": "fix: Add heap filter fallback for booltest (#4245)\n\n## Ticket(s) Closed\n\nCloses #2920\n## What\n\nAdds heap filter fallback support for BooleanTest predicates (IS TRUE,\nIS FALSE, IS NOT TRUE, IS NOT FALSE) in the custom scan qual extraction\nlogic.\n\nPreviously, when these predicates could not be pushed down to the BM25\nindex, booltest() returned None. This caused PostgreSQL to fall back to\na standard Index Scan, bypassing ParadeDB’s Custom Scan entirely.\n\nWith this change, unsupported BooleanTest predicates are converted into\nQual::HeapExpr, allowing them to be evaluated via heap filtering while\nkeeping execution inside ParadeDB’s Custom Scan.\n\n## Why\n\nEnsures queries containing BooleanTest predicates on non-indexed fields\nremain within ParadeDB’s custom scan execution pipeline instead of\nfalling back to PostgreSQL’s executor.\n\nThis preserves:\n\t•\tconsistent ParadeDB query execution\n\t•\tTantivy-based search integration\n\t•\tplanner stability and predictable execution paths\n\nand aligns BooleanTest handling with existing heap fallback behavior\nused in try_pushdown().\n\n\n## How\n\nUpdated:\n```\npg_search/src/postgres/customscan/qual_inspect.rs\n```\nChanges in booltest():\n```\n\t•\tAttempt pushdown using existing PushdownField::try_new\n\t•\tIf pushdown succeeds → return pushdown Qual\n\t•\tIf pushdown fails and filter pushdown is enabled → return Qual::HeapExpr\n\t•\tMark planner state appropriately:\n                •  state.uses_heap_expr = true;\n                • state.uses_tantivy_to_query = true;\n```\nThis enables heap-level filtering while preserving ParadeDB custom scan.\n\n## Tests\nData was created \n```\nCREATE TABLE bool_docs (\n  id SERIAL,\n  content TEXT,\n  flag BOOLEAN\n);\n\nCREATE INDEX bool_docs_idx\nON bool_docs\nUSING bm25 (id, content)\nWITH (key_field='id');\n\nINSERT INTO bool_docs (content, flag) VALUES\n('hello world', true),\n('hello parade', false),\n('other text', true);\n\n```\nManually verified using:\n```\nEXPLAIN ANALYZE\nSELECT *\nFROM t1\nWHERE content @@@ 'hello'\nAND flag IS FALSE;\n```\n\n##### Before:\n```\nIndex Scan using t1_idx\nFilter: (flag IS FALSE)\n```\n\n##### After:\n```\nCustom Scan (ParadeDB Scan)\nheap_filter\":\"(flag IS FALSE)\"\n```\n\nconfirming heap filter fallback works and ParadeDB Custom Scan is\nretained.\n\nRan existing test suite:\n```\ncargo pgrx test\n```\nNo regressions observed.\nAdditional regression tests for BooleanTest fallback can be added in a\nfollow-up PR.",
+          "timestamp": "2026-02-27T14:47:02-05:00",
+          "tree_id": "5443d681ee45e5e170995c685bbcf3a497eddbbb",
+          "url": "https://github.com/paradedb/paradedb/commit/4418419739b035bf9926ddfcca407710beda67b2"
+        },
+        "date": 1772226973080,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.902004669725345, max cpu: 9.302325, count: 53882"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 50.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.10154227350971, max mem: 55.70703125, count: 53882"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.382113334421678, max cpu: 4.6021094, count: 53882"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 31.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 30.795645968853236, max mem: 31.80859375, count: 53882"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.151573,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.371205794596795, max cpu: 18.514948, count: 53882"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 53.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.456344709272116, max mem: 59.52734375, count: 53882"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.956693115638634, max cpu: 13.779904, count: 53882"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 49.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.735821520289704, max mem: 55.40234375, count: 53882"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.618360055629471, max cpu: 9.230769, count: 53882"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 32.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.842299419912955, max mem: 37.84765625, count: 53882"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1086,
+            "unit": "median pages",
+            "extra": "avg pages: 1086.7356816747708, max pages: 1794.0, count: 53882"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.484375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.490122513084147, max relation_size:MB: 14.015625, count: 53882"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.048142236739542, max segment_count: 20.0, count: 53882"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.384704218784852, max cpu: 4.6021094, count: 53882"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.609334764508557, max mem: 29.67578125, count: 53882"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.533661135785611, max cpu: 4.6021094, count: 53882"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.522608576379866, max mem: 29.59375, count: 53882"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.381662709260001, max cpu: 27.665707, count: 53882"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 47.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.70358919432742, max mem: 53.5, count: 53882"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000017464972875116575, max replication_lag:MB: 0.06211090087890625, count: 53882"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.17810507007863, max cpu: 13.846154, count: 107764"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 48.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.39807639552634, max mem: 54.59765625, count: 107764"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.290325654364223, max cpu: 4.6065254, count: 53882"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.575303948326898, max mem: 32.5546875, count: 53882"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.33465015220884, max cpu: 4.6065254, count: 53882"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 32.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.66405815021714, max mem: 32.49609375, count: 53882"
           }
         ]
       }

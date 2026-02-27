@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772217728680,
+  "lastUpdate": 1772217734642,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28544,6 +28544,186 @@ window.BENCHMARK_DATA = {
             "value": 32.52734375,
             "unit": "median mem",
             "extra": "avg mem: 31.784791608683552, max mem: 32.625, count: 53895"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af56c3393caf13a5200928f7f8ce013aaf89a6b1",
+          "message": "feat: add `search_tokenizer` index option for separate search-time tokenization (#4201)\n\n## Ticket(s) Closed\n\n- Closes #4197\n\n## What\n\nAdds a `search_tokenizer` WITH option to BM25 indexes that lets you use\na different tokenizer at search time than at index time. This is an\nindex-level setting that applies to all text/JSON fields.\n\n```sql\nCREATE INDEX idx ON products USING bm25\n    (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))\n    WITH (key_field = 'id', search_tokenizer = 'unicode_words');\n```\n\nAlso supports parameterized expressions:\n\n```sql\nWITH (key_field = 'id', search_tokenizer = 'simple(lowercase=false)')\n```\n\n## Why\n\nThe primary use case is autocomplete/typeahead search. With edge ngram\nindexing, `\"shoes\"` gets indexed as `s, sh, sho, shoe, shoes`. Without a\nseparate search tokenizer, typing `\"sho\"` would also be ngrammed into\n`s, sh, sho` — matching far too many documents. By using `unicode_words`\nat search time, `\"sho\"` stays as a single token and only matches titles\nthat actually start with `\"sho\"`.\n\nThis mirrors Elasticsearch's `search_analyzer` index setting. Making it\na WITH option (rather than a per-field typmod) means it can be changed\nat runtime via `ALTER INDEX ... SET (search_tokenizer = '...')` without\nreindexing.\n\n## How\n\n- Registered `search_tokenizer` as a validated string reloption in\n`options.rs`\n- Extracted `tokenizer_from_expression()` to parse parameterized\ntokenizer specs like `simple(lowercase=false)`\n- Added `resolve_search_tokenizer()` in `pdb_query.rs` to implement\nresolution priority: query cast → index-level WITH → index-time\ntokenizer\n- Registered index-level search tokenizer with Tantivy's\n`TokenizerManager` in `search.rs`\n- Removed `chinese_convert` from shared typmod rules (only jieba should\naccept it)\n\n## Tests\n\n- `search_tokenizer` — autocomplete with/without search_tokenizer,\nquery-level override, parameterized expressions\n- `search_tokenizer_index_level` — WITH option, query-level override,\nrejection as typmod param\n- `test_tokenizer_params` — per-tokenizer param validation (e.g.\n`chinese_convert` only on jieba)",
+          "timestamp": "2026-02-27T09:18:32-08:00",
+          "tree_id": "491868252023dfc78179d596ed9a543802cd6271",
+          "url": "https://github.com/paradedb/paradedb/commit/af56c3393caf13a5200928f7f8ce013aaf89a6b1"
+        },
+        "date": 1772217730235,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.912036449963696, max cpu: 9.375, count: 53912"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 49.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.0594959726035, max mem: 55.98828125, count: 53912"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.550411441325271, max cpu: 4.6065254, count: 53912"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 31.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.952981464585807, max mem: 31.97265625, count: 53912"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.3665568890543, max cpu: 18.497108, count: 53912"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 53.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.12654990714034, max mem: 59.40234375, count: 53912"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.90934103259843, max cpu: 9.284333, count: 53912"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 49.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.67583733097455, max mem: 55.60546875, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6278998641184605, max cpu: 9.195402, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 32.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 32.998331627235125, max mem: 38.26953125, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1090,
+            "unit": "median pages",
+            "extra": "avg pages: 1093.4390488202998, max pages: 1832.0, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.515625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.542492568908592, max relation_size:MB: 14.3125, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.837160557946282, max segment_count: 19.0, count: 53912"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.963469679064169, max cpu: 4.6021094, count: 53912"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.734601642491466, max mem: 29.84375, count: 53912"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.233763578824201, max cpu: 4.6153846, count: 53912"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.652155654121533, max mem: 29.70703125, count: 53912"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.520174117884055, max cpu: 18.390804, count: 53912"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 47.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.75745319050026, max mem: 53.76171875, count: 53912"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000013920475067804362, max replication_lag:MB: 0.13593292236328125, count: 53912"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.126123622501321, max cpu: 14.076246, count: 107824"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 48.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.42696054449844, max mem: 54.6328125, count: 107824"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.360144482845664, max cpu: 4.58891, count: 53912"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.44722331067295, max mem: 32.4921875, count: 53912"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4981672430752395, max cpu: 4.610951, count: 53912"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 32.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.567762337234754, max mem: 32.34765625, count: 53912"
           }
         ]
       }

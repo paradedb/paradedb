@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772158583423,
+  "lastUpdate": 1772159553307,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16544,6 +16544,60 @@ window.BENCHMARK_DATA = {
             "value": 15.19674346765729,
             "unit": "median tps",
             "extra": "avg tps: 14.943012174648622, max tps: 19.636614242404892, count: 55717"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb2340399b0a318db8a1aadc1225abdb66dac5f3",
+          "message": "feat: Backpressure writes if there are too many mutable segments (#4244)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nForces a foreground merge of mutable segments if there more than `2`\nduring an insert merge.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-26T17:29:30-08:00",
+          "tree_id": "91050fbbd82bdfc6e26c1177b6b304fc9800be82",
+          "url": "https://github.com/paradedb/paradedb/commit/cb2340399b0a318db8a1aadc1225abdb66dac5f3"
+        },
+        "date": 1772159548887,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.028086554630228,
+            "unit": "median tps",
+            "extra": "avg tps: 29.932080101244427, max tps: 33.97066808464102, count: 55784"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 247.88178991861398,
+            "unit": "median tps",
+            "extra": "avg tps: 273.41334137482363, max tps: 2861.5528280011213, count: 55784"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 691.7557828665915,
+            "unit": "median tps",
+            "extra": "avg tps: 672.8978328758192, max tps: 1209.599486271875, count: 55784"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 161.33242538093185,
+            "unit": "median tps",
+            "extra": "avg tps: 179.16613322328328, max tps: 973.2819317052116, count: 111568"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.336200084608974,
+            "unit": "median tps",
+            "extra": "avg tps: 15.349569590051964, max tps: 21.870405164564957, count: 55784"
           }
         ]
       }

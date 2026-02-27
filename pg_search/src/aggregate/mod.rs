@@ -29,7 +29,7 @@ use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::locks::Spinlock;
+use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
@@ -202,31 +202,31 @@ impl<'a> ParallelAggregationWorker<'a> {
         let nsegments = self.config.total_segments;
 
         let mut segment_ids = HashSet::default();
-        let (_, target_count) = chunk_range(nsegments, nworkers, worker_number as usize);
-        {
-            let _lock = self.state.mutex.acquire();
 
-            let available_count = self.state.remaining_segments;
-            // we take the minimum of what we want which is the target vs what is left which is available
-            let count_to_take = std::cmp::min(target_count, available_count);
+        let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number as usize);
+        let _lock = self.state.mutex.acquire();
+        while let Some(segment_id) = self.checkout_segment(&_lock) {
+            segment_ids.insert(segment_id);
 
-            for _ in 0..count_to_take {
-                // treating the segment list as a stack and popping a batch from the end by calculating the slice range
-                if self.state.remaining_segments > 0 {
-                    self.state.remaining_segments -= 1;
-                    if let Some((segment_id, _)) =
-                        self.segment_ids.get(self.state.remaining_segments)
-                    {
-                        segment_ids.insert(*segment_id);
-                    }
-                }
+            if segment_ids.len() == many_segments {
+                // we have all the segments we need
+                break;
             }
         }
 
         segment_ids
     }
 
-    // removed the checkout_segment func
+    fn checkout_segment(&mut self, _guard: &AcquiredSpinLock) -> Option<SegmentId> {
+        if self.state.remaining_segments == 0 {
+            return None;
+        }
+        self.state.remaining_segments -= 1;
+        self.segment_ids
+            .get(self.state.remaining_segments)
+            .cloned()
+            .map(|(segment_id, _)| segment_id)
+    }
 
     fn execute_aggregate(
         &mut self,

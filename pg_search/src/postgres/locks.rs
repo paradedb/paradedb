@@ -45,13 +45,14 @@ impl Spinlock {
     }
 
     #[inline(always)]
-    pub fn acquire(&mut self) -> impl Drop {
+    pub fn acquire(&mut self) -> AcquiredSpinLock {
         AcquiredSpinLock::new(self)
     }
 }
 
+#[must_use]
 #[repr(transparent)]
-struct AcquiredSpinLock(*mut pg_sys::slock_t);
+pub struct AcquiredSpinLock(*mut pg_sys::slock_t);
 
 impl AcquiredSpinLock {
     fn new(lock: &mut Spinlock) -> Self {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772156567558,
+  "lastUpdate": 1772157541939,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7858,6 +7858,42 @@ window.BENCHMARK_DATA = {
             "value": 5.319618200826238,
             "unit": "median tps",
             "extra": "avg tps: 4.776651767337231, max tps: 5.978408476974372, count: 57585"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb2340399b0a318db8a1aadc1225abdb66dac5f3",
+          "message": "feat: Backpressure writes if there are too many mutable segments (#4244)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nForces a foreground merge of mutable segments if there more than `2`\nduring an insert merge.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-26T17:29:30-08:00",
+          "tree_id": "91050fbbd82bdfc6e26c1177b6b304fc9800be82",
+          "url": "https://github.com/paradedb/paradedb/commit/cb2340399b0a318db8a1aadc1225abdb66dac5f3"
+        },
+        "date": 1772157537643,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.750789278380278,
+            "unit": "median tps",
+            "extra": "avg tps: 6.59391567209511, max tps: 10.148750138218404, count: 57788"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.348245634402328,
+            "unit": "median tps",
+            "extra": "avg tps: 4.794962579316092, max tps: 5.991108015179354, count: 57788"
           }
         ]
       }

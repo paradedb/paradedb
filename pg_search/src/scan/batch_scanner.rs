@@ -68,6 +68,23 @@ fn compact_with_mask(
     }
 }
 
+/// Ensure `memoized_columns[ff_index]` is populated, fetching from the fast field helper if needed.
+fn ensure_column_fetched(
+    memoized_columns: &mut [Option<ArrayRef>],
+    ffhelper: &FFHelper,
+    segment_ord: SegmentOrdinal,
+    ff_index: usize,
+    ids: &[DocId],
+) {
+    if memoized_columns[ff_index].is_none() {
+        memoized_columns[ff_index] = Some(
+            ffhelper
+                .column(segment_ord, ff_index)
+                .fetch_values_or_ords_to_arrow(ids),
+        );
+    }
+}
+
 /// A batch of visible tuples and their fast field values.
 #[derive(Default)]
 pub struct Batch {
@@ -175,17 +192,6 @@ impl Scanner {
         self.search_results.estimated_doc_count()
     }
 
-    fn fetch_column(
-        ffhelper: &FFHelper,
-        segment_ord: SegmentOrdinal,
-        ff_index: usize,
-        ids: &[u32],
-    ) -> ArrayRef {
-        ffhelper
-            .column(segment_ord, ff_index)
-            .fetch_values_or_ords_to_arrow(ids)
-    }
-
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
         // Collect a batch of ids for a single segment.
         loop {
@@ -249,10 +255,7 @@ impl Scanner {
             if let Some(threshold) = seg_thresholds.get_threshold(segment_ord) {
                 let ff_idx = seg_thresholds.ff_index();
 
-                if memoized_columns[ff_idx].is_none() {
-                    memoized_columns[ff_idx] =
-                        Some(Self::fetch_column(ffhelper, segment_ord, ff_idx, &ids));
-                }
+                ensure_column_fetched(&mut memoized_columns, ffhelper, segment_ord, ff_idx, &ids);
 
                 if let Some(ords) = memoized_columns[ff_idx]
                     .as_ref()
@@ -293,12 +296,14 @@ impl Scanner {
                     break;
                 }
 
-                // Fetch columns if needed
                 for &ff_index in &pre_filter.required_columns {
-                    if memoized_columns[ff_index].is_none() {
-                        memoized_columns[ff_index] =
-                            Some(Self::fetch_column(ffhelper, segment_ord, ff_index, &ids));
-                    }
+                    ensure_column_fetched(
+                        &mut memoized_columns,
+                        ffhelper,
+                        segment_ord,
+                        ff_index,
+                        &ids,
+                    );
                 }
 
                 // Apply filter
@@ -350,6 +355,13 @@ impl Scanner {
             ctids
         };
 
+        // Pre-fetch any Named columns that weren't already fetched by pre-filters.
+        for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
+            if matches!(which_ff, WhichFastField::Named(_, _)) {
+                ensure_column_fetched(&mut memoized_columns, ffhelper, segment_ord, ff_index, &ids);
+            }
+        }
+
         // Execute batch lookups of the fast-field values, fetch term content from the dictionaries,
         // and construct the batch.
         let fields = self
@@ -372,12 +384,7 @@ impl Scanner {
                 }
                 WhichFastField::Junk(_) => None,
                 WhichFastField::Named(_, _) => {
-                    // Check if memoized
-                    let col_array = if let Some(col_array) = &memoized_columns[ff_index] {
-                        col_array.clone()
-                    } else {
-                        Self::fetch_column(ffhelper, segment_ord, ff_index, &ids)
-                    };
+                    let col_array = memoized_columns[ff_index].clone().unwrap();
 
                     match ffhelper.column(segment_ord, ff_index) {
                         FFType::Text(str_column) => {

@@ -1,0 +1,114 @@
+# workflows/publish-pg_search-schema.yml
+#
+# Publish pg_search Schema
+# Generates the full pg_search SQL schema via `cargo pgrx schema` and uploads it as a
+# release asset. Once uploaded, notifies ORM wrapper repos via repository_dispatch so they
+# can run compatibility checks against the new version.
+
+name: Publish pg_search Schema
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to generate the schema for (e.g. 0.22.0). Defaults to the current tag."
+        required: false
+        default: ""
+
+concurrency:
+  group: publish-pg_search-schema-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-pg_search-schema:
+    name: Publish pg_search Schema
+    runs-on: ubicloud-standard-8-ubuntu-2404
+    if: ${{ !contains(github.ref, '-rc.') }}
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
+    env:
+      pg_version: 18
+      # ORM repos to notify on new releases — add new repos here
+      ORM_REPOS: |
+        paradedb/django-paradedb
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          cache-targets: true
+          cache-all-crates: true
+
+      - name: Install & Configure PostgreSQL ${{ env.pg_version }}
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
+          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Install cargo-pgrx
+        run: |
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+          cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+
+      - name: Generate pg_search Schema
+        run: cargo pgrx schema -p pg_search pg${{ env.pg_version }} > pg_search.schema.sql
+
+      - name: Determine Version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=$(echo ${{ github.ref_name }} | sed 's/^v//')" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Schema to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+        run: |
+          # Retry in case publish-github-release.yml hasn't finished creating the release yet
+          for i in $(seq 1 10); do
+            gh release upload v${{ steps.version.outputs.version }} pg_search.schema.sql --clobber && break
+            echo "Release not ready yet, retrying in 30s... ($i/10)"
+            sleep 30
+          done
+
+      - name: Notify ORM Repos of New Release
+        env:
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+        run: |
+          while IFS= read -r repo; do
+            repo=$(echo "$repo" | xargs)  # trim whitespace
+            [ -z "$repo" ] && continue
+            echo "Dispatching to $repo..."
+            gh api "repos/$repo/dispatches" \
+              --field event_type=paradedb-release \
+              --field "client_payload[version]=${{ steps.version.outputs.version }}"
+          done <<< "$ORM_REPOS"
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`publish-pg_search-schema\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

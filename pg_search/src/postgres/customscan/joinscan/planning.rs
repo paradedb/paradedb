@@ -219,8 +219,12 @@ pub(super) unsafe fn collect_join_sources(
             // Read the sort order from the index's relation options.
             // This allows DataFusion-based execution to leverage physical sort order
             // for optimizations like SortPreservingMergeExec and sort-merge joins.
-            let sort_by = bm25_index.options().sort_by();
-            let sort_order = sort_by.into_iter().next();
+            let sort_order = if crate::gucs::is_mixed_fast_field_sort_enabled() {
+                let sort_by = bm25_index.options().sort_by();
+                sort_by.into_iter().next()
+            } else {
+                None
+            };
             side_info = side_info.with_sort_order(sort_order);
 
             // Extract single-table predicates from baserestrictinfo.

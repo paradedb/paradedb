@@ -380,30 +380,18 @@ impl MixedFastFieldExecState {
         &mut self,
         state: &mut BaseScanState,
     ) -> Option<SendableRecordBatchStream> {
-        // Get search results (lazily checks out one segment in parallel mode)
-        let search_results = if let Some(parallel_state) = state.parallel_state {
-            // Parallel: try to check out a segment.
-            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                Some(
-                    state
-                        .search_reader
-                        .as_ref()
-                        .unwrap()
-                        .search_segments([segment_id].into_iter()),
-                )
-            } else {
-                None
-            }
-        } else if self.inner.did_query {
-            // Not parallel and already queried.
-            None
-        } else {
-            // First time query in non-parallel mode.
-            self.inner.did_query = true;
-            Some(state.search_reader.as_ref().unwrap().search())
-        };
+        if self.inner.did_query {
+            return None;
+        }
+        self.inner.did_query = true;
 
-        let results = search_results?;
+        let search_reader = state.search_reader.as_ref().unwrap();
+
+        let search_results = if let Some(parallel_state) = state.parallel_state {
+            search_reader.search_lazy(parallel_state, 0)
+        } else {
+            search_reader.search()
+        };
 
         let heaprel = self
             .inner
@@ -418,7 +406,7 @@ impl MixedFastFieldExecState {
 
         // Create scanner
         let scanner = Scanner::new(
-            results,
+            search_results,
             self.batch_size_hint,
             self.scanner_fast_fields.clone(),
             heaprel.oid().into(),

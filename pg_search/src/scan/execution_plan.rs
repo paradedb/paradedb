@@ -74,13 +74,19 @@ pub type ScanState = (Scanner, Arc<FFHelper>, Box<VisibilityChecker>);
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
-/// This plan represents a scan over one or more segments, where each segment
-/// corresponds to a DataFusion partition. It handles both:
+/// This plan represents a scan over one or more index segments. It exposes these
+/// segments to DataFusion in two distinct ways:
 ///
-/// 1.  **Serial Scans**: The plan is initialized with a single partition, or segments are
-///     processed lazily.
-/// 2.  **Parallel/Sorted Scans**: The plan is initialized with multiple pre-opened segments,
-///     each exposed as a distinct partition.
+/// 1.  **Lazy Execution (Single Partition)**: For standard queries that do not require
+///     globally sorted outputs. The plan is initialized with exactly one partition containing
+///     a lazily-evaluated `MultiSegmentSearchResults` stream. The underlying segments are
+///     claimed dynamically (if running in parallel) or chained sequentially (if serial),
+///     allowing segments to be dynamically load balanced across parallel workers as they process data.
+/// 2.  **Eager/Throttled Execution (Multiple Partitions)**: For queries that require
+///     globally sorted output (e.g. `ORDER BY` or sort-merge joins). The plan is initialized
+///     with multiple pre-opened segments, each exposed as a distinct DataFusion partition.
+///     DataFusion will automatically apply a `SortPreservingMergeExec` across these streams
+///     to produce a single, globally sorted result.
 pub struct PgSearchScanPlan {
     /// Segments to scan, indexed by partition.
     ///

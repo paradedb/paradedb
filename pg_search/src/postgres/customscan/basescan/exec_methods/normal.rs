@@ -18,7 +18,6 @@
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
-use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::itemptr::item_pointer_get_block_number;
@@ -64,30 +63,23 @@ impl ExecMethod for NormalScanExecState {
     }
 
     fn query(&mut self, state: &mut BaseScanState) -> bool {
-        if let Some(parallel_state) = state.parallel_state {
-            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                self.search_results = Some(
-                    state
-                        .search_reader
-                        .as_ref()
-                        .unwrap()
-                        .search_segments([segment_id].into_iter()),
-                );
-                return true;
-            }
+        if self.did_query {
+            return false;
+        }
 
-            // no more segments to query
-            self.search_results = None;
-            false
-        } else if self.did_query {
-            // not parallel, so we're done
-            false
+        let search_reader = state.search_reader.as_ref().unwrap();
+
+        self.search_results = if let Some(parallel_state) = state.parallel_state {
+            // NormalScanExecState evaluates isolated batches directly, so it does not participate
+            // in global statistics planning for `estimated_rows`. Thus, we pass 0 here.
+            Some(search_reader.search_lazy(parallel_state, 0))
         } else {
             // not parallel, first time query
-            self.do_query(state);
-            self.did_query = true;
-            true
-        }
+            Some(search_reader.search())
+        };
+
+        self.did_query = true;
+        true
     }
 
     fn internal_next(&mut self, state: &mut BaseScanState) -> ExecState {
@@ -138,23 +130,5 @@ impl ExecMethod for NormalScanExecState {
     fn reset(&mut self, _state: &mut BaseScanState) {
         self.did_query = false;
         self.search_results = None;
-    }
-}
-
-impl NormalScanExecState {
-    #[inline(always)]
-    fn do_query(&mut self, state: &BaseScanState) -> bool {
-        if self.did_query {
-            return false;
-        }
-        self.search_results = Some(
-            state
-                .search_reader
-                .as_ref()
-                .expect("must have a search_reader to do a query")
-                .search(),
-        );
-        self.did_query = true;
-        true
     }
 }

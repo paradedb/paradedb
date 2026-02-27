@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772141163555,
+  "lastUpdate": 1772156561783,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2294,6 +2294,78 @@ window.BENCHMARK_DATA = {
             "value": 91.91381821661435,
             "unit": "median tps",
             "extra": "avg tps: 90.03005572805276, max tps: 230.15948959371266, count: 55196"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb2340399b0a318db8a1aadc1225abdb66dac5f3",
+          "message": "feat: Backpressure writes if there are too many mutable segments (#4244)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nForces a foreground merge of mutable segments if there more than `2`\nduring an insert merge.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-26T17:29:30-08:00",
+          "tree_id": "91050fbbd82bdfc6e26c1177b6b304fc9800be82",
+          "url": "https://github.com/paradedb/paradedb/commit/cb2340399b0a318db8a1aadc1225abdb66dac5f3"
+        },
+        "date": 1772156557491,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 135.3282539642906,
+            "unit": "median tps",
+            "extra": "avg tps: 135.93230831135583, max tps: 154.2007681665467, count: 13099"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2972.6509765301116,
+            "unit": "median tps",
+            "extra": "avg tps: 2947.9236397170885, max tps: 2984.236097190082, count: 13099"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 506.208164002626,
+            "unit": "median tps",
+            "extra": "avg tps: 504.355957660864, max tps: 546.7937925781491, count: 13099"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2949.504419056395,
+            "unit": "median tps",
+            "extra": "avg tps: 2938.0433753098564, max tps: 3010.470073463323, count: 26198"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 522.3392390900805,
+            "unit": "median tps",
+            "extra": "avg tps: 523.2314234785243, max tps: 640.2271846164612, count: 13099"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 520.5055304945528,
+            "unit": "median tps",
+            "extra": "avg tps: 523.5296933389697, max tps: 669.2140224072484, count: 13099"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1909.286760051123,
+            "unit": "median tps",
+            "extra": "avg tps: 1894.208656192101, max tps: 1929.0189788741716, count: 13099"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 150.3421990472646,
+            "unit": "median tps",
+            "extra": "avg tps: 156.08171346887994, max tps: 335.65486221661604, count: 13099"
           }
         ]
       }

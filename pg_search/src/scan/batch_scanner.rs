@@ -266,11 +266,11 @@ impl Scanner {
                                 .unwrap_or(crate::index::fast_fields_helper::NULL_TERM_ORDINAL);
                             Some(
                                 if ord == crate::index::fast_fields_helper::NULL_TERM_ORDINAL {
-                                    true
+                                    true // NULLs always survive
                                 } else if descending {
-                                    ord > threshold
+                                    ord >= threshold // keep ties for compound sort correctness
                                 } else {
-                                    ord < threshold
+                                    ord <= threshold // keep ties for compound sort correctness
                                 },
                             )
                         })

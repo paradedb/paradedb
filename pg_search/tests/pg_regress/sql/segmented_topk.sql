@@ -188,6 +188,64 @@ LIMIT 3;
 RESET paradedb.enable_segmented_topk;
 
 -- =============================================================================
+-- TEST 9: Compound sort correctness (known limitation)
+--
+-- SegmentedTopKExec only considers the primary sort column's ordinal.
+-- When many rows share the same ordinal, the heap keeps the first K arrivals
+-- (by doc_id order), ignoring tiebreaker columns. With a tiebreaker that
+-- wants the opposite end (e.g. id DESC), the wrong rows may survive.
+--
+-- This test documents the issue: the optimization-on result may differ from
+-- the optimization-off result when duplicates exceed K.
+-- =============================================================================
+
+-- Insert 30 files with identical titles to create heavy duplicates.
+-- All reference the same document so they pass the join filter.
+TRUNCATE stk_files;
+INSERT INTO stk_files (document_id, title, content)
+SELECT
+    'doc-01',
+    'Identical Title',
+    'dup content ' || i
+FROM generate_series(1, 30) AS i;
+
+-- Reference result: optimization OFF — this is the ground truth.
+SET paradedb.enable_segmented_topk = off;
+
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.id DESC
+LIMIT 5;
+
+-- Same query with optimization ON.
+-- Because all 30 rows share the same title ordinal and K=5, the heap keeps
+-- only the first 5 arrivals (lowest doc_ids → lowest ids). The tiebreaker
+-- (id DESC) wants the highest ids, so the result may differ.
+SET paradedb.enable_segmented_topk = on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.id DESC
+LIMIT 5;
+
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.id DESC
+LIMIT 5;
+
+RESET paradedb.enable_segmented_topk;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

@@ -36,13 +36,15 @@
 //! batches containing the exact top-K rows per segment. This ensures only the
 //! minimum necessary rows flow to `TantivyLookupExec` for dictionary decoding.
 //!
-//! **Limitation — compound sorts:** Only the primary sort column is used for
-//! ordinal pruning. When the TopK sort has tiebreaker columns (e.g.
-//! `ORDER BY val DESC, id ASC LIMIT 25`), rows with duplicate primary ordinals
-//! may be over-retained because the tiebreaker is not considered. This is safe
-//! (never drops correct rows) but slightly less aggressive.
+//! **Compound sorts:** Only the primary sort column is used for ordinal
+//! pruning. When the TopK sort has tiebreaker columns (e.g.
+//! `ORDER BY val DESC, id ASC LIMIT 25`), all rows tied at the boundary
+//! ordinal are retained — the exec cannot distinguish between them without
+//! the tiebreaker, so it keeps them all for the final TopK to resolve.
+//! This is safe (never drops correct rows) but slightly less aggressive
+//! than theoretically possible when there are many duplicates.
 //! TODO: rewrite the full TopK sort expression in terms of term ordinals to
-//! handle tiebreakers.
+//! handle tiebreakers natively.
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
@@ -246,6 +248,7 @@ impl ExecutionPlan for SegmentedTopKExec {
                 thresholds: Arc::clone(&self.thresholds),
                 batches: Vec::new(),
                 always_keep: Vec::new(),
+                row_ordinals: Vec::new(),
                 state: StreamState::Collecting,
                 rows_input,
                 rows_output,
@@ -257,31 +260,6 @@ impl ExecutionPlan for SegmentedTopKExec {
 
     fn metrics(&self) -> Option<MetricsSet> {
         Some(self.metrics.clone_inner())
-    }
-}
-
-/// Entry in the per-segment bounded heap.
-/// Stores the transformed ordinal along with the batch/row location so that
-/// the final survivor set can be built after all input is consumed.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-struct HeapEntry {
-    heap_val: u64,
-    batch_idx: usize,
-    row_idx: usize,
-}
-
-impl Ord for HeapEntry {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.heap_val
-            .cmp(&other.heap_val)
-            .then(self.batch_idx.cmp(&other.batch_idx))
-            .then(self.row_idx.cmp(&other.row_idx))
-    }
-}
-
-impl PartialOrd for HeapEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
     }
 }
 
@@ -304,8 +282,10 @@ struct SegmentedTopKStream {
     k: usize,
     descending: bool,
     schema: SchemaRef,
-    /// Persistent per-segment heaps tracking the top-K entries across all batches.
-    segment_heaps: HashMap<SegmentOrdinal, BinaryHeap<HeapEntry>>,
+    /// Per-segment max-heaps of transformed ordinals (heap_val). Used only to
+    /// track the cutoff — the K-th best ordinal per segment. Row locations are
+    /// NOT stored in the heap; see `row_ordinals` instead.
+    segment_heaps: HashMap<SegmentOrdinal, BinaryHeap<u64>>,
     /// Shared thresholds published back to the scanner for early pruning.
     thresholds: Arc<SegmentedThresholds>,
     /// Buffered batches during the collection phase.
@@ -315,6 +295,11 @@ struct SegmentedTopKStream {
     /// since they won't be compared, but we buffer them to avoid partial-batch
     /// emission during the blocking collection phase.
     always_keep: Vec<(usize, usize)>,
+    /// Per-row ordinal info for rows that went through ordinal comparison
+    /// (States 0 and 1, excluding NULLs). Used by `build_survivors` to filter
+    /// against the per-segment cutoff, correctly retaining all rows tied at the
+    /// boundary (which a bounded heap alone would arbitrarily drop).
+    row_ordinals: Vec<(usize, usize, SegmentOrdinal, u64)>,
     state: StreamState,
     rows_input: Count,
     rows_output: Count,
@@ -324,27 +309,16 @@ struct SegmentedTopKStream {
 }
 
 impl SegmentedTopKStream {
-    /// Insert a row into the bounded heap for a segment.
-    fn push_into_heap(
-        heap: &mut BinaryHeap<HeapEntry>,
-        ord: TermOrdinal,
-        batch_idx: usize,
-        row_idx: usize,
-        k: usize,
-        descending: bool,
-    ) {
-        let heap_val = if descending { !ord } else { ord };
-        let entry = HeapEntry {
-            heap_val,
-            batch_idx,
-            row_idx,
-        };
+    /// Update the per-segment cutoff heap with a new ordinal. The heap tracks
+    /// the K best transformed ordinals to determine the boundary. Row locations
+    /// are tracked separately in `row_ordinals`.
+    fn update_cutoff_heap(heap: &mut BinaryHeap<u64>, heap_val: u64, k: usize) {
         if heap.len() < k {
-            heap.push(entry);
+            heap.push(heap_val);
         } else if let Some(&worst) = heap.peek() {
-            if heap_val < worst.heap_val {
+            if heap_val < worst {
                 heap.pop();
-                heap.push(entry);
+                heap.push(heap_val);
             }
         }
     }
@@ -473,7 +447,10 @@ impl SegmentedTopKStream {
                     self.always_keep.push((batch_idx, row_idx));
                     continue;
                 }
-                Self::push_into_heap(heap, ord, batch_idx, row_idx, self.k, self.descending);
+                let heap_val = if self.descending { !ord } else { ord };
+                Self::update_cutoff_heap(heap, heap_val, self.k);
+                self.row_ordinals
+                    .push((batch_idx, row_idx, seg_ord, heap_val));
             }
         }
 
@@ -491,14 +468,17 @@ impl SegmentedTopKStream {
                     self.always_keep.push((batch_idx, row_idx));
                     continue;
                 }
-                Self::push_into_heap(heap, ord, batch_idx, row_idx, self.k, self.descending);
+                let heap_val = if self.descending { !ord } else { ord };
+                Self::update_cutoff_heap(heap, heap_val, self.k);
+                self.row_ordinals
+                    .push((batch_idx, row_idx, seg_ord, heap_val));
             }
         }
 
         // Publish thresholds for segments with full heaps.
         for (seg_ord, heap) in &self.segment_heaps {
             if heap.len() >= self.k {
-                let worst = heap.peek().unwrap().heap_val;
+                let worst = *heap.peek().unwrap();
                 let threshold = if self.descending { !worst } else { worst };
                 self.thresholds.set_threshold(*seg_ord, threshold);
             }
@@ -507,7 +487,12 @@ impl SegmentedTopKStream {
         Ok(())
     }
 
-    /// Build the final survivor set from the heaps and always-keep rows.
+    /// Build the final survivor set using per-segment cutoffs from the heaps.
+    ///
+    /// A row survives if its transformed ordinal (heap_val) is <= the cutoff
+    /// for its segment. This correctly retains ALL rows tied at the boundary,
+    /// which is necessary for compound sorts where a tiebreaker column
+    /// distinguishes between rows with the same primary ordinal.
     ///
     /// TODO: Like upstream TopK, periodically compact buffered batches
     /// during the collection phase to avoid holding O(N) rows in memory when
@@ -519,9 +504,20 @@ impl SegmentedTopKStream {
             survivors.insert((batch_idx, row_idx));
         }
 
-        for heap in self.segment_heaps.values() {
-            for entry in heap.iter() {
-                survivors.insert((entry.batch_idx, entry.row_idx));
+        for &(batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+            let cutoff = self
+                .segment_heaps
+                .get(&seg_ord)
+                .and_then(|h| h.peek().copied());
+            match cutoff {
+                Some(cutoff_val) if heap_val <= cutoff_val => {
+                    survivors.insert((batch_idx, row_idx));
+                }
+                None => {
+                    // Segment heap is empty (shouldn't happen), keep the row.
+                    survivors.insert((batch_idx, row_idx));
+                }
+                _ => {} // strictly worse than cutoff — discard
             }
         }
 

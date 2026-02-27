@@ -384,6 +384,100 @@ LIMIT 3;
 
 RESET paradedb.enable_segmented_topk;
 -- =============================================================================
+-- TEST 9: Compound sort correctness (known limitation)
+--
+-- SegmentedTopKExec only considers the primary sort column's ordinal.
+-- When many rows share the same ordinal, the heap keeps the first K arrivals
+-- (by doc_id order), ignoring tiebreaker columns. With a tiebreaker that
+-- wants the opposite end (e.g. id DESC), the wrong rows may survive.
+--
+-- This test documents the issue: the optimization-on result may differ from
+-- the optimization-off result when duplicates exceed K.
+-- =============================================================================
+-- Insert 30 files with identical titles to create heavy duplicates.
+-- All reference the same document so they pass the join filter.
+TRUNCATE stk_files;
+INSERT INTO stk_files (document_id, title, content)
+SELECT
+    'doc-01',
+    'Identical Title',
+    'dup content ' || i
+FROM generate_series(1, 30) AS i;
+-- Reference result: optimization OFF — this is the ground truth.
+SET paradedb.enable_segmented_topk = off;
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.id DESC
+LIMIT 5;
+ id  |      title      
+-----+-----------------
+ 130 | Identical Title
+ 129 | Identical Title
+ 128 | Identical Title
+ 127 | Identical Title
+ 126 | Identical Title
+(5 rows)
+
+-- Same query with optimization ON.
+-- Because all 30 rows share the same title ordinal and K=5, the heap keeps
+-- only the first 5 arrivals (lowest doc_ids → lowest ids). The tiebreaker
+-- (id DESC) wants the highest ids, so the result may differ.
+SET paradedb.enable_segmented_topk = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.id DESC
+LIMIT 5;
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.id, f.title
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.id, f.title
+         Join Type: Inner
+         Relation 0: stk_documents (d)
+         Relation 1: stk_files (f)
+         Join Cond: f.document_id = d.id
+         Limit: 5
+         Order By: f.title asc, f.id desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, id@3 DESC], preserve_partitioning=[false]
+           :     TantivyLookupExec: decode=[title]
+           :       SegmentedTopKExec: sort_col=title, k=5, direction=ASC
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4, id@5]
+           :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title, id@3 as id]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
+(22 rows)
+
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.id DESC
+LIMIT 5;
+ id  |      title      
+-----+-----------------
+ 130 | Identical Title
+ 129 | Identical Title
+ 128 | Identical Title
+ 127 | Identical Title
+ 126 | Identical Title
+(5 rows)
+
+RESET paradedb.enable_segmented_topk;
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE stk_files CASCADE;

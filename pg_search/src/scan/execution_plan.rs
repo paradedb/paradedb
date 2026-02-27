@@ -53,10 +53,12 @@ use futures::Stream;
 
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::query::SearchQueryInput;
 use crate::scan::pre_filter::{collect_filters, PreFilter};
-use crate::scan::{Scanner, VisibilityChecker};
+use crate::scan::tantivy_lookup_exec::DeferredField;
+use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
@@ -68,7 +70,7 @@ unsafe impl<T> Sync for UnsafeSendSync<T> {}
 
 /// State for a scan partition.
 /// Uses Arc<FFHelper> so the same FFHelper can be shared across multiple partitions.
-pub type ScanState = (Scanner, Arc<FFHelper>, Box<dyn VisibilityChecker>);
+pub type ScanState = (Scanner, Arc<FFHelper>, Box<VisibilityChecker>);
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
@@ -101,6 +103,8 @@ pub struct PgSearchScanPlan {
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
     /// Metrics for EXPLAIN ANALYZE.
     metrics: ExecutionPlanMetricsSet,
+    deferred_fields: Vec<DeferredField>,
+    ffhelper_for_lookup: Option<Arc<FFHelper>>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -125,6 +129,8 @@ impl PgSearchScanPlan {
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         sort_order: Option<&SortByField>,
+        deferred_fields: Vec<DeferredField>,
+        ffhelper_for_lookup: Option<Arc<FFHelper>>,
     ) -> Self {
         // Ensure we always return at least one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
@@ -160,7 +166,18 @@ impl PgSearchScanPlan {
             query_for_display,
             dynamic_filters: Vec::new(),
             metrics: ExecutionPlanMetricsSet::new(),
+            deferred_fields,
+            ffhelper_for_lookup,
         }
+    }
+    pub fn deferred_fields(&self) -> &[DeferredField] {
+        &self.deferred_fields
+    }
+
+    pub fn ffhelper(&self) -> &Arc<FFHelper> {
+        self.ffhelper_for_lookup
+            .as_ref()
+            .expect("ffhelper_for_lookup must be Some when late materialization is active")
     }
 }
 
@@ -364,7 +381,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         if !dynamic_filters.is_empty() {
             // Transfer state from the old plan to the new one.
-            let states = self
+            let mut states: Vec<_> = self
                 .states
                 .lock()
                 .map_err(|e| {
@@ -375,6 +392,15 @@ impl ExecutionPlan for PgSearchScanPlan {
                 .drain(..)
                 .collect();
 
+            // When the GUC is set, cap the scanner batch size so that TopK
+            // can tighten its threshold between batches.
+            let df_batch_size = crate::gucs::dynamic_filter_batch_size();
+            if df_batch_size > 0 {
+                for UnsafeSendSync(ref mut inner) in states.iter_mut().flatten() {
+                    inner.0.set_batch_size(df_batch_size as usize);
+                }
+            }
+
             let new_plan = Arc::new(PgSearchScanPlan {
                 states: Mutex::new(states),
                 partition_row_counts: self.partition_row_counts.clone(),
@@ -382,6 +408,8 @@ impl ExecutionPlan for PgSearchScanPlan {
                 query_for_display: self.query_for_display.clone(),
                 dynamic_filters,
                 metrics: self.metrics.clone(),
+                deferred_fields: self.deferred_fields.clone(),
+                ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
             });
 
             Ok(
@@ -397,7 +425,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 struct ScanStream {
     scanner: Scanner,
     ffhelper: Arc<FFHelper>,
-    visibility: Box<dyn VisibilityChecker>,
+    visibility: Box<VisibilityChecker>,
     schema: SchemaRef,
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
     /// Metrics counters for EXPLAIN ANALYZE (only set when dynamic filters are present).
@@ -421,7 +449,7 @@ impl ScanStream {
         for df in &self.dynamic_filters {
             if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
                 if let Ok(current_expr) = dynamic.current() {
-                    collect_filters(&*current_expr, &mut filters);
+                    collect_filters(&current_expr, &self.schema, &mut filters);
                 }
             }
         }
@@ -435,10 +463,20 @@ impl Stream for ScanStream {
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         let pre_filters = this.build_filters();
-        match this
-            .scanner
-            .next(&this.ffhelper, &mut *this.visibility, &pre_filters)
-        {
+        let pre_filters_wrapper = if pre_filters.is_empty() {
+            None
+        } else {
+            Some(crate::scan::pre_filter::PreFilters {
+                filters: &pre_filters,
+                schema: &this.schema,
+            })
+        };
+
+        match this.scanner.next(
+            &this.ffhelper,
+            &mut this.visibility,
+            pre_filters_wrapper.as_ref(),
+        ) {
             Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
             None => {
                 // Flush pre-materialization filter stats from Scanner.
@@ -465,10 +503,10 @@ impl RecordBatchStream for ScanStream {
 /// This is used to wrap `ScanStream` which is !Send because it contains Tantivy and Postgres
 /// state that is not Send. This is safe because pg_search operates in a single-threaded
 /// Tokio executor within Postgres, and these objects will never cross thread boundaries.
-struct UnsafeSendStream<T>(T);
+pub(crate) struct UnsafeSendStream<T>(pub(crate) T);
 
 impl<T> UnsafeSendStream<T> {
-    unsafe fn new(t: T) -> Self {
+    pub(crate) unsafe fn new(t: T) -> Self {
         Self(t)
     }
 }
@@ -551,6 +589,8 @@ pub fn create_sorted_scan(
         schema.clone(),
         query_for_display,
         Some(sort_order),
+        Vec::new(),
+        None,
     ));
 
     // For a single segment, no merging is needed

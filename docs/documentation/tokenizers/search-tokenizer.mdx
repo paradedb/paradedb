@@ -16,20 +16,28 @@ If you used edge ngram at search time too, typing `"sho"` would produce `s`, `sh
 
 ## Usage
 
-Add `search_tokenizer=<tokenizer_name>` as a parameter to the index-time tokenizer:
+Set `search_tokenizer` as a `WITH` option on the index to define a default search-time tokenizer for all text and JSON fields:
 
 ```sql
 CREATE INDEX search_idx ON products
 USING bm25 (
   id,
-  (title::pdb.ngram(1, 10, 'prefix_only=true', 'search_tokenizer=unicode_words'))
-) WITH (key_field='id');
+  (title::pdb.ngram(1, 10, 'prefix_only=true'))
+) WITH (key_field='id', search_tokenizer='unicode_words');
 ```
 
 With this configuration:
 
 - **Index time**: `title` is tokenized with edge ngram to create prefix tokens
 - **Search time**: queries against `title` automatically use the unicode tokenizer
+
+The `search_tokenizer` value can include parameters, e.g. `search_tokenizer='simple(lowercase=false)'`.
+
+Because `search_tokenizer` only affects query-time behavior, you can change it without reindexing:
+
+```sql
+ALTER INDEX search_idx SET (search_tokenizer = 'simple(lowercase=false)');
+```
 
 ## Example
 
@@ -42,8 +50,8 @@ INSERT INTO products (title) VALUES
     ('shoes'), ('shirt'), ('shorts'), ('shoelaces'), ('socks');
 
 CREATE INDEX idx_products ON products USING bm25
-    (id, (title::pdb.ngram(1, 10, 'prefix_only=true', 'search_tokenizer=unicode_words')))
-    WITH (key_field = 'id');
+    (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))
+    WITH (key_field = 'id', search_tokenizer = 'unicode_words');
 
 -- "sho" stays as one token → matches shoes, shorts, shoelaces
 SELECT id, title FROM products WHERE title ||| 'sho' ORDER BY id;
@@ -63,6 +71,14 @@ You can still override the search tokenizer for a specific query by casting the 
 -- Force edge ngram tokenization at query time
 SELECT id, title FROM products WHERE title ||| 'sho'::pdb.ngram(1, 10, 'prefix_only=true') ORDER BY id;
 ```
+
+## Priority
+
+When resolving which tokenizer to use at search time, ParadeDB checks in this order:
+
+1. **Query-level cast** — e.g. `'sho'::pdb.ngram(...)` (highest priority)
+2. **Index-level WITH option** — e.g. `WITH (search_tokenizer='unicode_words')`
+3. **Index-time tokenizer** — the tokenizer used to build the index (fallback)
 
 ## Supported Tokenizers
 

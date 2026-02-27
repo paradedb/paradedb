@@ -53,6 +53,10 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
         }
     }
 
+    if let Some(index_search_tokenizer) = index_relation.options().search_tokenizer() {
+        tokenizers.push(index_search_tokenizer);
+    }
+
     // In 0.19.0 we changed the default `remove_long` filter for the keyword tokenizer from `usize::MAX` to `None`
     // As such, the tokenizer name of `keyword` went from `keyword[remove_long=...]` to just `keyword[...]`
     // so this is necessary to maintain backwards compatibility with existing indexes

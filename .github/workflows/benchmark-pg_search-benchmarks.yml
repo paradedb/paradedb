@@ -38,10 +38,17 @@ jobs:
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
-      - family=z1d.metal # 48 vCPUs, 384 GiBs Memory, 1.8 TiBs local NVMe
+      - family=z1d.metal
       - image=ubuntu24-full-x64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-queries')
+      - volume=500gb:gp3
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
+      )
     env:
       pg_version: 18
 
@@ -50,11 +57,15 @@ jobs:
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
         uses: actions-ecosystem/action-remove-labels@v1
-        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark' || github.event_name == 'pull_request' && github.event.label.name == 'benchmark-queries'
+        if: >-
+          github.event_name == 'pull_request' &&
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
         with:
           labels: |
             benchmark
             benchmark-queries
+            benchmark-queries-logs
+            benchmark-queries-docs
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -88,7 +99,8 @@ jobs:
           echo "Deriving short commit: $short_commit"
 
       - name: Fetch the Latest Composite Actions
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-queries'
+        if: >-
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
         uses: actions/checkout@v6
         with:
           repository: ${{ github.repository }}
@@ -98,16 +110,19 @@ jobs:
           ref: main
 
       - name: Copy latest actions into place
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-queries'
+        if: >-
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-queries'
+        if: >-
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
         run: rm -rf actions-temp
 
       # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
       - name: Fetch latest benchmark code, suites
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-queries'
+        if: >-
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -229,6 +244,9 @@ jobs:
 
       # Benchmark "logs" dataset at multiple scales (10K, 100K, 1M, 10M, 100M)
       - name: Benchmark "logs" Dataset (10K rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: logs
@@ -240,6 +258,9 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Benchmark "logs" Dataset (100K rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: logs
@@ -251,6 +272,9 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Benchmark "logs" Dataset (1M rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: logs
@@ -262,6 +286,9 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Benchmark "logs" Dataset (10M rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: logs
@@ -273,6 +300,9 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Benchmark "logs" Dataset (100M rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: logs
@@ -284,6 +314,9 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Benchmark "docs" Dataset (25M rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-docs"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: docs

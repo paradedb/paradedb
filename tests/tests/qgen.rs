@@ -19,7 +19,7 @@ mod fixtures;
 
 use crate::fixtures::querygen::crossrelgen::arb_cross_rel_expr;
 use crate::fixtures::querygen::groupbygen::arb_group_by;
-use crate::fixtures::querygen::joingen::{arb_joins, JoinType};
+use crate::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
 use crate::fixtures::querygen::numericgen::arb_numeric_expr;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
@@ -771,6 +771,95 @@ async fn generated_numeric_pushdown(database: Db) {
                 rows
             },
         )?;
+    });
+}
+
+///
+/// Property test for JoinScan SEMI joins using EXISTS subqueries.
+///
+/// This complements `generated_joinscan` (INNER joins) and verifies both:
+/// - `paradedb.enable_join_custom_scan = false`: no ParadeDB Join Scan is used
+/// - `paradedb.enable_join_custom_scan = true`: ParadeDB Join Scan is used and
+#[rstest]
+#[tokio::test]
+async fn generated_joinscan_semi(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    // Keep the semi-join left side ("users") decisively larger than right-side candidates.
+    // JoinScan's SEMI implementation requires the left side to be the largest source.
+    let tables_and_sizes = [("users", 500), ("products", 120), ("orders", 40)];
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+
+    let all_tables = vec!["users", "products", "orders"];
+    let join_key_columns = vec!["id", "age", "uuid"];
+    let search_terms = vec![
+        "alice", "bob", "cloe", "sally", "brandy", "brisket", "anchovy",
+    ];
+
+    proptest!(|(
+        semi_join in arb_semi_joins(all_tables.clone(), join_key_columns.clone()),
+        inner_term in proptest::sample::select(search_terms.clone()),
+        limit in 1..=50usize,
+    )| {
+        // For now, JoinScan SEMI requires the left side to be the largest source.
+        // TODO: Remove this once JoinScan SEMI supports non-base-table joins.
+        prop_assume!(semi_join.outer_table() == "users");
+        let outer = semi_join.outer_table();
+        let inner = semi_join.inner_table();
+        let join_col = semi_join.join_column();
+
+        let pg_where = format!(
+            "TRUE AND {outer}.{join_col} IN (\
+                SELECT {inner}.{join_col} FROM {inner} \
+                WHERE {inner}.name = '{inner_term}'\
+            )"
+        );
+        let bm25_where = format!(
+            "{outer}.id @@@ pdb.all() AND {outer}.{join_col} IN (\
+                SELECT {inner}.{join_col} FROM {inner} \
+                WHERE {inner}.name @@@ '{inner_term}'\
+            )"
+        );
+
+        let pg_query = format!(
+            "SELECT {outer}.id, {outer}.name \
+             FROM {outer} \
+             WHERE {pg_where} \
+             ORDER BY {outer}.id \
+             LIMIT {limit}"
+        );
+        let bm25_query = format!(
+            "SELECT {outer}.id, {outer}.name \
+             FROM {outer} \
+             WHERE {bm25_where} \
+             ORDER BY {outer}.id \
+             LIMIT {limit}"
+        );
+
+        for join_custom_scan in [false, true] {
+            let gucs = PgGucs {
+                join_custom_scan,
+                ..PgGucs::default()
+            };
+
+            compare(
+                &pg_query,
+                &bm25_query,
+                &gucs,
+                &mut pool.pull(),
+                &setup_sql,
+                |query, conn| query.fetch::<(i64, String)>(conn),
+            )?;
+        }
     });
 }
 

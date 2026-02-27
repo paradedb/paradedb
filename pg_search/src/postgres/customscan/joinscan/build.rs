@@ -27,6 +27,7 @@ use crate::api::OrderByInfo;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
+use anyhow::anyhow;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -122,18 +123,83 @@ pub struct ChildProjection {
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
-use crate::scan::info::RowEstimate;
+use crate::scan::info::{FieldInfo, RowEstimate};
 
-/// Represents the source of data for a join side.
+/// Source information collected during planning.
+///
+/// This represents a relation before all required JoinScan invariants are verified.
+/// Optional fields are progressively filled as planning discovers index metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct JoinSource {
-    pub scan_info: ScanInfo,
+pub struct JoinSourceCandidate {
+    pub heap_rti: pg_sys::Index,
+    pub heaprelid: Option<pg_sys::Oid>,
+    pub indexrelid: Option<pg_sys::Oid>,
+    pub query: Option<SearchQueryInput>,
+    pub has_search_predicate: bool,
+    pub alias: Option<String>,
+    pub score_needed: bool,
+    pub fields: Vec<FieldInfo>,
+    pub sort_order: Option<SortByField>,
+    pub estimate: Option<RowEstimate>,
+    pub segment_count: Option<usize>,
 }
 
-impl JoinSource {
-    pub fn new(scan_info: ScanInfo) -> Self {
-        Self { scan_info }
+impl JoinSourceCandidate {
+    pub fn new(heap_rti: pg_sys::Index) -> Self {
+        Self {
+            heap_rti,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_heaprelid(mut self, oid: pg_sys::Oid) -> Self {
+        self.heaprelid = Some(oid);
+        self
+    }
+
+    pub fn with_alias(mut self, alias: String) -> Self {
+        self.alias = Some(alias);
+        self
+    }
+
+    pub fn with_indexrelid(mut self, oid: pg_sys::Oid) -> Self {
+        self.indexrelid = Some(oid);
+        self
+    }
+
+    pub fn with_query(mut self, query: SearchQueryInput) -> Self {
+        self.query = Some(query);
+        self.has_search_predicate = true;
+        self
+    }
+
+    pub fn with_sort_order(mut self, sort_order: Option<SortByField>) -> Self {
+        self.sort_order = sort_order;
+        self
+    }
+
+    pub fn has_bm25_index(&self) -> bool {
+        self.indexrelid.is_some()
+    }
+
+    pub fn has_search_predicate(&self) -> bool {
+        self.has_search_predicate
+    }
+
+    pub fn alias(&self) -> Option<String> {
+        self.alias.clone()
+    }
+
+    /// Returns the alias to be used for this source in the DataFusion plan.
+    pub fn execution_alias(&self, index: usize) -> String {
+        self.alias().unwrap_or_else(|| format!("source_{}", index))
+    }
+
+    /// Check if this source contains the given RTI.
+    pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
+        self.heap_rti == rti
     }
 
     /// Calculate and store the estimated number of rows matching the query.
@@ -148,8 +214,8 @@ impl JoinSource {
             return;
         }
 
-        let indexrelid = self.scan_info.indexrelid.expect("Index relid missing");
-        let heaprelid = self.scan_info.heaprelid.expect("Heap relid missing");
+        let indexrelid = self.indexrelid.expect("Index relid missing");
+        let heaprelid = self.heaprelid.expect("Heap relid missing");
 
         let index_rel = PgSearchRelation::open(indexrelid);
         let heap_rel = PgSearchRelation::open(heaprelid);
@@ -159,8 +225,7 @@ impl JoinSource {
         let expr_context = ExprContextGuard::new();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
-            self.scan_info
-                .query
+            self.query
                 .clone()
                 .unwrap_or(crate::query::SearchQueryInput::All),
             false,
@@ -170,39 +235,41 @@ impl JoinSource {
         )
         .expect("Failed to open index reader for estimation");
 
-        self.scan_info.segment_count = Some(reader.total_segment_count());
+        self.segment_count = Some(reader.total_segment_count());
 
         let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
 
         let (estimate, _) = reader.estimate_docs(row_estimate);
-        self.scan_info.estimate = Some(RowEstimate::Known(estimate as u64));
+        self.estimate = Some(RowEstimate::Known(estimate as u64));
     }
+}
 
-    pub fn alias(&self) -> Option<String> {
-        self.scan_info.alias.clone()
-    }
+/// Represents the validated source of data for a join side used during execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JoinSource {
+    pub scan_info: ScanInfo,
+}
 
+impl JoinSource {
     /// Returns the alias to be used for this source in the DataFusion plan.
     ///
     /// If the source has an explicit alias (from SQL), it is used.
     /// Otherwise, a synthetic alias `source_{index}` is generated based on its position.
     pub fn execution_alias(&self, index: usize) -> String {
-        self.alias().unwrap_or_else(|| format!("source_{}", index))
+        self.scan_info
+            .alias
+            .clone()
+            .unwrap_or_else(|| format!("source_{}", index))
     }
 
     /// Check if this source contains the given RTI.
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
-        self.scan_info.heap_rti == Some(rti)
+        self.scan_info.heap_rti == rti
     }
 
     /// Check if this source has a search predicate.
     pub fn has_search_predicate(&self) -> bool {
         self.scan_info.has_search_predicate
-    }
-
-    /// Check if this source has a BM25 index.
-    pub fn has_bm25_index(&self) -> bool {
-        self.scan_info.has_bm25_index()
     }
 
     /// Map a base relation variable to its position in this source's output.
@@ -212,7 +279,7 @@ impl JoinSource {
         varno: pg_sys::Index,
         attno: pg_sys::AttrNumber,
     ) -> Option<pg_sys::AttrNumber> {
-        if self.scan_info.heap_rti == Some(varno) {
+        if self.scan_info.heap_rti == varno {
             Some(attno)
         } else {
             None
@@ -241,10 +308,67 @@ impl JoinSource {
     pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
         acc.push(self.scan_info.clone());
     }
+}
 
-    /// Recursively find the ordering RTI of this source.
-    pub fn ordering_rti(&self) -> Option<pg_sys::Index> {
-        self.scan_info.heap_rti
+impl From<JoinSource> for JoinSourceCandidate {
+    fn from(source: JoinSource) -> Self {
+        Self {
+            heap_rti: source.scan_info.heap_rti,
+            heaprelid: Some(source.scan_info.heaprelid),
+            indexrelid: Some(source.scan_info.indexrelid),
+            query: Some(source.scan_info.query.clone()),
+            has_search_predicate: source.scan_info.has_search_predicate,
+            alias: source.scan_info.alias.clone(),
+            score_needed: source.scan_info.score_needed,
+            fields: source.scan_info.fields.clone(),
+            sort_order: source.scan_info.sort_order.clone(),
+            estimate: Some(source.scan_info.estimate),
+            segment_count: Some(source.scan_info.segment_count),
+        }
+    }
+}
+
+impl TryFrom<JoinSourceCandidate> for JoinSource {
+    type Error = anyhow::Error;
+
+    fn try_from(candidate: JoinSourceCandidate) -> Result<Self, Self::Error> {
+        Ok(JoinSource {
+            scan_info: ScanInfo {
+                heap_rti: candidate.heap_rti,
+                heaprelid: candidate.heaprelid.ok_or_else(|| {
+                    anyhow!(
+                        "cannot build JoinSource for RTI {}: heaprelid is missing",
+                        candidate.heap_rti
+                    )
+                })?,
+                indexrelid: candidate.indexrelid.ok_or_else(|| {
+                    anyhow!(
+                        "cannot build JoinSource for RTI {}: indexrelid is missing",
+                        candidate.heap_rti
+                    )
+                })?,
+                query: candidate
+                    .query
+                    .unwrap_or(crate::query::SearchQueryInput::All),
+                has_search_predicate: candidate.has_search_predicate,
+                alias: candidate.alias,
+                score_needed: candidate.score_needed,
+                fields: candidate.fields,
+                sort_order: candidate.sort_order,
+                estimate: candidate.estimate.ok_or_else(|| {
+                    anyhow!(
+                        "cannot build JoinSource for RTI {}: estimate is missing",
+                        candidate.heap_rti
+                    )
+                })?,
+                segment_count: candidate.segment_count.ok_or_else(|| {
+                    anyhow!(
+                        "cannot build JoinSource for RTI {}: segment_count is missing",
+                        candidate.heap_rti
+                    )
+                })?,
+            },
+        })
     }
 }
 
@@ -310,11 +434,6 @@ pub struct JoinCSClause {
 impl JoinCSClause {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn add_source(mut self, source: JoinSource) -> Self {
-        self.sources.push(source);
-        self
     }
 
     pub fn with_join_type(mut self, join_type: JoinType) -> Self {

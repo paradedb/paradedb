@@ -1,0 +1,57 @@
+# workflows/test-pg_search-nix.yml
+#
+# Test pg_search (Nix)
+# Test building and running the ParadeDB Docker Image using Determinate Nix.
+
+name: Test pg_search (Nix)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+      - 0.*.x # Release branches
+    paths:
+      - ".github/workflows/test-pg_search-nix.yml"
+      - "nix/**"
+      - "tokenizers/Cargo.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "flake.nix"
+      - "flake.lock"
+  workflow_dispatch:
+
+concurrency:
+  group: test-pg_search-nix-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-pg_search-nix:
+    name: Test pg_search Builds with Determinate Nix
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/determinate-nix-action@main
+
+      # This Action uses GitHub Actions' built-in cache to speed up Nix-related CI workflows
+      - name: Use Magic Nix Cache Action
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      # https://nix.dev/manual/nix/latest/command-ref/new-cli/nix3-flake-check
+      - name: Run Flake Checks
+        run: nix flake check
+
+      # If this step fails due to an incorrect hash in flake.nix, the error will
+      # provide the correct hash
+      - name: Build pg_search for Nix
+        run: |
+          system=$(nix eval --raw --impure --expr builtins.currentSystem)
+          nix flake show --json 2>/dev/null \
+            | jq -r --arg s "$system" '.packages[$s] | keys[] | ".#\(.)"' \
+            | xargs -L1 nix build
+
+          echo "All pg_search packages built successfully."

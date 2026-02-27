@@ -245,12 +245,6 @@ impl TypmodSchema {
                     ValueConstraint::StringChoice(vec!["raw", "lowercase"])
                 ),
                 rule!("alias", ValueConstraint::String),
-                rule!(
-                    "chinese_convert",
-                    ValueConstraint::StringChoice(vec![
-                        "t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"
-                    ])
-                ),
                 rule!("columnar", ValueConstraint::Boolean),
                 rule!(
                     "search_tokenizer",

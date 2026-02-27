@@ -30,6 +30,7 @@ use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::parallel::checkout_segment;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
@@ -438,6 +439,8 @@ impl MixedFastFieldExecState {
             // TODO: Switch to an Arc in the scan state.
             state.search_query_input().clone(),
             None,
+            Vec::new(),
+            None,
         );
 
         let task_ctx = Arc::new(TaskContext::default());
@@ -519,11 +522,11 @@ impl MixedFastFieldExecState {
                 );
                 let mut visibility = visibility_checker.clone();
                 // Do real work between checkouts to avoid one worker claiming all segments.
-                scanner.prefetch_next(&ffhelper, &mut visibility, &[]);
+                scanner.prefetch_next(&ffhelper, &mut visibility, None);
                 segments.push((
                     scanner,
                     Arc::clone(&ffhelper),
-                    Box::new(visibility) as Box<dyn crate::scan::VisibilityChecker>,
+                    Box::new(visibility) as Box<VisibilityChecker>,
                 ));
             }
 
@@ -553,7 +556,7 @@ impl MixedFastFieldExecState {
                     (
                         scanner,
                         Arc::clone(&ffhelper),
-                        Box::new(visibility) as Box<dyn crate::scan::VisibilityChecker>,
+                        Box::new(visibility) as Box<VisibilityChecker>,
                     )
                 })
                 .collect()

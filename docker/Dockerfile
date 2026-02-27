@@ -9,8 +9,8 @@ ARG ENABLE_ANTITHESIS_INSTRUMENTATION=false
 # First Stage: Builder
 ###############################################
 
-# Note: Debian Bookworm = Debian 12
-FROM postgres:${PG_VERSION_MAJOR}-bookworm AS builder
+# Note: Debian Trixie = Debian 13
+FROM postgres:${PG_VERSION_MAJOR}-trixie AS builder
 
 ARG PG_VERSION_MAJOR
 ARG RUST_VERSION=stable
@@ -23,7 +23,6 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
     ca-certificates \
     build-essential \
     gnupg \
@@ -143,7 +142,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 # Second Stage: PostgreSQL and Barman Cloud
 ###############################################
 
-FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
+FROM postgres:${PG_VERSION_MAJOR}-trixie AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - The Transactional Elasticsearch Alternative Built on Postgres" \
@@ -222,13 +221,19 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
    ln -s /usr/lib/postgresql/18/lib/pg_search.so /symbols/pg_search.so ; \
  fi
 
-# In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
-# ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.
-# To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
-# downloading the packages. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
-# extension(s) if/when the time comes. This keeps the image as small as possible for each user's specific use case.
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
-    wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
+# In order for users to manually install additional PostgreSQL extensions
+# (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not ship with by default,
+# we ensure the PostgreSQL APT (PGDG) repository is present in the image.
+#
+# The upstream `postgres` image already installs the PGDG signing key into
+# /usr/local/share/keyrings/postgres.gpg.asc. We reference that key explicitly
+# via `signed-by` so the repository can be verified correctly.
+#
+# We intentionally do NOT run `apt-get update` here to avoid downloading
+# package indexes during image build. Users can run `apt-get update`
+# themselves before installing additional packages.
+RUN echo "deb [signed-by=/usr/local/share/keyrings/postgres.gpg.asc] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list && \
     apt-get purge -y wget && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*

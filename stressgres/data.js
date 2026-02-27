@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772227461725,
+  "lastUpdate": 1772227468180,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24336,6 +24336,114 @@ window.BENCHMARK_DATA = {
             "value": 171.40625,
             "unit": "median mem",
             "extra": "avg mem: 168.42224938500422, max mem: 172.26171875, count: 55539"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1223f87c786cfc9d5d74f15459ec8eb94e8850c",
+          "message": "perf: Only prefetch when producing sorted outputs (#4247)\n\n## What\n\nOnly call `prefetch_next` while creating a scan which needs to be\nsorted.\n\n## Why\n\nWe were calling `prefetch_next` for all scans, rather than only for\nthose which needed ahead-of-time load balancing.\n\nEagerly assigning work and prefetching prevents use of dynamic filtering\nfor the first batch of a segment, and can lead to lopsided work\ndistributions in the case of multiple segments per worker.\n\n## How\n\nDifferentiated between the three types of plans that we can create with\nour scan. For the `create_lazy_scan` case, directly adopted/shared the\nstrategy used in `MixedFF` and `Normal` base scans.\n\nBecause scans always need estimates, additionally produced a planning\ntime estimate for these lazy scans (which is also effectively what\nhappens for parallel workers in general).\n\n## Tests\n\n`semi_join_filter` shows a 40% speedup for warm runs: currently 20%\nfaster than a Postgres join for warm.",
+          "timestamp": "2026-02-27T12:11:27-08:00",
+          "tree_id": "4d4cc931868f3014e476a89bf274367ca9e77537",
+          "url": "https://github.com/paradedb/paradedb/commit/a1223f87c786cfc9d5d74f15459ec8eb94e8850c"
+        },
+        "date": 1772227463415,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.534508815103553, max cpu: 42.561577, count: 55618"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 173.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 158.28296735094753, max mem: 176.33984375, count: 55618"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.713257946364544, max cpu: 27.988338, count: 55618"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 118.33818862598439, max mem: 119.75390625, count: 55618"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.951515141788735, max cpu: 18.568666, count: 55618"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 170.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 143.99441692381512, max mem: 176.7421875, count: 55618"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16267,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16716.49528929483, max block_count: 31119.0, count: 55618"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.507052973211467, max cpu: 4.655674, count: 55618"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 109.625,
+            "unit": "median mem",
+            "extra": "avg mem: 96.00982848403395, max mem: 137.16796875, count: 55618"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.543690891438025, max segment_count: 38.0, count: 55618"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.179314705807345, max cpu: 28.458496, count: 111236"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 178.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.50005183236541, max mem: 179.1875, count: 111236"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.892728910553062, max cpu: 28.290766, count: 55618"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 168.21683241318007, max mem: 171.75, count: 55618"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772157541939,
+  "lastUpdate": 1772157547841,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9812,6 +9812,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.37858817400365, max segment_count: 129.0, count: 57585"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb2340399b0a318db8a1aadc1225abdb66dac5f3",
+          "message": "feat: Backpressure writes if there are too many mutable segments (#4244)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nForces a foreground merge of mutable segments if there more than `2`\nduring an insert merge.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-26T17:29:30-08:00",
+          "tree_id": "91050fbbd82bdfc6e26c1177b6b304fc9800be82",
+          "url": "https://github.com/paradedb/paradedb/commit/cb2340399b0a318db8a1aadc1225abdb66dac5f3"
+        },
+        "date": 1772157543559,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.704181331847597, max cpu: 42.519684, count: 57788"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.6320905724372, max mem: 234.21484375, count: 57788"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.481447289766486, max cpu: 33.300297, count: 57788"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.04783074286615, max mem: 175.69921875, count: 57788"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34476,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33748.334602339586, max block_count: 36440.0, count: 57788"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.61318958953416, max segment_count: 130.0, count: 57788"
           }
         ]
       }

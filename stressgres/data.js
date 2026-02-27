@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772225013802,
+  "lastUpdate": 1772225144513,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25648,6 +25648,54 @@ window.BENCHMARK_DATA = {
             "value": 524.2120793075901,
             "unit": "median tps",
             "extra": "avg tps: 487.5402465097323, max tps: 689.9721928269313, count: 107716"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ppratik@umich.edu",
+            "name": "Pratik Patil",
+            "username": "quantitativepratik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ccf5780581cd4eabdc96973862d1aaf736d0f208",
+          "message": "perf: batch spinlock acquisition in parallel checkout (#3871)\n\n# Ticket(s) Closed\n\n- Closes #3851 \n\n## What\nRefactors ParallelAggregationWorker::checkout_segments to utilize a\nbatched checkout strategy.\n\n## Why\nPreviously, the worker would acquire the state.mutex spinlock for every\nsingle segment iteration (O(N) lock acquisitions). In high-concurrency\nscenarios, this creates unnecessary lock contention.\n\n## How\nThe new implementation calculates the required segment range upfront and\nacquires the lock once per worker (O(1) lock acquisitions). It then\nupdates the shared remaining_segments state in a single critical section\nbefore releasing the lock.\n\n## Tests\n\n- Verified the build passes locally with cargo check and cargo pgrx\ncheck.\n- Verified that pgrx environment initializes correctly with Postgres 14.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-02-27T11:16:26-08:00",
+          "tree_id": "6c6ddecd092add968b0fd7f6be84b7fd2a18abf9",
+          "url": "https://github.com/paradedb/paradedb/commit/ccf5780581cd4eabdc96973862d1aaf736d0f208"
+        },
+        "date": 1772225139699,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 569.4134433314372,
+            "unit": "median tps",
+            "extra": "avg tps: 570.3136183780944, max tps: 687.14212779057, count: 53935"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 637.750024287664,
+            "unit": "median tps",
+            "extra": "avg tps: 640.7335978979397, max tps: 860.8363974277858, count: 53935"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 91.69336666221268,
+            "unit": "median tps",
+            "extra": "avg tps: 91.73468494454893, max tps: 97.08330854263107, count: 53935"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 528.8788431199897,
+            "unit": "median tps",
+            "extra": "avg tps: 487.7296010883109, max tps: 702.4493232061112, count: 107870"
           }
         ]
       }

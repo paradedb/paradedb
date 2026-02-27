@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772226481518,
+  "lastUpdate": 1772226487976,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17866,6 +17866,108 @@ window.BENCHMARK_DATA = {
             "value": 162.4375,
             "unit": "median mem",
             "extra": "avg mem: 180.88314457664976, max mem: 220.9453125, count: 56357"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1223f87c786cfc9d5d74f15459ec8eb94e8850c",
+          "message": "perf: Only prefetch when producing sorted outputs (#4247)\n\n## What\n\nOnly call `prefetch_next` while creating a scan which needs to be\nsorted.\n\n## Why\n\nWe were calling `prefetch_next` for all scans, rather than only for\nthose which needed ahead-of-time load balancing.\n\nEagerly assigning work and prefetching prevents use of dynamic filtering\nfor the first batch of a segment, and can lead to lopsided work\ndistributions in the case of multiple segments per worker.\n\n## How\n\nDifferentiated between the three types of plans that we can create with\nour scan. For the `create_lazy_scan` case, directly adopted/shared the\nstrategy used in `MixedFF` and `Normal` base scans.\n\nBecause scans always need estimates, additionally produced a planning\ntime estimate for these lazy scans (which is also effectively what\nhappens for parallel workers in general).\n\n## Tests\n\n`semi_join_filter` shows a 40% speedup for warm runs: currently 20%\nfaster than a Postgres join for warm.",
+          "timestamp": "2026-02-27T12:11:27-08:00",
+          "tree_id": "4d4cc931868f3014e476a89bf274367ca9e77537",
+          "url": "https://github.com/paradedb/paradedb/commit/a1223f87c786cfc9d5d74f15459ec8eb94e8850c"
+        },
+        "date": 1772226483209,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07912811387900356, max background_merging: 2.0, count: 56200"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.687356761494711, max cpu: 9.667674, count: 56200"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 24.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 24.909261357317614, max mem: 24.92578125, count: 56200"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.981326220982356, max cpu: 9.667674, count: 56200"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.29512865602757, max mem: 168.88671875, count: 56200"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51272,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51144.81087188612, max block_count: 51272.0, count: 56200"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.45905693950178, max segment_count: 55.0, count: 56200"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.617460312030296, max cpu: 9.60961, count: 56200"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 125.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 113.75013150578292, max mem: 139.2734375, count: 56200"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.760371017521474, max cpu: 9.657948, count: 56200"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.25,
+            "unit": "median mem",
+            "extra": "avg mem: 164.06865825177937, max mem: 168.390625, count: 56200"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.52730600953332, max cpu: 33.870968, count: 56200"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 180.78657118827846, max mem: 220.8671875, count: 56200"
           }
         ]
       }

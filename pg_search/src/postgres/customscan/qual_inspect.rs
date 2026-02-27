@@ -1317,8 +1317,7 @@ unsafe fn booltest(
     // Note: PushdownField::try_new requires PlannerInfo
     let root = context.planner_info()?;
 
-    if let Some(field) =
-        PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel) {
+    if let Some(field) = PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel) {
         // It's a simple field reference, handle as specific cases
         let qual = match (*booltest).booltesttype {
             pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),

@@ -174,6 +174,8 @@ jobs:
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev

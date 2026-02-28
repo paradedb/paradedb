@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772272839951,
+  "lastUpdate": 1772272846003,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24948,6 +24948,114 @@ window.BENCHMARK_DATA = {
             "value": 170.73828125,
             "unit": "median mem",
             "extra": "avg mem: 168.21683241318007, max mem: 171.75, count: 55618"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b38abd05d6c63dbaced0af94c6873fd1179033d",
+          "message": "feat: Segmented Top-K with per-segment threshold push-down (#4234)\n\n# Ticket(s) Closed\n\n- Closes #4220\n\n## What\n\nAdds a `SegmentedTopKExec` node that sits below `TantivyLookupExec` for\n`ORDER BY <deferred_column> LIMIT K` queries. It maintains per-segment\nmax-heaps of term ordinals and only lets the true top-K rows through to\ndictionary decoding. A feedback loop publishes per-segment thresholds\nback to the scanner so it can skip rows before doing ctid lookups or\nvisibility checks.\n\n## Why\n\nWithout this, the scanner pays the full cost (ctid lookup, visibility\ncheck, dictionary decode) for every row, even those that will be\nimmediately discarded by the sort. For large tables with\nhigh-cardinality string columns, most of that work is wasted. By pruning\nat the ordinal level — both in the exec and pushed down to the scanner —\nwe avoid the expensive work entirely.\n\n## How\n\nThe optimizer rule detects `TopK(Sort(Lookup(Scan)))` patterns where the\nsort key is a deferred (late-materialized) string/bytes column. It\ninjects `SegmentedTopKExec` between `Lookup` and its child, and wires a\nshared threshold map to both the exec and the scan.\n\nDuring execution, the node collects all input batches while maintaining\nper-segment ordinal heaps. After each batch, segments with full heaps\npublish their worst ordinal as a threshold. The scanner reads these\nthresholds on subsequent batches and drops rows that can't beat the\ncutoff — before any ctid lookup or visibility check. Thresholds tighten\nprogressively, so later batches benefit the most.\n\nOnce all input is consumed, only the surviving top-K rows per segment\nare emitted to dictionary decoding. NULLs always pass through. ASC/DESC\nis handled by complementing ordinals in the heap.\n\nControlled by `paradedb.enable_segmented_topk` (default: on).\n\n## Tests\n\n- New `segmented_topk` regression test covering ASC/DESC, NULLs,\nmulti-segment, and EXPLAIN plan verification\n- `topk_dynamic_filter` — pass\n- `join_custom_scan` — pass",
+          "timestamp": "2026-02-28T00:50:41-08:00",
+          "tree_id": "4a7777356c2cb9e1ddc7749c9fcd2faf36248c50",
+          "url": "https://github.com/paradedb/paradedb/commit/5b38abd05d6c63dbaced0af94c6873fd1179033d"
+        },
+        "date": 1772272841429,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.808671684541046, max cpu: 47.151276, count: 55567"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.1708614431677, max mem: 176.69140625, count: 55567"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.683109611149164, max cpu: 41.458733, count: 55567"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 117.8662370004904, max mem: 119.17578125, count: 55567"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.847973704504562, max cpu: 18.426102, count: 55567"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 171.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 142.4170416597306, max mem: 174.99609375, count: 55567"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16480,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16802.404286716937, max block_count: 31525.0, count: 55567"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.060402819073314, max cpu: 4.660194, count: 55567"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 111.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 96.43175777664801, max mem: 137.0390625, count: 55567"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.528911044324868, max segment_count: 36.0, count: 55567"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.897753309955744, max cpu: 36.852203, count: 111134"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 178.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.90729803801042, max mem: 180.34765625, count: 111134"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.143129322647889, max cpu: 28.374382, count: 55567"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.93468083855976, max mem: 171.53125, count: 55567"
           }
         ]
       }

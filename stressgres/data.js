@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772228439115,
+  "lastUpdate": 1772269820765,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2870,6 +2870,78 @@ window.BENCHMARK_DATA = {
             "value": 30.150955161308822,
             "unit": "median tps",
             "extra": "avg tps: 45.86288463963409, max tps: 730.4858022779468, count: 55147"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b38abd05d6c63dbaced0af94c6873fd1179033d",
+          "message": "feat: Segmented Top-K with per-segment threshold push-down (#4234)\n\n# Ticket(s) Closed\n\n- Closes #4220\n\n## What\n\nAdds a `SegmentedTopKExec` node that sits below `TantivyLookupExec` for\n`ORDER BY <deferred_column> LIMIT K` queries. It maintains per-segment\nmax-heaps of term ordinals and only lets the true top-K rows through to\ndictionary decoding. A feedback loop publishes per-segment thresholds\nback to the scanner so it can skip rows before doing ctid lookups or\nvisibility checks.\n\n## Why\n\nWithout this, the scanner pays the full cost (ctid lookup, visibility\ncheck, dictionary decode) for every row, even those that will be\nimmediately discarded by the sort. For large tables with\nhigh-cardinality string columns, most of that work is wasted. By pruning\nat the ordinal level — both in the exec and pushed down to the scanner —\nwe avoid the expensive work entirely.\n\n## How\n\nThe optimizer rule detects `TopK(Sort(Lookup(Scan)))` patterns where the\nsort key is a deferred (late-materialized) string/bytes column. It\ninjects `SegmentedTopKExec` between `Lookup` and its child, and wires a\nshared threshold map to both the exec and the scan.\n\nDuring execution, the node collects all input batches while maintaining\nper-segment ordinal heaps. After each batch, segments with full heaps\npublish their worst ordinal as a threshold. The scanner reads these\nthresholds on subsequent batches and drops rows that can't beat the\ncutoff — before any ctid lookup or visibility check. Thresholds tighten\nprogressively, so later batches benefit the most.\n\nOnce all input is consumed, only the surviving top-K rows per segment\nare emitted to dictionary decoding. NULLs always pass through. ASC/DESC\nis handled by complementing ordinals in the heap.\n\nControlled by `paradedb.enable_segmented_topk` (default: on).\n\n## Tests\n\n- New `segmented_topk` regression test covering ASC/DESC, NULLs,\nmulti-segment, and EXPLAIN plan verification\n- `topk_dynamic_filter` — pass\n- `join_custom_scan` — pass",
+          "timestamp": "2026-02-28T00:50:41-08:00",
+          "tree_id": "4a7777356c2cb9e1ddc7749c9fcd2faf36248c50",
+          "url": "https://github.com/paradedb/paradedb/commit/5b38abd05d6c63dbaced0af94c6873fd1179033d"
+        },
+        "date": 1772269815717,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 135.50491314965643,
+            "unit": "median tps",
+            "extra": "avg tps: 135.98167743975074, max tps: 149.41417383106898, count: 55185"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3039.4811691175178,
+            "unit": "median tps",
+            "extra": "avg tps: 3020.3192339857237, max tps: 3051.3359309247458, count: 55185"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 449.7684425532029,
+            "unit": "median tps",
+            "extra": "avg tps: 455.25164269242254, max tps: 535.7373634212212, count: 55185"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3011.0453183023064,
+            "unit": "median tps",
+            "extra": "avg tps: 2993.53522117963, max tps: 3027.8570889610846, count: 110370"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 507.71798380076757,
+            "unit": "median tps",
+            "extra": "avg tps: 510.18105428532834, max tps: 674.5829457191774, count: 55185"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 534.1526718054656,
+            "unit": "median tps",
+            "extra": "avg tps: 536.5212899954228, max tps: 683.8444901971686, count: 55185"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1919.8817826288782,
+            "unit": "median tps",
+            "extra": "avg tps: 1909.8233893624479, max tps: 1933.8864290492404, count: 55185"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 77.65621651965473,
+            "unit": "median tps",
+            "extra": "avg tps: 109.02846454984049, max tps: 309.19250974961284, count: 55185"
           }
         ]
       }

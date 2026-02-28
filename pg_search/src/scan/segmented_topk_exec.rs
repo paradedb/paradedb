@@ -30,11 +30,12 @@
 //! top rows, reducing input to `TantivyLookupExec` from N to at most
 //! `K * num_segments`.
 //!
-//! The node uses `EmissionType::Final` — it collects all input batches while
-//! progressively updating per-segment heaps and publishing ordinal thresholds
-//! back to the scanner. Only after all input is consumed does it emit filtered
-//! batches containing the exact top-K rows per segment. This ensures only the
-//! minimum necessary rows flow to `TantivyLookupExec` for dictionary decoding.
+//! The node uses `EmissionType::Both` — rows that bypass ordinal comparison
+//! (State 2 and NULL ordinals) are emitted immediately as pass-through batches,
+//! while ordinal-comparable rows are collected across all input batches.  Once
+//! all input is consumed, the final survivor set is built from the per-segment
+//! heaps and the remaining rows are emitted.  This ensures only the minimum
+//! necessary rows flow to `TantivyLookupExec` for dictionary decoding.
 //!
 //! **Compound sorts:** Only the primary sort column is used for ordinal
 //! pruning. When the TopK sort has tiebreaker columns (e.g.
@@ -160,7 +161,7 @@ impl SegmentedTopKExec {
         let properties = PlanProperties::new(
             eq_props,
             input.properties().output_partitioning().clone(),
-            EmissionType::Final,
+            EmissionType::Both,
             Boundedness::Bounded,
         );
         Self {
@@ -247,7 +248,6 @@ impl ExecutionPlan for SegmentedTopKExec {
                 segment_heaps: HashMap::default(),
                 thresholds: Arc::clone(&self.thresholds),
                 batches: Vec::new(),
-                always_keep: Vec::new(),
                 row_ordinals: Vec::new(),
                 state: StreamState::Collecting,
                 rows_input,
@@ -290,11 +290,6 @@ struct SegmentedTopKStream {
     thresholds: Arc<SegmentedThresholds>,
     /// Buffered batches during the collection phase.
     batches: Vec<RecordBatch>,
-    /// State 2 (already materialized) and NULL-ordinal rows — always survive
-    /// regardless of heaps. These could theoretically be emitted incrementally
-    /// since they won't be compared, but we buffer them to avoid partial-batch
-    /// emission during the blocking collection phase.
-    always_keep: Vec<(usize, usize)>,
     /// Per-row ordinal info for rows that went through ordinal comparison
     /// (States 0 and 1, excluding NULLs). Used by `build_survivors` to filter
     /// against the per-segment cutoff, correctly retaining all rows tied at the
@@ -324,9 +319,15 @@ impl SegmentedTopKStream {
     }
 
     /// Ingest a single batch: extract ordinals, update per-segment heaps,
-    /// publish thresholds, and record always-keep rows. The batch itself is
-    /// buffered for the emission phase.
-    fn collect_batch(&mut self, batch: &RecordBatch, batch_idx: usize) -> Result<()> {
+    /// and publish thresholds. The batch is buffered for the final emission
+    /// phase. Returns a pass-through batch of rows that bypass ordinal
+    /// comparison (State 2 and NULL ordinals) so they can be emitted
+    /// immediately.
+    fn collect_batch(
+        &mut self,
+        batch: &RecordBatch,
+        batch_idx: usize,
+    ) -> Result<Option<RecordBatch>> {
         let num_rows = batch.num_rows();
 
         let union_col = batch
@@ -378,6 +379,9 @@ impl SegmentedTopKStream {
                 )
             })?;
 
+        // Rows that bypass ordinal comparison are emitted immediately.
+        let mut pass_through = vec![false; num_rows];
+
         // State 0 rows need FFHelper lookup: segment_ord -> Vec<(row_idx, doc_id)>
         let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, u32)>> = HashMap::default();
         // State 1 rows already have ordinals: segment_ord -> Vec<(row_idx, term_ord)>
@@ -406,7 +410,7 @@ impl SegmentedTopKStream {
                         .push((row_idx, term_ord));
                 }
                 2 => {
-                    self.always_keep.push((batch_idx, row_idx));
+                    pass_through[row_idx] = true;
                 }
                 _ => unreachable!("Invalid Union state"),
             }
@@ -444,7 +448,7 @@ impl SegmentedTopKStream {
                 // TODO: Push NULL ordinals down as a NULL-aware expression
                 // rather than unconditionally keeping them.
                 if ord == NULL_TERM_ORDINAL {
-                    self.always_keep.push((batch_idx, row_idx));
+                    pass_through[row_idx] = true;
                     continue;
                 }
                 let heap_val = if self.descending { !ord } else { ord };
@@ -465,7 +469,7 @@ impl SegmentedTopKStream {
                 // TODO: Push NULL ordinals down as a NULL-aware expression
                 // rather than unconditionally keeping them.
                 if ord == NULL_TERM_ORDINAL {
-                    self.always_keep.push((batch_idx, row_idx));
+                    pass_through[row_idx] = true;
                     continue;
                 }
                 let heap_val = if self.descending { !ord } else { ord };
@@ -484,7 +488,17 @@ impl SegmentedTopKStream {
             }
         }
 
-        Ok(())
+        // Emit pass-through rows (State 2 + NULL ordinals) immediately.
+        if pass_through.iter().any(|&b| b) {
+            let mask: BooleanArray = pass_through.into_iter().map(Some).collect();
+            let filtered = filter_record_batch(batch, &mask)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+            if filtered.num_rows() > 0 {
+                return Ok(Some(filtered));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Build the final survivor set using per-segment cutoffs from the heaps.
@@ -499,10 +513,6 @@ impl SegmentedTopKStream {
     /// only K will survive. This matters for large inputs.
     fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
         let mut survivors = crate::api::HashSet::default();
-
-        for &(batch_idx, row_idx) in &self.always_keep {
-            survivors.insert((batch_idx, row_idx));
-        }
 
         for &(batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
             let cutoff = self
@@ -538,10 +548,16 @@ impl Stream for SegmentedTopKStream {
                         Poll::Ready(Some(Ok(batch))) => {
                             this.rows_input.add(batch.num_rows());
                             let batch_idx = this.batches.len();
-                            if let Err(e) = this.collect_batch(&batch, batch_idx) {
-                                return Poll::Ready(Some(Err(e)));
+                            match this.collect_batch(&batch, batch_idx) {
+                                Ok(pass_through) => {
+                                    this.batches.push(batch);
+                                    if let Some(pt) = pass_through {
+                                        this.rows_output.add(pt.num_rows());
+                                        return Poll::Ready(Some(Ok(pt)));
+                                    }
+                                }
+                                Err(e) => return Poll::Ready(Some(Err(e))),
                             }
-                            this.batches.push(batch);
                         }
                         Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
                         Poll::Ready(None) => {

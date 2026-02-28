@@ -12,7 +12,8 @@ string as a **finalized token**. This means that the query string is taken as-is
 
 Term queries use the `===` operator. To understand exactly how it works, let's consider the following two term queries:
 
-```sql
+<CodeGroup>
+```sql SQL
 -- Term query 1
 SELECT description, rating, category
 FROM mock_items
@@ -23,6 +24,22 @@ SELECT description, rating, category
 FROM mock_items
 WHERE description === 'RUNNING';
 ```
+
+```python Django
+from paradedb import ParadeDB, Term
+
+# Term query 1
+MockItem.objects.filter(
+    description=ParadeDB(Term('running'))
+).values('description', 'rating', 'category')
+
+# Term query 2
+MockItem.objects.filter(
+    description=ParadeDB(Term('RUNNING'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 The first query returns:
 
@@ -72,8 +89,21 @@ These examples assume that index uses the default tokenizer and token filters, a
 
 Passing a text array to the right-hand side of `===` means "find all documents containing any one of these tokens."
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description === ARRAY['shoes', 'running'];
 ```
+
+```python Django
+from django.db.models import Q
+from paradedb import ParadeDB, Term
+
+MockItem.objects.filter(
+    Q(description=ParadeDB(Term('shoes'))) |
+    Q(description=ParadeDB(Term('running')))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>

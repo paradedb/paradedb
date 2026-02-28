@@ -17,11 +17,24 @@ Enter the `###` phrase operator:
 INSERT INTO mock_items (description, rating, category) VALUES
 ('running sleek shoes', 5, 'Footwear'),
 ('shoes running', 5, 'Footwear');
+```
 
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### 'running shoes';
 ```
+
+```python Django
+from paradedb import ParadeDB, Phrase
+
+MockItem.objects.filter(
+    description=ParadeDB(Phrase('running shoes'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 This query returns:
 
@@ -68,21 +81,43 @@ Slop allows the token ordering requirement of phrase queries to be relaxed. It s
 
 To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the maximum allowed slop.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### 'shoes running'::pdb.slop(2);
 ```
 
+```python Django
+from paradedb import ParadeDB, Phrase
+
+MockItem.objects.filter(
+    description=ParadeDB(Phrase('shoes running', slop=2))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
+
 ## Using a Custom Tokenizer
 
 The phrase query supports custom query tokenization.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### 'running shoes'::pdb.whitespace;
 ```
+
+```python Django
+from paradedb import ParadeDB, Phrase
+
+MockItem.objects.filter(
+    description=ParadeDB(Phrase('running shoes', tokenizer='whitespace'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 ## Using Pretokenized Text
 
@@ -91,16 +126,38 @@ which means that no further processing is done.
 
 The following query matches documents containing the token `shoes` immediately followed by `running`:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### ARRAY['running', 'shoes'];
 ```
 
+```python Django
+from paradedb import ParadeDB, Phrase
+
+MockItem.objects.filter(
+    description=ParadeDB(Phrase('running shoes'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
+
 Adding slop is supported:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
 ```
+
+```python Django
+from paradedb import ParadeDB, Phrase
+
+MockItem.objects.filter(
+    description=ParadeDB(Phrase('shoes running', slop=2))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>

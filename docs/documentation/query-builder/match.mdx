@@ -17,11 +17,22 @@ canonical: https://docs.paradedb.com/documentation/query-builder/match
 Under the hood, the [match](/documentation/full-text/match) conjunction and disjunction operators get rewritten to this query builder function.
 This function exposes a few advanced configuration options like the ability to use a custom tokenizer.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.match('running shoes');
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 <div className="mt-8" />
 
@@ -55,11 +66,22 @@ WHERE description @@@ pdb.match('running shoes');
 
 When `distance` is set to a positive integer, fuzzy matching is applied. This allows `match` to tolerate typos in the query string.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.match('ruining shoez', distance => 2);
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('ruining shoez', operator='OR', distance=2))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 ## Conjunction Mode
 
@@ -67,8 +89,19 @@ By default, `match` constructs an `OR` boolean query from the query string's tok
 
 When set to `true`, `conjunction_mode` constructs an `AND` boolean query instead.
 
-```sql Function Syntax
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.match('running shoes', conjunction_mode => true);
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running', 'shoes', operator='AND'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>

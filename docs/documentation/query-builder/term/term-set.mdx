@@ -16,10 +16,22 @@ canonical: https://docs.paradedb.com/documentation/query-builder/term/term-set
 
 Matches documents containing any term from a specified set.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.term_set(ARRAY['shoes', 'keyboard']);
 ```
+
+```python Django
+from django.db.models import Q
+from paradedb import ParadeDB, Term
+
+MockItem.objects.filter(
+    Q(description=ParadeDB(Term('shoes'))) | Q(description=ParadeDB(Term('keyboard')))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 `pdb.term_set` is equivalent to `OR`ing together multiple `pdb.term` queries.

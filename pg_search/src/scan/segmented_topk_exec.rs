@@ -53,6 +53,7 @@ use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
 use arrow_array::{Array, BooleanArray, RecordBatch, UInt64Array, UnionArray};
 use arrow_schema::SchemaRef;
+use arrow_select::concat::concat_batches;
 use arrow_select::filter::filter_record_batch;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
@@ -512,16 +513,91 @@ impl SegmentedTopKStream {
         Ok(None)
     }
 
+    /// Compact buffered batches by discarding rows that cannot survive the
+    /// current per-segment cutoffs. This bounds memory at O(K * segments)
+    /// instead of O(N) for large inputs — analogous to the batch compaction
+    /// step in upstream DataFusion TopK.
+    fn maybe_compact(&mut self) {
+        let num_segments = self.segment_heaps.len().max(1);
+        if self.row_ordinals.len() <= self.k * num_segments * 4 {
+            return;
+        }
+
+        // Determine which row_ordinals survive the current cutoffs.
+        let mut new_row_ordinals = Vec::new();
+        let mut survivors = crate::api::HashSet::default();
+
+        for &(batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+            let cutoff = self
+                .segment_heaps
+                .get(&seg_ord)
+                .and_then(|h| h.peek().copied());
+            let keep = match cutoff {
+                Some(cutoff_val) => heap_val <= cutoff_val,
+                None => true,
+            };
+            if keep {
+                survivors.insert((batch_idx, row_idx));
+                new_row_ordinals.push((batch_idx, row_idx, seg_ord, heap_val));
+            }
+        }
+
+        // Don't compact if we wouldn't discard at least half the rows.
+        if new_row_ordinals.len() * 2 > self.row_ordinals.len() {
+            return;
+        }
+
+        // Filter each stored batch, build old→new row mapping, concatenate.
+        let mut filtered_batches = Vec::new();
+        let mut mapping: HashMap<(usize, usize), usize> = HashMap::default();
+        let mut global_offset = 0usize;
+
+        for (batch_idx, batch) in self.batches.iter().enumerate() {
+            let mask: BooleanArray = (0..batch.num_rows())
+                .map(|ri| Some(survivors.contains(&(batch_idx, ri))))
+                .collect();
+
+            if mask.true_count() == 0 {
+                continue;
+            }
+
+            for ri in 0..batch.num_rows() {
+                if survivors.contains(&(batch_idx, ri)) {
+                    mapping.insert((batch_idx, ri), global_offset);
+                    global_offset += 1;
+                }
+            }
+
+            let filtered = filter_record_batch(batch, &mask).expect("compaction filter failed");
+            filtered_batches.push(filtered);
+        }
+
+        if filtered_batches.is_empty() {
+            self.batches.clear();
+            self.row_ordinals.clear();
+            return;
+        }
+
+        let compacted =
+            concat_batches(&self.schema, &filtered_batches).expect("compaction concat failed");
+
+        // Remap row_ordinals into the single compacted batch.
+        for entry in &mut new_row_ordinals {
+            let new_ri = mapping[&(entry.0, entry.1)];
+            entry.0 = 0;
+            entry.1 = new_ri;
+        }
+
+        self.row_ordinals = new_row_ordinals;
+        self.batches = vec![compacted];
+    }
+
     /// Build the final survivor set using per-segment cutoffs from the heaps.
     ///
     /// A row survives if its transformed ordinal (heap_val) is <= the cutoff
     /// for its segment. This correctly retains ALL rows tied at the boundary,
     /// which is necessary for compound sorts where a tiebreaker column
     /// distinguishes between rows with the same primary ordinal.
-    ///
-    /// TODO: Like upstream TopK, periodically compact buffered batches
-    /// during the collection phase to avoid holding O(N) rows in memory when
-    /// only K will survive. This matters for large inputs.
     fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
         let mut survivors = crate::api::HashSet::default();
 
@@ -562,6 +638,7 @@ impl Stream for SegmentedTopKStream {
                             match this.collect_batch(&batch, batch_idx) {
                                 Ok(pass_through) => {
                                     this.batches.push(batch);
+                                    this.maybe_compact();
                                     if let Some(pt) = pass_through {
                                         this.rows_output.add(pt.num_rows());
                                         return Poll::Ready(Some(Ok(pt)));

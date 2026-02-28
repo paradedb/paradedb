@@ -24,6 +24,8 @@ pub mod info;
 pub mod late_materialization_rule;
 pub mod pre_filter;
 pub mod search_predicate_udf;
+pub mod segmented_topk_exec;
+pub mod segmented_topk_rule;
 pub mod table_provider;
 pub mod tantivy_lookup_exec;
 #[cfg(any(test, feature = "pg_test"))]

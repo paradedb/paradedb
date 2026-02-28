@@ -179,6 +179,9 @@ pub fn create_session_context() -> SessionContext {
     builder = builder.with_physical_optimizer_rule(Arc::new(
         crate::scan::late_materialization_rule::LateMaterializationRule,
     ));
+    builder = builder.with_physical_optimizer_rule(Arc::new(
+        crate::scan::segmented_topk_rule::SegmentedTopKRule,
+    ));
     let state = builder.build();
     SessionContext::new_with_state(state)
 }

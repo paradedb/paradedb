@@ -57,6 +57,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::query::SearchQueryInput;
 use crate::scan::pre_filter::{collect_filters, PreFilter};
+use crate::scan::segmented_topk_exec::SegmentedThresholds;
 use crate::scan::tantivy_lookup_exec::DeferredField;
 use crate::scan::Scanner;
 
@@ -111,6 +112,9 @@ pub struct PgSearchScanPlan {
     metrics: ExecutionPlanMetricsSet,
     deferred_fields: Vec<DeferredField>,
     ffhelper_for_lookup: Option<Arc<FFHelper>>,
+    /// Per-segment ordinal thresholds pushed from `SegmentedTopKExec` for
+    /// early row pruning at the scanner level.
+    segmented_thresholds: Mutex<Option<Arc<SegmentedThresholds>>>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -174,8 +178,29 @@ impl PgSearchScanPlan {
             metrics: ExecutionPlanMetricsSet::new(),
             deferred_fields,
             ffhelper_for_lookup,
+            segmented_thresholds: Mutex::new(None),
         }
     }
+
+    /// Set shared per-segment ordinal thresholds for scanner-level pruning.
+    /// Called by the optimizer rule after injecting `SegmentedTopKExec`.
+    ///
+    /// This intentionally bypasses the dynamic filter infrastructure
+    /// (`DynamicFilterPhysicalExpr` / `handle_child_pushdown_result`) because
+    /// the deferred column uses a 3-way UnionArray encoding that doesn't have a
+    /// real Arrow type the standard expression framework can reason about.
+    /// Dynamic filters operate on the post-lookup schema (materialized strings),
+    /// but we need to compare raw term ordinals *before* dictionary decoding —
+    /// something that can't be expressed as a `PhysicalExpr` on the scan's
+    /// output schema.
+    ///
+    /// TODO(https://github.com/paradedb/paradedb/issues/4257): Unify with dynamic filtering
+    /// once we have a proper extension type for deferred columns that the expression
+    /// framework can handle natively.
+    pub fn set_segmented_thresholds(&self, thresholds: Arc<SegmentedThresholds>) {
+        *self.segmented_thresholds.lock().unwrap() = Some(thresholds);
+    }
+
     pub fn deferred_fields(&self) -> &[DeferredField] {
         &self.deferred_fields
     }
@@ -184,6 +209,10 @@ impl PgSearchScanPlan {
         self.ffhelper_for_lookup
             .as_ref()
             .expect("ffhelper_for_lookup must be Some when late materialization is active")
+    }
+
+    pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {
+        self.ffhelper_for_lookup.as_ref()
     }
 }
 
@@ -232,6 +261,9 @@ impl DisplayAs for PgSearchScanPlan {
         )?;
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
+        }
+        if self.segmented_thresholds.lock().unwrap().is_some() {
+            write!(f, ", segmented_thresholds=true")?;
         }
         write!(f, ", query={}", self.query_for_display.explain_format())
     }
@@ -320,13 +352,17 @@ impl ExecutionPlan for PgSearchScanPlan {
             )));
         }
 
-        let UnsafeSendSync((scanner, ffhelper, visibility)) =
+        let UnsafeSendSync((mut scanner, ffhelper, visibility)) =
             states[partition].take().ok_or_else(|| {
                 DataFusionError::Internal(format!(
                     "Partition {} has already been executed",
                     partition
                 ))
             })?;
+
+        if let Some(thresholds) = &*self.segmented_thresholds.lock().unwrap() {
+            scanner.set_segmented_thresholds(Arc::clone(thresholds));
+        }
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters
@@ -416,6 +452,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 metrics: self.metrics.clone(),
                 deferred_fields: self.deferred_fields.clone(),
                 ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
+                segmented_thresholds: Mutex::new(self.segmented_thresholds.lock().unwrap().clone()),
             });
 
             Ok(

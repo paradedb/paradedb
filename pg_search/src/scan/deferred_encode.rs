@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use arrow_array::{new_null_array, ArrayRef, StructArray, UInt32Array, UInt64Array, UnionArray};
+use arrow_array::{new_empty_array, ArrayRef, StructArray, UInt32Array, UInt64Array, UnionArray};
 use arrow_buffer::ScalarBuffer;
 use arrow_schema::{DataType, Field, UnionFields, UnionMode};
 use std::sync::Arc;
@@ -90,7 +90,7 @@ pub fn deferred_union_fields(is_bytes: bool) -> UnionFields {
 
 /// The schema definition for our 3-way UnionArray
 pub fn deferred_union_data_type(is_bytes: bool) -> DataType {
-    DataType::Union(deferred_union_fields(is_bytes), UnionMode::Sparse)
+    DataType::Union(deferred_union_fields(is_bytes), UnionMode::Dense)
 }
 
 // State 0
@@ -100,28 +100,20 @@ pub fn build_state_doc_address(
     is_bytes: bool,
 ) -> ArrayRef {
     let len = doc_ids.len();
+    let fields = deferred_union_fields(is_bytes);
     let type_ids = ScalarBuffer::from(vec![0_i8; len]);
+    let offsets = ScalarBuffer::from((0..len).map(|i| i as i32).collect::<Vec<_>>());
 
-    let doc_addr_array = Arc::new(pack_doc_addresses(segment_ord, doc_ids)) as ArrayRef;
-    let term_ord_array = new_null_array(&term_ordinal_type(), len);
-    let mat_array = new_null_array(
-        &if is_bytes {
-            DataType::BinaryView
-        } else {
-            DataType::Utf8View
-        },
-        len,
-    );
+    let children: Vec<ArrayRef> = vec![
+        Arc::new(pack_doc_addresses(segment_ord, doc_ids)),
+        new_empty_array(fields[1].1.data_type()),
+        new_empty_array(fields[2].1.data_type()),
+    ];
 
-    let union_array = UnionArray::try_new(
-        deferred_union_fields(is_bytes), // Pass the Fields, not the DataType!
-        type_ids,
-        None,
-        vec![doc_addr_array, term_ord_array, mat_array],
+    Arc::new(
+        UnionArray::try_new(fields, type_ids, Some(offsets), children)
+            .expect("Failed to construct State 0 UnionArray"),
     )
-    .expect("Failed to construct State 0 UnionArray");
-
-    Arc::new(union_array)
 }
 
 // State 1
@@ -131,16 +123,15 @@ pub fn build_state_term_ordinals(
     is_bytes: bool,
 ) -> ArrayRef {
     let len = ordinals.len();
+    let fields = deferred_union_fields(is_bytes);
     let type_ids = ScalarBuffer::from(vec![1_i8; len]);
+    let offsets = ScalarBuffer::from((0..len).map(|i| i as i32).collect::<Vec<_>>());
 
-    let doc_addr_array = new_null_array(&doc_address_type(), len);
-
-    // Build the StructArray containing the Segment ID and the Ordinals
     let seg_array = Arc::new(UInt32Array::from(vec![segment_ord; len])) as ArrayRef;
-    let term_ord_array = Arc::new(
+    let term_ord_struct = Arc::new(
         StructArray::try_new(
-            if let DataType::Struct(fields) = term_ordinal_type() {
-                fields.clone()
+            if let DataType::Struct(f) = term_ordinal_type() {
+                f.clone()
             } else {
                 unreachable!()
             },
@@ -150,42 +141,33 @@ pub fn build_state_term_ordinals(
         .unwrap(),
     ) as ArrayRef;
 
-    let mat_array = new_null_array(
-        &if is_bytes {
-            DataType::BinaryView
-        } else {
-            DataType::Utf8View
-        },
-        len,
-    );
+    let children: Vec<ArrayRef> = vec![
+        new_empty_array(fields[0].1.data_type()),
+        term_ord_struct,
+        new_empty_array(fields[2].1.data_type()),
+    ];
 
-    let union_array = UnionArray::try_new(
-        deferred_union_fields(is_bytes),
-        type_ids,
-        None,
-        vec![doc_addr_array, term_ord_array, mat_array],
+    Arc::new(
+        UnionArray::try_new(fields, type_ids, Some(offsets), children)
+            .expect("Failed to construct State 1 UnionArray"),
     )
-    .expect("Failed to construct State 1 UnionArray");
-
-    Arc::new(union_array)
 }
 
 // State 2
 pub fn build_state_hydrated(materialized: ArrayRef, is_bytes: bool) -> ArrayRef {
     let len = materialized.len();
+    let fields = deferred_union_fields(is_bytes);
     let type_ids = ScalarBuffer::from(vec![2_i8; len]);
+    let offsets = ScalarBuffer::from((0..len).map(|i| i as i32).collect::<Vec<_>>());
 
-    let doc_addr_array = new_null_array(&doc_address_type(), len);
-    let term_ord_array = new_null_array(&term_ordinal_type(), len);
-    let mat_array = materialized; // Passed straight from the memoized cache!
+    let children: Vec<ArrayRef> = vec![
+        new_empty_array(fields[0].1.data_type()),
+        new_empty_array(fields[1].1.data_type()),
+        materialized,
+    ];
 
-    let union_array = UnionArray::try_new(
-        deferred_union_fields(is_bytes),
-        type_ids,
-        None,
-        vec![doc_addr_array, term_ord_array, mat_array],
+    Arc::new(
+        UnionArray::try_new(fields, type_ids, Some(offsets), children)
+            .expect("Failed to construct State 2 UnionArray"),
     )
-    .expect("Failed to construct State 2 UnionArray");
-
-    Arc::new(union_array)
 }

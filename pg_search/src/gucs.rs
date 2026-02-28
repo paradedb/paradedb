@@ -122,6 +122,11 @@ static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 /// its threshold between batches.
 static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 
+/// Allows the user to enable or disable the SegmentedTopK optimization.
+/// When enabled, TopK queries on deferred (late-materialized) string/bytes columns
+/// use per-segment ordinal pruning to reduce dictionary decoding.
+static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -358,6 +363,20 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_segmented_topk",
+        c"Enable SegmentedTopK optimization for TopK queries on deferred columns",
+        c"When enabled, ORDER BY on a late-materialized string/bytes column with LIMIT \
+          uses per-segment ordinal pruning to reduce dictionary decoding. \
+          All input is collected before emitting (EmissionType::Final) so only \
+          the exact top-K rows per segment are sent to dictionary decoding. \
+          Per-segment thresholds are published progressively to the scanner \
+          for early row pruning during collection.",
+        &ENABLE_SEGMENTED_TOPK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.dynamic_filter_batch_size",
         c"Scanner batch size override for dynamic filter pushdown",
@@ -535,6 +554,10 @@ pub fn add_doc_count_to_aggs() -> bool {
 
 pub fn dynamic_filter_batch_size() -> i32 {
     DYNAMIC_FILTER_BATCH_SIZE.get()
+}
+
+pub fn enable_segmented_topk() -> bool {
+    ENABLE_SEGMENTED_TOPK.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

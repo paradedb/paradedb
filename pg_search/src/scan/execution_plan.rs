@@ -203,6 +203,10 @@ impl PgSearchScanPlan {
             .as_ref()
             .expect("ffhelper_for_lookup must be Some when late materialization is active")
     }
+
+    pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {
+        self.ffhelper_for_lookup.as_ref()
+    }
 }
 
 /// Build `EquivalenceProperties` with the specified sort ordering.

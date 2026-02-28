@@ -49,6 +49,7 @@ use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::ExecutionPlan;
 
 use crate::gucs;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::segmented_topk_exec::{SegmentedThresholds, SegmentedTopKExec};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
@@ -175,7 +176,16 @@ fn try_inject_below_lookup(
                 ));
 
                 // Wire thresholds to the PgSearchScanPlan in the subtree.
-                wire_thresholds_to_scan(lookup_child.as_ref(), &thresholds, sort_col_name);
+                // We match by both column name AND FFHelper identity to ensure
+                // we only wire to the scan for the same relation (in joins,
+                // multiple PgSearchScanPlans exist but only one shares the
+                // same Arc<FFHelper> as the TantivyLookupExec).
+                wire_thresholds_to_scan(
+                    lookup_child.as_ref(),
+                    &thresholds,
+                    sort_col_name,
+                    lookup.ffhelper(),
+                );
 
                 // Rebuild TantivyLookupExec with the new child.
                 let new_lookup = Arc::clone(child).with_new_children(vec![segmented_topk])?;
@@ -204,24 +214,29 @@ fn try_inject_below_lookup(
 /// thresholds into it. This handles both direct children and plans behind
 /// intermediate nodes like `SortPreservingMergeExec`.
 ///
-/// `sort_col_name` is used to verify we're wiring to the correct scan — only
-/// a scan whose deferred fields include the target column will be linked.
+/// Matching is done by both `sort_col_name` (the column must be in the scan's
+/// deferred fields) and `expected_ffhelper` (`Arc` pointer equality ensures we
+/// wire to the scan for the same relation, not a different table in a join).
 fn wire_thresholds_to_scan(
     plan: &dyn ExecutionPlan,
     thresholds: &Arc<SegmentedThresholds>,
     sort_col_name: &str,
+    expected_ffhelper: &Arc<FFHelper>,
 ) {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+        let same_relation = scan
+            .ffhelper_if_deferred()
+            .is_some_and(|ff| Arc::ptr_eq(ff, expected_ffhelper));
         let has_target = scan
             .deferred_fields()
             .iter()
             .any(|d| d.field_name == sort_col_name);
-        if has_target {
+        if same_relation && has_target {
             scan.set_segmented_thresholds(Arc::clone(thresholds));
         }
         return;
     }
     for child in plan.children() {
-        wire_thresholds_to_scan(child.as_ref(), thresholds, sort_col_name);
+        wire_thresholds_to_scan(child.as_ref(), thresholds, sort_col_name, expected_ffhelper);
     }
 }

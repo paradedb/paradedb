@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772272846003,
+  "lastUpdate": 1772273843928,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26974,6 +26974,54 @@ window.BENCHMARK_DATA = {
             "value": 543.860123515854,
             "unit": "median tps",
             "extra": "avg tps: 490.58991941201356, max tps: 709.5290873562852, count: 107848"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b38abd05d6c63dbaced0af94c6873fd1179033d",
+          "message": "feat: Segmented Top-K with per-segment threshold push-down (#4234)\n\n# Ticket(s) Closed\n\n- Closes #4220\n\n## What\n\nAdds a `SegmentedTopKExec` node that sits below `TantivyLookupExec` for\n`ORDER BY <deferred_column> LIMIT K` queries. It maintains per-segment\nmax-heaps of term ordinals and only lets the true top-K rows through to\ndictionary decoding. A feedback loop publishes per-segment thresholds\nback to the scanner so it can skip rows before doing ctid lookups or\nvisibility checks.\n\n## Why\n\nWithout this, the scanner pays the full cost (ctid lookup, visibility\ncheck, dictionary decode) for every row, even those that will be\nimmediately discarded by the sort. For large tables with\nhigh-cardinality string columns, most of that work is wasted. By pruning\nat the ordinal level — both in the exec and pushed down to the scanner —\nwe avoid the expensive work entirely.\n\n## How\n\nThe optimizer rule detects `TopK(Sort(Lookup(Scan)))` patterns where the\nsort key is a deferred (late-materialized) string/bytes column. It\ninjects `SegmentedTopKExec` between `Lookup` and its child, and wires a\nshared threshold map to both the exec and the scan.\n\nDuring execution, the node collects all input batches while maintaining\nper-segment ordinal heaps. After each batch, segments with full heaps\npublish their worst ordinal as a threshold. The scanner reads these\nthresholds on subsequent batches and drops rows that can't beat the\ncutoff — before any ctid lookup or visibility check. Thresholds tighten\nprogressively, so later batches benefit the most.\n\nOnce all input is consumed, only the surviving top-K rows per segment\nare emitted to dictionary decoding. NULLs always pass through. ASC/DESC\nis handled by complementing ordinals in the heap.\n\nControlled by `paradedb.enable_segmented_topk` (default: on).\n\n## Tests\n\n- New `segmented_topk` regression test covering ASC/DESC, NULLs,\nmulti-segment, and EXPLAIN plan verification\n- `topk_dynamic_filter` — pass\n- `join_custom_scan` — pass",
+          "timestamp": "2026-02-28T00:50:41-08:00",
+          "tree_id": "4a7777356c2cb9e1ddc7749c9fcd2faf36248c50",
+          "url": "https://github.com/paradedb/paradedb/commit/5b38abd05d6c63dbaced0af94c6873fd1179033d"
+        },
+        "date": 1772273838754,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 577.6189187147144,
+            "unit": "median tps",
+            "extra": "avg tps: 581.0127782505709, max tps: 711.547082721403, count: 53931"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 646.9137490745856,
+            "unit": "median tps",
+            "extra": "avg tps: 652.5457489471328, max tps: 823.7236939071432, count: 53931"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 91.40052858788323,
+            "unit": "median tps",
+            "extra": "avg tps: 91.4785369177297, max tps: 96.03682145637306, count: 53931"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 535.7901315005063,
+            "unit": "median tps",
+            "extra": "avg tps: 504.3994050240588, max tps: 688.1433190870265, count: 107862"
           }
         ]
       }

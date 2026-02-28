@@ -340,79 +340,90 @@ impl SegmentedTopKStream {
                 )
             })?;
 
+        // Dense union: each child is compact (contains only its type's rows).
+        // Partition original row indices by type, then iterate compact children.
         let type_ids = union_col.type_ids();
-        let doc_addr_child = union_col
-            .child(0)
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .ok_or_else(|| {
-                DataFusionError::Internal(
-                    "SegmentedTopKExec: child 0 should be UInt64 doc addresses".into(),
-                )
-            })?;
+        let offsets = union_col.offsets().ok_or_else(|| {
+            DataFusionError::Internal("SegmentedTopKExec: expected dense union with offsets".into())
+        })?;
 
-        let term_ord_child = union_col
-            .child(1)
-            .as_any()
-            .downcast_ref::<arrow_array::StructArray>()
-            .ok_or_else(|| {
-                DataFusionError::Internal(
-                    "SegmentedTopKExec: child 1 should be StructArray of term ordinals".into(),
-                )
-            })?;
-        let seg_ord_array = term_ord_child
-            .column(0)
-            .as_any()
-            .downcast_ref::<arrow_array::UInt32Array>()
-            .ok_or_else(|| {
-                DataFusionError::Internal(
-                    "SegmentedTopKExec: term_ordinal.segment_ord should be UInt32".into(),
-                )
-            })?;
-        let ord_array = term_ord_child
-            .column(1)
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .ok_or_else(|| {
-                DataFusionError::Internal(
-                    "SegmentedTopKExec: term_ordinal.term_ord should be UInt64".into(),
-                )
-            })?;
-
-        // Rows that bypass ordinal comparison are emitted immediately.
         let mut pass_through = vec![false; num_rows];
-
-        // State 0 rows need FFHelper lookup: segment_ord -> Vec<(row_idx, doc_id)>
-        let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, u32)>> = HashMap::default();
-        // State 1 rows already have ordinals: segment_ord -> Vec<(row_idx, term_ord)>
-        let mut with_ords: HashMap<SegmentOrdinal, Vec<(usize, TermOrdinal)>> = HashMap::default();
-
+        let mut state0_rows: Vec<usize> = Vec::new();
+        let mut state1_rows: Vec<usize> = Vec::new();
         for row_idx in 0..num_rows {
             match type_ids[row_idx] {
-                0 => {
-                    let packed = doc_addr_child.value(row_idx);
-                    let (seg_ord, doc_id) = unpack_doc_address(packed);
-                    state0_by_seg
-                        .entry(seg_ord)
-                        .or_default()
-                        .push((row_idx, doc_id));
-                }
-                1 => {
-                    let seg_ord = seg_ord_array.value(row_idx);
-                    let term_ord = if ord_array.is_null(row_idx) {
-                        NULL_TERM_ORDINAL
-                    } else {
-                        ord_array.value(row_idx)
-                    };
-                    with_ords
-                        .entry(seg_ord)
-                        .or_default()
-                        .push((row_idx, term_ord));
-                }
-                2 => {
-                    pass_through[row_idx] = true;
-                }
+                0 => state0_rows.push(row_idx),
+                1 => state1_rows.push(row_idx),
+                2 => pass_through[row_idx] = true,
                 _ => unreachable!("Invalid Union state"),
+            }
+        }
+
+        // State 0: compact doc address child.
+        let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, u32)>> = HashMap::default();
+        if !state0_rows.is_empty() {
+            let doc_addr_child = union_col
+                .child(0)
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: child 0 should be UInt64 doc addresses".into(),
+                    )
+                })?;
+            for &row_idx in &state0_rows {
+                let packed = doc_addr_child.value(offsets[row_idx] as usize);
+                let (seg_ord, doc_id) = unpack_doc_address(packed);
+                state0_by_seg
+                    .entry(seg_ord)
+                    .or_default()
+                    .push((row_idx, doc_id));
+            }
+        }
+
+        // State 1: compact term ordinal child.
+        let mut with_ords: HashMap<SegmentOrdinal, Vec<(usize, TermOrdinal)>> = HashMap::default();
+        if !state1_rows.is_empty() {
+            let term_ord_child = union_col
+                .child(1)
+                .as_any()
+                .downcast_ref::<arrow_array::StructArray>()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: child 1 should be StructArray of term ordinals".into(),
+                    )
+                })?;
+            let seg_ord_array = term_ord_child
+                .column(0)
+                .as_any()
+                .downcast_ref::<arrow_array::UInt32Array>()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: term_ordinal.segment_ord should be UInt32".into(),
+                    )
+                })?;
+            let ord_array = term_ord_child
+                .column(1)
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: term_ordinal.term_ord should be UInt64".into(),
+                    )
+                })?;
+
+            for &row_idx in &state1_rows {
+                let ci = offsets[row_idx] as usize;
+                let seg_ord = seg_ord_array.value(ci);
+                let term_ord = if ord_array.is_null(ci) {
+                    NULL_TERM_ORDINAL
+                } else {
+                    ord_array.value(ci)
+                };
+                with_ords
+                    .entry(seg_ord)
+                    .or_default()
+                    .push((row_idx, term_ord));
             }
         }
 

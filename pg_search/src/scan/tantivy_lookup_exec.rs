@@ -255,96 +255,100 @@ fn materialize_deferred_column(
     is_bytes: bool,
     num_rows: usize,
 ) -> Result<ArrayRef> {
-    // Extract the type_ids buffer that tells us which state each row is in
+    // Dense union: each child is compact (contains only its type's rows).
+    // Partition original row indices by type, then iterate compact children.
     let type_ids = union_array.type_ids();
+    let offsets = union_array.offsets().ok_or_else(|| {
+        DataFusionError::Execution("expected dense union with offsets in deferred column".into())
+    })?;
 
-    // Extract the underlying arrays from the union
-    let doc_address_child = union_array
-        .child(0)
-        .as_any()
-        .downcast_ref::<UInt64Array>()
-        .ok_or_else(|| {
-            DataFusionError::Execution(
-                "expected UInt64Array for doc_address child in deferred union".into(),
-            )
-        })?;
-
-    let term_ord_child = union_array
-        .child(1)
-        .as_any()
-        .downcast_ref::<StructArray>()
-        .ok_or_else(|| {
-            DataFusionError::Execution(
-                "expected StructArray for term_ord child in deferred union".into(),
-            )
-        })?;
-
-    let materialized_child = union_array.child(2);
-
-    let seg_ord_array = term_ord_child
-        .column(0)
-        .as_any()
-        .downcast_ref::<UInt32Array>()
-        .ok_or_else(|| {
-            DataFusionError::Execution("expected UInt32Array for seg_ord column".into())
-        })?;
-
-    let ord_array = term_ord_child
-        .column(1)
-        .as_any()
-        .downcast_ref::<UInt64Array>()
-        .ok_or_else(|| {
-            DataFusionError::Execution("expected UInt64Array for term_ord column".into())
-        })?;
-
-    // 1. Group requests by segment ordinal to process one segment at a time.
-    // We maintain separate groups for State 0 (needs doc_id lookup) and State 1 (already has ordinals).
-    let mut state_0_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, DocId)>> =
-        crate::api::HashMap::default();
-    let mut state_1_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, Option<TermOrdinal>)>> =
-        crate::api::HashMap::default();
-    let mut pre_materialized_rows = Vec::new();
-
-    // TODO: Use Arrow to perform this unpacking directly into Arrow arrays, then use
-    // `FFType::fetch_values_or_ords_to_arrow` and `ords_to_{string|bytes}_array` directly on Arrow.
+    let mut state_0_rows: Vec<usize> = Vec::new();
+    let mut state_1_rows: Vec<usize> = Vec::new();
+    let mut state_2_rows: Vec<usize> = Vec::new();
     for row in 0..num_rows {
         match type_ids[row] {
-            0 => {
-                let packed = doc_address_child.value(row);
-                let (seg_ord, doc_id) = unpack_doc_address(packed);
-                state_0_by_seg
-                    .entry(seg_ord)
-                    .or_default()
-                    .push((row, doc_id));
-            }
-            1 => {
-                let seg_ord = seg_ord_array.value(row);
-                let term_ord = if ord_array.is_null(row) {
-                    None
-                } else {
-                    Some(ord_array.value(row))
-                };
-                state_1_by_seg
-                    .entry(seg_ord)
-                    .or_default()
-                    .push((row, term_ord));
-            }
-            2 => {
-                pre_materialized_rows.push(row);
-            }
+            0 => state_0_rows.push(row),
+            1 => state_1_rows.push(row),
+            2 => state_2_rows.push(row),
             _ => unreachable!("Invalid Union State"),
+        }
+    }
+
+    // 1. Group requests by segment ordinal to process one segment at a time.
+    let mut state_0_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, DocId)>> =
+        crate::api::HashMap::default();
+    if !state_0_rows.is_empty() {
+        let doc_address_child = union_array
+            .child(0)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(
+                    "expected UInt64Array for doc_address child in deferred union".into(),
+                )
+            })?;
+        for &row in &state_0_rows {
+            let packed = doc_address_child.value(offsets[row] as usize);
+            let (seg_ord, doc_id) = unpack_doc_address(packed);
+            state_0_by_seg
+                .entry(seg_ord)
+                .or_default()
+                .push((row, doc_id));
+        }
+    }
+
+    let mut state_1_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, Option<TermOrdinal>)>> =
+        crate::api::HashMap::default();
+    if !state_1_rows.is_empty() {
+        let term_ord_child = union_array
+            .child(1)
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(
+                    "expected StructArray for term_ord child in deferred union".into(),
+                )
+            })?;
+        let seg_ord_array = term_ord_child
+            .column(0)
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution("expected UInt32Array for seg_ord column".into())
+            })?;
+        let ord_array = term_ord_child
+            .column(1)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution("expected UInt64Array for term_ord column".into())
+            })?;
+
+        for &row in &state_1_rows {
+            let ci = offsets[row] as usize;
+            let seg_ord = seg_ord_array.value(ci);
+            let term_ord = if ord_array.is_null(ci) {
+                None
+            } else {
+                Some(ord_array.value(ci))
+            };
+            state_1_by_seg
+                .entry(seg_ord)
+                .or_default()
+                .push((row, term_ord));
         }
     }
 
     let mut segment_arrays: Vec<ArrayRef> = Vec::new();
     let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
 
-    // Map pre-materialized rows (State 2) directly.
-    if !pre_materialized_rows.is_empty() {
+    // Map pre-materialized rows (State 2) directly from the compact child.
+    if !state_2_rows.is_empty() {
+        let materialized_child = union_array.child(2);
         segment_arrays.push(materialized_child.clone());
         let array_idx = 0;
-        for row_idx in pre_materialized_rows {
-            indices[row_idx] = (array_idx, row_idx);
+        for &row_idx in &state_2_rows {
+            indices[row_idx] = (array_idx, offsets[row_idx] as usize);
         }
     }
 

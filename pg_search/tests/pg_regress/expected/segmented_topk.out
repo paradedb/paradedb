@@ -172,11 +172,11 @@ LIMIT 3;
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 005], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :       SegmentedTopKExec: sort_col=title, k=3, direction=ASC, metrics=[rows_input=50, rows_output=3, segments_seen=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=129.9 KB, output_batches=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=90, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=56% (50/90)]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=90, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=56% (50/90)]
            :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=90, output_bytes=5.5 KB, output_batches=1]
+           :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=90, output_bytes=3.3 KB, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=10, rows_scanned=100]
 (20 rows)

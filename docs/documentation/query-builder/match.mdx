@@ -66,11 +66,22 @@ MockItem.objects.filter(
 
 When `distance` is set to a positive integer, fuzzy matching is applied. This allows `match` to tolerate typos in the query string.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.match('ruining shoez', distance => 2);
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('ruining shoez', operator='OR', distance=2))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 ## Conjunction Mode
 

@@ -81,6 +81,7 @@ WITH (key_field = 'order_id');
 ```
 
 Next, let's compute a "combined BM25 score" over a join across both tables.
+The Django example assumes an `Order` model with `product = models.ForeignKey(MockItem, db_column='product_id', to_field='id', ...)`.
 
 <CodeGroup>
 ```sql SQL
@@ -93,7 +94,20 @@ LIMIT 5;
 ```
 
 ```python Django
-# Coming soon
+from django.db.models import F
+from paradedb import Match, ParadeDB, Score
+
+Order.objects.filter(
+    customer_name=ParadeDB(Match('Johnson', operator='OR')),
+    product__description=ParadeDB(Match('running shoes', operator='OR')),
+).annotate(
+    order_score=Score(),
+    product_score=Score('product_id'),
+).annotate(
+    score=F('order_score') + F('product_score')
+).values(
+    'order_id', 'customer_name', 'product__description', 'score'
+).order_by('-score', 'order_id')[:5]
 ```
 
 </CodeGroup>

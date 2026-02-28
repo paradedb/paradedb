@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772273843928,
+  "lastUpdate": 1772273850064,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34220,6 +34220,186 @@ window.BENCHMARK_DATA = {
             "value": 32.0859375,
             "unit": "median mem",
             "extra": "avg mem: 31.42139515800015, max mem: 32.1640625, count: 53924"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b38abd05d6c63dbaced0af94c6873fd1179033d",
+          "message": "feat: Segmented Top-K with per-segment threshold push-down (#4234)\n\n# Ticket(s) Closed\n\n- Closes #4220\n\n## What\n\nAdds a `SegmentedTopKExec` node that sits below `TantivyLookupExec` for\n`ORDER BY <deferred_column> LIMIT K` queries. It maintains per-segment\nmax-heaps of term ordinals and only lets the true top-K rows through to\ndictionary decoding. A feedback loop publishes per-segment thresholds\nback to the scanner so it can skip rows before doing ctid lookups or\nvisibility checks.\n\n## Why\n\nWithout this, the scanner pays the full cost (ctid lookup, visibility\ncheck, dictionary decode) for every row, even those that will be\nimmediately discarded by the sort. For large tables with\nhigh-cardinality string columns, most of that work is wasted. By pruning\nat the ordinal level — both in the exec and pushed down to the scanner —\nwe avoid the expensive work entirely.\n\n## How\n\nThe optimizer rule detects `TopK(Sort(Lookup(Scan)))` patterns where the\nsort key is a deferred (late-materialized) string/bytes column. It\ninjects `SegmentedTopKExec` between `Lookup` and its child, and wires a\nshared threshold map to both the exec and the scan.\n\nDuring execution, the node collects all input batches while maintaining\nper-segment ordinal heaps. After each batch, segments with full heaps\npublish their worst ordinal as a threshold. The scanner reads these\nthresholds on subsequent batches and drops rows that can't beat the\ncutoff — before any ctid lookup or visibility check. Thresholds tighten\nprogressively, so later batches benefit the most.\n\nOnce all input is consumed, only the surviving top-K rows per segment\nare emitted to dictionary decoding. NULLs always pass through. ASC/DESC\nis handled by complementing ordinals in the heap.\n\nControlled by `paradedb.enable_segmented_topk` (default: on).\n\n## Tests\n\n- New `segmented_topk` regression test covering ASC/DESC, NULLs,\nmulti-segment, and EXPLAIN plan verification\n- `topk_dynamic_filter` — pass\n- `join_custom_scan` — pass",
+          "timestamp": "2026-02-28T00:50:41-08:00",
+          "tree_id": "4a7777356c2cb9e1ddc7749c9fcd2faf36248c50",
+          "url": "https://github.com/paradedb/paradedb/commit/5b38abd05d6c63dbaced0af94c6873fd1179033d"
+        },
+        "date": 1772273845419,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.976376572346329, max cpu: 9.257474, count: 53931"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 49.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.02305695008437, max mem: 55.62890625, count: 53931"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.167907489609058, max cpu: 4.5714283, count: 53931"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 31.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.787548267693904, max mem: 31.875, count: 53931"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.108159,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.773245521537256, max cpu: 18.408438, count: 53931"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 53.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.36489942009234, max mem: 59.28125, count: 53931"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.93969856923021, max cpu: 9.248554, count: 53931"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 49.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.96978003432627, max mem: 55.53515625, count: 53931"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.608462422561376, max cpu: 9.17782, count: 53931"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.21558934970147, max mem: 38.23046875, count: 53931"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1085,
+            "unit": "median pages",
+            "extra": "avg pages: 1090.1087500695332, max pages: 1789.0, count: 53931"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.4765625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.516474754779255, max relation_size:MB: 13.9765625, count: 53931"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.09471361554579, max segment_count: 13.0, count: 53931"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.524034,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.3892137532081774, max cpu: 4.597701, count: 53931"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.44515257342716, max mem: 29.484375, count: 53931"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.6249219061522884, max cpu: 4.5801525, count: 53931"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.501587531985315, max mem: 29.69140625, count: 53931"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.460128628807586, max cpu: 22.944551, count: 53931"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 48.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.05743949734383, max mem: 53.65625, count: 53931"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000019756554164696555, max replication_lag:MB: 0.118621826171875, count: 53931"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.100777768311016, max cpu: 13.793103, count: 107862"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 48.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.53483943893586, max mem: 54.25390625, count: 107862"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.60686684687337, max cpu: 4.5801525, count: 53931"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.437182609491757, max mem: 32.4921875, count: 53931"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.413554620611272, max cpu: 4.5801525, count: 53931"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 32.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.687644571304073, max mem: 32.50390625, count: 53931"
           }
         ]
       }

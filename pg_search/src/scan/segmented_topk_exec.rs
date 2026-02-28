@@ -44,8 +44,9 @@
 //! the tiebreaker, so it keeps them all for the final TopK to resolve.
 //! This is safe (never drops correct rows) but slightly less aggressive
 //! than theoretically possible when there are many duplicates.
-//! TODO: rewrite the full TopK sort expression in terms of term ordinals to
-//! handle tiebreakers natively.
+//! TODO(https://github.com/paradedb/paradedb/issues/4255): rewrite the full
+//! TopK sort expression in terms of term ordinals to handle tiebreakers
+//! natively.
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
@@ -457,8 +458,9 @@ impl SegmentedTopKStream {
             let heap = self.segment_heaps.entry(seg_ord).or_default();
             for (i, (row_idx, _)) in rows.into_iter().enumerate() {
                 let ord = term_ords[i].unwrap_or(NULL_TERM_ORDINAL);
-                // TODO: Push NULL ordinals down as a NULL-aware expression
-                // rather than unconditionally keeping them.
+                // TODO(https://github.com/paradedb/paradedb/issues/4256): Push
+                // NULL ordinals down as a NULL-aware expression rather than
+                // unconditionally keeping them.
                 if ord == NULL_TERM_ORDINAL {
                     pass_through[row_idx] = true;
                     continue;
@@ -478,8 +480,9 @@ impl SegmentedTopKStream {
             let heap = self.segment_heaps.entry(seg_ord).or_default();
 
             for (row_idx, ord) in rows {
-                // TODO: Push NULL ordinals down as a NULL-aware expression
-                // rather than unconditionally keeping them.
+                // TODO(https://github.com/paradedb/paradedb/issues/4256): Push
+                // NULL ordinals down as a NULL-aware expression rather than
+                // unconditionally keeping them.
                 if ord == NULL_TERM_ORDINAL {
                     pass_through[row_idx] = true;
                     continue;

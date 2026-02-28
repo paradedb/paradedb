@@ -188,8 +188,9 @@ impl PgSearchScanPlan {
     /// something that can't be expressed as a `PhysicalExpr` on the scan's
     /// output schema.
     ///
-    /// TODO: Unify with dynamic filtering once we have a proper extension type
-    /// for deferred columns that the expression framework can handle natively.
+    /// TODO(https://github.com/paradedb/paradedb/issues/4257): Unify with dynamic filtering
+    /// once we have a proper extension type for deferred columns that the expression
+    /// framework can handle natively.
     pub fn set_segmented_thresholds(&self, thresholds: Arc<SegmentedThresholds>) {
         *self.segmented_thresholds.lock().unwrap() = Some(thresholds);
     }

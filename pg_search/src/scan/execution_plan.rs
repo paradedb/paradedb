@@ -42,9 +42,7 @@ use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
 };
-use datafusion::physical_plan::metrics::{
-    Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
-};
+use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricBuilder, MetricsSet};
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
@@ -347,12 +345,13 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         // Handle the case where no segments were claimed (EmptyStream).
         if states.is_empty() {
-            return Ok(Box::pin(EmptyStream::new(
-                self.properties.eq_properties.schema().clone(),
-            )));
+            let schema = self.properties.eq_properties.schema().clone();
+            return Ok(Box::pin(unsafe {
+                UnsafeSendStream::new(futures::stream::empty(), schema)
+            }));
         }
 
-        let UnsafeSendSync((mut scanner, ffhelper, visibility)) =
+        let UnsafeSendSync((mut scanner, ffhelper, mut visibility)) =
             states[partition].take().ok_or_else(|| {
                 DataFusionError::Internal(format!(
                     "Partition {} has already been executed",
@@ -370,18 +369,47 @@ impl ExecutionPlan for PgSearchScanPlan {
         let rows_pruned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", partition));
 
+        let schema = self.properties.eq_properties.schema().clone();
+        let dynamic_filters = self.dynamic_filters.clone();
+
+        let stream_gen = async_stream::try_stream! {
+            loop {
+                let pre_filters = build_filters(&dynamic_filters, &schema);
+                let pre_filters_wrapper = if pre_filters.is_empty() {
+                    None
+                } else {
+                    Some(crate::scan::pre_filter::PreFilters {
+                        filters: &pre_filters,
+                        schema: &schema,
+                    })
+                };
+
+                match scanner.next(
+                    &ffhelper,
+                    &mut visibility,
+                    pre_filters_wrapper.as_ref(),
+                ) {
+                    Some(batch) => {
+                        yield batch.to_record_batch(&schema);
+                    }
+                    None => {
+                        // Flush pre-materialization filter stats from Scanner.
+                        if let Some(ref counter) = rows_scanned {
+                            counter.add(scanner.pre_filter_rows_scanned);
+                        }
+                        if let Some(ref counter) = rows_pruned {
+                            counter.add(scanner.pre_filter_rows_pruned);
+                        }
+                        break;
+                    }
+                }
+            }
+        };
+
         // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres,
         // so it is safe to wrap !Send types for use within DataFusion.
         let stream = unsafe {
-            UnsafeSendStream::new(ScanStream {
-                scanner,
-                ffhelper,
-                visibility,
-                schema: self.properties.eq_properties.schema().clone(),
-                dynamic_filters: self.dynamic_filters.clone(),
-                rows_scanned,
-                rows_pruned,
-            })
+            UnsafeSendStream::new(stream_gen, self.properties.eq_properties.schema().clone())
         };
         Ok(Box::pin(stream))
     }
@@ -465,80 +493,26 @@ impl ExecutionPlan for PgSearchScanPlan {
     }
 }
 
-struct ScanStream {
-    scanner: Scanner,
-    ffhelper: Arc<FFHelper>,
-    visibility: Box<VisibilityChecker>,
-    schema: SchemaRef,
-    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
-    /// Metrics counters for EXPLAIN ANALYZE (only set when dynamic filters are present).
-    rows_scanned: Option<Count>,
-    rows_pruned: Option<Count>,
-}
-
-impl ScanStream {
-    /// Evaluate the current dynamic filter expressions and convert them into
-    /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
-    ///
-    /// This is called on every `poll_next` so that tightening thresholds (e.g.
-    /// from TopK) are picked up immediately.
-    ///
-    /// Only filter predicates that can be lowered to fast-field or term-ordinal
-    /// comparisons are retained. Anything else (unsupported types, non-comparison
-    /// operators) is silently dropped — the parent operator is still responsible
-    /// for enforcing the full predicate, so correctness is not affected.
-    fn build_filters(&self) -> Vec<PreFilter> {
-        let mut filters = Vec::new();
-        for df in &self.dynamic_filters {
-            if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
-                if let Ok(current_expr) = dynamic.current() {
-                    collect_filters(&current_expr, &self.schema, &mut filters);
-                }
-            }
-        }
-        filters
-    }
-}
-
-impl Stream for ScanStream {
-    type Item = Result<RecordBatch>;
-
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        let pre_filters = this.build_filters();
-        let pre_filters_wrapper = if pre_filters.is_empty() {
-            None
-        } else {
-            Some(crate::scan::pre_filter::PreFilters {
-                filters: &pre_filters,
-                schema: &this.schema,
-            })
-        };
-
-        match this.scanner.next(
-            &this.ffhelper,
-            &mut this.visibility,
-            pre_filters_wrapper.as_ref(),
-        ) {
-            Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
-            None => {
-                // Flush pre-materialization filter stats from Scanner.
-                if let Some(ref counter) = this.rows_scanned {
-                    counter.add(this.scanner.pre_filter_rows_scanned);
-                }
-                if let Some(ref counter) = this.rows_pruned {
-                    counter.add(this.scanner.pre_filter_rows_pruned);
-                }
-                Poll::Ready(None)
+/// Evaluate the current dynamic filter expressions and convert them into
+/// [`PreFilter`]s that the `Scanner` can apply before column materialization.
+///
+/// This is called on every `poll_next` (or loop iteration) so that tightening thresholds (e.g.
+/// from TopK) are picked up immediately.
+///
+/// Only filter predicates that can be lowered to fast-field or term-ordinal
+/// comparisons are retained. Anything else (unsupported types, non-comparison
+/// operators) is silently dropped — the parent operator is still responsible
+/// for enforcing the full predicate, so correctness is not affected.
+fn build_filters(dynamic_filters: &[Arc<dyn PhysicalExpr>], schema: &SchemaRef) -> Vec<PreFilter> {
+    let mut filters = Vec::new();
+    for df in dynamic_filters {
+        if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
+            if let Ok(current_expr) = dynamic.current() {
+                collect_filters(&current_expr, schema, &mut filters);
             }
         }
     }
-}
-
-impl RecordBatchStream for ScanStream {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
-    }
+    filters
 }
 
 /// A wrapper that unsafely implements Send for a Stream.
@@ -546,11 +520,14 @@ impl RecordBatchStream for ScanStream {
 /// This is used to wrap `ScanStream` which is !Send because it contains Tantivy and Postgres
 /// state that is not Send. This is safe because pg_search operates in a single-threaded
 /// Tokio executor within Postgres, and these objects will never cross thread boundaries.
-pub(crate) struct UnsafeSendStream<T>(pub(crate) T);
+pub(crate) struct UnsafeSendStream<T> {
+    stream: T,
+    schema: SchemaRef,
+}
 
 impl<T> UnsafeSendStream<T> {
-    pub(crate) unsafe fn new(t: T) -> Self {
-        Self(t)
+    pub(crate) unsafe fn new(stream: T, schema: SchemaRef) -> Self {
+        Self { stream, schema }
     }
 }
 
@@ -560,36 +537,11 @@ impl<T: Stream> Stream for UnsafeSendStream<T> {
     type Item = T::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().0).poll_next(cx) }
+        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().stream).poll_next(cx) }
     }
 }
 
-impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
-    fn schema(&self) -> SchemaRef {
-        self.0.schema()
-    }
-}
-
-/// A stream that produces no batches.
-struct EmptyStream {
-    schema: SchemaRef,
-}
-
-impl EmptyStream {
-    fn new(schema: SchemaRef) -> Self {
-        Self { schema }
-    }
-}
-
-impl Stream for EmptyStream {
-    type Item = Result<RecordBatch>;
-
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(None)
-    }
-}
-
-impl RecordBatchStream for EmptyStream {
+impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStream<T> {
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }

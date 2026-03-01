@@ -1,7 +1,5 @@
 use std::any::Any;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
 use crate::index::fast_fields_helper::{
     ords_to_bytes_array, ords_to_string_array, FFHelper, FFType,
@@ -14,12 +12,13 @@ use arrow_array::{StructArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
 use datafusion::common::{DataFusionError, Result};
-use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
-use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
+use datafusion::physical_plan::metrics::{
+    BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
+};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use futures::Stream;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
@@ -185,59 +184,67 @@ impl ExecutionPlan for TantivyLookupExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        let input_stream = self.input.execute(partition, context)?;
+        let mut input_stream = self.input.execute(partition, context)?;
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
+        let decoders = self.decoders.clone();
+        let ffhelper = Arc::clone(&self.ffhelper);
+        let schema = self.properties.eq_properties.schema().clone();
+
+        let stream_gen = async_stream::try_stream! {
+            use futures::StreamExt;
+            while let Some(batch_res) = input_stream.next().await {
+                let timer = baseline_metrics.elapsed_compute().timer();
+                let result = match batch_res {
+                    Ok(batch) => enrich_batch(batch, &decoders, &ffhelper, &schema),
+                    Err(e) => Err(e),
+                };
+                timer.done();
+
+                yield result.record_output(&baseline_metrics)?;
+            }
+            baseline_metrics.done();
+        };
+
         let stream = unsafe {
-            UnsafeSendStream::new(LookupStream {
-                input: input_stream,
-                decoders: self.decoders.clone(),
-                ffhelper: Arc::clone(&self.ffhelper),
-                schema: self.properties.eq_properties.schema().clone(),
-                baseline_metrics,
-            })
+            UnsafeSendStream::new(stream_gen, self.properties.eq_properties.schema().clone())
         };
         Ok(Box::pin(stream))
     }
 }
 
-struct LookupStream {
-    input: SendableRecordBatchStream,
-    decoders: Vec<DecoderInfo>,
-    ffhelper: Arc<FFHelper>,
-    schema: SchemaRef,
-    baseline_metrics: BaselineMetrics,
-}
+fn enrich_batch(
+    batch: RecordBatch,
+    decoders: &[DecoderInfo],
+    ffhelper: &FFHelper,
+    schema: &SchemaRef,
+) -> Result<RecordBatch> {
+    let num_rows = batch.num_rows();
+    // Clone the input arrays. We will overwrite the deferred ones by exact index.
+    let mut output_columns: Vec<ArrayRef> = batch.columns().to_vec();
 
-impl LookupStream {
-    fn enrich_batch(&self, batch: RecordBatch) -> Result<RecordBatch> {
-        let num_rows = batch.num_rows();
-        // Clone the input arrays. We will overwrite the deferred ones by exact index.
-        let mut output_columns: Vec<ArrayRef> = batch.columns().to_vec();
+    for decoder in decoders {
+        let union_array = output_columns[decoder.col_idx]
+            .as_any()
+            .downcast_ref::<arrow_array::UnionArray>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(format!(
+                    "expected UnionArray for deferred column at index {}",
+                    decoder.col_idx
+                ))
+            })?;
 
-        for decoder in &self.decoders {
-            let union_array = output_columns[decoder.col_idx]
-                .as_any()
-                .downcast_ref::<arrow_array::UnionArray>()
-                .ok_or_else(|| {
-                    DataFusionError::Execution(format!(
-                        "expected UnionArray for deferred column at index {}",
-                        decoder.col_idx
-                    ))
-                })?;
-
-            // Replace the raw UnionArray with the decoded String/Binary array
-            output_columns[decoder.col_idx] = materialize_deferred_column(
-                &self.ffhelper,
-                union_array,
-                decoder.ff_index,
-                decoder.is_bytes,
-                num_rows,
-            )?;
-        }
-
-        RecordBatch::try_new(self.schema.clone(), output_columns)
-            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+        // Replace the raw UnionArray with the decoded String/Binary array
+        output_columns[decoder.col_idx] = materialize_deferred_column(
+            ffhelper,
+            union_array,
+            decoder.ff_index,
+            decoder.is_bytes,
+            num_rows,
+        )?;
     }
+
+    RecordBatch::try_new(schema.clone(), output_columns)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }
 
 /// Materializes deferred union values into their original text or bytes representation.
@@ -446,26 +453,4 @@ fn materialize_deferred_column(
         segment_arrays.iter().map(|a| a.as_ref()).collect();
     interleave(&segment_arrays_refs, &indices)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
-}
-
-impl Stream for LookupStream {
-    type Item = Result<RecordBatch>;
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll = Pin::new(&mut self.input).poll_next(cx);
-        let final_poll = match poll {
-            Poll::Ready(Some(Ok(batch))) => {
-                let timer = self.baseline_metrics.elapsed_compute().timer();
-                let result = self.enrich_batch(batch);
-                timer.done();
-                Poll::Ready(Some(result))
-            }
-            other => other,
-        };
-        self.baseline_metrics.record_poll(final_poll)
-    }
-}
-impl RecordBatchStream for LookupStream {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
-    }
 }

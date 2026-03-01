@@ -57,19 +57,16 @@ use arrow_schema::SchemaRef;
 use arrow_select::concat::concat_batches;
 use arrow_select::filter::filter_record_batch;
 use datafusion::common::{DataFusionError, Result};
-use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use futures::Stream;
 use std::any::Any;
 use std::collections::BinaryHeap;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
 use tantivy::termdict::TermOrdinal;
 use tantivy::SegmentOrdinal;
 
@@ -232,30 +229,69 @@ impl ExecutionPlan for SegmentedTopKExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        let input_stream = self.input.execute(partition, context)?;
+        let mut input_stream = self.input.execute(partition, context)?;
         let rows_input = MetricBuilder::new(&self.metrics).counter("rows_input", partition);
         let rows_output = MetricBuilder::new(&self.metrics).counter("rows_output", partition);
         let segments_seen = MetricBuilder::new(&self.metrics).counter("segments_seen", partition);
 
+        let mut state = SegmentedTopKState {
+            sort_col_idx: self.sort_col_idx,
+            ff_index: self.ff_index,
+            ffhelper: Arc::clone(&self.ffhelper),
+            k: self.k,
+            descending: self.descending,
+            schema: self.properties.eq_properties.schema().clone(),
+            segment_heaps: HashMap::default(),
+            thresholds: Arc::clone(&self.thresholds),
+            batches: Vec::new(),
+            row_ordinals: Vec::new(),
+            rows_input,
+            rows_output,
+            segments_seen,
+        };
+
+        let stream_gen = async_stream::try_stream! {
+            use futures::StreamExt;
+            while let Some(batch_res) = input_stream.next().await {
+                let batch = batch_res?;
+                state.rows_input.add(batch.num_rows());
+                let batch_idx = state.batches.len();
+
+                match state.collect_batch(&batch, batch_idx)? {
+                    Some(pass_through) => {
+                        state.batches.push(batch);
+                        state.maybe_compact();
+                        state.rows_output.add(pass_through.num_rows());
+                        yield pass_through;
+                    }
+                    None => {
+                        state.batches.push(batch);
+                        state.maybe_compact();
+                    }
+                }
+            }
+
+            let survivors = state.build_survivors();
+            for (batch_idx, batch) in state.batches.iter().enumerate() {
+                let num_rows = batch.num_rows();
+
+                let mask: arrow_array::BooleanArray = (0..num_rows)
+                    .map(|row_idx| Some(survivors.contains(&(batch_idx, row_idx))))
+                    .collect();
+
+                let filtered = filter_record_batch(batch, &mask)
+                    .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+
+                if filtered.num_rows() > 0 {
+                    state.rows_output.add(filtered.num_rows());
+                    yield filtered;
+                }
+            }
+        };
+
         // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres.
         let stream = unsafe {
-            UnsafeSendStream::new(SegmentedTopKStream {
-                input: input_stream,
-                sort_col_idx: self.sort_col_idx,
-                ff_index: self.ff_index,
-                ffhelper: Arc::clone(&self.ffhelper),
-                k: self.k,
-                descending: self.descending,
-                schema: self.properties.eq_properties.schema().clone(),
-                segment_heaps: HashMap::default(),
-                thresholds: Arc::clone(&self.thresholds),
-                batches: Vec::new(),
-                row_ordinals: Vec::new(),
-                state: StreamState::Collecting,
-                rows_input,
-                rows_output,
-                segments_seen,
-            })
+            UnsafeSendStream::new(stream_gen, self.properties.eq_properties.schema().clone())
         };
         Ok(Box::pin(stream))
     }
@@ -265,19 +301,7 @@ impl ExecutionPlan for SegmentedTopKExec {
     }
 }
 
-enum StreamState {
-    /// Collecting input batches while updating heaps and publishing thresholds.
-    Collecting,
-    /// Emitting filtered batches from the final survivor set.
-    Emitting {
-        survivors: crate::api::HashSet<(usize, usize)>,
-        next_batch: usize,
-    },
-    Done,
-}
-
-struct SegmentedTopKStream {
-    input: SendableRecordBatchStream,
+struct SegmentedTopKState {
     sort_col_idx: usize,
     ff_index: usize,
     ffhelper: Arc<FFHelper>,
@@ -297,7 +321,6 @@ struct SegmentedTopKStream {
     /// against the per-segment cutoff, correctly retaining all rows tied at the
     /// boundary (which a bounded heap alone would arbitrarily drop).
     row_ordinals: Vec<(usize, usize, SegmentOrdinal, u64)>,
-    state: StreamState,
     rows_input: Count,
     rows_output: Count,
     /// Counts segments that had rows participating in ordinal comparison (States 0+1).
@@ -305,7 +328,7 @@ struct SegmentedTopKStream {
     segments_seen: Count,
 }
 
-impl SegmentedTopKStream {
+impl SegmentedTopKState {
     /// Update the per-segment cutoff heap with a new ordinal. The heap tracks
     /// the K best transformed ordinals to determine the boundary. Row locations
     /// are tracked separately in `row_ordinals`.
@@ -622,79 +645,5 @@ impl SegmentedTopKStream {
         }
 
         survivors
-    }
-}
-
-impl Stream for SegmentedTopKStream {
-    type Item = Result<RecordBatch>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-
-        loop {
-            match &mut this.state {
-                StreamState::Collecting => {
-                    match Pin::new(&mut this.input).poll_next(cx) {
-                        Poll::Ready(Some(Ok(batch))) => {
-                            this.rows_input.add(batch.num_rows());
-                            let batch_idx = this.batches.len();
-                            match this.collect_batch(&batch, batch_idx) {
-                                Ok(pass_through) => {
-                                    this.batches.push(batch);
-                                    this.maybe_compact();
-                                    if let Some(pt) = pass_through {
-                                        this.rows_output.add(pt.num_rows());
-                                        return Poll::Ready(Some(Ok(pt)));
-                                    }
-                                }
-                                Err(e) => return Poll::Ready(Some(Err(e))),
-                            }
-                        }
-                        Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
-                        Poll::Ready(None) => {
-                            // Input exhausted — build survivor set and transition.
-                            let survivors = this.build_survivors();
-                            this.state = StreamState::Emitting {
-                                survivors,
-                                next_batch: 0,
-                            };
-                        }
-                        Poll::Pending => return Poll::Pending,
-                    }
-                }
-                StreamState::Emitting {
-                    survivors,
-                    next_batch,
-                } => {
-                    while *next_batch < this.batches.len() {
-                        let batch_idx = *next_batch;
-                        *next_batch += 1;
-                        let batch = &this.batches[batch_idx];
-                        let num_rows = batch.num_rows();
-
-                        let mask: BooleanArray = (0..num_rows)
-                            .map(|row_idx| Some(survivors.contains(&(batch_idx, row_idx))))
-                            .collect();
-
-                        let filtered = filter_record_batch(batch, &mask)
-                            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-
-                        if filtered.num_rows() > 0 {
-                            this.rows_output.add(filtered.num_rows());
-                            return Poll::Ready(Some(Ok(filtered)));
-                        }
-                    }
-                    this.state = StreamState::Done;
-                    return Poll::Ready(None);
-                }
-                StreamState::Done => return Poll::Ready(None),
-            }
-        }
-    }
-}
-
-impl RecordBatchStream for SegmentedTopKStream {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
     }
 }

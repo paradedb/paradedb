@@ -5,9 +5,11 @@ canonical: https://docs.paradedb.com/deploy/cloud-platforms/render
 ---
 
 <Note>
-  Cloud platform deployments run ParadeDB Community, which does not include WAL support. This makes them suitable for
-  hobby, development, and staging environments. For production, we recommend [ParadeDB Enterprise](/welcome/enterprise)
-  deployed via [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
+  Cloud platform deployments run ParadeDB Community, which does not include WAL
+  support. This makes them suitable for hobby, development, and staging
+  environments. For production, we recommend [ParadeDB
+  Enterprise](/welcome/enterprise) deployed via
+  [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
 </Note>
 
 [Render](https://render.com) is a cloud platform that makes it easy to deploy and manage applications. The
@@ -31,11 +33,11 @@ If you prefer to configure the deployment yourself:
 4. Attach a **Disk** of at least 10 GB mounted at `/var/lib/postgresql`
 5. Set the following environment variables:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `POSTGRES_USER` | Database user | `postgres` |
+| Variable            | Description       | Default        |
+| ------------------- | ----------------- | -------------- |
+| `POSTGRES_USER`     | Database user     | `postgres`     |
 | `POSTGRES_PASSWORD` | Database password | Auto-generated |
-| `POSTGRES_DB` | Database name | `paradedb` |
+| `POSTGRES_DB`       | Database name     | `paradedb`     |
 
 ## Connecting to ParadeDB
 

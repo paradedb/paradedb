@@ -272,7 +272,7 @@ jobs:
 
       - name: Upload Coverage Artifact
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}
           path: coverage-*.lcov
@@ -292,7 +292,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download All Coverage Artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: coverage-*
           path: coverage-reports

@@ -164,7 +164,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: index.docker.io/paradedb/paradedb
           subject-digest: ${{ steps.build-push.outputs.digest }}

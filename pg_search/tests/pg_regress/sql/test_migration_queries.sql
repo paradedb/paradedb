@@ -1,5 +1,7 @@
 \i common/common_setup.sql
 
+DROP TABLE IF EXISTS products CASCADE;
+
 -- Setup: table and BM25 index matching the ES migration docs examples
 CREATE TABLE products (
   id SERIAL PRIMARY KEY,

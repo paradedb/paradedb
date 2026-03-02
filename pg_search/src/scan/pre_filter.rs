@@ -190,7 +190,7 @@ impl PreFilter {
         let batch_schema = Arc::new(Schema::new(fields));
         let options = datafusion::arrow::record_batch::RecordBatchOptions::new()
             .with_row_count(Some(num_rows));
-        let batch = RecordBatch::try_new_with_options(batch_schema, arrays, &options)
+        let batch = RecordBatch::try_new_with_options(batch_schema.clone(), arrays, &options)
             .map_err(|e| format!("Failed to build RecordBatch: {}", e))?;
 
         // 3. Evaluate the rewritten expression natively via DataFusion.

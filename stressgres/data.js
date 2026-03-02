@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772431087164,
+  "lastUpdate": 1772432076053,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10018,6 +10018,42 @@ window.BENCHMARK_DATA = {
             "value": 5.424937903574684,
             "unit": "median tps",
             "extra": "avg tps: 4.860240734551696, max tps: 6.087513996786858, count: 57334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2b1de05c868e54b96da3fa410277f187d505a37",
+          "message": "chore: Port manual Stream implementations to the `async-stream` crate. (#4259)\n\n## What\n\nPort all manual `Stream` implementations to the `async-stream` crate.\n\n## Why\n\nThe `async-stream` crate provides a much more readable macro for\ncreating streams (with a yield keyword similar to Python's async\ngenerators). The same code is produced under the hood.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-03-01T21:35:52-08:00",
+          "tree_id": "c02ecf1de2cac9ad9f30947e24412fb60ffb2c8b",
+          "url": "https://github.com/paradedb/paradedb/commit/d2b1de05c868e54b96da3fa410277f187d505a37"
+        },
+        "date": 1772432071378,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.557104700947309,
+            "unit": "median tps",
+            "extra": "avg tps: 6.463570240737448, max tps: 9.863191966863042, count: 57577"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.44460380880084,
+            "unit": "median tps",
+            "extra": "avg tps: 4.8781265101688, max tps: 6.091264472619921, count: 57577"
           }
         ]
       }

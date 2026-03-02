@@ -26,8 +26,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-pg_search-nix:
-    name: Test pg_search Builds with Determinate Nix
+  flake-check:
+    name: Run Flake Checks
     runs-on: ubuntu-latest
 
     steps:
@@ -45,13 +45,26 @@ jobs:
       - name: Run Flake Checks
         run: nix flake check
 
+  build-pg_search-nix:
+    name: Build pg_search for Nix (PG${{ matrix.pg_version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg_version: [15, 16, 17, 18]
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/determinate-nix-action@main
+
+      # This Action uses GitHub Actions' built-in cache to speed up Nix-related CI workflows
+      - name: Use Magic Nix Cache Action
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
       # If this step fails due to an incorrect hash in flake.nix, the error will
       # provide the correct hash
-      - name: Build pg_search for Nix
-        run: |
-          system=$(nix eval --raw --impure --expr builtins.currentSystem)
-          nix flake show --json 2>/dev/null \
-            | jq -r --arg s "$system" '.packages[$s] | keys[] | ".#\(.)"' \
-            | xargs -L1 nix build
-
-          echo "All pg_search packages built successfully."
+      - name: Build pg_search for Nix (PG${{ matrix.pg_version }})
+        run: nix build --impure .#pg_search-pg${{ matrix.pg_version }}

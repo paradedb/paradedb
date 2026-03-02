@@ -44,6 +44,7 @@ use std::sync::Arc;
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::Result;
 use datafusion::physical_expr::expressions::Column;
+use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::ExecutionPlan;
@@ -122,10 +123,9 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
         return Ok(plan);
     };
     let sort_col_name = col.name();
-    let descending = first_sort.options.descending;
 
     // Walk down from SortExec to find TantivyLookupExec.
-    match try_inject_below_lookup(&plan, sort_col_name, k, descending)? {
+    match try_inject_below_lookup(&plan, sort_exprs.clone(), sort_col_name, k)? {
         Some(rewritten) => Ok(rewritten),
         None => Ok(plan),
     }
@@ -136,9 +136,9 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
 /// as its new child and rebuild the plan tree up to `plan`.
 fn try_inject_below_lookup(
     plan: &Arc<dyn ExecutionPlan>,
+    sort_exprs: LexOrdering,
     sort_col_name: &str,
     k: usize,
-    descending: bool,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let children = plan.children();
 
@@ -161,16 +161,41 @@ fn try_inject_below_lookup(
                     None => return Ok(None),
                 };
 
-                let thresholds = Arc::new(SegmentedThresholds::new(descending, field.ff_index));
+                // The sort_exprs were extracted from SortExec, which is evaluated against
+                // a schema further up the plan (often after a ProjectionExec).
+                // We must rewrite the Column expressions to match the input_schema of this node.
+                let mut rewritten_sort_exprs = Vec::with_capacity(sort_exprs.len());
+                for sort_expr in &sort_exprs {
+                    use datafusion::common::tree_node::{Transformed, TreeNode};
+                    let rewritten_expr = sort_expr.expr.clone().transform(|node| {
+                        if let Some(col) = node.as_any().downcast_ref::<Column>() {
+                            if let Ok(new_idx) = input_schema.index_of(col.name()) {
+                                let new_col = Column::new(col.name(), new_idx);
+                                return Ok(Transformed::yes(
+                                    Arc::new(new_col) as Arc<dyn PhysicalExpr>
+                                ));
+                            }
+                        }
+                        Ok(Transformed::no(node))
+                    })?;
+                    rewritten_sort_exprs.push(PhysicalSortExpr {
+                        expr: rewritten_expr.data,
+                        options: sort_expr.options,
+                    });
+                }
+                let rewritten_lex_ordering =
+                    LexOrdering::new(rewritten_sort_exprs).unwrap_or(sort_exprs.clone());
+
+                let thresholds = Arc::new(SegmentedThresholds::new());
 
                 let segmented_topk = Arc::new(SegmentedTopKExec::new(
                     Arc::clone(lookup_child),
+                    rewritten_lex_ordering,
                     sort_col_name.to_string(),
                     sort_col_idx,
                     field.ff_index,
                     Arc::clone(lookup.ffhelper()),
                     k,
-                    descending,
                     field.is_bytes,
                     Arc::clone(&thresholds),
                 ));
@@ -199,7 +224,9 @@ fn try_inject_below_lookup(
         }
 
         // Recurse into intermediate nodes (ProjectionExec, CoalescePartitionsExec, etc.)
-        if let Some(rewritten) = try_inject_below_lookup(child, sort_col_name, k, descending)? {
+        if let Some(rewritten) =
+            try_inject_below_lookup(child, sort_exprs.clone(), sort_col_name, k)?
+        {
             let mut new_children: Vec<Arc<dyn ExecutionPlan>> =
                 children.iter().map(|c| Arc::clone(c)).collect();
             new_children[child_idx] = rewritten;

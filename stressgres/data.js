@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772434090960,
+  "lastUpdate": 1772435073132,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27634,6 +27634,54 @@ window.BENCHMARK_DATA = {
             "value": 535.7901315005063,
             "unit": "median tps",
             "extra": "avg tps: 504.3994050240588, max tps: 688.1433190870265, count: 107862"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2b1de05c868e54b96da3fa410277f187d505a37",
+          "message": "chore: Port manual Stream implementations to the `async-stream` crate. (#4259)\n\n## What\n\nPort all manual `Stream` implementations to the `async-stream` crate.\n\n## Why\n\nThe `async-stream` crate provides a much more readable macro for\ncreating streams (with a yield keyword similar to Python's async\ngenerators). The same code is produced under the hood.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-03-01T21:35:52-08:00",
+          "tree_id": "c02ecf1de2cac9ad9f30947e24412fb60ffb2c8b",
+          "url": "https://github.com/paradedb/paradedb/commit/d2b1de05c868e54b96da3fa410277f187d505a37"
+        },
+        "date": 1772435067938,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 602.7712832507636,
+            "unit": "median tps",
+            "extra": "avg tps: 603.550865510115, max tps: 720.5130842591652, count: 53939"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 628.5575080310124,
+            "unit": "median tps",
+            "extra": "avg tps: 633.4478823560949, max tps: 853.8485743880781, count: 53939"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 90.97055970659501,
+            "unit": "median tps",
+            "extra": "avg tps: 91.09657357840445, max tps: 96.67058727958216, count: 53939"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 526.6010056208615,
+            "unit": "median tps",
+            "extra": "avg tps: 489.67985382930226, max tps: 728.1347616040524, count: 107878"
           }
         ]
       }

@@ -29,6 +29,8 @@ jobs:
   nix-cargo-hash-check:
     name: Verify Nix Cargo Hash
     runs-on: ubuntu-latest
+    env:
+      PG_MAJOR_VERSION: "18"
 
     steps:
       - name: Checkout Git Repository
@@ -49,6 +51,7 @@ jobs:
             let
               flake = builtins.getFlake (toString ./.);
               system = builtins.currentSystem;
-            in flake.packages.${system}.pg_search-pg18.cargoDeps.drvPath
+              pkg = "pg_search-pg${builtins.getEnv "PG_MAJOR_VERSION"}";
+            in flake.packages.${system}.${pkg}.cargoDeps.drvPath
           ')
           nix build --no-link "$cargo_deps_drv"

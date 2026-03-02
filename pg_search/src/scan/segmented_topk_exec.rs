@@ -71,7 +71,7 @@ use std::any::Any;
 use std::collections::BinaryHeap;
 use std::sync::{Arc, Mutex};
 use tantivy::termdict::TermOrdinal;
-use tantivy::SegmentOrdinal;
+use tantivy::{DocId, SegmentOrdinal};
 
 /// Shared per-segment ordinal thresholds, written by `SegmentedTopKExec`
 /// and read by the scanner for early row pruning.
@@ -105,24 +105,22 @@ impl SegmentedThresholds {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct DeferredSortColumn {
+    pub sort_col_idx: usize,
+    pub ff_index: usize,
+}
+
 pub struct SegmentedTopKExec {
     input: Arc<dyn ExecutionPlan>,
     /// The sort expressions defining the top-k order.
     sort_exprs: LexOrdering,
-    /// Column name of the deferred 3-way UnionArray (doc_address / term_ordinal / materialized).
-    sort_column_name: String,
-    /// Column index in input schema.
-    sort_col_idx: usize,
-    /// Fast field index for term ordinal lookups via FFHelper.
-    ff_index: usize,
+    /// The deferred string/bytes columns that are part of the top-k order.
+    deferred_columns: Vec<DeferredSortColumn>,
     /// FFHelper for Tantivy fast field access (shared with TantivyLookupExec).
     ffhelper: Arc<FFHelper>,
     /// Maximum rows to keep per segment.
     k: usize,
-    /// true = BytesColumn, false = StrColumn.
-    /// Only used for plan reconstruction in `with_new_children`; execution logic
-    /// dynamically matches on `FFType::Text` vs `FFType::Bytes`.
-    is_bytes: bool,
     /// Shared thresholds published back to the scanner for early pruning.
     thresholds: Arc<SegmentedThresholds>,
     properties: PlanProperties,
@@ -140,6 +138,7 @@ impl std::fmt::Debug for SegmentedTopKExec {
         f.debug_struct("SegmentedTopKExec")
             .field("expr", &sort_exprs_str)
             .field("k", &self.k)
+            .field("deferred_columns", &self.deferred_columns)
             .finish()
     }
 }
@@ -149,12 +148,9 @@ impl SegmentedTopKExec {
     pub fn new(
         input: Arc<dyn ExecutionPlan>,
         sort_exprs: LexOrdering,
-        sort_column_name: String,
-        sort_col_idx: usize,
-        ff_index: usize,
+        deferred_columns: Vec<DeferredSortColumn>,
         ffhelper: Arc<FFHelper>,
         k: usize,
-        is_bytes: bool,
         thresholds: Arc<SegmentedThresholds>,
     ) -> Self {
         let eq_props = EquivalenceProperties::new(input.schema());
@@ -167,12 +163,9 @@ impl SegmentedTopKExec {
         Self {
             input,
             sort_exprs,
-            sort_column_name,
-            sort_col_idx,
-            ff_index,
+            deferred_columns,
             ffhelper,
             k,
-            is_bytes,
             thresholds,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
@@ -220,12 +213,9 @@ impl ExecutionPlan for SegmentedTopKExec {
         Ok(Arc::new(SegmentedTopKExec::new(
             children.remove(0),
             self.sort_exprs.clone(),
-            self.sort_column_name.clone(),
-            self.sort_col_idx,
-            self.ff_index,
+            self.deferred_columns.clone(),
             Arc::clone(&self.ffhelper),
             self.k,
-            self.is_bytes,
             Arc::clone(&self.thresholds),
         )))
     }
@@ -248,13 +238,16 @@ impl ExecutionPlan for SegmentedTopKExec {
                 let expr_type = expr
                     .expr
                     .data_type(self.properties.eq_properties.schema())?;
-                // If it's the deferred column, we treat its sorting type as UInt64 (the ordinal type).
+                // If it's a deferred column, we treat its sorting type as UInt64 (the ordinal type).
                 let data_type = if expr
                     .expr
                     .as_any()
                     .downcast_ref::<datafusion::physical_expr::expressions::Column>()
-                    .is_some_and(|c| c.index() == self.sort_col_idx)
-                {
+                    .is_some_and(|c| {
+                        self.deferred_columns
+                            .iter()
+                            .any(|d| d.sort_col_idx == c.index())
+                    }) {
                     arrow_schema::DataType::UInt64
                 } else {
                     expr_type
@@ -267,8 +260,7 @@ impl ExecutionPlan for SegmentedTopKExec {
 
         let mut state = SegmentedTopKState {
             sort_exprs: self.sort_exprs.clone(),
-            sort_col_idx: self.sort_col_idx,
-            ff_index: self.ff_index,
+            deferred_columns: self.deferred_columns.clone(),
             ffhelper: Arc::clone(&self.ffhelper),
             k: self.k,
             schema: self.properties.eq_properties.schema().clone(),
@@ -335,8 +327,7 @@ impl ExecutionPlan for SegmentedTopKExec {
 
 struct SegmentedTopKState {
     sort_exprs: LexOrdering,
-    sort_col_idx: usize,
-    ff_index: usize,
+    deferred_columns: Vec<DeferredSortColumn>,
     ffhelper: Arc<FFHelper>,
     k: usize,
     schema: SchemaRef,
@@ -385,9 +376,99 @@ impl SegmentedTopKState {
         batch_idx: usize,
     ) -> Result<Option<RecordBatch>> {
         let num_rows = batch.num_rows();
+        let mut pass_through = vec![false; num_rows];
+        let mut row_to_seg = vec![None; num_rows];
+        let mut deferred_ords: HashMap<usize, Vec<Option<TermOrdinal>>> = HashMap::default();
 
+        for deferred_col in &self.deferred_columns {
+            let global_term_ords = self.extract_deferred_ordinals(
+                batch,
+                deferred_col,
+                num_rows,
+                &mut pass_through,
+                &mut row_to_seg,
+            )?;
+            deferred_ords.insert(deferred_col.sort_col_idx, global_term_ords);
+        }
+
+        // Build the evaluation arrays for the RowConverter
+        let mut sort_arrays = Vec::with_capacity(self.sort_exprs.len());
+        for expr in &self.sort_exprs {
+            let col_idx = expr
+                .expr
+                .as_any()
+                .downcast_ref::<datafusion::physical_expr::expressions::Column>()
+                .map(|c| c.index());
+
+            if let Some(Some(ords)) = col_idx.map(|idx| deferred_ords.get(&idx)) {
+                // Use our artificially constructed ordinals array
+                let ords_array = Arc::new(UInt64Array::from(ords.clone())) as ArrayRef;
+                sort_arrays.push(ords_array);
+            } else {
+                let val = expr.expr.evaluate(batch)?;
+                sort_arrays.push(val.into_array(num_rows)?);
+            }
+        }
+
+        let converted_rows = self.row_converter.convert_columns(&sort_arrays)?;
+
+        for row_idx in 0..num_rows {
+            if pass_through[row_idx] {
+                continue;
+            }
+            if let Some(seg_ord) = row_to_seg[row_idx] {
+                if !self.segment_heaps.contains_key(&seg_ord) {
+                    self.segments_seen.add(1);
+                }
+                let heap = self.segment_heaps.entry(seg_ord).or_default();
+
+                let heap_val = converted_rows.row(row_idx).owned();
+                Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
+                self.row_ordinals
+                    .push((batch_idx, row_idx, seg_ord, heap_val));
+            }
+        }
+
+        // Publish thresholds for segments with full heaps.
+        for (seg_ord, heap) in &self.segment_heaps {
+            if heap.len() >= self.k {
+                if let Some(worst) = heap.peek() {
+                    // Extract the values from the worst row
+                    let arrays = self
+                        .row_converter
+                        .convert_rows(std::iter::once(worst.row()))?;
+                    if let Some(expr) = self.build_filter_expression(&arrays) {
+                        self.thresholds.set_threshold(*seg_ord, expr);
+                    }
+                }
+            }
+        }
+
+        // Emit pass-through rows (State 2 + NULL ordinals) immediately.
+        if pass_through.iter().any(|&b| b) {
+            let mask: BooleanArray = pass_through.into_iter().map(Some).collect();
+            let filtered = filter_record_batch(batch, &mask)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+            if filtered.num_rows() > 0 {
+                return Ok(Some(filtered));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Helper to extract term ordinals from a deferred UnionArray.
+    /// Mutates `pass_through` for rows that contain State 2 or NULLs, and populates `row_to_seg` mapping.
+    fn extract_deferred_ordinals(
+        &self,
+        batch: &RecordBatch,
+        deferred_col: &DeferredSortColumn,
+        num_rows: usize,
+        pass_through: &mut [bool],
+        row_to_seg: &mut [Option<SegmentOrdinal>],
+    ) -> Result<Vec<Option<TermOrdinal>>> {
         let union_col = batch
-            .column(self.sort_col_idx)
+            .column(deferred_col.sort_col_idx)
             .as_any()
             .downcast_ref::<UnionArray>()
             .ok_or_else(|| {
@@ -396,14 +477,11 @@ impl SegmentedTopKState {
                 )
             })?;
 
-        // Dense union: each child is compact (contains only its type's rows).
-        // Partition original row indices by type, then iterate compact children.
         let type_ids = union_col.type_ids();
         let offsets = union_col.offsets().ok_or_else(|| {
             DataFusionError::Internal("SegmentedTopKExec: expected dense union with offsets".into())
         })?;
 
-        let mut pass_through = vec![false; num_rows];
         let mut state0_rows: Vec<usize> = Vec::new();
         let mut state1_rows: Vec<usize> = Vec::new();
         for row_idx in 0..num_rows {
@@ -415,13 +493,10 @@ impl SegmentedTopKState {
             }
         }
 
-        // We will build a single array of ordinals mapped to all rows in the batch.
-        // It uses native NULLs for missing or unresolvable ordinals.
-        let mut global_term_ords: Vec<Option<u64>> = vec![None; num_rows];
-        let mut row_to_seg = vec![None; num_rows];
+        let mut global_term_ords: Vec<Option<TermOrdinal>> = vec![None; num_rows];
 
         // State 0: compact doc address child.
-        let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, u32)>> = HashMap::default();
+        let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, DocId)>> = HashMap::default();
         if !state0_rows.is_empty() {
             let doc_addr_child = union_col
                 .child(0)
@@ -492,10 +567,10 @@ impl SegmentedTopKState {
 
         // Bulk-fetch term ordinals for State 0 rows via FFHelper
         for (seg_ord, rows) in state0_by_seg {
-            let doc_ids: Vec<u32> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
+            let doc_ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
             let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; doc_ids.len()];
 
-            let col = self.ffhelper.column(seg_ord, self.ff_index);
+            let col = self.ffhelper.column(seg_ord, deferred_col.ff_index);
             match col {
                 FFType::Text(str_col) => {
                     str_col.ords().first_vals(&doc_ids, &mut term_ords);
@@ -505,10 +580,10 @@ impl SegmentedTopKState {
                 }
                 _ => {
                     panic!(
-                        "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \
-                         — the optimizer should never plan this node for non-dictionary columns",
-                        self.ff_index
-                    );
+                            "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \
+                             — the optimizer should never plan this node for non-dictionary columns",
+                            deferred_col.ff_index
+                        );
                 }
             }
 
@@ -522,71 +597,8 @@ impl SegmentedTopKState {
             }
         }
 
-        // Build the evaluation arrays for the RowConverter
-        let mut sort_arrays = Vec::with_capacity(self.sort_exprs.len());
-        for expr in &self.sort_exprs {
-            if expr
-                .expr
-                .as_any()
-                .downcast_ref::<datafusion::physical_expr::expressions::Column>()
-                .is_some_and(|c| c.index() == self.sort_col_idx)
-            {
-                // Use our artificially constructed ordinals array
-                let ords_array = Arc::new(UInt64Array::from(global_term_ords.clone())) as ArrayRef;
-                sort_arrays.push(ords_array);
-            } else {
-                let val = expr.expr.evaluate(batch)?;
-                sort_arrays.push(val.into_array(num_rows)?);
-            }
-        }
-
-        let converted_rows = self.row_converter.convert_columns(&sort_arrays)?;
-
-        for row_idx in 0..num_rows {
-            if pass_through[row_idx] {
-                continue;
-            }
-            if let Some(seg_ord) = row_to_seg[row_idx] {
-                if !self.segment_heaps.contains_key(&seg_ord) {
-                    self.segments_seen.add(1);
-                }
-                let heap = self.segment_heaps.entry(seg_ord).or_default();
-
-                let heap_val = converted_rows.row(row_idx).owned();
-                Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
-                self.row_ordinals
-                    .push((batch_idx, row_idx, seg_ord, heap_val));
-            }
-        }
-
-        // Publish thresholds for segments with full heaps.
-        for (seg_ord, heap) in &self.segment_heaps {
-            if heap.len() >= self.k {
-                if let Some(worst) = heap.peek() {
-                    // Extract the values from the worst row
-                    let arrays = self
-                        .row_converter
-                        .convert_rows(std::iter::once(worst.row()))?;
-                    if let Some(expr) = self.build_filter_expression(&arrays) {
-                        self.thresholds.set_threshold(*seg_ord, expr);
-                    }
-                }
-            }
-        }
-
-        // Emit pass-through rows (State 2 + NULL ordinals) immediately.
-        if pass_through.iter().any(|&b| b) {
-            let mask: BooleanArray = pass_through.into_iter().map(Some).collect();
-            let filtered = filter_record_batch(batch, &mask)
-                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-            if filtered.num_rows() > 0 {
-                return Ok(Some(filtered));
-            }
-        }
-
-        Ok(None)
+        Ok(global_term_ords)
     }
-
     /// Translates the threshold arrays from the `RowConverter` back into a DataFusion
     /// `PhysicalExpr` that can be pushed down to the scan layer to filter out rows.
     ///

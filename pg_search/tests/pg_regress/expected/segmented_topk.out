@@ -535,11 +535,11 @@ ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
  id  |     title     |  content   
 -----+---------------+------------
+ 106 | Group A Title | content 06
  105 | Group A Title | content 05
  104 | Group A Title | content 04
  103 | Group A Title | content 03
  102 | Group A Title | content 02
- 101 | Group A Title | content 01
 (5 rows)
 
 -- =============================================================================

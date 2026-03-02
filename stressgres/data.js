@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772432082143,
+  "lastUpdate": 1772433108919,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14538,6 +14538,54 @@ window.BENCHMARK_DATA = {
             "value": 5.457749724683039,
             "unit": "median tps",
             "extra": "avg tps: 5.456628580789657, max tps: 7.081394031615578, count: 56148"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2b1de05c868e54b96da3fa410277f187d505a37",
+          "message": "chore: Port manual Stream implementations to the `async-stream` crate. (#4259)\n\n## What\n\nPort all manual `Stream` implementations to the `async-stream` crate.\n\n## Why\n\nThe `async-stream` crate provides a much more readable macro for\ncreating streams (with a yield keyword similar to Python's async\ngenerators). The same code is produced under the hood.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-03-01T21:35:52-08:00",
+          "tree_id": "c02ecf1de2cac9ad9f30947e24412fb60ffb2c8b",
+          "url": "https://github.com/paradedb/paradedb/commit/d2b1de05c868e54b96da3fa410277f187d505a37"
+        },
+        "date": 1772433104209,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1104.9779363660323,
+            "unit": "median tps",
+            "extra": "avg tps: 1108.0532818094907, max tps: 1163.3675598150649, count: 56169"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1248.5145461264235,
+            "unit": "median tps",
+            "extra": "avg tps: 1235.948902247627, max tps: 1267.256456408983, count: 56169"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1129.6978936666037,
+            "unit": "median tps",
+            "extra": "avg tps: 1034.658742557701, max tps: 1535.3170540167712, count: 56169"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.2506948249966685,
+            "unit": "median tps",
+            "extra": "avg tps: 5.319972688243834, max tps: 6.742722690654901, count: 56169"
           }
         ]
       }

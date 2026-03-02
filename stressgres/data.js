@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772273850064,
+  "lastUpdate": 1772431080152,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2942,6 +2942,78 @@ window.BENCHMARK_DATA = {
             "value": 77.65621651965473,
             "unit": "median tps",
             "extra": "avg tps: 109.02846454984049, max tps: 309.19250974961284, count: 55185"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2b1de05c868e54b96da3fa410277f187d505a37",
+          "message": "chore: Port manual Stream implementations to the `async-stream` crate. (#4259)\n\n## What\n\nPort all manual `Stream` implementations to the `async-stream` crate.\n\n## Why\n\nThe `async-stream` crate provides a much more readable macro for\ncreating streams (with a yield keyword similar to Python's async\ngenerators). The same code is produced under the hood.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-03-01T21:35:52-08:00",
+          "tree_id": "c02ecf1de2cac9ad9f30947e24412fb60ffb2c8b",
+          "url": "https://github.com/paradedb/paradedb/commit/d2b1de05c868e54b96da3fa410277f187d505a37"
+        },
+        "date": 1772431075500,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 141.72716592029886,
+            "unit": "median tps",
+            "extra": "avg tps: 141.38995263116945, max tps: 152.60841053985212, count: 54862"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3018.4087180978267,
+            "unit": "median tps",
+            "extra": "avg tps: 3005.726429833122, max tps: 3035.0235239235762, count: 54862"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 441.7902154266324,
+            "unit": "median tps",
+            "extra": "avg tps: 445.6666387917905, max tps: 554.1269342262411, count: 54862"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3013.327412710501,
+            "unit": "median tps",
+            "extra": "avg tps: 2997.2465149209143, max tps: 3036.73319033362, count: 109724"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 492.5807129509017,
+            "unit": "median tps",
+            "extra": "avg tps: 495.3871286370979, max tps: 630.244435088333, count: 54862"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 486.7861215947675,
+            "unit": "median tps",
+            "extra": "avg tps: 491.45493450809255, max tps: 631.4713221926187, count: 54862"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1967.1948828642176,
+            "unit": "median tps",
+            "extra": "avg tps: 1955.5983600141187, max tps: 1971.9484329698896, count: 54862"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 61.47779829810832,
+            "unit": "median tps",
+            "extra": "avg tps: 88.34292213885291, max tps: 845.320685081696, count: 54862"
           }
         ]
       }

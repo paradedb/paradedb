@@ -26,8 +26,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  flake-check:
-    name: Run Flake Checks
+  nix-smoke-checks:
+    name: Run Nix Smoke Checks
     runs-on: ubuntu-latest
 
     steps:
@@ -45,8 +45,21 @@ jobs:
       - name: Run Flake Checks
         run: nix flake check
 
+      # Build only cargo deps to surface cargoHash mismatches quickly, without
+      # compiling pg_search for every Postgres variant.
+      - name: Verify Nix Cargo Hash
+        run: |
+          cargo_deps_drv=$(nix eval --raw --impure --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              system = builtins.currentSystem;
+            in flake.packages.${system}.pg_search-pg18.cargoDeps.drvPath
+          ')
+          nix build --no-link "$cargo_deps_drv"
+
   build-pg_search-nix:
     name: Build pg_search for Nix (PG${{ matrix.pg_version }})
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

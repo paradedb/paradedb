@@ -69,6 +69,7 @@
           mkForPg =
             version:
             pkgs.callPackage ./nix/pg_search.nix {
+              inherit self;
               postgresql = pkgs."postgresql_${toString version}";
               inherit (pkgs) cargo-pgrx;
             };

@@ -1,13 +1,12 @@
 {
+  self,
   buildPgrxExtension,
   cargo-pgrx,
-  fetchFromGitHub,
   fetchurl,
   lib,
   nix-update-script,
   pkg-config,
   postgresql,
-  stdenv,
 }:
 
 let
@@ -59,13 +58,7 @@ in
 buildPgrxExtension (finalAttrs: {
   pname = "pg_search";
   version = rootCargoToml.workspace.package.version;
-
-  src = fetchFromGitHub {
-    owner = "paradedb";
-    repo = "paradedb";
-    tag = "v${finalAttrs.version}";
-    hash = "sha256-gvQOfyFU8SVtAJTGw0EuRatfDVZRqpv7WhIqYYZYbgc=";
-  };
+  src = self;
 
   # This hash needs to change any time the Rust dependencies are updated.
   # If maintainers forget to do so, Nix will throw an error message that begins

@@ -288,7 +288,12 @@ pub unsafe extern "C-unwind" fn amgettuple(
         match state.results.as_mut().and_then(|r| r.next()) {
             Some((scored, doc_address)) => {
                 let ipd = &mut (*scan).xs_heaptid;
-                crate::postgres::utils::u64_to_item_pointer(scored.ctid, ipd);
+                crate::postgres::utils::u64_to_item_pointer(
+                    scored
+                        .ctid
+                        .expect("ctid must be resolved in index scan path"),
+                    ipd,
+                );
 
                 if (*scan).xs_want_itup {
                     let key = state
@@ -390,7 +395,12 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
         if let Some(search_results) = state.results.as_mut() {
             for (scored, _) in search_results {
                 let mut ipd = pg_sys::ItemPointerData::default();
-                crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut ipd);
+                crate::postgres::utils::u64_to_item_pointer(
+                    scored
+                        .ctid
+                        .expect("ctid must be resolved in bitmap scan path"),
+                    &mut ipd,
+                );
 
                 // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
                 // initialized as a stack-allocated ItemPointerData

@@ -2256,7 +2256,7 @@ ORDER BY t1.val ASC NULLS LAST
 LIMIT 10;
 
 -- TEST 40B: WHERE val IS NULL alone (no BM25 predicate)
--- Should fetch exactly the 10 NULL rows. 
+-- Should fetch exactly the 10 NULL rows.
 -- Verifies the scanner can yield rows when the only filter is a NULL check.
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT t1.id, t1.val
@@ -2291,6 +2291,249 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
 ORDER BY t1.id DESC
 LIMIT 15;
+
+-- =============================================================================
+-- TEST 41: Deferred visibility + dead tuples + LIMIT (single-segment)
+-- Single-segment sorted join with deferred visibility: VisibilityFilterExec
+-- resolves packed DocAddresses to real ctids and
+-- filters invisible rows. Delete rows from t1 to create dead tuples that
+-- the BM25 index still references. LIMIT should correctly count only
+-- visible rows.
+-- =============================================================================
+
+DROP TABLE IF EXISTS vis_test_t1 CASCADE;
+DROP TABLE IF EXISTS vis_test_t2 CASCADE;
+
+CREATE TABLE vis_test_t1 (id INTEGER PRIMARY KEY, val TEXT);
+CREATE TABLE vis_test_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+
+-- Insert data BEFORE creating indexes → bulk build → single segment
+INSERT INTO vis_test_t1 SELECT i, 'val ' || i FROM generate_series(1, 100) i;
+INSERT INTO vis_test_t2 SELECT i, i, 'val ' || i FROM generate_series(1, 100) i;
+
+CREATE INDEX vis_test_t1_idx ON vis_test_t1 USING bm25 (id, val)
+WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}');
+CREATE INDEX vis_test_t2_idx ON vis_test_t2 USING bm25 (id, t1_id, val)
+WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}');
+
+-- Delete first 5 rows from t1: BM25 index still has their ctids
+DELETE FROM vis_test_t1 WHERE id <= 5;
+
+ANALYZE vis_test_t1;
+ANALYZE vis_test_t2;
+
+-- Must return 10 rows starting from id=6 (ids 1-5 deleted, filtered by VisibilityFilter)
+SELECT t1.val, t2.val
+FROM vis_test_t1 t1
+JOIN vis_test_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 42: Deferred visibility + dead tuples + LIMIT (multi-segment)
+-- Multi-segment sorted join: indexes created before data with small
+-- mutable_segment_rows → multiple segments. Verify dead tuples are
+-- correctly filtered and LIMIT returns the right count.
+-- =============================================================================
+
+DROP TABLE IF EXISTS vis_fb_t1 CASCADE;
+DROP TABLE IF EXISTS vis_fb_t2 CASCADE;
+
+CREATE TABLE vis_fb_t1 (id INTEGER PRIMARY KEY, val TEXT);
+CREATE TABLE vis_fb_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+
+-- Create indexes BEFORE data → inserts go through mutable segments
+CREATE INDEX vis_fb_t1_idx ON vis_fb_t1 USING bm25 (id, val)
+WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}', mutable_segment_rows = 10);
+CREATE INDEX vis_fb_t2_idx ON vis_fb_t2 USING bm25 (id, t1_id, val)
+WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}', mutable_segment_rows = 10);
+
+INSERT INTO vis_fb_t1 SELECT i, 'val ' || i FROM generate_series(1, 100) i;
+INSERT INTO vis_fb_t2 SELECT i, i, 'val ' || i FROM generate_series(1, 100) i;
+
+-- Delete first 5 rows from t1
+DELETE FROM vis_fb_t1 WHERE id <= 5;
+
+ANALYZE vis_fb_t1;
+ANALYZE vis_fb_t2;
+
+-- Must return 10 rows starting from id=6 (same result as TEST 41, via multi-segment path)
+SELECT t1.val, t2.val
+FROM vis_fb_t1 t1
+JOIN vis_fb_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 43: HOT chains + dead tuples + OR predicate + LIMIT
+-- Update rows to create HOT chains (stale ctids in BM25 index), then delete
+-- some. The OR across tables generates pdb_search_predicate at join level.
+-- Verifies that HOT-resolved ctids match correctly in the predicate and that
+-- VisibilityFilter properly handles the mixed HOT/dead tuple state.
+-- =============================================================================
+
+DROP TABLE IF EXISTS hot_test_items CASCADE;
+DROP TABLE IF EXISTS hot_test_refs CASCADE;
+
+CREATE TABLE hot_test_items (
+    id INTEGER PRIMARY KEY,
+    description TEXT,
+    ref_id INTEGER,
+    notes TEXT  -- NOT in BM25 index → UPDATEs create HOT chains
+);
+
+CREATE TABLE hot_test_refs (
+    id INTEGER PRIMARY KEY,
+    info TEXT
+);
+
+INSERT INTO hot_test_refs (id, info) VALUES
+(1, 'supplier alpha fast delivery'),
+(2, 'supplier beta premium quality'),
+(3, 'supplier gamma budget option');
+
+INSERT INTO hot_test_items (id, description, ref_id, notes) VALUES
+(1, 'wireless mouse ergonomic', 1, 'old'),
+(2, 'wired keyboard mechanical', 2, 'old'),
+(3, 'wireless headphones noise canceling', 1, 'old'),
+(4, 'usb cable fast charge', 3, 'old'),
+(5, 'wireless speaker bluetooth', 2, 'old'),
+(6, 'monitor stand adjustable', 3, 'old'),
+(7, 'webcam hd conferencing', 1, 'old'),
+(8, 'cable organizer desktop', 2, 'old'),
+(9, 'wireless charger pad', 1, 'old'),
+(10, 'wireless earbuds sport', 2, 'old'),
+(11, 'wireless adapter wifi', 3, 'old'),
+(12, 'wireless presenter remote', 1, 'old');
+
+-- Create indexes after data (single segment)
+CREATE INDEX hot_test_items_idx ON hot_test_items USING bm25 (id, description, ref_id)
+WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
+CREATE INDEX hot_test_refs_idx ON hot_test_refs USING bm25 (id, info)
+WITH (key_field = 'id');
+
+-- UPDATE non-indexed column → HOT chains (BM25 index still has old ctids)
+UPDATE hot_test_items SET notes = 'updated' WHERE id <= 4;
+
+-- DELETE items 1 and 2 → dead tuples among HOT-updated rows
+DELETE FROM hot_test_items WHERE id IN (1, 2);
+
+ANALYZE hot_test_items;
+ANALYZE hot_test_refs;
+
+-- Verify results (ORDER BY for deterministic output):
+-- Items matching 'wireless': 3, 5, 9, 10, 11, 12 (items 1 deleted)
+-- Items matching ref 'alpha' (ref_id=1): 3, 7, 9, 12 (item 1 deleted)
+-- OR: items 3, 5, 7, 9, 10, 11, 12 → 7 rows
+-- Item 3 has HOT chain (updated) and matches both conditions
+-- Item 7 has no HOT chain but matches via ref 'alpha'
+SELECT i.id, i.description, r.info
+FROM hot_test_items i
+JOIN hot_test_refs r ON i.ref_id = r.id
+WHERE i.description @@@ 'wireless' OR r.info @@@ 'alpha'
+ORDER BY i.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 44: Larger LIMIT — verify all visible rows returned with dead tuples
+-- With 5 deleted rows (id 1-5), requesting LIMIT 100 should return exactly
+-- 95 visible rows. This exercises the root-level VisibilityFilter path.
+-- =============================================================================
+
+-- Reuse vis_test tables from TEST 41 (5 rows deleted from t1)
+SELECT COUNT(*) FROM (
+  SELECT t1.val, t2.val
+  FROM vis_test_t1 t1
+  JOIN vis_test_t2 t2 ON t1.id = t2.t1_id
+  WHERE t1.val @@@ 'val'
+  ORDER BY t1.id ASC NULLS FIRST
+  LIMIT 100
+) sub;
+
+-- =============================================================================
+-- TEST 45: EXISTS + cross-table OR on HOT/dead tuples
+-- Uses EXISTS syntax with a join-level OR predicate spanning both tables.
+-- PostgreSQL may flatten the EXISTS into an inner join when keys are unique.
+-- Verifies no false negatives from HOT chains or dead tuples with cross-table
+-- OR predicates evaluated via SearchPredicateUDF at join time.
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id
+FROM hot_test_items i
+WHERE EXISTS (
+  SELECT 1
+  FROM hot_test_refs r
+  WHERE r.id = i.ref_id
+    AND (i.description @@@ 'wireless' OR r.info @@@ 'alpha')
+)
+ORDER BY i.id
+LIMIT 10;
+
+SELECT i.id
+FROM hot_test_items i
+WHERE EXISTS (
+  SELECT 1
+  FROM hot_test_refs r
+  WHERE r.id = i.ref_id
+    AND (i.description @@@ 'wireless' OR r.info @@@ 'alpha')
+)
+ORDER BY i.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 46: Same-named deferred columns across join sides
+-- Both tables have a "description" column with fast:true. Verifies that
+-- TantivyLookupExec correctly resolves deferred fields to the right table
+-- even when column names collide across join sides.
+-- =============================================================================
+
+DROP TABLE IF EXISTS dup_col_t1 CASCADE;
+DROP TABLE IF EXISTS dup_col_t2 CASCADE;
+
+CREATE TABLE dup_col_t1 (id INTEGER PRIMARY KEY, description TEXT);
+CREATE TABLE dup_col_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, description TEXT);
+
+-- Distinct prefixes: t1 = 'alpha N', t2 = 'beta N'
+-- If deferred column mapping is wrong, alpha/beta values would swap
+INSERT INTO dup_col_t1 SELECT i, 'alpha ' || i FROM generate_series(1, 5) i;
+INSERT INTO dup_col_t2 SELECT i, i, 'beta ' || i FROM generate_series(1, 5) i;
+
+CREATE INDEX dup_col_t1_idx ON dup_col_t1 USING bm25 (id, description)
+WITH (key_field = 'id', text_fields = '{"description": {"fast": true}}');
+CREATE INDEX dup_col_t2_idx ON dup_col_t2 USING bm25 (id, t1_id, description)
+WITH (key_field = 'id', numeric_fields = '{"t1_id": {"fast": true}}', text_fields = '{"description": {"fast": true}}');
+
+ANALYZE dup_col_t1;
+ANALYZE dup_col_t2;
+
+-- 46a: EXPLAIN to confirm both descriptions go through TantivyLookupExec
+-- ORDER BY both deferred columns forces DataFusion-side decode for each.
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT t1.description, t2.description
+FROM dup_col_t1 t1
+JOIN dup_col_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.description @@@ 'alpha'
+ORDER BY t1.description, t2.description
+LIMIT 10;
+
+-- 46b: Verify values are correct (alpha in t1.description, beta in t2.description)
+SELECT t1.description, t2.description
+FROM dup_col_t1 t1
+JOIN dup_col_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.description @@@ 'alpha'
+ORDER BY t1.id
+LIMIT 10;
+
+-- 46c: Reverse join syntax — verify values are still correct
+SELECT t2.description, t1.description
+FROM dup_col_t2 t2
+JOIN dup_col_t1 t1 ON t1.id = t2.t1_id
+WHERE t1.description @@@ 'alpha'
+ORDER BY t1.id
+LIMIT 10;
+
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================
@@ -2346,6 +2589,16 @@ DROP TABLE IF EXISTS multi_seg_2 CASCADE;
 DROP TABLE IF EXISTS recursive_smj_1 CASCADE;
 DROP TABLE IF EXISTS recursive_smj_2 CASCADE;
 DROP TABLE IF EXISTS recursive_smj_3 CASCADE;
+DROP TABLE IF EXISTS vis_test_t1 CASCADE;
+DROP TABLE IF EXISTS vis_test_t2 CASCADE;
+DROP TABLE IF EXISTS vis_fb_t1 CASCADE;
+DROP TABLE IF EXISTS vis_fb_t2 CASCADE;
+DROP TABLE IF EXISTS hot_test_items CASCADE;
+DROP TABLE IF EXISTS hot_test_refs CASCADE;
+DROP TABLE IF EXISTS semi_items CASCADE;
+DROP TABLE IF EXISTS semi_tags CASCADE;
+DROP TABLE IF EXISTS dup_col_t1 CASCADE;
+DROP TABLE IF EXISTS dup_col_t2 CASCADE;
 
 
 RESET max_parallel_workers_per_gather;

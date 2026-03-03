@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use pgrx::pg_sys;
+
 pub mod batch_scanner;
 pub mod codec;
 pub mod deferred_encode;
@@ -23,6 +25,7 @@ pub mod filter_pushdown;
 pub mod info;
 pub mod late_materialization_rule;
 pub mod pre_filter;
+pub mod reorder_lookup_above_visibility_rule;
 pub mod search_predicate_udf;
 pub mod segmented_topk_exec;
 pub mod segmented_topk_rule;
@@ -30,9 +33,25 @@ pub mod table_provider;
 pub mod tantivy_lookup_exec;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
+pub mod visibility_ctid_resolver_rule;
 
 pub use batch_scanner::Scanner;
 pub use codec::PgSearchExtensionCodec;
 pub use info::ScanInfo;
 pub use search_predicate_udf::SearchPredicateUDF;
 pub use table_provider::PgSearchTableProvider;
+
+const CTID_COLUMN_PREFIX: &str = "ctid_";
+
+/// Build the canonical ctid column name for a given range table index.
+pub fn ctid_column_name(rti: pg_sys::Index) -> String {
+    format!("{CTID_COLUMN_PREFIX}{rti}")
+}
+
+/// Parse a range table index from a ctid column name (e.g. `"ctid_2"` → `Some(2)`).
+pub fn parse_ctid_rti(field_name: &str) -> Option<pg_sys::Index> {
+    field_name
+        .strip_prefix(CTID_COLUMN_PREFIX)?
+        .parse::<pg_sys::Index>()
+        .ok()
+}

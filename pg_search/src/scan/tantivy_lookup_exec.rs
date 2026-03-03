@@ -6,7 +6,6 @@ use crate::index::fast_fields_helper::{
 };
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
-
 use arrow_array::{new_null_array, Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
 use arrow_array::{StructArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
@@ -22,19 +21,48 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Pla
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, serde::Serialize, serde::Deserialize)]
+pub enum DeferredKind {
+    /// Text column deferred for late materialization.
+    /// `ff_index` is the index into the FFHelper columns array.
+    Text { ff_index: usize },
+    /// Bytes column deferred for late materialization.
+    /// `ff_index` is the index into the FFHelper columns array.
+    Bytes { ff_index: usize },
+    /// Ctid column deferred for late visibility checking.
+    /// Uses `ffhelper.ctid()` instead of `ffhelper.column()`.
+    Ctid,
+}
+
+impl DeferredKind {
+    /// Returns `(ff_index, is_bytes)` for Text/Bytes variants.
+    ///
+    /// # Panics
+    /// Panics for `Ctid`, which is resolved by `VisibilityFilterExec` and should
+    /// never appear in `TantivyLookupExec` deferred fields.
+    pub fn ff_index_and_is_bytes(&self) -> (usize, bool) {
+        match self {
+            DeferredKind::Text { ff_index } => (*ff_index, false),
+            DeferredKind::Bytes { ff_index } => (*ff_index, true),
+            DeferredKind::Ctid => {
+                unreachable!("TantivyLookupExec should never receive DeferredKind::Ctid fields")
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct DeferredField {
     pub field_name: String,
-    pub is_bytes: bool,
-    pub ff_index: usize,
+    pub kind: DeferredKind,
 }
 
 impl DeferredField {
     pub fn output_data_type(&self) -> DataType {
-        if self.is_bytes {
-            DataType::BinaryView
-        } else {
-            DataType::Utf8View
+        match self.kind {
+            DeferredKind::Text { .. } => DataType::Utf8View,
+            DeferredKind::Bytes { .. } => DataType::BinaryView,
+            DeferredKind::Ctid => DataType::UInt64,
         }
     }
 }
@@ -116,11 +144,12 @@ fn build_schema_and_decoders(
         if is_union {
             if let Some(pos) = deferred_pool.iter().position(|d| &d.field_name == name) {
                 let d = deferred_pool.remove(pos);
+                let (ff_index, is_bytes) = d.kind.ff_index_and_is_bytes();
                 fields.push(Field::new(&d.field_name, d.output_data_type(), true));
                 decoders.push(DecoderInfo {
                     col_idx,
-                    is_bytes: d.is_bytes,
-                    ff_index: d.ff_index,
+                    ff_index,
+                    is_bytes,
                 });
                 continue;
             }
@@ -453,4 +482,246 @@ fn materialize_deferred_column(
         segment_arrays.iter().map(|a| a.as_ref()).collect();
     interleave(&segment_arrays_refs, &indices)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+}
+
+/// Build a `UInt64Array` (as `ArrayRef`) from a slice of optional u64 values.
+pub(crate) fn uint64_array_from_options(vals: &[Option<u64>]) -> ArrayRef {
+    Arc::new(UInt64Array::from(vals.to_vec()))
+}
+
+/// Materializes deferred ctid columns: unpacks DocAddresses and resolves to real ctids.
+///
+/// Takes a UInt64Array of packed DocAddresses (segment_ord << 32 | doc_id) and uses
+/// the FFHelper to look up the real ctid for each document. Null entries pass through
+/// as nulls in the output.
+pub(crate) fn materialize_deferred_ctid(
+    ffhelper: &FFHelper,
+    doc_addr_array: &UInt64Array,
+    num_rows: usize,
+) -> Result<ArrayRef> {
+    // Group by segment, tracking null rows separately.
+    let mut by_seg: crate::api::HashMap<u32, Vec<(usize, tantivy::DocId)>> =
+        crate::api::HashMap::default();
+    let mut null_indices: Vec<usize> = Vec::new();
+
+    for row in 0..num_rows {
+        if doc_addr_array.is_null(row) {
+            null_indices.push(row);
+            continue;
+        }
+        let packed = doc_addr_array.value(row);
+        let (seg_ord, doc_id) = unpack_doc_address(packed);
+        by_seg.entry(seg_ord).or_default().push((row, doc_id));
+    }
+
+    let mut segment_arrays: Vec<ArrayRef> = Vec::new();
+    // Default (0, 0) for null rows is safe: null rows are masked out after
+    // interleave, so the value at segment_arrays[0][0] is never used in output.
+    // segment_arrays[0] is guaranteed to exist when there are any non-null rows.
+    let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
+
+    let mut seg_ords: Vec<u32> = by_seg.keys().copied().collect();
+    seg_ords.sort_unstable();
+
+    for seg_ord in seg_ords {
+        // Safe: seg_ords was derived from by_seg.keys() above.
+        let mut rows = by_seg.remove(&seg_ord).unwrap();
+        // FFHelper::ctid() uses columnar fast field access which is optimized for
+        // sequential reads. Sorting by doc_id ensures ascending access order,
+        // avoiding expensive random seeks into the fast field column.
+        rows.sort_unstable_by_key(|(_, doc_id)| *doc_id);
+
+        let ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
+        let mut ctid_results: Vec<Option<u64>> = vec![None; ids.len()];
+        ffhelper.ctid(seg_ord).as_u64s(&ids, &mut ctid_results);
+
+        let array = uint64_array_from_options(&ctid_results);
+
+        segment_arrays.push(array);
+        let array_idx = segment_arrays.len() - 1;
+        for (idx_within_segment, (original_row_idx, _)) in rows.into_iter().enumerate() {
+            indices[original_row_idx] = (array_idx, idx_within_segment);
+        }
+    }
+
+    // If all rows are null, return a null UInt64 array.
+    if segment_arrays.is_empty() {
+        return Ok(arrow_array::new_null_array(&DataType::UInt64, num_rows));
+    }
+
+    let segment_arrays_refs: Vec<&dyn arrow_array::Array> =
+        segment_arrays.iter().map(|a| a.as_ref()).collect();
+    let mut result = interleave(&segment_arrays_refs, &indices)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+
+    // Apply null mask for rows that had null packed addresses.
+    if !null_indices.is_empty() {
+        let existing_nulls = result.nulls().cloned();
+        let mut null_buf = arrow_buffer::BooleanBufferBuilder::new(num_rows);
+        null_buf.append_n(num_rows, true);
+        for &idx in &null_indices {
+            null_buf.set_bit(idx, false);
+        }
+        let new_nulls = arrow_buffer::NullBuffer::from(null_buf.finish());
+        let combined = match existing_nulls {
+            Some(existing) => {
+                let combined_buf = existing.inner() & new_nulls.inner();
+                arrow_buffer::NullBuffer::from(combined_buf)
+            }
+            None => new_nulls,
+        };
+        result = arrow_array::make_array(
+            result
+                .to_data()
+                .into_builder()
+                .nulls(Some(combined))
+                .build()
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?,
+        );
+    }
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scan::deferred_encode::deferred_union_data_type;
+    use arrow_schema::{Field, Schema};
+
+    #[test]
+    fn uint64_array_from_options_all_some() {
+        let arr = uint64_array_from_options(&[Some(1), Some(2), Some(3)]);
+        assert_eq!(arr.len(), 3);
+        let u64arr = arr.as_any().downcast_ref::<UInt64Array>().unwrap();
+        assert_eq!(u64arr.null_count(), 0);
+        assert_eq!(u64arr.value(0), 1);
+        assert_eq!(u64arr.value(1), 2);
+        assert_eq!(u64arr.value(2), 3);
+    }
+
+    #[test]
+    fn uint64_array_from_options_with_nulls() {
+        let arr = uint64_array_from_options(&[Some(1), None, Some(3)]);
+        assert_eq!(arr.len(), 3);
+        let u64arr = arr.as_any().downcast_ref::<UInt64Array>().unwrap();
+        assert!(!u64arr.is_null(0));
+        assert!(u64arr.is_null(1));
+        assert!(!u64arr.is_null(2));
+        assert_eq!(u64arr.value(0), 1);
+        assert_eq!(u64arr.value(2), 3);
+    }
+
+    #[test]
+    fn uint64_array_from_options_empty() {
+        let arr = uint64_array_from_options(&[]);
+        assert_eq!(arr.len(), 0);
+    }
+
+    #[test]
+    fn deferred_kind_ff_index_text() {
+        assert_eq!(
+            DeferredKind::Text { ff_index: 5 }.ff_index_and_is_bytes(),
+            (5, false)
+        );
+    }
+
+    #[test]
+    fn deferred_kind_ff_index_bytes() {
+        assert_eq!(
+            DeferredKind::Bytes { ff_index: 3 }.ff_index_and_is_bytes(),
+            (3, true)
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn deferred_kind_ctid_panics() {
+        DeferredKind::Ctid.ff_index_and_is_bytes();
+    }
+
+    #[test]
+    fn build_schema_and_decoders_replaces_union() {
+        let input_schema = Arc::new(Schema::new(vec![
+            Field::new("ctid", DataType::UInt64, false),
+            Field::new("description", deferred_union_data_type(false), true),
+            Field::new("score", DataType::Float64, false),
+        ]));
+        let deferred = vec![DeferredField {
+            field_name: "description".to_string(),
+            kind: DeferredKind::Text { ff_index: 0 },
+        }];
+        let (schema, decoders) = build_schema_and_decoders(input_schema, &deferred).unwrap();
+        assert_eq!(schema.field(1).name(), "description");
+        assert_eq!(*schema.field(1).data_type(), DataType::Utf8View);
+        assert_eq!(*schema.field(0).data_type(), DataType::UInt64);
+        assert_eq!(*schema.field(2).data_type(), DataType::Float64);
+        assert_eq!(decoders.len(), 1);
+        assert_eq!(decoders[0].col_idx, 1);
+        assert_eq!(decoders[0].ff_index, 0);
+        assert!(!decoders[0].is_bytes);
+    }
+
+    #[test]
+    fn build_schema_and_decoders_duplicate_names() {
+        let input_schema = Arc::new(Schema::new(vec![
+            Field::new("val", deferred_union_data_type(false), true),
+            Field::new("val", deferred_union_data_type(false), true),
+        ]));
+        let deferred = vec![
+            DeferredField {
+                field_name: "val".to_string(),
+                kind: DeferredKind::Text { ff_index: 0 },
+            },
+            DeferredField {
+                field_name: "val".to_string(),
+                kind: DeferredKind::Text { ff_index: 1 },
+            },
+        ];
+        let (_, decoders) = build_schema_and_decoders(input_schema, &deferred).unwrap();
+        assert_eq!(decoders.len(), 2);
+        assert_eq!(decoders[0].col_idx, 0);
+        assert_eq!(decoders[0].ff_index, 0);
+        assert_eq!(decoders[1].col_idx, 1);
+        assert_eq!(decoders[1].ff_index, 1);
+    }
+
+    #[test]
+    fn build_schema_and_decoders_no_deferred() {
+        let input_schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("name", DataType::Utf8, true),
+        ]));
+        let (schema, decoders) = build_schema_and_decoders(input_schema.clone(), &[]).unwrap();
+        assert_eq!(*schema, *input_schema);
+        assert!(decoders.is_empty());
+    }
+
+    #[test]
+    fn deferred_field_output_data_type() {
+        assert_eq!(
+            DeferredField {
+                field_name: "a".to_string(),
+                kind: DeferredKind::Text { ff_index: 0 }
+            }
+            .output_data_type(),
+            DataType::Utf8View
+        );
+        assert_eq!(
+            DeferredField {
+                field_name: "b".to_string(),
+                kind: DeferredKind::Bytes { ff_index: 0 }
+            }
+            .output_data_type(),
+            DataType::BinaryView
+        );
+        assert_eq!(
+            DeferredField {
+                field_name: "c".to_string(),
+                kind: DeferredKind::Ctid
+            }
+            .output_data_type(),
+            DataType::UInt64
+        );
+    }
 }

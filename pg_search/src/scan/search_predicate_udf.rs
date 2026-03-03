@@ -90,6 +90,12 @@ pub struct SearchPredicateUDF {
     /// Human-readable representation of the original PostgreSQL expression (for EXPLAIN output).
     /// Eagerly computed during planning via `deparse_expr`.
     display_string: String,
+    /// When true, `execute_search` produces packed DocAddresses (`segment_ord << 32 | doc_id`)
+    /// for comparison against pre-visibility ctid columns (inner joins where the UDF runs
+    /// below VisibilityFilterExec). When false, it produces real ctids (`blockno << 16 | offno`)
+    /// with visibility checking (semi joins where visibility is resolved per-child below the join).
+    #[serde(default)]
+    deferred_visibility: bool,
     #[serde(skip, default = "SearchPredicateUDF::make_signature")]
     signature: Signature,
 }
@@ -100,6 +106,7 @@ impl SearchPredicateUDF {
         heap_oid: pg_sys::Oid,
         query: SearchQueryInput,
         display_string: String,
+        deferred_visibility: bool,
     ) -> Self {
         let query_json =
             serde_json::to_string(&query).expect("SearchQueryInput should be serializable");
@@ -108,6 +115,7 @@ impl SearchPredicateUDF {
             heap_oid,
             query_json,
             display_string,
+            deferred_visibility,
             signature: Self::make_signature(),
         }
     }
@@ -224,11 +232,15 @@ impl ScalarUDFImpl for SearchPredicateUDF {
 }
 
 impl SearchPredicateUDF {
-    /// Execute the search and return sorted matching CTIDs.
+    /// Execute the search and return sorted matching identifiers.
     ///
     /// This is the direct execution path used when the filter is not pushed down
-    /// (e.g., cross-table OR predicates). It materializes all matching CTIDs upfront
-    /// for binary-search filtering against incoming batches.
+    /// (e.g., cross-table OR predicates). It materializes all matching identifiers
+    /// upfront for binary-search filtering against incoming batches.
+    ///
+    /// The returned values are in the same domain as the incoming ctid column:
+    /// - `deferred_visibility == true`: packed DocAddresses (`segment_ord << 32 | doc_id`)
+    /// - `deferred_visibility == false`: real ctids (`blockno << 16 | offno`), visibility-checked
     fn execute_search(&self) -> Result<Vec<u64>> {
         use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
         use crate::index::mvcc::MvccSatisfies;
@@ -254,7 +266,33 @@ impl SearchPredicateUDF {
         })?;
 
         let search_results = reader.search();
-        let fields = vec![WhichFastField::Ctid];
+
+        let fields = if self.deferred_visibility {
+            // Deferred visibility: emit packed DocAddresses (segment_ord << 32
+            // | doc_id) without heap access. The incoming batch also has packed
+            // DocAddresses because the UDF runs below VisibilityFilterExec
+            // (inner join case).
+            //
+            // IMPORTANT INVARIANT:
+            // This comparison is only correct if `segment_ord` uses the same
+            // segment mapping on both sides:
+            // 1) scan side emitting DeferredCtid values, and
+            // 2) UDF side collecting matching IDs here.
+            //
+            // We currently assume both are aligned. If segment ordinals can
+            // diverge across readers/workers, this path must be fixed to use a
+            // stable identifier domain (or a shared canonical segment mapping).
+            vec![WhichFastField::DeferredCtid(format!(
+                "ctid_udf_{}",
+                self.heap_oid.to_u32()
+            ))]
+        } else {
+            // Resolved visibility: emit real ctids (blockno << 16 | offno)
+            // with visibility checking. The incoming batch has real ctids
+            // because VisibilityFilterExec already ran per-child below the
+            // join (semi join case).
+            vec![WhichFastField::Ctid]
+        };
         let ffhelper = FFHelper::with_fields(&reader, &fields);
 
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
@@ -282,9 +320,98 @@ impl SearchPredicateUDF {
 /// Strip dynamic OID values from expression strings for deterministic output.
 /// Removes patterns like `"oid":12345,` from JSON in the expression.
 fn strip_oids(s: &str) -> String {
-    // Match `"oid":NUMBER,` pattern
-    let re = Regex::new(r#""oid":\d+,"#).unwrap();
-    re.replace_all(s, "").to_string()
+    use std::sync::LazyLock;
+    static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""oid":\d+,"#).unwrap());
+    RE.replace_all(s, "").to_string()
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_oids() {
+        assert_eq!(strip_oids(r#"foo "oid":12345, bar"#), "foo  bar");
+        // No oid pattern — input returned unchanged
+        assert_eq!(strip_oids("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_display_strips_oids() {
+        let udf = SearchPredicateUDF::new(
+            pg_sys::Oid::INVALID,
+            pg_sys::Oid::INVALID,
+            SearchQueryInput::All,
+            r#"table.col @@@ '{"oid":99,"query":"hello"}'"#.to_string(),
+            false,
+        );
+        let display = udf.display();
+        assert!(!display.contains(r#""oid":99,"#));
+        assert!(display.contains(r#""query":"hello""#));
+    }
+
+    #[test]
+    fn test_query_roundtrip() {
+        let udf = SearchPredicateUDF::new(
+            pg_sys::Oid::INVALID,
+            pg_sys::Oid::INVALID,
+            SearchQueryInput::All,
+            "test".to_string(),
+            false,
+        );
+        assert_eq!(udf.query(), SearchQueryInput::All);
+    }
+
+    #[test]
+    fn test_return_type_is_boolean() {
+        let udf = SearchPredicateUDF::new(
+            pg_sys::Oid::INVALID,
+            pg_sys::Oid::INVALID,
+            SearchQueryInput::All,
+            "test".to_string(),
+            false,
+        );
+        assert_eq!(
+            udf.return_type(&[DataType::UInt64]).unwrap(),
+            DataType::Boolean
+        );
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let udf = SearchPredicateUDF::new(
+            pg_sys::Oid::INVALID,
+            pg_sys::Oid::INVALID,
+            SearchQueryInput::All,
+            "test display".to_string(),
+            true,
+        );
+        let json = serde_json::to_string(&udf).unwrap();
+        let deserialized: SearchPredicateUDF = serde_json::from_str(&json).unwrap();
+        assert_eq!(udf, deserialized);
+    }
+
+    #[test]
+    fn test_serde_backwards_compat() {
+        // Serialize a UDF, then strip deferred_visibility from the JSON
+        let udf = SearchPredicateUDF::new(
+            pg_sys::Oid::INVALID,
+            pg_sys::Oid::INVALID,
+            SearchQueryInput::All,
+            "test".to_string(),
+            true,
+        );
+        let json = serde_json::to_string(&udf).unwrap();
+
+        // Remove deferred_visibility key to simulate old serialization format
+        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        value.as_object_mut().unwrap().remove("deferred_visibility");
+        let json_without_field = serde_json::to_string(&value).unwrap();
+
+        // Should default to false via #[serde(default)]
+        let deserialized: SearchPredicateUDF = serde_json::from_str(&json_without_field).unwrap();
+        assert!(!deserialized.deferred_visibility);
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -301,6 +428,7 @@ mod tests {
             pg_sys::Oid::INVALID,
             SearchQueryInput::All,
             "test display".to_string(),
+            false,
         );
         assert_eq!(udf.name(), SEARCH_PREDICATE_UDF_NAME);
     }
@@ -312,6 +440,7 @@ mod tests {
             pg_sys::Oid::INVALID,
             SearchQueryInput::All,
             "test display".to_string(),
+            false,
         );
         let expr = udf.into_expr(col("ctid"));
 
@@ -326,6 +455,7 @@ mod tests {
             pg_sys::Oid::INVALID,
             SearchQueryInput::All,
             "test display".to_string(),
+            false,
         );
         let expr = udf.clone().into_expr(col("ctid"));
 

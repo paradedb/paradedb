@@ -89,7 +89,12 @@ impl ExecMethod for NormalScanExecState {
             // we have a row, and we're set up such that we can check it with the visibility map
             Some((scored, doc_address)) if self.can_use_visibility_map => unsafe {
                 let mut tid = pg_sys::ItemPointerData::default();
-                u64_to_item_pointer(scored.ctid, &mut tid);
+                u64_to_item_pointer(
+                    scored
+                        .ctid
+                        .expect("ctid must be resolved in non-join scan path"),
+                    &mut tid,
+                );
 
                 let blockno = item_pointer_get_block_number(&tid);
                 // We only use `is_block_all_visible` here to determine if we can emit a virtual
@@ -111,7 +116,9 @@ impl ExecMethod for NormalScanExecState {
                     // some rows on this block are not visible, so we need to fetch it from
                     // the heap to do a proper visibility check
                     ExecState::FromHeap {
-                        ctid: scored.ctid,
+                        ctid: scored
+                            .ctid
+                            .expect("ctid must be resolved in non-join scan path"),
                         score: scored.bm25,
                         doc_address,
                     }
@@ -120,7 +127,9 @@ impl ExecMethod for NormalScanExecState {
 
             // otherwise we'll always fetch from the heap
             Some((scored, doc_address)) => ExecState::FromHeap {
-                ctid: scored.ctid,
+                ctid: scored
+                    .ctid
+                    .expect("ctid must be resolved in non-join scan path"),
                 score: scored.bm25,
                 doc_address,
             },

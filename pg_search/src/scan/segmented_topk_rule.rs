@@ -53,7 +53,7 @@ use crate::gucs;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::segmented_topk_exec::{SegmentedThresholds, SegmentedTopKExec};
-use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+use crate::scan::tantivy_lookup_exec::{DeferredKind, TantivyLookupExec};
 
 #[derive(Debug)]
 pub struct SegmentedTopKRule;
@@ -165,10 +165,11 @@ fn try_inject_below_lookup(
                             .find(|d| d.field_name == col.name())
                         {
                             if let Ok(idx) = input_schema.index_of(col.name()) {
+                                let (ff_index, _) = field.kind.ff_index_and_is_bytes();
                                 deferred_columns.push(
                                     crate::scan::segmented_topk_exec::DeferredSortColumn {
                                         sort_col_idx: idx,
-                                        ff_index: field.ff_index,
+                                        ff_index,
                                     },
                                 );
                             }
@@ -268,7 +269,9 @@ fn wire_thresholds_to_scan(
         let has_target = deferred_columns.iter().any(|sort_col| {
             scan.deferred_fields()
                 .iter()
-                .any(|d| d.ff_index == sort_col.ff_index)
+                .any(|d| {
+                    matches!(&d.kind, DeferredKind::Text { ff_index } | DeferredKind::Bytes { ff_index } if *ff_index == sort_col.ff_index)
+                })
         });
         if same_relation && has_target {
             scan.set_segmented_thresholds(Arc::clone(thresholds));

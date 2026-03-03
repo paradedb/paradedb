@@ -9,7 +9,7 @@ SET paradedb.enable_join_custom_scan TO off; SELECT DISTINCT
 FROM files f
 LEFT JOIN documents d ON f."documentId" = d.id
 WHERE
-    d.parents LIKE 'PARENT_GROUP_2%'   -- Scope to a subset
+    d.parents @@@ 'PARENT_GROUP'   -- Scope to a subset
     AND (
         f.title @@@ 'Title'            -- Match Local
         OR
@@ -28,7 +28,7 @@ SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT
 FROM files f
 LEFT JOIN documents d ON f."documentId" = d.id
 WHERE
-    d.parents LIKE 'PARENT_GROUP_2%'   -- Scope to a subset
+    d.parents @@@ 'PARENT_GROUP'   -- Scope to a subset
     AND (
         f.title @@@ 'Title'            -- Match Local
         OR

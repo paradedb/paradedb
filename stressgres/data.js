@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772569769750,
+  "lastUpdate": 1772569776098,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13412,6 +13412,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.1031479190983, max segment_count: 130.0, count: 57403"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86131146c33b4787c7710905b06f47ef03c78ef0",
+          "message": "chore: Restore nesting in join IR, and ensure warnings are rendered (#4241)\n\n## What\n\nRestore nesting in our intermediate representation of joins, and improve\nwarning infrastructure to ensure that we detect warnings in more cases,\nand a minimal number of times.\n\nAdditionally, fixed two bugs:\n* We were losing quals in some cases when they did not contain our\noperator.\n* When choosing the path keys to use with semi joins, we would\noccasionally choose an equivalence class that would not actually survive\nthe join type (because semi joins discard a side).\n\n## Why\n\nIn #4039, I flattened our join structures in order to make it easier to\nreason about how to capture and push down multiple joins to DataFusion.\nThis was fine while we only supported INNER joins. But now that we're\ngoing to begin supporting more join types, we need that structure back.\n\nAdditionally, in some cases of anti and semi joins, Postgres will plan\nSubPlan nodes rather than joins: we were failing to detect our operator\nin these cases, and so we weren't getting a warning about the\nunsupported join types.\n\n## Tests\n\nExpanded tests for semi and anti joins.",
+          "timestamp": "2026-03-03T11:52:02-08:00",
+          "tree_id": "2cb3fc4aad76a97f857a1e8293a22f05c88e1287",
+          "url": "https://github.com/paradedb/paradedb/commit/86131146c33b4787c7710905b06f47ef03c78ef0"
+        },
+        "date": 1772569771362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.0489521541892, max cpu: 42.942345, count: 57554"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 232.93591141037112, max mem: 234.51953125, count: 57554"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.280083919853602, max cpu: 33.20158, count: 57554"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 175.26091698937086, max mem: 175.90234375, count: 57554"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33814,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33246.84994961254, max block_count: 35847.0, count: 57554"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.94709316468013, max segment_count: 127.0, count: 57554"
           }
         ]
       }

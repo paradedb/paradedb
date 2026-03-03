@@ -75,6 +75,19 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::INETOID) => {
                     datum::Inet::from(s.to_string()).into_datum()
                 }
+
+                PgOid::Custom(custom) => {
+                    let typename = unsafe {
+                        std::ffi::CStr::from_ptr(pg_sys::format_type_be(*custom))
+                            .to_string_lossy()
+                            .into_owned()
+                    };
+                    if typename.ends_with("citext") {
+                        s.into_datum()
+                    } else {
+                        return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}"));
+                    }
+                },
                 _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
             }
         }
@@ -297,6 +310,7 @@ mod tests {
     use arrow_array::Array;
     use pgrx::datum::{Date, Time, TimeWithTimeZone, Timestamp, TimestampWithTimeZone};
     use pgrx::pg_test;
+    use pgrx::Spi;
     use proptest::prelude::*;
     use serde_json::Value as JsonValue;
 
@@ -459,13 +473,23 @@ mod tests {
     }
 
     #[pg_test]
+    fn ensure_citext_extension() {
+        Spi::run("CREATE EXTENSION IF NOT EXISTS citext;").unwrap();
+    }
+
+    #[pg_test]
     fn test_arrow_string_to_datum_text() {
         proptest!(|(ref s in ".*")| {
             let oid_text = PgOid::from(PgBuiltInOids::TEXTOID.value());
             let oid_varchar = PgOid::from(PgBuiltInOids::VARCHAROID.value());
-
+            let citext_oid = PgOid::from(
+                Spi::get_one::<pg_sys::Oid>("SELECT 'citext'::regtype::oid")
+                    .expect("SPI failed")
+                    .expect("citext extension not installed"),
+            );
             test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_text, |s| s);
             test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_varchar, |s| s);
+            test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), citext_oid, |s| s);
         });
     }
 
@@ -594,6 +618,16 @@ mod tests {
         test_null_conversion(
             StringViewBuilder::with_capacity(1),
             PgOid::from(PgBuiltInOids::TEXTOID.value()),
+            |b| b.append_null(),
+        );
+        let citext_oid = PgOid::from(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'citext'::regtype::oid")
+                .expect("SPI failed")
+                .expect("citext extension not installed"),
+        );
+        test_null_conversion(
+            StringViewBuilder::with_capacity(1),
+            citext_oid,
             |b| b.append_null(),
         );
     }

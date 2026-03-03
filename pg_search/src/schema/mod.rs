@@ -28,6 +28,7 @@ pub use anyenum::AnyEnum;
 use anyhow::bail;
 pub use config::*;
 use std::cell::{Ref, RefCell};
+use std::ffi::CStr;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use tantivy::index::{IndexSortByField, Order};
@@ -74,7 +75,20 @@ pub enum SearchFieldType {
 impl SearchFieldType {
     pub fn default_config(&self) -> SearchFieldConfig {
         match self {
-            SearchFieldType::Text(_) => SearchFieldConfig::default_text(),
+            SearchFieldType::Text(oid) => {
+                let typename = unsafe {
+                    CStr::from_ptr(pg_sys::format_type_be(*oid))
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                if typename.ends_with("citext") {
+                    let mut cfg = SearchFieldConfig::default_text();
+                    cfg.set_normalizer(Some(SearchNormalizer::Lowercase));
+                    cfg
+                } else {
+                    SearchFieldConfig::default_text()
+                }
+            },
             SearchFieldType::Tokenized(..) => {
                 // NB:  check `search_field_config_from_type` to make sure the tokenizer is properly represented
                 panic!("CustomText fields do not have a default config")
@@ -308,7 +322,45 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
                 SearchFieldType::Tokenized(*tokenizer_oid, typmod, inner_typoid),
             ),
 
-            PgOid::Custom(_) => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
+            PgOid::Custom(custom) => {
+                // use std::ffi::CStr;
+                // let typename = unsafe {
+                //     CStr::from_ptr(pg_sys::format_type_be(*custom))
+                //         .to_string_lossy()
+                //         .into_owned()
+                // };
+                // if typename == "citext" {
+                //     Ok(SearchFieldType::Text(*custom))
+                // } else {
+                //     Err(SearchIndexSchemaError::InvalidPgOid(pg_oid))
+                // }
+                // let base_oid = unsafe { pg_sys::getBaseType(*custom) };
+                // println!("Resolved base type OID for custom type {}: {}", custom, base_oid);
+                // if base_oid == pg_sys::TEXTOID {
+                //     Ok(SearchFieldType::Text(*custom))
+                // } else {
+                //     Err(SearchIndexSchemaError::InvalidPgOid(pg_oid))
+                // }
+                // let (resolved_base_oid, _) = resolve_base_type(PgOid::from_untagged(*custom))
+                // .unwrap_or_else(|| pgrx::error!("Failed to resolve base type for type {:?}", pg_oid));
+                // if matches!(resolved_base_oid, PgOid::BuiltIn(pg_sys::BuiltinOid::TEXTOID)) {
+                //     Ok(SearchFieldType::Text(*custom))
+                // } else {
+                //     Err(SearchIndexSchemaError::InvalidPgOid(pg_oid))
+                // }
+                let typename = unsafe {
+                    CStr::from_ptr(pg_sys::format_type_be(*custom))
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                println!("Resolved type for custom type {}: {}", custom, typename);
+                if typename.ends_with("citext") {
+                    Ok(SearchFieldType::Text(*custom))
+                } else {
+                    Err(SearchIndexSchemaError::InvalidPgOid(pg_oid))
+                }
+
+            }
 
             _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
         }

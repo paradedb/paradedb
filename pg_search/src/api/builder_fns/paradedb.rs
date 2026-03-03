@@ -150,6 +150,13 @@ pub unsafe fn term_with_operator(
         pg_sys::TIMESTAMPOID => make_query!(operator, field, timestamp, pgrx::datum::Timestamp, value, true),
         pg_sys::TIMESTAMPTZOID => make_query!(operator, field, timestamp_with_time_zone, pgrx::datum::TimestampWithTimeZone, value, true),
 
+        other if unsafe {
+            std::ffi::CStr::from_ptr(pg_sys::format_type_be(other))
+                .to_string_lossy()
+                .as_ref() == "citext"
+        } => {
+            make_query!(operator, field, term_str, String, value, false)
+        },
         other => panic!("unsupported type: {other:?}"),
     }
 }

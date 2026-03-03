@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772435079887,
+  "lastUpdate": 1772496602110,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3014,6 +3014,78 @@ window.BENCHMARK_DATA = {
             "value": 61.47779829810832,
             "unit": "median tps",
             "extra": "avg tps: 88.34292213885291, max tps: 845.320685081696, count: 54862"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51af7b52f08823ef61ccf312531a288da3a67e15",
+          "message": "chore: Add support for segmented top-k on multiple columns (#4262)\n\n# Ticket(s) Closed\n\n- Closes #4255\n- Closes #4256\n\n## What\n\nAdd support for deferring multiple columns for `SegmentedTopKExec`, and\nfor building `PhysicalExpr`s for pushdown.\n\n## Why\n\n#4234 added support for pushing down `SegmentedThresholds` to the\n`Scanner`, but their implementation was tied to one column at a time.\nThis change adds support for multiple deferred columns per index, and\nfor non-deferred tiebreakers on those columns.\n\n## How\n\nConverts the filters stored in `SegmentedThresholds` to `PhysicalExpr`s\n(which are also used in dynamic filters), and then produces the\nthreshold expressions in a manner similar to upstream `TopK`. This\nallows us to avoid custom logic for null handling during the application\nof filters, and the support for compound columns means we can use an\nexclusive comparison in the case of tiebreaker columns and duplicates.\n\n## Tests\n\nExpanded the tests to test multiple deferred columns, and to confirm\nthat we do the right thing when potentially-deferred columns from\n_different_ indexes are in the same `ORDER BY`.",
+          "timestamp": "2026-03-02T15:50:28-08:00",
+          "tree_id": "3ec7f7e684ad355d46cb027a63d538132a9b800f",
+          "url": "https://github.com/paradedb/paradedb/commit/51af7b52f08823ef61ccf312531a288da3a67e15"
+        },
+        "date": 1772496597290,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 134.84870977971192,
+            "unit": "median tps",
+            "extra": "avg tps: 134.42639473211733, max tps: 153.12359292104216, count: 55049"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2940.549806164114,
+            "unit": "median tps",
+            "extra": "avg tps: 2923.72301853581, max tps: 2978.777309116814, count: 55049"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 480.43395556246855,
+            "unit": "median tps",
+            "extra": "avg tps: 477.85998743843777, max tps: 576.6745206990316, count: 55049"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2957.480660731226,
+            "unit": "median tps",
+            "extra": "avg tps: 2952.8811936050865, max tps: 2990.8731675536224, count: 110098"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 513.2659767003431,
+            "unit": "median tps",
+            "extra": "avg tps: 511.30540011065574, max tps: 602.6450724513244, count: 55049"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 515.3289703580512,
+            "unit": "median tps",
+            "extra": "avg tps: 514.159699268284, max tps: 633.5265994503253, count: 55049"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1899.650372245997,
+            "unit": "median tps",
+            "extra": "avg tps: 1893.7572003350217, max tps: 1910.4638145341978, count: 55049"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 57.060860558367295,
+            "unit": "median tps",
+            "extra": "avg tps: 78.99945867533724, max tps: 200.37929327451118, count: 55049"
           }
         ]
       }

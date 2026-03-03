@@ -19,10 +19,27 @@ FROM mock_items;
 ```
 
 ```python Django
-# Coming soon
+from django.db.models import Q
+from paradedb import Agg, ParadeDB, Term
+
+result = MockItem.objects.aggregate(
+    electronics_count=Agg(
+        '{"value_count": {"field": "id"}}',
+        filter=Q(category=ParadeDB(Term('electronics'))),
+    ),
+    footwear_count=Agg(
+        '{"value_count": {"field": "id"}}',
+        filter=Q(category=ParadeDB(Term('footwear'))),
+    ),
+)
 ```
 
 </CodeGroup>
+
+<Note>
+  Use lowercase `electronics` and `footwear`. The default BM25 tokenizer
+  lowercases terms, so `Electronics` and `Footwear` would not match here.
+</Note>
 
 ```ini Expected Response
  electronics_count | footwear_count

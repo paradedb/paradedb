@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772553339573,
+  "lastUpdate": 1772553346644,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13112,6 +13112,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.05575827078121, max segment_count: 124.0, count: 57552"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d993ddd672d3f33c60e090b9c42673707ae21567",
+          "message": "chore: Upgrade to pgrx 0.17.0 (#4263)\n\n## Summary\n- bump workspace pgrx and pgrx-tests pins from 0.16.1 to 0.17.0\n- regenerate lockfile to pull the pgrx 0.17.0 family (pgrx, pgrx-pg-sys,\npgrx-tests, etc.)\n- update local developer/docs references to cargo-pgrx 0.17.0\n\n## Testing\n- cargo check -p pg_search\n- cargo check --workspace",
+          "timestamp": "2026-03-03T10:16:21-05:00",
+          "tree_id": "62c7fc8389b22c4455936ea337fe84b0f76106aa",
+          "url": "https://github.com/paradedb/paradedb/commit/d993ddd672d3f33c60e090b9c42673707ae21567"
+        },
+        "date": 1772553341336,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.301047746576963, max cpu: 43.417088, count: 57403"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.5656816580797, max mem: 234.12109375, count: 57403"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.419188701915044, max cpu: 33.267326, count: 57403"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.14814692829643, max mem: 176.29296875, count: 57403"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34253,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33552.5154957058, max block_count: 36296.0, count: 57403"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.1031479190983, max segment_count: 130.0, count: 57403"
           }
         ]
       }

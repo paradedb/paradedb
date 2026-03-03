@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772569776098,
+  "lastUpdate": 1772570803282,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15582,6 +15582,54 @@ window.BENCHMARK_DATA = {
             "value": 5.208694727599775,
             "unit": "median tps",
             "extra": "avg tps: 5.240368170607794, max tps: 6.85180523039267, count: 55820"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86131146c33b4787c7710905b06f47ef03c78ef0",
+          "message": "chore: Restore nesting in join IR, and ensure warnings are rendered (#4241)\n\n## What\n\nRestore nesting in our intermediate representation of joins, and improve\nwarning infrastructure to ensure that we detect warnings in more cases,\nand a minimal number of times.\n\nAdditionally, fixed two bugs:\n* We were losing quals in some cases when they did not contain our\noperator.\n* When choosing the path keys to use with semi joins, we would\noccasionally choose an equivalence class that would not actually survive\nthe join type (because semi joins discard a side).\n\n## Why\n\nIn #4039, I flattened our join structures in order to make it easier to\nreason about how to capture and push down multiple joins to DataFusion.\nThis was fine while we only supported INNER joins. But now that we're\ngoing to begin supporting more join types, we need that structure back.\n\nAdditionally, in some cases of anti and semi joins, Postgres will plan\nSubPlan nodes rather than joins: we were failing to detect our operator\nin these cases, and so we weren't getting a warning about the\nunsupported join types.\n\n## Tests\n\nExpanded tests for semi and anti joins.",
+          "timestamp": "2026-03-03T11:52:02-08:00",
+          "tree_id": "2cb3fc4aad76a97f857a1e8293a22f05c88e1287",
+          "url": "https://github.com/paradedb/paradedb/commit/86131146c33b4787c7710905b06f47ef03c78ef0"
+        },
+        "date": 1772570798176,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1112.0878373401274,
+            "unit": "median tps",
+            "extra": "avg tps: 1114.0234749165804, max tps: 1168.5614134254843, count: 56084"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1260.7386962555852,
+            "unit": "median tps",
+            "extra": "avg tps: 1246.4943190624804, max tps: 1270.835141089669, count: 56084"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1799.6713015867228,
+            "unit": "median tps",
+            "extra": "avg tps: 1774.0576345658294, max tps: 1956.8527206007705, count: 56084"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.512839289971309,
+            "unit": "median tps",
+            "extra": "avg tps: 5.514628313565614, max tps: 7.271520570499072, count: 56084"
           }
         ]
       }

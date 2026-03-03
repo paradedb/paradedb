@@ -412,7 +412,19 @@ pub unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> V
                         path.extend(array.iter().flatten());
                     }
                 }
-                _ => {}
+                other_oid => {
+                    let typename = unsafe {
+                        std::ffi::CStr::from_ptr(pg_sys::format_type_be(other_oid.value()))
+                            .to_string_lossy()
+                            .into_owned()
+                    };
+
+                    if typename.ends_with("citext") {
+                        if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
+                            path.push(s);
+                        }
+                    }
+                }
             }
         }
 

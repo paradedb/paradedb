@@ -23,7 +23,7 @@ use crate::postgres::range::RangeToTantivyValue;
 use crate::schema::{AnyEnum, SearchField};
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
-use pgrx::pg_sys::Datum;
+use pgrx::pg_sys::{Datum};
 use pgrx::pg_sys::Oid;
 use pgrx::PostgresType;
 use pgrx::{pg_sys, IntoDatum};
@@ -101,6 +101,17 @@ impl TantivyValue {
                     _ => return Err(TantivyValueError::UnsupportedOid(oid.value())),
                 };
                 Ok(datum)
+            }
+
+            PgOid::Custom(custom) => {
+                use std::ffi::CStr;
+                let typename = CStr::from_ptr(pg_sys::format_type_be(*custom))
+                    .to_string_lossy()
+                    .into_owned();
+                if typename.ends_with("citext") {
+                    return Ok(String::try_from(self)?.into_datum());
+                }
+                Err(TantivyValueError::UnsupportedOid(oid.value()))
             }
             _ => Err(TantivyValueError::InvalidOid),
         }
@@ -210,6 +221,23 @@ impl TantivyValue {
                     Ok(Self::json_value_to_tantivy_value(pgrx_value.0))
                 }
                 _ => Err(TantivyValueError::UnsupportedJsonOid(oid.value())),
+            },
+            PgOid::Custom(custom) => {
+                use std::ffi::CStr;
+                let typename = CStr::from_ptr(pg_sys::format_type_be(*custom))
+                    .to_string_lossy()
+                    .into_owned();
+                if typename.ends_with("citext") {
+                    let array: pgrx::Array<Datum> =
+                        pgrx::Array::from_datum(datum, false)
+                            .ok_or(TantivyValueError::DatumDeref)?;
+                    return array
+                        .iter()
+                        .flatten()
+                        .map(|element| Self::try_from_datum(element, oid))
+                        .collect();
+                }
+                Err(TantivyValueError::UnsupportedArrayOid(oid.value()))
             },
             _ => Err(TantivyValueError::InvalidOid),
         }
@@ -322,7 +350,24 @@ impl TantivyValue {
                 String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
             ),
 
-            PgOid::Custom(_) => Err(TantivyValueError::UnsupportedOid(oid.value())),
+            // PgOid::Custom(_) => Err(TantivyValueError::UnsupportedOid(oid.value())),
+            PgOid::Custom(custom) => {
+                use std::ffi::CStr;
+                let typename = unsafe {
+                    CStr::from_ptr(pg_sys::format_type_be(*custom))
+                        .to_string_lossy()
+                        .into_owned()
+                };
+
+                if typename.ends_with("citext") {
+                    return TantivyValue::try_from(
+                        String::from_datum(datum, false)
+                            .ok_or(TantivyValueError::DatumDeref)?,
+                    );
+                }
+
+                Err(TantivyValueError::UnsupportedOid(oid.value()))
+            }
 
             _ => Err(TantivyValueError::InvalidOid),
         }

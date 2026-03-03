@@ -743,7 +743,16 @@ where
                 String::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs text value must not be NULL"),
             ),
-
+            other if unsafe {
+                std::ffi::CStr::from_ptr(pg_sys::format_type_be(other))
+                    .to_string_lossy()
+                    .as_ref() == "citext"
+            } => {
+                    RHSValue::Text(
+                        String::from_datum((*const_).constvalue, (*const_).constisnull)
+                            .expect("rhs text value must not be NULL"),
+                    )
+            },
             // these arrays are only supported by the === operator
             pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => RHSValue::TextArray(
                 Vec::<String>::from_datum((*const_).constvalue, (*const_).constisnull)

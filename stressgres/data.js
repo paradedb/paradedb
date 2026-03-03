@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772570803282,
+  "lastUpdate": 1772570809534,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20116,6 +20116,108 @@ window.BENCHMARK_DATA = {
             "value": 162.609375,
             "unit": "median mem",
             "extra": "avg mem: 181.68352712961305, max mem: 220.99609375, count: 55820"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86131146c33b4787c7710905b06f47ef03c78ef0",
+          "message": "chore: Restore nesting in join IR, and ensure warnings are rendered (#4241)\n\n## What\n\nRestore nesting in our intermediate representation of joins, and improve\nwarning infrastructure to ensure that we detect warnings in more cases,\nand a minimal number of times.\n\nAdditionally, fixed two bugs:\n* We were losing quals in some cases when they did not contain our\noperator.\n* When choosing the path keys to use with semi joins, we would\noccasionally choose an equivalence class that would not actually survive\nthe join type (because semi joins discard a side).\n\n## Why\n\nIn #4039, I flattened our join structures in order to make it easier to\nreason about how to capture and push down multiple joins to DataFusion.\nThis was fine while we only supported INNER joins. But now that we're\ngoing to begin supporting more join types, we need that structure back.\n\nAdditionally, in some cases of anti and semi joins, Postgres will plan\nSubPlan nodes rather than joins: we were failing to detect our operator\nin these cases, and so we weren't getting a warning about the\nunsupported join types.\n\n## Tests\n\nExpanded tests for semi and anti joins.",
+          "timestamp": "2026-03-03T11:52:02-08:00",
+          "tree_id": "2cb3fc4aad76a97f857a1e8293a22f05c88e1287",
+          "url": "https://github.com/paradedb/paradedb/commit/86131146c33b4787c7710905b06f47ef03c78ef0"
+        },
+        "date": 1772570804808,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08062905641537693, max background_merging: 2.0, count: 56084"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.670754163336411, max cpu: 9.467456, count: 56084"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 27.88421121108516, max mem: 27.890625, count: 56084"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.043185396363491, max cpu: 9.667674, count: 56084"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 169.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.65093410386652, max mem: 169.4375, count: 56084"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51117,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50979.14578132801, max block_count: 51117.0, count: 56084"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.66370087725554, max segment_count: 56.0, count: 56084"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.63505198882642, max cpu: 27.906979, count: 56084"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 144.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 131.39827229022538, max mem: 158.23046875, count: 56084"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.808032326068105, max cpu: 27.692308, count: 56084"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 187.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 181.20296438712467, max mem: 187.80078125, count: 56084"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.783689845680392, max cpu: 33.7011, count: 56084"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.75,
+            "unit": "median mem",
+            "extra": "avg mem: 181.242148496006, max mem: 221.1171875, count: 56084"
           }
         ]
       }

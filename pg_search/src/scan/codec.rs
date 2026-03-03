@@ -35,6 +35,8 @@ use crate::scan::table_provider::PgSearchTableProvider;
 pub struct PgSearchExtensionCodec {
     /// Shared state for parallel scans, containing the list of segments to be processed.
     pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    /// Postgres expression context, needed for heap filtering.
+    pub expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -136,6 +138,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         if provider.is_parallel() {
             provider.set_parallel_state(self.parallel_state);
         }
+        provider.set_expr_context(self.expr_context);
         Ok(Arc::new(provider))
     }
 

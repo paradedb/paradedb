@@ -100,7 +100,7 @@ WHERE description @@@ pdb.match('running shoes', conjunction_mode => true);
 from paradedb import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running', 'shoes', operator='AND'))
+    description=ParadeDB(Match('running shoes', operator='AND'))
 ).values('description', 'rating', 'category')
 ```
 

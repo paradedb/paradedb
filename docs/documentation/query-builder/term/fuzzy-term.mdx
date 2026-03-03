@@ -21,10 +21,10 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb import ParadeDB, Term
+from paradedb import FuzzyTerm, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Term('shoez', distance=2))
+    description=ParadeDB(FuzzyTerm('shoez'))
 ).values('description', 'rating', 'category')[:5]
 ```
 

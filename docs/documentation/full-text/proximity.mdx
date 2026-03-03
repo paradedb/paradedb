@@ -129,7 +129,11 @@ WHERE description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## '
 ```
 
 ```python Django
-# Coming soon
+from paradedb import ParadeDB, ProxRegex, ProximityArray
+
+MockItem.objects.filter(
+    description=ParadeDB(ProximityArray(ProxRegex('sl.*'), 'white', right_term='shoes', distance=1))
+).values('description', 'rating', 'category')
 ```
 
 </CodeGroup>

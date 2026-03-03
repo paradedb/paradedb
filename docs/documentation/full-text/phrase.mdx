@@ -134,10 +134,8 @@ WHERE description ### ARRAY['running', 'shoes'];
 ```
 
 ```python Django
-from paradedb import ParadeDB, Phrase
-
-MockItem.objects.filter(
-    description=ParadeDB(Phrase('running shoes'))
+MockItem.objects.extra(
+    where=["description ### ARRAY['running', 'shoes']"]
 ).values('description', 'rating', 'category')
 ```
 
@@ -153,10 +151,8 @@ WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
 ```
 
 ```python Django
-from paradedb import ParadeDB, Phrase
-
-MockItem.objects.filter(
-    description=ParadeDB(Phrase('shoes running', slop=2))
+MockItem.objects.extra(
+    where=["description ### ARRAY['shoes', 'running']::pdb.slop(2)"]
 ).values('description', 'rating', 'category')
 ```
 

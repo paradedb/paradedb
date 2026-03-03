@@ -24,11 +24,10 @@ WHERE description @@@ pdb.term_set(ARRAY['shoes', 'keyboard']);
 ```
 
 ```python Django
-from django.db.models import Q
-from paradedb import ParadeDB, Term
+from paradedb import ParadeDB, TermSet
 
 MockItem.objects.filter(
-    Q(description=ParadeDB(Term('shoes'))) | Q(description=ParadeDB(Term('keyboard')))
+    description=ParadeDB(TermSet('shoes', 'keyboard'))
 ).values('description', 'rating', 'category')
 ```
 

@@ -47,12 +47,12 @@ from paradedb import Match, ParadeDB, Term
 
 # Fuzzy match disjunction
 MockItem.objects.filter(
-    description=ParadeDB(Match('runing', 'shose', operator='OR', distance=2))
+    description=ParadeDB(Match('runing shose', operator='OR', distance=2))
 ).values('id', 'description')[:5]
 
 # Fuzzy match conjunction
 MockItem.objects.filter(
-    description=ParadeDB(Match('runing', 'shose', operator='AND', distance=2))
+    description=ParadeDB(Match('runing shose', operator='AND', distance=2))
 ).values('id', 'description')[:5]
 
 # Fuzzy term
@@ -122,7 +122,7 @@ LIMIT 5;
 from paradedb import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('slee', 'rann', operator='AND', distance=1, prefix=True))
+    description=ParadeDB(Match('slee rann', operator='AND', distance=1, prefix=True))
 ).values('id', 'description')[:5]
 ```
 

@@ -97,12 +97,10 @@ WHERE description === ARRAY['shoes', 'running'];
 ```
 
 ```python Django
-from django.db.models import Q
-from paradedb import ParadeDB, Term
+from paradedb import ParadeDB, TermSet
 
 MockItem.objects.filter(
-    Q(description=ParadeDB(Term('shoes'))) |
-    Q(description=ParadeDB(Term('running')))
+    description=ParadeDB(TermSet('shoes', 'running'))
 ).values('description', 'rating', 'category')
 ```
 

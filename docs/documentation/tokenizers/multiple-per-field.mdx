@@ -38,15 +38,17 @@ WHERE description ||| 'Sleek running shoes';
 ```
 
 ```python Django
-from django.db.models.expressions import RawSQL
+from paradedb import Match, ParadeDB
 
 # Query against `description_simple`
-MockItem.objects.filter(
-    RawSQL("(description::pdb.alias('description_simple')) ||| %s", ['Sleek running shoes'])
-)
+MockItem.objects.extra(
+    where=["(description::pdb.alias('description_simple')) ||| 'Sleek running shoes'"]
+).values('description', 'rating', 'category')
 
 # Query against `description`
-MockItem.objects.filter(RawSQL("description ||| %s", ['Sleek running shoes']))
+MockItem.objects.filter(
+    description=ParadeDB(Match('Sleek running shoes', operator='OR'))
+).values('description', 'rating', 'category')
 ```
 
 </CodeGroup>
@@ -73,11 +75,11 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb import ParadeDB, Parse
+from paradedb import ParadeDB, ParseWithField
 
 MockItem.objects.filter(
-    description=ParadeDB(Parse('shoes'))
-).order_by('description')[:5]
+    description=ParadeDB(ParseWithField(query='shoes'))
+).values('description', 'rating', 'category').order_by('description')[:5]
 ```
 
 </CodeGroup>

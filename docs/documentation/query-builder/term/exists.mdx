@@ -27,8 +27,10 @@ LIMIT 5;
 ```
 
 ```python Django
+from paradedb import Exists, ParadeDB
+
 MockItem.objects.filter(
-    rating__isnull=False
+    rating=ParadeDB(Exists())
 ).values('description', 'rating', 'category')[:5]
 ```
 

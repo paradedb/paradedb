@@ -25,14 +25,16 @@ LIMIT 3;
 ```
 
 ```python Django
-from paradedb import ParadeDB, Term
+from django.db.models import Window
+from paradedb import Agg, ParadeDB, Term
 
-# Returns (rows, facets) — facets contains {"value": 5.0}
-rows, facets = (
-    MockItem.objects.filter(category=ParadeDB(Term('electronics')))
-    .order_by('-rating')[:3]
-    .facets(agg='{"value_count": {"field": "id"}}')
-)
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).values(
+    'id', 'description', 'rating'
+).annotate(
+    agg=Window(expression=Agg('{"value_count": {"field": "id"}}'))
+).order_by('-rating')[:3]
 ```
 
 </CodeGroup>
@@ -70,14 +72,16 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from django.db.models import Window
+from paradedb import Agg, Match, ParadeDB
 
-# Returns (rows, facets) — facets contains the total count
-rows, facets = (
-    MockItem.objects.filter(description=ParadeDB(Match('running shoes', operator='OR')))
-    .order_by('rating')[:5]
-    .facets(agg='{"value_count": {"field": "id"}}')
-)
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR'))
+).values(
+    'description', 'rating', 'category'
+).annotate(
+    agg=Window(expression=Agg('{"value_count": {"field": "id"}}', exact=False))
+).order_by('rating')[:5]
 ```
 
 </CodeGroup>

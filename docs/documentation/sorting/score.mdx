@@ -94,7 +94,8 @@ LIMIT 5;
 ```
 
 ```python Django
-from django.db.models import F
+from django.db.models import F, FloatField
+from django.db.models.expressions import RawSQL
 from paradedb import Match, ParadeDB, Score
 
 Order.objects.filter(
@@ -102,7 +103,7 @@ Order.objects.filter(
     product__description=ParadeDB(Match('running shoes', operator='OR')),
 ).annotate(
     order_score=Score(),
-    product_score=Score('product_id'),
+    product_score=RawSQL('pdb.score(mock_items.id)', [], output_field=FloatField()),
 ).annotate(
     score=F('order_score') + F('product_score')
 ).values(

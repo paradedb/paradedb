@@ -25,7 +25,7 @@ MockItem.objects.filter(
     id=ParadeDB(All())
 ).values('rating').annotate(
     agg=Agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}')
-)
+).values('agg')
 ```
 
 </CodeGroup>
@@ -64,7 +64,7 @@ MockItem.objects.filter(
     id=ParadeDB(All())
 ).values('rating').annotate(
     agg=Agg('{"top_hits": {"size": 3, "from": 1, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}')
-)
+).values('agg')
 ```
 
 </CodeGroup>
@@ -86,7 +86,7 @@ MockItem.objects.filter(
     id=ParadeDB(All())
 ).values('rating').annotate(
     agg=Agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}')
-)
+).values('agg')
 ```
 
 </CodeGroup>

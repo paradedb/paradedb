@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772500660182,
+  "lastUpdate": 1772552318438,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3086,6 +3086,78 @@ window.BENCHMARK_DATA = {
             "value": 57.060860558367295,
             "unit": "median tps",
             "extra": "avg tps: 78.99945867533724, max tps: 200.37929327451118, count: 55049"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d993ddd672d3f33c60e090b9c42673707ae21567",
+          "message": "chore: Upgrade to pgrx 0.17.0 (#4263)\n\n## Summary\n- bump workspace pgrx and pgrx-tests pins from 0.16.1 to 0.17.0\n- regenerate lockfile to pull the pgrx 0.17.0 family (pgrx, pgrx-pg-sys,\npgrx-tests, etc.)\n- update local developer/docs references to cargo-pgrx 0.17.0\n\n## Testing\n- cargo check -p pg_search\n- cargo check --workspace",
+          "timestamp": "2026-03-03T10:16:21-05:00",
+          "tree_id": "62c7fc8389b22c4455936ea337fe84b0f76106aa",
+          "url": "https://github.com/paradedb/paradedb/commit/d993ddd672d3f33c60e090b9c42673707ae21567"
+        },
+        "date": 1772552313584,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 132.58640791396914,
+            "unit": "median tps",
+            "extra": "avg tps: 132.9952888494879, max tps: 142.92591966439187, count: 55051"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2976.3157015120987,
+            "unit": "median tps",
+            "extra": "avg tps: 2948.2128004105252, max tps: 3004.9056725438213, count: 55051"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 468.93980182710123,
+            "unit": "median tps",
+            "extra": "avg tps: 470.56839503149155, max tps: 528.7352401905403, count: 55051"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2970.5116656132113,
+            "unit": "median tps",
+            "extra": "avg tps: 2960.1957924005387, max tps: 2993.0250405375095, count: 110102"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 529.7268403294427,
+            "unit": "median tps",
+            "extra": "avg tps: 530.0719080597453, max tps: 637.8507608799063, count: 55051"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 517.0524430068452,
+            "unit": "median tps",
+            "extra": "avg tps: 523.8771264011192, max tps: 648.1198529156806, count: 55051"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1853.030410406191,
+            "unit": "median tps",
+            "extra": "avg tps: 1853.2305163753977, max tps: 1889.543019227891, count: 55051"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 54.304096589410015,
+            "unit": "median tps",
+            "extra": "avg tps: 68.38169661459995, max tps: 899.3849106595999, count: 55051"
           }
         ]
       }

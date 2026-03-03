@@ -47,18 +47,8 @@ jobs:
       - family=z1d.metal
       - image=ubuntu24-full-x64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
-<<<<<<< HEAD
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-queries')
-=======
       - volume=500gb:gp3
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'pull_request' &&
-        contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
-      )
->>>>>>> 0c42d5341 (ci: Fix benchmarks to not cache entire dataset in memory (#4233))
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-queries')
     env:
       pg_version: 18
 

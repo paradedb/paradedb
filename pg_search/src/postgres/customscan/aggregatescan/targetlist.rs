@@ -17,7 +17,9 @@
 
 use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::{
+    AggregateScan, CustomScanBuildError, CustomScanClause,
+};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::customscan::CustomScan;
@@ -154,25 +156,30 @@ impl CustomScanClause<AggregateScan> for TargetList {
         args: &Self::Args,
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
-    ) -> Option<Self> {
+    ) -> Result<Self, CustomScanBuildError> {
         // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
             let parse = args.root().parse;
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
-                return None;
+                return Err("Query has DISTINCT clause (see https://github.com/orgs/paradedb/discussions/3678)".into());
             }
         }
 
-        let schema = index.schema().ok()?;
+        let schema = index.schema().expect("Could not get index schema");
         let target_list =
             unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
         if target_list.is_empty() {
-            return None;
+            return Err("Target list is empty".into());
         }
 
         let heap_rte = unsafe {
             let rt = PgList::<pg_sys::RangeTblEntry>::from_pg((*args.root().parse).rtable);
-            rt.get_ptr((heap_rti - 1) as usize)?
+            match rt.get_ptr((heap_rti - 1) as usize) {
+                Some(ptr) => ptr,
+                None => {
+                    return Err("Could not get heap RTE".into());
+                }
+            }
         };
         let heap_oid = unsafe { (*heap_rte).relid };
 
@@ -202,44 +209,57 @@ impl CustomScanClause<AggregateScan> for TargetList {
                         }
                     }
                     if !found {
-                        return None;
+                        return Err(format!(
+                            "Field '{}' is not a grouping column",
+                            field_name.into_inner()
+                        )
+                        .into());
                     }
                 } else if let Some(aggref) = find_single_aggref_in_expr(expr as *mut pg_sys::Node) {
                     // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
                     // TODO: Support DISTINCT
                     if !(*aggref).aggdistinct.is_null() {
-                        return None;
+                        return Err("DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678)".into());
                     }
 
                     let mut qual_state = QualExtractState::default();
-                    let aggregate = AggregateType::try_from(
+                    let aggregate = match AggregateType::try_from(
                         aggref,
                         heap_oid,
                         index,
                         args.root,
                         heap_rti,
                         &mut qual_state,
-                    )?;
+                    ) {
+                        Ok(a) => a,
+                        Err(e) => {
+                            return Err(e.into());
+                        }
+                    };
                     uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
 
                     if let Some(field_name) = aggregate.field_name() {
                         if let Some(search_field) = schema.search_field(&field_name) {
                             if !search_field.is_fast() {
-                                return None;
+                                return Err(format!("Field '{}' is not fast", field_name).into());
                             }
                         } else {
-                            return None;
+                            return Err(
+                                format!("Field '{}' not found in schema", field_name).into()
+                            );
                         }
                     }
 
                     entries.push(TargetListEntry::Aggregate(aggregate));
                 } else {
-                    return None;
+                    return Err(
+                        "Expression is neither a grouping column nor a single Aggref".into(),
+                    );
                 }
             }
         }
 
-        Some(TargetList {
+        Ok(TargetList {
             entries,
             groupby: groupby_clause,
             uses_our_operator,

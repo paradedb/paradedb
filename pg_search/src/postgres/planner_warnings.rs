@@ -71,6 +71,18 @@ impl ToWarningContexts for &str {
     }
 }
 
+impl ToWarningContexts for String {
+    fn to_warning_contexts(self) -> Vec<String> {
+        vec![self]
+    }
+}
+
+impl ToWarningContexts for Vec<String> {
+    fn to_warning_contexts(self) -> Vec<String> {
+        self
+    }
+}
+
 /// Add a warning to be emitted at the end of the planning phase.
 ///
 /// # Arguments

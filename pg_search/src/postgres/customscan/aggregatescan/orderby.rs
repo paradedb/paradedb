@@ -18,7 +18,9 @@
 use crate::api::{HashSet, OrderByFeature, OrderByInfo};
 use crate::customscan::builders::custom_path::{CustomPathBuilder, OrderByStyle};
 use crate::customscan::CustomScan;
-use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::{
+    AggregateScan, CustomScanBuildError, CustomScanClause,
+};
 use crate::postgres::customscan::orderby::{
     extract_pathkey_styles_with_sortability_check, PathKeyInfo,
 };
@@ -75,9 +77,9 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
         args: &Self::Args,
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
-    ) -> Option<Self> {
+    ) -> Result<Self, CustomScanBuildError> {
         let parse = args.root().parse;
-        let schema = index.schema().ok()?;
+        let schema = index.schema().expect("could not get index schema");
 
         let sort_clause =
             unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
@@ -121,10 +123,13 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
         let has_orderby = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
 
         if unsafe { !(*parse).groupClause.is_null() } && orderby_info.len() != sort_clause.len() {
-            return None;
+            return Err(
+                "could not extract all ORDER BY clauses (fields might not be sortable or fast)"
+                    .into(),
+            );
         }
 
-        Some(Self {
+        Ok(Self {
             pathkeys: Some(pathkeys),
             orderby_info,
             has_orderby,

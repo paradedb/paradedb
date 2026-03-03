@@ -56,6 +56,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating, id
 ORDER BY rating, id
 LIMIT 5 OFFSET 5;
+WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column (table: products)
                             QUERY PLAN                             
 -------------------------------------------------------------------
  Limit

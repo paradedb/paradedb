@@ -23,7 +23,9 @@ use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
 use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
-use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::{
+    AggregateScan, CustomScanBuildError, CustomScanClause,
+};
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
@@ -398,33 +400,35 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         args: &Self::Args,
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
-    ) -> Option<Self> {
+    ) -> Result<Self, CustomScanBuildError> {
         let targetlist = TargetList::from_pg(args, heap_rti, index)?;
         // OrderBy is optional - if we can't extract it but there IS a sort clause,
         // use unpushable() to remember that ordering exists
-        let orderby = OrderByClause::from_pg(args, heap_rti, index).unwrap_or_else(|| {
-            let has_sort_clause = unsafe {
-                !args.root().parse.is_null() && !(*args.root().parse).sortClause.is_null()
-            };
-            if has_sort_clause {
-                OrderByClause::unpushable()
-            } else {
-                OrderByClause::default()
+        let orderby = match OrderByClause::from_pg(args, heap_rti, index) {
+            Ok(o) => o,
+            Err(_) => {
+                let has_sort_clause = unsafe {
+                    !args.root().parse.is_null() && !(*args.root().parse).sortClause.is_null()
+                };
+                if has_sort_clause {
+                    OrderByClause::unpushable()
+                } else {
+                    OrderByClause::default()
+                }
             }
-        });
+        };
         // LimitOffset is optional
-        let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)
-            .unwrap_or_else(LimitOffsetClause::default);
+        let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index).unwrap_or_default();
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         if !gucs::enable_custom_scan_without_operator()
             && !quals.uses_our_operator()
             && !targetlist.uses_our_operator()
         {
-            return None;
+            return Err(CustomScanBuildError::NotInteresting);
         }
 
-        Some(Self {
+        Ok(Self {
             targetlist,
             orderby,
             limit_offset,

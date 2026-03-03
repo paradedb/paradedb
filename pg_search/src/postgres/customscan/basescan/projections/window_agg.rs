@@ -425,7 +425,7 @@ unsafe fn extract_field_name_from_aggregate_arg(
 ) -> Option<(FieldName, Option<f64>)> {
     let (var, missing) =
         if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
-            parse_coalesce_expression(coalesce_node)?
+            parse_coalesce_expression(coalesce_node).ok()?
         } else if let Some(var) = nodecast!(Var, T_Var, arg_node) {
             (var, None)
         } else {

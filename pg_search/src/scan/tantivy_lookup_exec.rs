@@ -486,14 +486,7 @@ fn materialize_deferred_column(
 
 /// Build a `UInt64Array` (as `ArrayRef`) from a slice of optional u64 values.
 pub(crate) fn uint64_array_from_options(vals: &[Option<u64>]) -> ArrayRef {
-    let mut builder = arrow_array::builder::UInt64Builder::with_capacity(vals.len());
-    for val in vals {
-        match val {
-            Some(v) => builder.append_value(*v),
-            None => builder.append_null(),
-        }
-    }
-    Arc::new(builder.finish())
+    Arc::new(UInt64Array::from(vals.to_vec()))
 }
 
 /// Materializes deferred ctid columns: unpacks DocAddresses and resolves to real ctids.

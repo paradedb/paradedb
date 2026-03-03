@@ -4,6 +4,7 @@
 -- NOTES
 -- 2/24 (ming): Requires semi join support https://github.com/paradedb/paradedb/pull/4226 for join custom scan pushdown
 -- 2/25 (ming): We're 2-3X faster with join custom scan pushdown
+-- 3/02 (stuhood): Hits 50x fewer shared buffers with the custom scan: 3611001 vs 65997
 
 SET work_mem = '1GB';
 SET max_parallel_workers_per_gather = 8;

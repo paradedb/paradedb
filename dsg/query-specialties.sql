@@ -3,8 +3,10 @@ SET max_parallel_workers_per_gather = 8;
 
 -- NOTES
 -- 2/25 (ming): Join scan pushdown not supported yet
--- WARNING:  JoinScan not used: only INNER/SEMI JOIN is currently supported, got 5 (tables: contacts_companies_combined_full, csa_not_exists)
--- 5 is an ANTI JOIN
+--      WARNING:  JoinScan not used: only INNER/SEMI JOIN is currently supported, got 5 (tables: contacts_companies_combined_full, csa_not_exists)
+--      5 is an ANTI JOIN
+-- 3/02 (stuhood): https://github.com/paradedb/paradedb/pull/4241 nets us an improved warning, but actual
+--      execution requires support for anti joins.
 
 SET paradedb.enable_join_custom_scan TO off;
 EXPLAIN ANALYZE SELECT *

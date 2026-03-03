@@ -6,9 +6,11 @@ SET max_parallel_workers_per_gather = 8;
 
 -- NOTES
 -- 2/25 (ming): We are not pushing this down, this shape not yet supported
+-- 3/02 (stuhood): https://github.com/paradedb/paradedb/pull/4241 nets us a warning, but actual
+--      execution requires support for anti joins.
 
 SET paradedb.enable_join_custom_scan TO off;
-EXPLAIN ANALYZE SELECT *
+EXPLAIN ANALYZE
 SELECT *
 FROM contacts_companies_combined_full
 WHERE contact_id IN (

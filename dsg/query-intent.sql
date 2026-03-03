@@ -3,7 +3,9 @@ SET max_parallel_workers_per_gather = 8;
 
 -- NOTES
 -- 2/25 (ming): Requires semi join support https://github.com/paradedb/paradedb/pull/4226 for join custom scan pushdown
--- Big win on this query! 2s to 300ms
+--      Big win on this query! 2s to 300ms
+-- 3/02 (stuhood): More than 100x fewer shared buffers: 3571036 vs 27318.
+--      About 50% faster than a term_set query.
 
 SET paradedb.enable_join_custom_scan TO off;
 EXPLAIN ANALYZE SELECT *

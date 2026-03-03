@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772556409805,
+  "lastUpdate": 1772568708151,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3158,6 +3158,78 @@ window.BENCHMARK_DATA = {
             "value": 54.304096589410015,
             "unit": "median tps",
             "extra": "avg tps: 68.38169661459995, max tps: 899.3849106595999, count: 55051"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86131146c33b4787c7710905b06f47ef03c78ef0",
+          "message": "chore: Restore nesting in join IR, and ensure warnings are rendered (#4241)\n\n## What\n\nRestore nesting in our intermediate representation of joins, and improve\nwarning infrastructure to ensure that we detect warnings in more cases,\nand a minimal number of times.\n\nAdditionally, fixed two bugs:\n* We were losing quals in some cases when they did not contain our\noperator.\n* When choosing the path keys to use with semi joins, we would\noccasionally choose an equivalence class that would not actually survive\nthe join type (because semi joins discard a side).\n\n## Why\n\nIn #4039, I flattened our join structures in order to make it easier to\nreason about how to capture and push down multiple joins to DataFusion.\nThis was fine while we only supported INNER joins. But now that we're\ngoing to begin supporting more join types, we need that structure back.\n\nAdditionally, in some cases of anti and semi joins, Postgres will plan\nSubPlan nodes rather than joins: we were failing to detect our operator\nin these cases, and so we weren't getting a warning about the\nunsupported join types.\n\n## Tests\n\nExpanded tests for semi and anti joins.",
+          "timestamp": "2026-03-03T11:52:02-08:00",
+          "tree_id": "2cb3fc4aad76a97f857a1e8293a22f05c88e1287",
+          "url": "https://github.com/paradedb/paradedb/commit/86131146c33b4787c7710905b06f47ef03c78ef0"
+        },
+        "date": 1772568703551,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 136.24714544220035,
+            "unit": "median tps",
+            "extra": "avg tps: 136.0809387292641, max tps: 149.5753110064286, count: 55110"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2946.002218459595,
+            "unit": "median tps",
+            "extra": "avg tps: 2939.1334339959244, max tps: 3012.3873383870928, count: 55110"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 466.844725124212,
+            "unit": "median tps",
+            "extra": "avg tps: 468.00560289963954, max tps: 523.1030860584798, count: 55110"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2909.201038627384,
+            "unit": "median tps",
+            "extra": "avg tps: 2910.5116011666855, max tps: 3015.8591971742603, count: 110220"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 517.7705080421631,
+            "unit": "median tps",
+            "extra": "avg tps: 517.5710772155139, max tps: 652.9982615290477, count: 55110"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 522.1523794216293,
+            "unit": "median tps",
+            "extra": "avg tps: 523.6100276386693, max tps: 595.7815922672157, count: 55110"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2009.7778366354817,
+            "unit": "median tps",
+            "extra": "avg tps: 1992.186728005269, max tps: 2013.812351134359, count: 55110"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 47.905248159239264,
+            "unit": "median tps",
+            "extra": "avg tps: 50.40490928245512, max tps: 250.29833475683557, count: 55110"
           }
         ]
       }

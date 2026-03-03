@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772552325102,
+  "lastUpdate": 1772553339573,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10498,6 +10498,42 @@ window.BENCHMARK_DATA = {
             "value": 5.475830484616895,
             "unit": "median tps",
             "extra": "avg tps: 4.872942641667554, max tps: 6.097761265887181, count: 57552"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d993ddd672d3f33c60e090b9c42673707ae21567",
+          "message": "chore: Upgrade to pgrx 0.17.0 (#4263)\n\n## Summary\n- bump workspace pgrx and pgrx-tests pins from 0.16.1 to 0.17.0\n- regenerate lockfile to pull the pgrx 0.17.0 family (pgrx, pgrx-pg-sys,\npgrx-tests, etc.)\n- update local developer/docs references to cargo-pgrx 0.17.0\n\n## Testing\n- cargo check -p pg_search\n- cargo check --workspace",
+          "timestamp": "2026-03-03T10:16:21-05:00",
+          "tree_id": "62c7fc8389b22c4455936ea337fe84b0f76106aa",
+          "url": "https://github.com/paradedb/paradedb/commit/d993ddd672d3f33c60e090b9c42673707ae21567"
+        },
+        "date": 1772553333355,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.566256910014778,
+            "unit": "median tps",
+            "extra": "avg tps: 6.438128651758415, max tps: 9.812397878090607, count: 57403"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.347172270086315,
+            "unit": "median tps",
+            "extra": "avg tps: 4.797983662123366, max tps: 6.0305867402925495, count: 57403"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772555422150,
+  "lastUpdate": 1772556403211,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28954,6 +28954,54 @@ window.BENCHMARK_DATA = {
             "value": 574.2285418518636,
             "unit": "median tps",
             "extra": "avg tps: 511.06528145344436, max tps: 669.6766223507068, count: 107848"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d993ddd672d3f33c60e090b9c42673707ae21567",
+          "message": "chore: Upgrade to pgrx 0.17.0 (#4263)\n\n## Summary\n- bump workspace pgrx and pgrx-tests pins from 0.16.1 to 0.17.0\n- regenerate lockfile to pull the pgrx 0.17.0 family (pgrx, pgrx-pg-sys,\npgrx-tests, etc.)\n- update local developer/docs references to cargo-pgrx 0.17.0\n\n## Testing\n- cargo check -p pg_search\n- cargo check --workspace",
+          "timestamp": "2026-03-03T10:16:21-05:00",
+          "tree_id": "62c7fc8389b22c4455936ea337fe84b0f76106aa",
+          "url": "https://github.com/paradedb/paradedb/commit/d993ddd672d3f33c60e090b9c42673707ae21567"
+        },
+        "date": 1772556398492,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 590.7266256789478,
+            "unit": "median tps",
+            "extra": "avg tps: 593.3134622708887, max tps: 720.4796365508772, count: 53919"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 673.6787703821124,
+            "unit": "median tps",
+            "extra": "avg tps: 676.690027801419, max tps: 877.3381896224719, count: 53919"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 91.44172589536466,
+            "unit": "median tps",
+            "extra": "avg tps: 91.54715241406035, max tps: 97.89688096857662, count: 53919"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 572.3192389099295,
+            "unit": "median tps",
+            "extra": "avg tps: 520.5997886170667, max tps: 704.4345868008826, count: 107838"
           }
         ]
       }

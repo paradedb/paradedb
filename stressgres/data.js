@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772498619141,
+  "lastUpdate": 1772498625961,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19216,6 +19216,108 @@ window.BENCHMARK_DATA = {
             "value": 162.44140625,
             "unit": "median mem",
             "extra": "avg mem: 181.02540769819652, max mem: 220.7578125, count: 56169"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51af7b52f08823ef61ccf312531a288da3a67e15",
+          "message": "chore: Add support for segmented top-k on multiple columns (#4262)\n\n# Ticket(s) Closed\n\n- Closes #4255\n- Closes #4256\n\n## What\n\nAdd support for deferring multiple columns for `SegmentedTopKExec`, and\nfor building `PhysicalExpr`s for pushdown.\n\n## Why\n\n#4234 added support for pushing down `SegmentedThresholds` to the\n`Scanner`, but their implementation was tied to one column at a time.\nThis change adds support for multiple deferred columns per index, and\nfor non-deferred tiebreakers on those columns.\n\n## How\n\nConverts the filters stored in `SegmentedThresholds` to `PhysicalExpr`s\n(which are also used in dynamic filters), and then produces the\nthreshold expressions in a manner similar to upstream `TopK`. This\nallows us to avoid custom logic for null handling during the application\nof filters, and the support for compound columns means we can use an\nexclusive comparison in the case of tiebreaker columns and duplicates.\n\n## Tests\n\nExpanded the tests to test multiple deferred columns, and to confirm\nthat we do the right thing when potentially-deferred columns from\n_different_ indexes are in the same `ORDER BY`.",
+          "timestamp": "2026-03-02T15:50:28-08:00",
+          "tree_id": "3ec7f7e684ad355d46cb027a63d538132a9b800f",
+          "url": "https://github.com/paradedb/paradedb/commit/51af7b52f08823ef61ccf312531a288da3a67e15"
+        },
+        "date": 1772498620752,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0749729067102528, max background_merging: 2.0, count: 56287"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.813217378867593, max cpu: 9.706775, count: 56287"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.746034969220247, max mem: 25.8203125, count: 56287"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.013218143134499, max cpu: 28.09756, count: 56287"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 188.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 186.46255650449928, max mem: 188.50390625, count: 56287"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51331,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51201.69557801979, max block_count: 51331.0, count: 56287"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.810524632686054, max segment_count: 55.0, count: 56287"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.769703910192723, max cpu: 28.09756, count: 56287"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 160.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 148.4128154730444, max mem: 170.74609375, count: 56287"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.852745551682174, max cpu: 27.853, count: 56287"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 180.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.19415367891344, max mem: 187.10546875, count: 56287"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.802829342756983, max cpu: 33.73494, count: 56287"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 180.67485741323486, max mem: 220.984375, count: 56287"
           }
         ]
       }

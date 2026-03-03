@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772554420169,
+  "lastUpdate": 1772555414994,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22088,6 +22088,60 @@ window.BENCHMARK_DATA = {
             "value": 16.634853335881598,
             "unit": "median tps",
             "extra": "avg tps: 16.558513387778362, max tps: 21.51069202929266, count: 55517"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d993ddd672d3f33c60e090b9c42673707ae21567",
+          "message": "chore: Upgrade to pgrx 0.17.0 (#4263)\n\n## Summary\n- bump workspace pgrx and pgrx-tests pins from 0.16.1 to 0.17.0\n- regenerate lockfile to pull the pgrx 0.17.0 family (pgrx, pgrx-pg-sys,\npgrx-tests, etc.)\n- update local developer/docs references to cargo-pgrx 0.17.0\n\n## Testing\n- cargo check -p pg_search\n- cargo check --workspace",
+          "timestamp": "2026-03-03T10:16:21-05:00",
+          "tree_id": "62c7fc8389b22c4455936ea337fe84b0f76106aa",
+          "url": "https://github.com/paradedb/paradedb/commit/d993ddd672d3f33c60e090b9c42673707ae21567"
+        },
+        "date": 1772555408209,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.53335094426823,
+            "unit": "median tps",
+            "extra": "avg tps: 32.30136291262861, max tps: 35.5318838986633, count: 55516"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 243.48128175414396,
+            "unit": "median tps",
+            "extra": "avg tps: 267.440513512303, max tps: 2599.897592526883, count: 55516"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 690.879883865149,
+            "unit": "median tps",
+            "extra": "avg tps: 680.3559505540231, max tps: 1246.1680509445962, count: 55516"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 168.996690657492,
+            "unit": "median tps",
+            "extra": "avg tps: 185.66771531387525, max tps: 1121.5027745672778, count: 111032"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.59786495691215,
+            "unit": "median tps",
+            "extra": "avg tps: 16.608709057626122, max tps: 19.647400365616114, count: 55516"
           }
         ]
       }

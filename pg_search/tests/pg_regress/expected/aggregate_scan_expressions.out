@@ -1,0 +1,64 @@
+-- Repro for documents_view aggregation
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE SCHEMA IF NOT EXISTS documents;
+CREATE TABLE documents.core
+(
+    id          serial constraint pkey_core_id primary key,
+    dwf_doid    bigint,
+    record_type varchar
+);
+CREATE INDEX idx_parade_core ON documents.core USING bm25 (
+    id,
+    dwf_doid,
+    (lower(record_type)::pdb.literal)
+) WITH (
+    key_field='id'
+);
+-- Insert some dummy data so the query returns rows
+INSERT INTO documents.core (dwf_doid, record_type) VALUES (1, 'Type1');
+INSERT INTO documents.core (dwf_doid, record_type) VALUES (2, 'Type2');
+-- Enable the aggregate custom scan.
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Explain and execute the repro query
+EXPLAIN
+SELECT
+    lower(record_type),
+    pdb.agg('{"value_count": {"field": "dwf_doid"}}') AS count
+FROM documents.core
+WHERE dwf_doid @@@ pdb.all()
+GROUP BY lower(record_type)
+ORDER BY lower(record_type) DESC
+LIMIT 100
+OFFSET 0;
+WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: core)
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ Limit  (cost=10.02..10.04 rows=1 width=64)
+   ->  GroupAggregate  (cost=10.02..10.04 rows=1 width=64)
+         Group Key: (lower((record_type)::text))
+         ->  Sort  (cost=10.02..10.02 rows=1 width=32)
+               Sort Key: (lower((record_type)::text)) DESC
+               ->  Custom Scan (ParadeDB Scan) on core  (cost=10.00..10.01 rows=1 width=32)
+                     Table: core
+                     Index: idx_parade_core
+                     Segment Count: 1
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: record_type
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"all":{"field":"dwf_doid"}}}}
+(13 rows)
+
+SELECT
+    lower(record_type),
+    pdb.agg('{"value_count": {"field": "dwf_doid"}}') AS count
+FROM documents.core
+WHERE dwf_doid @@@ pdb.all()
+GROUP BY lower(record_type)
+ORDER BY lower(record_type) DESC
+LIMIT 100
+OFFSET 0;
+WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: core)
+ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+-- Drop the schema and everything in it
+DROP SCHEMA documents CASCADE;
+RESET paradedb.enable_aggregate_custom_scan;

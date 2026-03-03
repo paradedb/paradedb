@@ -132,17 +132,12 @@ struct JSONBenchmarkResult {
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
         let median = median(res.runtimes_ms.iter());
-        let cold_query_extra = res
-            .runtimes_ms
-            .first()
-            .map(|ms| format!("cold_query_ms={ms:.3}; query={}", res.query))
-            .unwrap_or_else(|| format!("cold_query_ms=NA; query={}", res.query));
 
         Self {
             name: res.query_type,
             unit: "median ms",
             value: median,
-            extra: cold_query_extra,
+            extra: res.query,
         }
     }
 }
@@ -173,10 +168,6 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
 
     if args.prewarm {
         prewarm_indexes(&args.url, &args.dataset, &args.r#type);
-    }
-
-    if let Err(err) = ensure_pg_buffercache_extension(&args.url) {
-        eprintln!("WARNING: Failed to initialize pg_buffercache extension: {err}");
     }
 
     // Locate all query paths, and sort them for stability in the output.
@@ -218,10 +209,8 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
                 .collect::<Vec<_>>()
         })
         .map(|(query_type, query)| {
-            if let Err(err) = clear_caches(&args.url) {
-                eprintln!("WARNING: Failed to clear caches before query: {err}");
-            }
             println!("Query Type: {query_type}\nQuery: {query}");
+            print_query_explain(&args.url, &query);
             let (runtimes_ms, num_results) =
                 execute_query_multiple_times(&args.url, &query, args.runs);
             println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
@@ -670,104 +659,54 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
         if i == 0 {
             num_results = output_str
                 .lines()
-                .filter(|line| !line.contains("Time") && !line.trim().is_empty())
-                .count()
-                - 1;
+                .filter(|line| {
+                    let trimmed = line.trim();
+                    !trimmed.is_empty()
+                        && !trimmed.contains("Time")
+                        && !trimmed.starts_with("SET")
+                        && !trimmed.starts_with("RESET")
+                })
+                .count();
         }
     }
 
     (results, num_results)
 }
 
-fn drop_os_page_cache() -> Result<(), String> {
-    #[cfg(target_os = "linux")]
-    {
-        let output = Command::new("sh")
-            .arg("-c")
-            // Use non-interactive sudo so local runs don't hang on a password prompt.
-            .arg("sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null")
-            .output()
-            .map_err(|e| e.to_string())?;
+fn print_query_explain(url: &str, query: &str) {
+    let statements = query
+        .split(';')
+        .map(str::trim)
+        .filter(|stmt| !stmt.is_empty())
+        .collect::<Vec<_>>();
 
-        if output.status.success() {
-            return Ok(());
-        }
-
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let details = if !stderr.is_empty() { stderr } else { stdout };
-        Err(format!(
-            "linux cache-drop command failed (`sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null`): {details}"
-        ))
+    if statements.is_empty() {
+        println!("EXPLAIN: skipped (empty query)\n");
+        return;
     }
 
-    #[cfg(not(target_os = "linux"))]
-    {
-        // No portable equivalent in this benchmark runner today.
-        Err("unsupported platform (cache-drop is only implemented on Linux)".to_string())
-    }
-}
-
-fn clear_caches(url: &str) -> Result<(), String> {
-    let mut errors = Vec::new();
-
-    if let Err(err) = drop_os_page_cache() {
-        errors.push(format!("OS page cache: {err}"));
-    }
-    if let Err(err) = evict_postgres_buffer_cache(url) {
-        errors.push(format!("PostgreSQL buffer cache: {err}"));
+    let mut command = base_psql_command(url);
+    for setup_statement in &statements[..statements.len().saturating_sub(1)] {
+        command.arg("-c").arg(setup_statement);
     }
 
-    if errors.is_empty() {
-        Ok(())
+    let explain_statement = format!(
+        "EXPLAIN (FORMAT TEXT, COSTS true, VERBOSE false) {}",
+        statements[statements.len() - 1]
+    );
+    let output = command
+        .arg("-c")
+        .arg(&explain_statement)
+        .output()
+        .expect("Failed to run EXPLAIN");
+
+    if output.status.success() {
+        let explain_output = String::from_utf8_lossy(&output.stdout);
+        println!("EXPLAIN:\n{}\n", explain_output.trim());
     } else {
-        Err(errors.join(" | "))
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("EXPLAIN failed:\n{}\n", stderr.trim());
     }
-}
-
-fn ensure_pg_buffercache_extension(url: &str) -> Result<(), String> {
-    let output = base_psql_command(url)
-        .arg("-c")
-        .arg("CREATE EXTENSION IF NOT EXISTS pg_buffercache;")
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let details = if !stderr.is_empty() { stderr } else { stdout };
-    Err(format!(
-        "failed to create pg_buffercache extension (`CREATE EXTENSION IF NOT EXISTS pg_buffercache;`): {details}"
-    ))
-}
-
-fn evict_postgres_buffer_cache(url: &str) -> Result<(), String> {
-    let sql = "DO $$ \
-               BEGIN \
-                   PERFORM pg_buffercache_evict(bufferid) \
-                   FROM pg_buffercache \
-                   WHERE relfilenode IS NOT NULL; \
-               END \
-               $$;";
-    let output = base_psql_command(url)
-        .arg("-c")
-        .arg(sql)
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let details = if !stderr.is_empty() { stderr } else { stdout };
-    Err(format!(
-        "failed to evict PostgreSQL buffer cache via pg_buffercache (`{sql}`): {details}"
-    ))
 }
 
 fn base_psql_command(url: &str) -> Command {

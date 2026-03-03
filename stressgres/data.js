@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772496608544,
+  "lastUpdate": 1772497596231,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10258,6 +10258,42 @@ window.BENCHMARK_DATA = {
             "value": 5.44460380880084,
             "unit": "median tps",
             "extra": "avg tps: 4.8781265101688, max tps: 6.091264472619921, count: 57577"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51af7b52f08823ef61ccf312531a288da3a67e15",
+          "message": "chore: Add support for segmented top-k on multiple columns (#4262)\n\n# Ticket(s) Closed\n\n- Closes #4255\n- Closes #4256\n\n## What\n\nAdd support for deferring multiple columns for `SegmentedTopKExec`, and\nfor building `PhysicalExpr`s for pushdown.\n\n## Why\n\n#4234 added support for pushing down `SegmentedThresholds` to the\n`Scanner`, but their implementation was tied to one column at a time.\nThis change adds support for multiple deferred columns per index, and\nfor non-deferred tiebreakers on those columns.\n\n## How\n\nConverts the filters stored in `SegmentedThresholds` to `PhysicalExpr`s\n(which are also used in dynamic filters), and then produces the\nthreshold expressions in a manner similar to upstream `TopK`. This\nallows us to avoid custom logic for null handling during the application\nof filters, and the support for compound columns means we can use an\nexclusive comparison in the case of tiebreaker columns and duplicates.\n\n## Tests\n\nExpanded the tests to test multiple deferred columns, and to confirm\nthat we do the right thing when potentially-deferred columns from\n_different_ indexes are in the same `ORDER BY`.",
+          "timestamp": "2026-03-02T15:50:28-08:00",
+          "tree_id": "3ec7f7e684ad355d46cb027a63d538132a9b800f",
+          "url": "https://github.com/paradedb/paradedb/commit/51af7b52f08823ef61ccf312531a288da3a67e15"
+        },
+        "date": 1772497591212,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.415454097753272,
+            "unit": "median tps",
+            "extra": "avg tps: 6.39252541780734, max tps: 9.781012590071047, count: 57552"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.475830484616895,
+            "unit": "median tps",
+            "extra": "avg tps: 4.872942641667554, max tps: 6.097761265887181, count: 57552"
           }
         ]
       }

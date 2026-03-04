@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772604878024,
+  "lastUpdate": 1772605646852,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11458,6 +11458,42 @@ window.BENCHMARK_DATA = {
             "value": 5.355706536904294,
             "unit": "median tps",
             "extra": "avg tps: 4.809377670491989, max tps: 6.000535526619615, count: 57513"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7b2a4a7998b41e4ec32adc785b6c271ea8a6e805",
+          "message": "chore: Upgrade to `0.21.11` (#4275)\n\n## What\nUpgrade pg_search to 0.21.11.\n\n## Why\nNew patch release with performance improvements and bug fixes.\n\n## How\n- Bump workspace version to 0.21.11\n- Add changelog for 0.21.11\n- Update docs download URLs, upgrade instructions, and version\nreferences\n- Add SQL upgrade script from 0.21.10 to 0.21.11\n- Rename bridge SQL file to maintain upgrade path to 0.22.0\n- Update nix derivation comment\n\n## Tests\nN/A — version bump only.",
+          "timestamp": "2026-03-03T21:52:22-08:00",
+          "tree_id": "728216c8cdcf81ee458fbcbd50c590234b53230b",
+          "url": "https://github.com/paradedb/paradedb/commit/7b2a4a7998b41e4ec32adc785b6c271ea8a6e805"
+        },
+        "date": 1772605641526,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.893156901154087,
+            "unit": "median tps",
+            "extra": "avg tps: 6.744148461114909, max tps: 10.239261602210117, count: 57578"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.242263244813549,
+            "unit": "median tps",
+            "extra": "avg tps: 4.710852148001188, max tps: 5.87114399828673, count: 57578"
           }
         ]
       }

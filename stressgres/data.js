@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772590175198,
+  "lastUpdate": 1772590916438,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30274,6 +30274,54 @@ window.BENCHMARK_DATA = {
             "value": 531.8280231923081,
             "unit": "median tps",
             "extra": "avg tps: 494.9007854588396, max tps: 680.5946582393924, count: 107834"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "28feba97826a07a20bb04cacec64ef2c3d055d8b",
+          "message": "fix: Make the aggregate custom scan collector interruptable (#4271)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere was a problem where the aggregate custom scan was not\ninterruptible while Tantivy was collecting over a segment, which could\ntake a very long time if the segment is large.\n\nIntroduces a new wrapping collector that checks for interrupts per batch\nof `2048` documents.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-03-03T17:11:03-08:00",
+          "tree_id": "8c7d5e14213931a8f65d74b96bae6872ceffcc8b",
+          "url": "https://github.com/paradedb/paradedb/commit/28feba97826a07a20bb04cacec64ef2c3d055d8b"
+        },
+        "date": 1772590911802,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 555.0821062301886,
+            "unit": "median tps",
+            "extra": "avg tps: 559.7744095282789, max tps: 801.2837496191963, count: 53852"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 731.8396149746779,
+            "unit": "median tps",
+            "extra": "avg tps: 734.0317567693029, max tps: 900.6972550772656, count: 53852"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 96.78538531977347,
+            "unit": "median tps",
+            "extra": "avg tps: 96.67584633796481, max tps: 98.0841819261483, count: 53852"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 531.5025463595249,
+            "unit": "median tps",
+            "extra": "avg tps: 474.4236170851804, max tps: 799.7746477398623, count: 107704"
           }
         ]
       }

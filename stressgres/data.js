@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772590922722,
+  "lastUpdate": 1772596091844,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3302,6 +3302,78 @@ window.BENCHMARK_DATA = {
             "value": 52.8900538036387,
             "unit": "median tps",
             "extra": "avg tps: 63.36297122361471, max tps: 237.06341956159625, count: 55024"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2b3be233d65d8826fb46c01e4391c934d405080a",
+          "message": "fix: Add support for expressions and planner warnings to the aggregate scan (#4273)\n\n## What\n\nAdds support for using index expressions in the target list, group by,\nand order by of the aggregate scan (to match the base scan and join\nscan).\n\nAdditionally, adds planner warnings to the aggregate scan to follow the\npattern of Top-K in the base scan, and whenever the GUC is set for the\njoin scan. See regress changes for more infomation.\n\n## Why\n\nTo increase the number of cases in which the aggregate scan can be used,\nand make it easier to understand why it is isn't activating.\n\n## Tests\n\nAdded a new regress test covering target list, group by, and order by\nexpressions.",
+          "timestamp": "2026-03-03T19:28:13-08:00",
+          "tree_id": "534b184af482c5cd97c7273eb8ccab8136d49a07",
+          "url": "https://github.com/paradedb/paradedb/commit/2b3be233d65d8826fb46c01e4391c934d405080a"
+        },
+        "date": 1772596086901,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 135.74808792598708,
+            "unit": "median tps",
+            "extra": "avg tps: 136.02220530817468, max tps: 150.81936628218818, count: 55112"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3073.3003916794005,
+            "unit": "median tps",
+            "extra": "avg tps: 3056.680430667574, max tps: 3082.4470241040235, count: 55112"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 460.59994948500105,
+            "unit": "median tps",
+            "extra": "avg tps: 463.28345227382533, max tps: 556.3759191207454, count: 55112"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3075.267840426396,
+            "unit": "median tps",
+            "extra": "avg tps: 3076.8731068756656, max tps: 3119.371747581561, count: 110224"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 511.01603745494435,
+            "unit": "median tps",
+            "extra": "avg tps: 515.2854707198286, max tps: 668.320056212914, count: 55112"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 514.3761815293051,
+            "unit": "median tps",
+            "extra": "avg tps: 517.6211620851435, max tps: 677.2062199692133, count: 55112"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1929.5349484306998,
+            "unit": "median tps",
+            "extra": "avg tps: 1915.7517746080425, max tps: 1936.1190126500385, count: 55112"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 90.59768498672167,
+            "unit": "median tps",
+            "extra": "avg tps: 106.69448407489068, max tps: 308.22572787890925, count: 55112"
           }
         ]
       }

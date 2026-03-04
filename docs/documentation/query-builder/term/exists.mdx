@@ -35,13 +35,13 @@ MockItem.objects.filter(
 ```
 
 ```python SQLAlchemy
-# coming soon
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(MockItem.rating.op("@@@")(func.pdb.exists()))
+    .where(search.exists(MockItem.rating))
     .limit(5)
 )
 

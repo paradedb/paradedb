@@ -146,13 +146,13 @@ MockItem.objects.filter(
 ```
 
 ```python SQLAlchemy
-# coming soon
-from sqlalchemy import literal_column, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(MockItem.description.op("###")(literal_column("'running shoes'::pdb.whitespace")))
+    .where(search.phrase(MockItem.description, "running shoes", tokenizer="whitespace"))
 )
 
 with Session(engine) as session:
@@ -182,14 +182,13 @@ MockItem.objects.extra(
 ```
 
 ```python SQLAlchemy
-# coming soon
-from sqlalchemy import Text, select
-from sqlalchemy.dialects.postgresql import array
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(MockItem.description.op("###")(array(["running", "shoes"], type_=Text())))
+    .where(search.phrase(MockItem.description, ["running", "shoes"]))
 )
 
 with Session(engine) as session:
@@ -214,13 +213,13 @@ MockItem.objects.extra(
 ```
 
 ```python SQLAlchemy
-# coming soon
-from sqlalchemy import literal_column, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(MockItem.description.op("###")(literal_column("ARRAY['shoes', 'running']::pdb.slop(2)")))
+    .where(search.phrase(MockItem.description, ["shoes", "running"], slop=2))
 )
 
 with Session(engine) as session:

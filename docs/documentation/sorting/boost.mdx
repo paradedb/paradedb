@@ -84,10 +84,9 @@ MockItem.objects.filter(
 ```
 
 ```python SQLAlchemy
-# coming soon
-from sqlalchemy import desc, literal_column, select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import pdb
+from paradedb.sqlalchemy import pdb, search
 
 stmt = (
     select(
@@ -96,7 +95,7 @@ stmt = (
         MockItem.category,
         pdb.score(MockItem.id).label("score"),
     )
-    .where(MockItem.description.op("@@@")(literal_column("pdb.regex('key.*')::pdb.boost(2)")))
+    .where(search.regex(MockItem.description, "key.*", boost=2.0))
     .order_by(desc("score"))
     .limit(5)
 )
@@ -178,10 +177,9 @@ MockItem.objects.filter(
 ```
 
 ```python SQLAlchemy
-# coming soon
-from sqlalchemy import desc, literal_column, select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import pdb
+from paradedb.sqlalchemy import pdb, search
 
 stmt = (
     select(
@@ -190,7 +188,7 @@ stmt = (
         MockItem.description,
         MockItem.category,
     )
-    .where(MockItem.description.op("|||")(literal_column("'shoes'::pdb.const(1)")))
+    .where(search.match_any(MockItem.description, "shoes", const=1.0))
     .order_by(desc("score"))
     .limit(5)
 )

@@ -185,13 +185,13 @@ MockItem.objects.filter(
 ```
 
 ```python SQLAlchemy
-# coming soon
-from sqlalchemy import literal_column, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(MockItem.description.op("|||")(literal_column("'running shoes'::pdb.whitespace")))
+    .where(search.match_any(MockItem.description, "running shoes", tokenizer="whitespace"))
 )
 
 with Session(engine) as session:

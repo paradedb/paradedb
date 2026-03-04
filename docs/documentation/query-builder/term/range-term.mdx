@@ -27,13 +27,13 @@ MockItem.objects.filter(
 ```
 
 ```python SQLAlchemy
-# coming soon
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.id, MockItem.weight_range)
-    .where(MockItem.weight_range.op("@@@")(func.pdb.range_term(1)))
+    .where(search.range_term(MockItem.weight_range, 1))
 )
 
 with Session(engine) as session:

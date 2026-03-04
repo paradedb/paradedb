@@ -25,6 +25,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .near("sleek", "shoes", distance: 1)
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 <Note>
@@ -48,6 +54,11 @@ from paradedb import ParadeDB, Proximity
 MockItem.objects.filter(
     description=ParadeDB(Proximity('sleek shoes', distance=1, ordered=True))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.where("description @@@ ('sleek' ##> 1 ##> 'shoes')")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -74,6 +85,11 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.where("description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes')")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overridden
@@ -93,6 +109,11 @@ from paradedb import ParadeDB, ProximityRegex
 MockItem.objects.filter(
     description=ParadeDB(ProximityRegex(left_term='shoes', pattern='sl.*', distance=1, max_expansions=100))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.where("description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes')")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -117,6 +138,11 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.where("description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes')")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 `pdb.prox_array` can also take regex:
@@ -134,6 +160,11 @@ from paradedb import ParadeDB, ProxRegex, ProximityArray
 MockItem.objects.filter(
     description=ParadeDB(ProximityArray(ProxRegex('sl.*'), 'white', right_term='shoes', distance=1))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.where("description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## 'shoes')")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

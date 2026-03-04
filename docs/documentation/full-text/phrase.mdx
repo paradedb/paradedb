@@ -34,6 +34,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .phrase("running shoes")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 This query returns:
@@ -96,6 +102,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .phrase("shoes running", slop: 2)
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 ## Using a Custom Tokenizer
@@ -115,6 +127,11 @@ from paradedb import ParadeDB, Phrase
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes', tokenizer='whitespace'))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.where("description ### 'running shoes'::pdb.whitespace")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -139,6 +156,11 @@ MockItem.objects.extra(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.where("description ### ARRAY['running', 'shoes']")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 Adding slop is supported:
@@ -154,6 +176,11 @@ WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
 MockItem.objects.extra(
     where=["description ### ARRAY['shoes', 'running']::pdb.slop(2)"]
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.where("description ### ARRAY['shoes', 'running']::pdb.slop(2)")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

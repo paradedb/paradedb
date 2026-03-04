@@ -76,6 +76,15 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where("rating > 2")
+        .select(:description, :rating, :category)
+        .order(:rating)
+        .limit(5)
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -109,6 +118,15 @@ MockItem.objects.filter(
     rating__gt=2
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("running shoes")
+        .where("rating > 2")
+        .select(:description, :rating, :category)
+        .order(:rating)
+        .limit(5)
+```
 </CodeGroup>
 
 ```ini Expected Response
@@ -140,6 +158,16 @@ MockItem.objects.filter(
 ).annotate(
     score=Score()
 ).values('description', 'score').order_by('-score')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where("rating > 2")
+        .with_score
+        .select(:description)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -179,6 +207,17 @@ MockItem.objects.filter(
 ).values('description', 'snippet', 'score').order_by('-score')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where("rating > 2")
+        .with_snippet(:description)
+        .with_score
+        .select(:description)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -209,6 +248,14 @@ from paradedb import Match, ParadeDB
 MockItem.objects.filter(
     description=ParadeDB(Match('running shoes', operator='OR'))
 ).values('description', 'rating', 'category').order_by('rating')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .select(:description, :rating, :category)
+        .order(:rating)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -250,6 +297,18 @@ rows, facets = (
     .values('description', 'rating', 'category')[:5]
     .facets(agg='{"value_count": {"field": "id"}}')
 )
+```
+
+```ruby Rails
+relation = MockItem.search(:description)
+                   .matching_any("running shoes")
+                   .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
+                   .order(:rating)
+                   .select(:description, :rating, :category)
+                   .limit(5)
+
+rows = relation.to_a
+facets = relation.aggregates
 ```
 
 </CodeGroup>

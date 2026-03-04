@@ -34,6 +34,18 @@ result = MockItem.objects.aggregate(
 )
 ```
 
+```ruby Rails
+# coming soon
+result = ActiveRecord::Base.connection.exec_query(<<~SQL).first
+  SELECT
+      pdb.agg('{"value_count": {"field": "id"}}')
+      FILTER (WHERE category === 'electronics') AS electronics_count,
+      pdb.agg('{"value_count": {"field": "id"}}')
+      FILTER (WHERE category === 'footwear') AS footwear_count
+  FROM mock_items;
+SQL
+```
+
 </CodeGroup>
 
 <Note>

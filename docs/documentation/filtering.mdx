@@ -23,6 +23,13 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where("rating > 2")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 ## Filter Pushdown
@@ -115,6 +122,13 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .term("shoes")
+        .where(category: "Footwear")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer:
@@ -141,6 +155,13 @@ MockItem.objects.filter(
     description=ParadeDB(Term('shoes')),
     category__in=['Footwear', 'Apparel']
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .term("shoes")
+        .where(category: ["Footwear", "Apparel"])
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

@@ -21,6 +21,11 @@ from paradedb import Regex
 Regex('key.*')
 ```
 
+```ruby Rails
+# coming soon
+ActiveRecord::Base.connection.select_value("SELECT pdb.regex('key.*')")
+```
+
 </CodeGroup>
 
 <Accordion title="Expected Response">

@@ -39,6 +39,18 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+# Term query 1
+MockItem.search(:description)
+        .term("running")
+        .select(:description, :rating, :category)
+
+# Term query 2
+MockItem.search(:description)
+        .term("RUNNING")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 The first query returns:
@@ -102,6 +114,12 @@ from paradedb import ParadeDB, TermSet
 MockItem.objects.filter(
     description=ParadeDB(TermSet('shoes', 'running'))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .term_set("shoes", "running")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

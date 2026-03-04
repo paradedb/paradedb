@@ -28,6 +28,16 @@ MockItem.objects.filter(
 ).values('agg')
 ```
 
+```ruby Rails
+# coming soon
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}') AS agg
+  FROM mock_items
+  WHERE id @@@ pdb.all()
+  GROUP BY rating;
+SQL
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -67,6 +77,16 @@ MockItem.objects.filter(
 ).values('agg')
 ```
 
+```ruby Rails
+# coming soon
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT pdb.agg('{"top_hits": {"size": 3, "from": 1, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}') AS agg
+  FROM mock_items
+  WHERE id @@@ pdb.all()
+  GROUP BY rating;
+SQL
+```
+
 </CodeGroup>
 
 If multiple fields are passed into `sort`, the additional fields are used as tiebreakers:
@@ -87,6 +107,16 @@ MockItem.objects.filter(
 ).values('rating').annotate(
     agg=Agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}')
 ).values('agg')
+```
+
+```ruby Rails
+# coming soon
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}') AS agg
+  FROM mock_items
+  WHERE id @@@ pdb.all()
+  GROUP BY rating;
+SQL
 ```
 
 </CodeGroup>

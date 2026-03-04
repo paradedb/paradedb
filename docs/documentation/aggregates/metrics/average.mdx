@@ -20,6 +20,12 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"avg": {"field": "rating"}}'))
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.avg(:rating))
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -56,6 +62,10 @@ MockItem.objects.filter(
 ).aggregate(avg_rating=Avg('rating'))
 ```
 
+```ruby Rails
+MockItem.search(:id).match_all.average(:rating)
+```
+
 </CodeGroup>
 
 By default, `AVG` ignores null values. Use `COALESCE` to include them in the final average:
@@ -74,6 +84,10 @@ from paradedb import All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(avg_rating=Avg(Coalesce('rating', Value(0))))
+```
+
+```ruby Rails
+MockItem.search(:id).match_all.average(Arel.sql("COALESCE(rating, 0)"))
 ```
 
 </CodeGroup>

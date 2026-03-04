@@ -20,6 +20,12 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"sum": {"field": "rating"}}'))
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.sum(:rating))
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -56,6 +62,10 @@ MockItem.objects.filter(
 ).aggregate(total=Sum('rating'))
 ```
 
+```ruby Rails
+MockItem.search(:id).match_all.sum(:rating)
+```
+
 </CodeGroup>
 
 By default, `SUM` ignores null values. Use `COALESCE` to include them in the final sum:
@@ -74,6 +84,10 @@ from paradedb import All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(total=Sum(Coalesce('rating', Value(0))))
+```
+
+```ruby Rails
+MockItem.search(:id).match_all.sum(Arel.sql("COALESCE(rating, 0)"))
 ```
 
 </CodeGroup>

@@ -30,6 +30,14 @@ MockItem.objects.filter(rating=5).count()
 MockItem.objects.filter(rating=5, id=ParadeDB(All())).count()
 ```
 
+```ruby Rails
+# Not pushed down — no ParadeDB operator
+MockItem.where(rating: 5).count
+
+# Pushed down — ParadeDB operator triggers aggregate pushdown
+MockItem.search(:id).match_all.where(rating: 5).count
+```
+
 </CodeGroup>
 
 If your query does not contain a ParadeDB operator, a way to "force" aggregate pushdown is to append the [all query](/documentation/query-builder/compound/all) to the query's

@@ -30,6 +30,12 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"min": {"field": "rating"}}'))
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.min(:rating))
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -60,6 +66,10 @@ MockItem.objects.filter(
 ).aggregate(min_rating=Min('rating'))
 ```
 
+```ruby Rails
+MockItem.search(:id).match_all.minimum(:rating)
+```
+
 </CodeGroup>
 
 By default, `MIN` ignores null values. Use `COALESCE` to include them in the final result:
@@ -80,6 +90,10 @@ MockItem.objects.filter(
 ).aggregate(min_rating=Min(Coalesce('rating', Value(0))))
 ```
 
+```ruby Rails
+MockItem.search(:id).match_all.minimum(Arel.sql("COALESCE(rating, 0)"))
+```
+
 </CodeGroup>
 
 ## Max
@@ -98,6 +112,12 @@ from paradedb import Agg, All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(agg=Agg('{"max": {"field": "rating"}}'))
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.max(:rating))
 ```
 
 </CodeGroup>
@@ -128,6 +148,10 @@ MockItem.objects.filter(
 ).aggregate(max_rating=Max('rating'))
 ```
 
+```ruby Rails
+MockItem.search(:id).match_all.maximum(:rating)
+```
+
 </CodeGroup>
 
 By default, `MAX` ignores null values. Use `COALESCE` to include them in the final result:
@@ -146,6 +170,10 @@ from paradedb import All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(max_rating=Max(Coalesce('rating', Value(0))))
+```
+
+```ruby Rails
+MockItem.search(:id).match_all.maximum(Arel.sql("COALESCE(rating, 0)"))
 ```
 
 </CodeGroup>

@@ -31,6 +31,17 @@ MockItem.objects.filter(
 )[:10]
 ```
 
+```ruby Rails
+# coming soon
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') AS agg
+  FROM mock_items
+  WHERE id @@@ pdb.all()
+  GROUP BY rating
+  LIMIT 10;
+SQL
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -63,6 +74,18 @@ MockItem.objects.filter(
 ).values('rating').annotate(
     agg=Agg('{"value_count": {"field": "id"}}')
 ).order_by('rating')[:10]
+```
+
+```ruby Rails
+# coming soon
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') AS agg
+  FROM mock_items
+  WHERE id @@@ pdb.all()
+  GROUP BY rating
+  ORDER BY rating
+  LIMIT 10;
+SQL
 ```
 
 </CodeGroup>

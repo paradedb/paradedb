@@ -24,6 +24,12 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"value_count": {"field": "id"}}'))
 ```
 
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .facets_agg(agg: ParadeDB::Aggregations.value_count(:id))
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -53,6 +59,18 @@ MockItem.objects.filter(
 ).values('rating').annotate(
     agg=Agg('{"value_count": {"field": "id"}}')
 ).order_by('rating')[:5]
+```
+
+```ruby Rails
+# coming soon
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') AS agg
+  FROM mock_items
+  WHERE category === 'electronics'
+  GROUP BY rating
+  ORDER BY rating
+  LIMIT 5;
+SQL
 ```
 
 </CodeGroup>
@@ -90,6 +108,15 @@ MockItem.objects.filter(
 )
 ```
 
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .facets_agg(
+          avg_rating: ParadeDB::Aggregations.avg(:rating),
+          count: ParadeDB::Aggregations.value_count(:id)
+        )
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -116,6 +143,12 @@ from paradedb import Agg, All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(agg=Agg('{"terms": {"field": "metadata.color"}}'))
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.terms("metadata.color"))
 ```
 
 </CodeGroup>

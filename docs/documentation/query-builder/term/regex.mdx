@@ -21,6 +21,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .regex("key.*")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 ParadeDB supports all regex constructs of the Rust [regex](https://docs.rs/regex/latest/regex/) crate, with the following exceptions:

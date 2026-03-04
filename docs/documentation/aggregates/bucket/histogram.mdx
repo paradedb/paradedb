@@ -10,11 +10,22 @@ in each bucket.
 Each value is rounded down to its bucket. For instance, a rating of `18` with an interval of `5` rounds down to a bucket
 with key `15`.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"histogram": {"field": "rating", "interval": "1"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"histogram": {"field": "rating", "interval": "1"}}'))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
                                                                                   agg

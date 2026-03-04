@@ -19,11 +19,22 @@ By default we recommend using the [term operator](/documentation/full-text/term)
 
 Matches documents containing a specified term.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.term('shoes');
 ```
+
+```python Django
+from paradedb import ParadeDB, Term
+
+MockItem.objects.filter(
+    description=ParadeDB(Term('shoes'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 Numeric, boolean, or datetime fields can also be passed into the `term` query. Doing so is equivalent to using the
 `=` equality operator.

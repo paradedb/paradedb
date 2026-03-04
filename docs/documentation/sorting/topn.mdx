@@ -6,13 +6,24 @@ canonical: https://docs.paradedb.com/documentation/sorting/topn
 
 ParadeDB is highly optimized for quickly returning the Top N results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'
 ORDER BY rating
 LIMIT 5;
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR'))
+).order_by('rating').values('description', 'rating', 'category')[:5]
+```
+
+</CodeGroup>
 
 In order for a Top N query to be executed by ParadeDB vs. vanilla Postgres, all of the following conditions must be met:
 
@@ -55,13 +66,24 @@ If any of the above conditions are not met, the query cannot be fully optimized 
 
 To guarantee stable sorting in the event of a tie, additional columns can be provided to `ORDER BY`:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'
 ORDER BY rating, id
 LIMIT 5;
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR'))
+).order_by('rating', 'id').values('description', 'rating', 'category')[:5]
+```
+
+</CodeGroup>
 
 <Note>
   ParadeDB is currently able to handle 3 `ORDER BY` columns. If there are more
@@ -84,13 +106,25 @@ WITH (key_field='id');
 
 This allows sorting by lowercase to be optimized.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'sleek running shoes'
 ORDER BY lower(description)
 LIMIT 5;
 ```
+
+```python Django
+from django.db.models.functions import Lower
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('sleek running shoes', operator='OR'))
+).order_by(Lower('description')).values('description', 'rating', 'category')[:5]
+```
+
+</CodeGroup>
 
 ## Sorting by JSON
 

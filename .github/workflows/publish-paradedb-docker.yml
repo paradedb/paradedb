@@ -181,6 +181,7 @@ jobs:
       # ORM repos to notify on new releases — add new repos here
       ORM_REPOS: |
         paradedb/django-paradedb
+
     steps:
       - name: Retrieve GitHub Release Version
         id: version

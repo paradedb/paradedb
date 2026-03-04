@@ -64,13 +64,13 @@ MockItem.objects.filter(
 ```ruby Rails
 # Fuzzy match disjunction
 MockItem.search(:description)
-        .matching_any("runing shose", distance: 2)
+        .matching_any('runing shose', distance: 2)
         .select(:id, :description)
         .limit(5)
 
 # Fuzzy match conjunction
 MockItem.search(:description)
-        .matching_all("runing shose", distance: 2)
+        .matching_all('runing shose', distance: 2)
         .select(:id, :description)
         .limit(5)
 

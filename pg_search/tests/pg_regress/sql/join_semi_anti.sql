@@ -71,8 +71,8 @@ LIMIT 10;
 -- =====================================================================
 -- 2. Anti Join Only
 -- =====================================================================
--- TODO: This query only triggers set_rel_pathlist_hook and not set_join_pathlist_hook, and so does
--- not render our warning. See https://github.com/paradedb/paradedb/issues/4236 about resolving this.
+-- Note: This query only triggers set_rel_pathlist_hook (not set_join_pathlist_hook),
+-- so JoinScan is not used. See https://github.com/paradedb/paradedb/issues/4236.
 SELECT id, category
 FROM table_a
 WHERE id NOT IN (
@@ -85,9 +85,25 @@ ORDER BY id ASC
 LIMIT 10;
 
 -- =====================================================================
--- 3. Both Semi and Anti Join
+-- 3. Both Semi and Anti Join on the same table
 -- =====================================================================
--- TODO: This query should produce a warning because Anti-Joins are not supported.
+EXPLAIN (COSTS OFF)
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+
 SELECT id, category
 FROM table_a
 WHERE id IN (

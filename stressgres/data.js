@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772596871110,
+  "lastUpdate": 1772597649402,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16278,6 +16278,54 @@ window.BENCHMARK_DATA = {
             "value": 5.417871273194986,
             "unit": "median tps",
             "extra": "avg tps: 5.434968953577503, max tps: 7.5011669940551, count: 56314"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2b3be233d65d8826fb46c01e4391c934d405080a",
+          "message": "fix: Add support for expressions and planner warnings to the aggregate scan (#4273)\n\n## What\n\nAdds support for using index expressions in the target list, group by,\nand order by of the aggregate scan (to match the base scan and join\nscan).\n\nAdditionally, adds planner warnings to the aggregate scan to follow the\npattern of Top-K in the base scan, and whenever the GUC is set for the\njoin scan. See regress changes for more infomation.\n\n## Why\n\nTo increase the number of cases in which the aggregate scan can be used,\nand make it easier to understand why it is isn't activating.\n\n## Tests\n\nAdded a new regress test covering target list, group by, and order by\nexpressions.",
+          "timestamp": "2026-03-03T19:28:13-08:00",
+          "tree_id": "534b184af482c5cd97c7273eb8ccab8136d49a07",
+          "url": "https://github.com/paradedb/paradedb/commit/2b3be233d65d8826fb46c01e4391c934d405080a"
+        },
+        "date": 1772597643814,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1149.6705272408994,
+            "unit": "median tps",
+            "extra": "avg tps: 1147.7632227821352, max tps: 1213.4252943868137, count: 56064"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1240.0176391516434,
+            "unit": "median tps",
+            "extra": "avg tps: 1207.3541085536062, max tps: 1262.046278063885, count: 56064"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1939.183837059286,
+            "unit": "median tps",
+            "extra": "avg tps: 1899.2307942220916, max tps: 2098.026821339608, count: 56064"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.362790458917205,
+            "unit": "median tps",
+            "extra": "avg tps: 5.401470189142393, max tps: 7.331174649408016, count: 56064"
           }
         ]
       }

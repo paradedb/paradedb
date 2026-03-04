@@ -241,7 +241,7 @@ impl<'a> BuildWorker<'a> {
 
     fn do_build(&mut self, worker_number: i32) -> anyhow::Result<(f64, usize)> {
         unsafe {
-            let index_info = pg_sys::BuildIndexInfo(self.indexrel.as_ptr());
+            let index_info = self.indexrel.index_info();
             (*index_info).ii_Concurrent = self.config.concurrent;
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =

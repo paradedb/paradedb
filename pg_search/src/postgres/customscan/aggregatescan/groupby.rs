@@ -18,6 +18,7 @@
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
@@ -74,6 +75,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
     ) -> Result<Self, CustomScanBuildError> {
         let mut grouping_columns = Vec::new();
         let schema = index.schema().expect("could not get index schema");
+        let index_expressions = index.index_expressions();
 
         let pathkeys = if args.root().group_pathkeys.is_null() {
             PgList::<pg_sys::PathKey>::new()
@@ -102,6 +104,13 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                             continue;
                         }
                         (field_name.to_string(), attno)
+                    } else if let Some(ff) = find_matching_fast_field(
+                        expr as *mut pg_sys::Node,
+                        &index_expressions,
+                        schema.clone(),
+                        _heap_rti,
+                    ) {
+                        (ff.name(), 0) // Complex expressions don't have a single attno
                     } else {
                         continue;
                     };

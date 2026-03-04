@@ -20,6 +20,7 @@ use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::customscan::CustomScan;
@@ -188,32 +189,44 @@ impl CustomScanClause<AggregateScan> for TargetList {
         let mut entries = Vec::new();
         let mut uses_our_operator = false;
 
+        let index_expressions = index.index_expressions();
+
         for expr in target_list.iter_ptr() {
             unsafe {
                 let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
-                // Try to extract field name from the expression (handles both Var and JSON operators)
-                if let Some((_, field_name)) =
+                let maybe_field_name = if let Some((_, field_name)) =
                     find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
                 {
+                    Some(field_name.into_inner())
+                } else {
+                    find_matching_fast_field(
+                        expr as *mut pg_sys::Node,
+                        &index_expressions,
+                        schema.clone(),
+                        heap_rti,
+                    )
+                    .map(|ff| ff.name())
+                };
+
+                // Try to extract field name from the expression (handles both Var and JSON operators)
+                if let Some(field_name) = maybe_field_name {
                     // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
                     // Find which grouping column this is
                     let mut found = false;
                     for (i, gc) in grouping_columns.iter().enumerate() {
                         // For JSON projections, the field_name will be like "metadata_json.value"
                         // and gc.field_name should match
-                        if gc.field_name == field_name.clone().into_inner() {
+                        if gc.field_name == field_name {
                             entries.push(TargetListEntry::GroupingColumn(i));
                             found = true;
                             break;
                         }
                     }
                     if !found {
-                        return Err(format!(
-                            "Field '{}' is not a grouping column",
-                            field_name.into_inner()
-                        )
-                        .into());
+                        return Err(
+                            format!("Field '{}' is not a grouping column", field_name).into()
+                        );
                     }
                 } else if let Some(aggref) = find_single_aggref_in_expr(expr as *mut pg_sys::Node) {
                     // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)

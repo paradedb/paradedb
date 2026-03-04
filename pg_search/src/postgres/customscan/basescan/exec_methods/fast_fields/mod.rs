@@ -15,6 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! TODO: This module should be moved up to `pg_search/src/postgres/customscan` and
+//! `MixedFastFieldExec` should be renamed, as the functionality is now shared
+//! between the base scan and aggregate scan.
+
 pub mod mixed;
 
 use crate::api::operator::row_expr_from_indexed_expr;
@@ -108,7 +112,7 @@ unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno:
     }
 }
 
-unsafe fn find_matching_fast_field(
+pub(crate) unsafe fn find_matching_fast_field(
     node: *mut pg_sys::Node,
     index_expressions: &PgList<pg_sys::Expr>,
     schema: SearchIndexSchema,
@@ -203,8 +207,7 @@ pub unsafe fn pullup_fast_fields(
     let tupdesc = heaprel.tuple_desc();
 
     // Get index expressions to check for matching expressions
-    let index_info = pg_sys::BuildIndexInfo(index.as_ptr());
-    let index_expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
+    let index_expressions = index.index_expressions();
 
     // First collect all matches from the target list (standard behavior)
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);

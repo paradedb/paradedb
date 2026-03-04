@@ -309,6 +309,16 @@ impl PgSearchRelation {
         }
     }
 
+    /// Get the index info for this relation.
+    pub fn index_info(&self) -> *mut pg_sys::IndexInfo {
+        unsafe { pg_sys::BuildIndexInfo(self.as_ptr()) }
+    }
+
+    /// Extract index expressions from the index info.
+    pub fn index_expressions(&self) -> PgList<pg_sys::Expr> {
+        unsafe { PgList::<pg_sys::Expr>::from_pg((*self.index_info()).ii_Expressions) }
+    }
+
     /// Check if a field supports aggregate pushdown.
     ///
     /// Returns `Ok(false)` for NUMERIC fields, `Ok(true)` for other fields,

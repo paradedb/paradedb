@@ -316,7 +316,8 @@ unsafe fn collect_join_sources_base_rel(
         }
         all_keys.extend(remapped_inner_keys);
 
-        let equi_keys = extract_equi_keys_from_subplan(subplan, &current_node, &inner_node);
+        let equi_keys =
+            extract_equi_keys_from_subplan(subplan, &current_node, &inner_node, inner_root);
 
         let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
             join_type: if is_anti {
@@ -550,6 +551,7 @@ unsafe fn extract_equi_keys_from_subplan(
     subplan: *mut pg_sys::SubPlan,
     current_node: &RelNode,
     inner_node: &RelNode,
+    inner_root: *mut pg_sys::PlannerInfo,
 ) -> Vec<JoinKeyPair> {
     let mut equi_keys = Vec::new();
     let testexpr = (*subplan).testexpr;
@@ -566,38 +568,42 @@ unsafe fn extract_equi_keys_from_subplan(
 
             if is_equality_op {
                 let mut var_node = std::ptr::null_mut::<pg_sys::Var>();
+                let mut param_node = std::ptr::null_mut::<pg_sys::Param>();
 
                 if (*arg0).type_ == pg_sys::NodeTag::T_Var
                     && (*arg1).type_ == pg_sys::NodeTag::T_Param
                 {
                     var_node = arg0 as *mut pg_sys::Var;
+                    param_node = arg1 as *mut pg_sys::Param;
                 } else if (*arg1).type_ == pg_sys::NodeTag::T_Var
                     && (*arg0).type_ == pg_sys::NodeTag::T_Param
                 {
                     var_node = arg1 as *mut pg_sys::Var;
+                    param_node = arg0 as *mut pg_sys::Param;
                 }
 
-                if !var_node.is_null() {
+                if !var_node.is_null() && !param_node.is_null() {
                     let varno = (*var_node).varno as pg_sys::Index;
                     let attno = (*var_node).varattno;
 
-                    // Since we don't have all sources easily here, we'll map the Var to the current_node
                     let current_sources = current_node.sources();
                     let inner_sources = inner_node.sources();
 
                     let outer_source = find_source_for_var(&current_sources, varno, attno);
 
-                    // To find the inner mapping, we need to look at the target list of the subquery plan
-                    // For now, let's just make a dummy mapping for the inner source if outer maps.
-                    // In a full implementation, we'd map the Param to the subquery's target list.
                     if let Some((outer_rti, outer_attno)) = outer_source {
-                        // Hack: Assume inner_rti is the first RTI of the inner node and attno is 1
-                        // Real implementation requires mapping testexpr's Param to the inner plan's targetlist
                         let inner_rti = if !inner_sources.is_empty() {
                             inner_sources[0].scan_info.heap_rti
                         } else {
                             0
                         };
+
+                        // Resolve the Param to the actual inner column's attribute number
+                        // by mapping through the SubPlan's paramIds and the inner query's
+                        // target list.
+                        let inner_attno =
+                            resolve_subplan_param_attno(subplan, param_node, inner_root)
+                                .unwrap_or(1);
 
                         if inner_rti > 0 {
                             let type_oid = (*var_node).vartype;
@@ -607,7 +613,7 @@ unsafe fn extract_equi_keys_from_subplan(
                                 outer_rti,
                                 outer_attno,
                                 inner_rti,
-                                inner_attno: 1, // DUMMY
+                                inner_attno,
                                 type_oid,
                                 typlen,
                                 typbyval,
@@ -619,6 +625,55 @@ unsafe fn extract_equi_keys_from_subplan(
         }
     }
     equi_keys
+}
+
+/// Maps a `Param` node from a SubPlan's `testexpr` to the actual attribute number
+/// of the corresponding column in the inner (sub)query.
+///
+/// The `testexpr` of a SubPlan (e.g. for `IN (SELECT ldf_id FROM t)`) compares
+/// an outer `Var` with a `Param` that represents the subquery's output column.
+/// `SubPlan.paramIds` maps subquery output positions to PARAM_EXEC IDs, and
+/// the inner query's target list at that position contains a `Var` with the
+/// actual table column reference.
+unsafe fn resolve_subplan_param_attno(
+    subplan: *mut pg_sys::SubPlan,
+    param_node: *mut pg_sys::Param,
+    inner_root: *mut pg_sys::PlannerInfo,
+) -> Option<pg_sys::AttrNumber> {
+    let param_id = (*param_node).paramid;
+
+    // Find the position of this param_id in SubPlan.paramIds.
+    // paramIds is an integer list that maps subquery output column positions
+    // (0-based) to PARAM_EXEC IDs.
+    let param_ids = (*subplan).paramIds;
+    let num_params = pg_sys::list_length(param_ids);
+    let mut position = None;
+    for i in 0..num_params {
+        if pg_sys::list_nth_int(param_ids, i) == param_id {
+            position = Some(i);
+            break;
+        }
+    }
+    let position = position?;
+
+    // Look up the corresponding target list entry in the inner query's parse tree.
+    let parse = (*inner_root).parse;
+    if parse.is_null() {
+        return None;
+    }
+    let target_list = (*parse).targetList;
+    let te = pg_sys::list_nth(target_list, position) as *mut pg_sys::TargetEntry;
+    if te.is_null() {
+        return None;
+    }
+
+    // The target entry's expression should be a Var referencing the actual column.
+    let expr = (*te).expr as *mut pg_sys::Node;
+    if expr.is_null() || (*expr).type_ != pg_sys::NodeTag::T_Var {
+        return None;
+    }
+    let inner_var = expr as *mut pg_sys::Var;
+    Some((*inner_var).varattno)
 }
 /// Parses a given list of `RestrictInfo` nodes to extract equi-join conditions and other join filters.
 /// Iterates over the given restrict list and groups conditions according to whether they are

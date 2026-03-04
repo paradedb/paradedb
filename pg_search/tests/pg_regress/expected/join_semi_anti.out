@@ -131,7 +131,7 @@ LIMIT 10;
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: table_b UNIQUEOUTER (table_a ANTI table_b)
-         Join Cond: table_a_1.id = table_b_0.a_id, table_a_1.id = table_b_2.id
+         Join Cond: table_a_1.id = table_b_0.a_id, table_a_1.id = table_b_2.a_id
          Limit: 10
          Order By: table_a.id asc
          DataFusion Physical Plan: 
@@ -141,7 +141,7 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid@0 as ctid_3, a_id@1 as a_id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
-           :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(id@0, id@1)]
+           :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
            :         ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]

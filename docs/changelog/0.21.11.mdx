@@ -1,0 +1,29 @@
+---
+title: 0.21.11
+noindex: true
+---
+
+## New Features
+
+- Added Segmented Top-K with per-segment threshold push-down for improved query performance
+- Added support for segmented top-k on multiple columns
+- Added support for expressions and planner warnings to the aggregate scan
+
+## Performance Improvements
+
+- Batch spinlock acquisition in parallel checkout
+- Only prefetch when producing sorted outputs
+
+## Bug Fixes
+
+- Made the aggregate custom scan collector interruptable
+- Added heap filter fallback for booltest
+- Used local source for Nix package rather than fetching from GitHub
+
+## Internal Changes
+
+- Upgraded to pgrx 0.17.0
+- Ported manual Stream implementations to the `async-stream` crate
+- Restored nesting in join IR, and ensured warnings are rendered
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.21.11).

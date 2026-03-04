@@ -828,7 +828,7 @@ unsafe fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
 /// custom scan should be enabled for the entire query tree).
 ///
 /// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
-unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool) -> bool {
+pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool) -> bool {
     let paradedb_agg_oid = agg_funcoid().to_u32();
     let window_agg_proc_oid = window_agg_oid();
 

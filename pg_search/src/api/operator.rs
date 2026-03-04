@@ -355,7 +355,7 @@ pub unsafe fn field_name_from_node(
         }
     }
 
-    let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+    let index_info = unsafe { *indexrel.index_info() };
     if let Some(var) = nodecast!(Var, T_Var, node) {
         // the expression we're looking for is just a simple Var.
 
@@ -371,7 +371,7 @@ pub unsafe fn field_name_from_node(
 
         // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
 
-        let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
+        let expressions = indexrel.index_expressions();
         let mut expr_no = 0;
         for i in 0..index_info.ii_NumIndexAttrs {
             let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
@@ -585,7 +585,7 @@ unsafe fn make_lhs_var(
     indexrel: &PgSearchRelation,
     lhs: *mut pg_sys::Node,
 ) -> *mut pg_sys::Var {
-    let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+    let index_info = unsafe { *indexrel.index_info() };
     let heap_attno = index_info.ii_IndexAttrNumbers[0];
 
     let vars = find_vars(lhs);

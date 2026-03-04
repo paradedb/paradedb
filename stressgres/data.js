@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772589419521,
+  "lastUpdate": 1772589426712,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20566,6 +20566,108 @@ window.BENCHMARK_DATA = {
             "value": 162.75,
             "unit": "median mem",
             "extra": "avg mem: 181.242148496006, max mem: 221.1171875, count: 56084"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "28feba97826a07a20bb04cacec64ef2c3d055d8b",
+          "message": "fix: Make the aggregate custom scan collector interruptable (#4271)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere was a problem where the aggregate custom scan was not\ninterruptible while Tantivy was collecting over a segment, which could\ntake a very long time if the segment is large.\n\nIntroduces a new wrapping collector that checks for interrupts per batch\nof `2048` documents.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-03-03T17:11:03-08:00",
+          "tree_id": "8c7d5e14213931a8f65d74b96bae6872ceffcc8b",
+          "url": "https://github.com/paradedb/paradedb/commit/28feba97826a07a20bb04cacec64ef2c3d055d8b"
+        },
+        "date": 1772589421047,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07818659658344283, max background_merging: 2.0, count: 56314"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.669082378783738, max cpu: 9.667674, count: 56314"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 28.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.765598918563768, max mem: 28.76953125, count: 56314"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.013762987981935, max cpu: 27.988338, count: 56314"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 173.12766571700644, max mem: 184.7734375, count: 56314"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51432,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51292.48630891075, max block_count: 51432.0, count: 56314"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.96384558013993, max segment_count: 56.0, count: 56314"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.655570716806905, max cpu: 28.09756, count: 56314"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 148.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.8816866282141, max mem: 163.83203125, count: 56314"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.745272677167584, max cpu: 28.09756, count: 56314"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 182.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 178.47227238120183, max mem: 183.0078125, count: 56314"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.829982889105224, max cpu: 33.466137, count: 56314"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.70703125,
+            "unit": "median mem",
+            "extra": "avg mem: 181.4073752474962, max mem: 221.12109375, count: 56314"
           }
         ]
       }

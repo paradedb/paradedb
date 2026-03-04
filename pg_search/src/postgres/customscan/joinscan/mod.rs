@@ -367,13 +367,11 @@ impl CustomScan for JoinScan {
                 return Vec::new();
             }
 
-            // TODO(join-types): Currently only INNER JOIN is supported.
-            // Future work should add:
+            // TODO(join-types): Currently INNER, SEMI, ANTI, RIGHTSEMI, UNIQUEINNER, and
+            // UNIQUEOUTER joins are supported. Future work should add:
             // - LEFT JOIN: Return NULL for non-matching non-ordering rows; track matched ordering rows
             // - RIGHT JOIN: Swap ordering/non-ordering sides, then use LEFT logic
             // - FULL OUTER JOIN: Track unmatched rows on both sides; two-pass or marking approach
-            // - SEMI JOIN: Stop after first match per ordering row (benefits EXISTS queries)
-            // - ANTI JOIN: Return only ordering rows with no matches (benefits NOT EXISTS)
             //
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
@@ -520,13 +518,31 @@ impl CustomScan for JoinScan {
             let current_sources = join_clause.plan.sources();
 
             // The current parallel strategy partitions exactly one source and replicates all
-            // others. For SEMI JOIN correctness, the partitioned source must be the left side.
-            // We currently enforce a conservative subset: binary base-table joins only.
-            if jointype == pg_sys::JoinType::JOIN_SEMI {
+            // others. For SEMI/ANTI/RIGHTSEMI JOIN correctness, the partitioned source must be
+            // the left side. We currently enforce a conservative subset: binary base-table joins only.
+            let is_semi_like = {
+                #[cfg(feature = "pg18")]
+                {
+                    matches!(
+                        jointype,
+                        pg_sys::JoinType::JOIN_SEMI
+                            | pg_sys::JoinType::JOIN_ANTI
+                            | pg_sys::JoinType::JOIN_RIGHT_SEMI
+                    )
+                }
+                #[cfg(not(feature = "pg18"))]
+                {
+                    matches!(
+                        jointype,
+                        pg_sys::JoinType::JOIN_SEMI | pg_sys::JoinType::JOIN_ANTI
+                    )
+                }
+            };
+            if is_semi_like {
                 if current_sources.len() > 2 {
                     if is_interesting {
                         Self::add_planner_warning(
-                            "JoinScan not used: SEMI JOIN currently supports only binary base-table joins",
+                            "JoinScan not used: SEMI/ANTI JOIN currently supports only binary base-table joins",
                             &aliases,
                         );
                     }
@@ -537,7 +553,7 @@ impl CustomScan for JoinScan {
                 if partitioning_idx != 0 {
                     if is_interesting {
                         Self::add_planner_warning(
-                            "JoinScan not used: SEMI JOIN requires the left side to be the largest source",
+                            "JoinScan not used: SEMI/ANTI JOIN requires the left side to be the largest source",
                             &aliases,
                         );
                     }

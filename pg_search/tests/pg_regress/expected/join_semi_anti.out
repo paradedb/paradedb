@@ -81,8 +81,8 @@ LIMIT 10;
 -- =====================================================================
 -- 2. Anti Join Only
 -- =====================================================================
--- TODO: This query only triggers set_rel_pathlist_hook and not set_join_pathlist_hook, and so does
--- not render our warning. See https://github.com/paradedb/paradedb/issues/4236 about resolving this.
+-- Note: This query only triggers set_rel_pathlist_hook (not set_join_pathlist_hook),
+-- so JoinScan is not used. See https://github.com/paradedb/paradedb/issues/4236.
 SELECT id, category
 FROM table_a
 WHERE id NOT IN (
@@ -108,9 +108,9 @@ LIMIT 10;
 (10 rows)
 
 -- =====================================================================
--- 3. Both Semi and Anti Join
+-- 3. Both Semi and Anti Join on the same table
 -- =====================================================================
--- TODO: This query should produce a warning because Anti-Joins are not supported.
+EXPLAIN (COSTS OFF)
 SELECT id, category
 FROM table_a
 WHERE id IN (
@@ -126,7 +126,44 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: unsupported join type (type: ANTI) (tables: table_a_0, table_a_1, table_b_0, table_b_1, table_b_2)
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: table_b UNIQUEOUTER (table_a ANTI table_b)
+         Join Cond: table_a_1.id = table_b_0.a_id, table_a_1.id = table_b_2.id
+         Limit: 10
+         Order By: table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(a_id@1, id@1)], projection=[ctid_3@0, ctid_1@2, id@3]
+           :       ProjectionExec: expr=[ctid@0 as ctid_3, a_id@1 as a_id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
+           :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(id@0, id@1)]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
  id  |    category     
 -----+-----------------
   10 | target_category

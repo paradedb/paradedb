@@ -10,9 +10,18 @@ This is useful for programmatic generation or client applications that construct
 To write a query as JSON, first call `SELECT` on the desired query builder function, which returns its JSON
 representation:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.regex('key.*');
 ```
+
+```python Django
+from paradedb import Regex
+
+Regex('key.*')
+```
+
+</CodeGroup>
 
 <Accordion title="Expected Response">
 ```csv

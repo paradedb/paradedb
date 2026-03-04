@@ -13,12 +13,25 @@ canonical: https://docs.paradedb.com/documentation/aggregates/bucket/terms
 A terms aggregation counts the number of occurrences for every unique value in a field. For example, the following query
 groups the `mock_items` table by `rating`, and calculates the number of items for each unique `rating`.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating
 LIMIT 10;
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).values('rating').annotate(
+    agg=Agg('{"value_count": {"field": "id"}}')
+)[:10]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
  rating |       agg
@@ -33,13 +46,26 @@ LIMIT 10;
 
 Ordering by the bucketing field is supported:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 10;
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).values('rating').annotate(
+    agg=Agg('{"value_count": {"field": "id"}}')
+).order_by('rating')[:10]
+```
+
+</CodeGroup>
 
 <Note>Ordering by the aggregate value is not yet supported.</Note>
 

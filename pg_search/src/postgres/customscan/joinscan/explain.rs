@@ -68,7 +68,8 @@ pub(super) fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSC
             source_idx,
             predicate_idx,
         } => {
-            let label = if let Some(source) = join_clause.sources.get(*source_idx) {
+            let all_sources = join_clause.plan.sources();
+            let label = if let Some(source) = all_sources.get(*source_idx) {
                 source.execution_alias(*source_idx)
             } else {
                 format!("source_{}", source_idx)

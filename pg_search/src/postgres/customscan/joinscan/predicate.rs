@@ -52,7 +52,7 @@ use pgrx::{pg_sys, PgList};
 pub(super) unsafe fn extract_join_level_conditions(
     root: *mut pg_sys::PlannerInfo,
     extra: *mut pg_sys::JoinPathExtraData,
-    sources: &[JoinSource],
+    sources: &[&JoinSource],
     other_conditions: &[*mut pg_sys::RestrictInfo],
     mut join_clause: JoinCSClause,
 ) -> Result<(JoinCSClause, Vec<*mut pg_sys::Expr>), String> {
@@ -154,7 +154,7 @@ pub(super) unsafe fn extract_join_level_conditions(
 pub(super) unsafe fn transform_to_search_expr(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
-    sources: &[JoinSource],
+    sources: &[&JoinSource],
     join_clause: &mut JoinCSClause,
     multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Option<JoinLevelExpr> {
@@ -328,7 +328,7 @@ pub(super) unsafe fn extract_single_table_predicate(
 /// Check if all Var references in an expression are fast fields.
 unsafe fn all_vars_are_fast_fields_recursive(
     node: *mut pg_sys::Node,
-    sources: &[JoinSource],
+    sources: &[&JoinSource],
 ) -> bool {
     let vars = expr_collect_vars(node, false);
 

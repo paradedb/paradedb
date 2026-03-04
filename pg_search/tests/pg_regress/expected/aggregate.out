@@ -432,6 +432,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
 WHERE description @@@ 'laptop';
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678) (table: products)
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -452,6 +453,7 @@ WHERE description @@@ 'laptop';
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
 WHERE description @@@ 'laptop';
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678) (table: products)
  count |        sum         
 -------+--------------------
      2 | 2799.9700000000003
@@ -463,6 +465,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(LENGTH(description))
 FROM products
 WHERE category @@@ 'Electronics';
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: products)
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -479,6 +482,7 @@ WHERE category @@@ 'Electronics';
 SELECT AVG(LENGTH(description))
 FROM products
 WHERE category @@@ 'Electronics';
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: products)
          avg         
 ---------------------
  24.5000000000000000

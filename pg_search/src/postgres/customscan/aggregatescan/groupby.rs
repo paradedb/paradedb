@@ -15,7 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::{
+    AggregateScan, CustomScanBuildError, CustomScanClause,
+};
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
@@ -69,9 +72,10 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
         args: &Self::Args,
         _heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
-    ) -> Option<Self> {
+    ) -> Result<Self, CustomScanBuildError> {
         let mut grouping_columns = Vec::new();
-        let schema = index.schema().ok()?;
+        let schema = index.schema().expect("could not get index schema");
+        let index_expressions = index.index_expressions();
 
         let pathkeys = if args.root().group_pathkeys.is_null() {
             PgList::<pg_sys::PathKey>::new()
@@ -100,6 +104,13 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                             continue;
                         }
                         (field_name.to_string(), attno)
+                    } else if let Some(ff) = find_matching_fast_field(
+                        expr as *mut pg_sys::Node,
+                        &index_expressions,
+                        schema.clone(),
+                        _heap_rti,
+                    ) {
+                        (ff.name(), 0) // Complex expressions don't have a single attno
                     } else {
                         continue;
                     };
@@ -109,22 +120,26 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                         // Reject NUMERIC fields - GROUP BY pushdown not supported
                         // (NUMERIC values are stored scaled and would need descaling)
                         if search_field.field_type().is_numeric() {
-                            return None;
+                            return Err(format!("field {} is numeric", field_name).into());
                         }
                         if search_field.is_fast() {
                             grouping_columns.push(GroupingColumn { field_name, attno });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey
+                        } else {
+                            // wait to return error until we check all members
                         }
+                    } else {
+                        // wait to return error
                     }
                 }
 
                 if !found_valid_column {
-                    return None;
+                    return Err("grouping column is missing, or is not a fast field".into());
                 }
             }
         }
 
-        Some(Self { grouping_columns })
+        Ok(Self { grouping_columns })
     }
 }

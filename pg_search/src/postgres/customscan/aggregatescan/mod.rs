@@ -89,6 +89,12 @@ impl CustomScan for AggregateScan {
     }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
+        let has_paradedb_agg = unsafe {
+            let parse = builder.args().root().parse;
+            !parse.is_null()
+                && crate::postgres::customscan::hook::query_has_paradedb_agg(parse, true)
+        };
+
         // We can only handle single base relations as input
         if builder.args().input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
             return Vec::new();
@@ -111,22 +117,48 @@ impl CustomScan for AggregateScan {
             return Vec::new();
         };
         let Some((_table, index)) = rel_get_bm25_index(unsafe { (*heap_rte).relid }) else {
-            return Vec::new();
-        };
-        let Some((builder, aggregate_clause)) = AggregateCSClause::build(builder, heap_rti, &index)
-        else {
+            if has_paradedb_agg {
+                let alias = unsafe {
+                    if !(*heap_rte).eref.is_null() && !(*(*heap_rte).eref).aliasname.is_null() {
+                        std::ffi::CStr::from_ptr((*(*heap_rte).eref).aliasname)
+                            .to_string_lossy()
+                            .into_owned()
+                    } else {
+                        "unknown".to_string()
+                    }
+                };
+                Self::add_planner_warning(
+                    "Aggregate Scan not used: table must have a BM25 index",
+                    alias,
+                );
+            }
             return Vec::new();
         };
 
-        // TODO: Audit whether AggregateScan is parallel-safe and call set_parallel_safe(true) if so.
-        // See BaseScan::init_search_reader for an explanation of parallel execution scenarios.
-        // Currently, it defaults to parallel_safe=false, meaning it forces execution on the leader.
+        match AggregateCSClause::build(builder, heap_rti, &index) {
+            Ok((builder, aggregate_clause)) => {
+                // TODO: Audit whether AggregateScan is parallel-safe and call set_parallel_safe(true) if so.
+                // See BaseScan::init_search_reader for an explanation of parallel execution scenarios.
+                // Currently, it defaults to parallel_safe=false, meaning it forces execution on the leader.
 
-        vec![builder.build(PrivateData {
-            heap_rti,
-            indexrelid: index.oid(),
-            aggregate_clause,
-        })]
+                vec![builder.build(PrivateData {
+                    heap_rti,
+                    indexrelid: index.oid(),
+                    aggregate_clause,
+                })]
+            }
+            Err(CustomScanBuildError::Incompatible(e)) => {
+                // If it failed to build, we only log a warning if it was considered "interesting"
+                if has_paradedb_agg || gucs::enable_aggregate_custom_scan() {
+                    Self::add_planner_warning(
+                        format!("Aggregate Scan not used: {}", e),
+                        _table.name().to_string(),
+                    );
+                }
+                Vec::new()
+            }
+            Err(CustomScanBuildError::NotInteresting) => Vec::new(),
+        }
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
@@ -503,10 +535,31 @@ impl CustomScan for AggregateScan {
     }
 }
 
+pub enum CustomScanBuildError {
+    NotInteresting,
+    Incompatible(String),
+}
+
+impl From<String> for CustomScanBuildError {
+    fn from(s: String) -> Self {
+        CustomScanBuildError::Incompatible(s)
+    }
+}
+
+impl From<&str> for CustomScanBuildError {
+    fn from(s: &str) -> Self {
+        CustomScanBuildError::Incompatible(s.to_string())
+    }
+}
+
 pub trait CustomScanClause<CS: CustomScan> {
     type Args;
 
-    fn from_pg(args: &CS::Args, heap_rti: pg_sys::Index, index: &PgSearchRelation) -> Option<Self>
+    fn from_pg(
+        args: &CS::Args,
+        heap_rti: pg_sys::Index,
+        index: &PgSearchRelation,
+    ) -> Result<Self, CustomScanBuildError>
     where
         Self: Sized;
 
@@ -526,13 +579,13 @@ pub trait CustomScanClause<CS: CustomScan> {
         builder: CustomPathBuilder<CS>,
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
-    ) -> Option<(CustomPathBuilder<CS>, Self)>
+    ) -> Result<(CustomPathBuilder<CS>, Self), CustomScanBuildError>
     where
         Self: Sized,
     {
         let clause = Self::from_pg(builder.args(), heap_rti, index)?;
         let builder = clause.add_to_custom_path(builder);
-        Some((builder, clause))
+        Ok((builder, clause))
     }
 }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772596098408,
+  "lastUpdate": 1772596864605,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11218,6 +11218,42 @@ window.BENCHMARK_DATA = {
             "value": 5.469236146846693,
             "unit": "median tps",
             "extra": "avg tps: 4.899017889633068, max tps: 6.099739652141361, count: 57795"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2b3be233d65d8826fb46c01e4391c934d405080a",
+          "message": "fix: Add support for expressions and planner warnings to the aggregate scan (#4273)\n\n## What\n\nAdds support for using index expressions in the target list, group by,\nand order by of the aggregate scan (to match the base scan and join\nscan).\n\nAdditionally, adds planner warnings to the aggregate scan to follow the\npattern of Top-K in the base scan, and whenever the GUC is set for the\njoin scan. See regress changes for more infomation.\n\n## Why\n\nTo increase the number of cases in which the aggregate scan can be used,\nand make it easier to understand why it is isn't activating.\n\n## Tests\n\nAdded a new regress test covering target list, group by, and order by\nexpressions.",
+          "timestamp": "2026-03-03T19:28:13-08:00",
+          "tree_id": "534b184af482c5cd97c7273eb8ccab8136d49a07",
+          "url": "https://github.com/paradedb/paradedb/commit/2b3be233d65d8826fb46c01e4391c934d405080a"
+        },
+        "date": 1772596859597,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.792499910929421,
+            "unit": "median tps",
+            "extra": "avg tps: 6.6618228215018345, max tps: 10.153808204581411, count: 57513"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.355706536904294,
+            "unit": "median tps",
+            "extra": "avg tps: 4.809377670491989, max tps: 6.000535526619615, count: 57513"
           }
         ]
       }

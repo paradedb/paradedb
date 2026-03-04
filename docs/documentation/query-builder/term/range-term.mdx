@@ -26,6 +26,20 @@ MockItem.objects.filter(
 ).values('id', 'weight_range')
 ```
 
+```python SQLAlchemy
+# coming soon
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+stmt = (
+    select(MockItem.id, MockItem.weight_range)
+    .where(MockItem.weight_range.op("@@@")(func.pdb.range_term(1)))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Range Intersects
@@ -45,6 +59,27 @@ from paradedb import ParadeDB, RangeTerm
 MockItem.objects.filter(
     weight_range=ParadeDB(RangeTerm('(10, 12]', relation='Intersects', range_type='int4range'))
 ).values('id', 'weight_range')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.weight_range)
+    .where(
+        search.range_term(
+            MockItem.weight_range,
+            "(10, 12]",
+            relation="Intersects",
+            range_type="int4range",
+        )
+    )
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -67,6 +102,27 @@ MockItem.objects.filter(
 ).values('id', 'weight_range')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.weight_range)
+    .where(
+        search.range_term(
+            MockItem.weight_range,
+            "(3, 9]",
+            relation="Contains",
+            range_type="int4range",
+        )
+    )
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Range Within
@@ -85,6 +141,27 @@ from paradedb import ParadeDB, RangeTerm
 MockItem.objects.filter(
     weight_range=ParadeDB(RangeTerm('(2, 11]', relation='Within', range_type='int4range'))
 ).values('id', 'weight_range')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.weight_range)
+    .where(
+        search.range_term(
+            MockItem.weight_range,
+            "(2, 11]",
+            relation="Within",
+            range_type="int4range",
+        )
+    )
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

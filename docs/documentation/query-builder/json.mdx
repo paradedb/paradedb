@@ -21,6 +21,16 @@ from paradedb import Regex
 Regex('key.*')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+stmt = select(func.pdb.regex("key.*"))
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 <Accordion title="Expected Response">

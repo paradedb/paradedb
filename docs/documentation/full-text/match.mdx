@@ -28,6 +28,20 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 This query returns:
@@ -85,6 +99,20 @@ from paradedb import Match, ParadeDB
 MockItem.objects.filter(
     description=ParadeDB(Match('running shoes', operator='AND'))
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_all(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -156,6 +184,20 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+# coming soon
+from sqlalchemy import literal_column, select
+from sqlalchemy.orm import Session
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.description.op("|||")(literal_column("'running shoes'::pdb.whitespace")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Using Pretokenized Text
@@ -176,6 +218,20 @@ from paradedb import Match, ParadeDB
 MockItem.objects.filter(
     description=ParadeDB(Match('running', 'shoes', operator='AND'))
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_all(MockItem.description, "running", "shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

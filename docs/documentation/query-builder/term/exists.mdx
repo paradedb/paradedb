@@ -34,4 +34,19 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')[:5]
 ```
 
+```python SQLAlchemy
+# coming soon
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.rating.op("@@@")(func.pdb.exists()))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>

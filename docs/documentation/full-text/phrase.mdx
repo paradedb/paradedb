@@ -34,6 +34,20 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 This query returns:
@@ -96,6 +110,20 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, "shoes running", slop=2))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Using a Custom Tokenizer
@@ -115,6 +143,20 @@ from paradedb import ParadeDB, Phrase
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes', tokenizer='whitespace'))
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+# coming soon
+from sqlalchemy import literal_column, select
+from sqlalchemy.orm import Session
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.description.op("###")(literal_column("'running shoes'::pdb.whitespace")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -139,6 +181,21 @@ MockItem.objects.extra(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+# coming soon
+from sqlalchemy import Text, select
+from sqlalchemy.dialects.postgresql import array
+from sqlalchemy.orm import Session
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.description.op("###")(array(["running", "shoes"], type_=Text())))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 Adding slop is supported:
@@ -154,6 +211,20 @@ WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
 MockItem.objects.extra(
     where=["description ### ARRAY['shoes', 'running']::pdb.slop(2)"]
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+# coming soon
+from sqlalchemy import literal_column, select
+from sqlalchemy.orm import Session
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.description.op("###")(literal_column("ARRAY['shoes', 'running']::pdb.slop(2)")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

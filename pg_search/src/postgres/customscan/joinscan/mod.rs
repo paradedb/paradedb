@@ -149,8 +149,6 @@ mod privdat;
 mod scan_state;
 mod translator;
 pub mod visibility_filter;
-#[cfg(feature = "pg_test")]
-mod visibility_filter_tests;
 
 use self::build::JoinCSClause;
 use self::explain::{format_join_level_expr, get_attname_safe};

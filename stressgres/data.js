@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772588640682,
+  "lastUpdate": 1772589419521,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15930,6 +15930,54 @@ window.BENCHMARK_DATA = {
             "value": 5.512839289971309,
             "unit": "median tps",
             "extra": "avg tps: 5.514628313565614, max tps: 7.271520570499072, count: 56084"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "28feba97826a07a20bb04cacec64ef2c3d055d8b",
+          "message": "fix: Make the aggregate custom scan collector interruptable (#4271)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere was a problem where the aggregate custom scan was not\ninterruptible while Tantivy was collecting over a segment, which could\ntake a very long time if the segment is large.\n\nIntroduces a new wrapping collector that checks for interrupts per batch\nof `2048` documents.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-03-03T17:11:03-08:00",
+          "tree_id": "8c7d5e14213931a8f65d74b96bae6872ceffcc8b",
+          "url": "https://github.com/paradedb/paradedb/commit/28feba97826a07a20bb04cacec64ef2c3d055d8b"
+        },
+        "date": 1772589414368,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1137.3538395446508,
+            "unit": "median tps",
+            "extra": "avg tps: 1137.6309494010247, max tps: 1190.5381997133595, count: 56314"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1258.244053061588,
+            "unit": "median tps",
+            "extra": "avg tps: 1241.9841765582307, max tps: 1270.017128122527, count: 56314"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1888.5647013130142,
+            "unit": "median tps",
+            "extra": "avg tps: 1851.4275546818271, max tps: 2072.8879702539894, count: 56314"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.417871273194986,
+            "unit": "median tps",
+            "extra": "avg tps: 5.434968953577503, max tps: 7.5011669940551, count: 56314"
           }
         ]
       }

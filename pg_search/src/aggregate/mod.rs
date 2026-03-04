@@ -730,11 +730,6 @@ pub mod mvcc_collector {
     use crate::index::fast_fields_helper::FFType;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
-<<<<<<< HEAD
-=======
-    use super::COLLECTOR_BATCH_SIZE as BATCH_SIZE;
-
->>>>>>> 28feba978 (fix: Make the aggregate custom scan collector interruptable (#4271))
     pub struct MVCCFilterCollector<C: Collector> {
         inner: C,
         lock: Arc<Mutex<TSVisibilityChecker>>,

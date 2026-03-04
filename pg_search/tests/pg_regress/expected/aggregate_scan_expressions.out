@@ -105,7 +105,6 @@ SELECT UNNEST(author), pdb.agg('{"value_count": {"field": "dwf_doid"}}') FROM do
 WHERE dwf_doid @@@ pdb.all()
 GROUP BY UNNEST(author)
 LIMIT 5 OFFSET 0;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: core)
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=0.00..0.00 rows=1 width=64)
@@ -123,7 +122,6 @@ SELECT UNNEST(author), pdb.agg('{"value_count": {"field": "dwf_doid"}}') FROM do
 WHERE dwf_doid @@@ pdb.all()
 GROUP BY UNNEST(author)
 LIMIT 5 OFFSET 0;
-WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: core)
  unnest  |      agg       
 ---------+----------------
  author1 | {"value": 1.0}

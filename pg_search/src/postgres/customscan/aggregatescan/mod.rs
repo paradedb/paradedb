@@ -138,6 +138,17 @@ impl CustomScan for AggregateScan {
 
         match AggregateCSClause::build(builder, heap_rti, &index) {
             Ok((builder, aggregate_clause)) => {
+                let alias = unsafe {
+                    if !(*heap_rte).eref.is_null() && !(*(*heap_rte).eref).aliasname.is_null() {
+                        std::ffi::CStr::from_ptr((*(*heap_rte).eref).aliasname)
+                            .to_string_lossy()
+                            .into_owned()
+                    } else {
+                        "unknown".to_string()
+                    }
+                };
+                Self::mark_contexts_successful(alias);
+
                 // TODO: Audit whether AggregateScan is parallel-safe and call set_parallel_safe(true) if so.
                 // See BaseScan::init_search_reader for an explanation of parallel execution scenarios.
                 // Currently, it defaults to parallel_safe=false, meaning it forces execution on the leader.

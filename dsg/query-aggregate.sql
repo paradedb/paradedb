@@ -21,7 +21,7 @@ WHERE contact_id IN (
 AND contact_id NOT IN (
     SELECT ldf_id
     FROM contact_list
-    WHERE list_id IN ('loxSXiPQRww','SZWEZLQhwbE')
+    WHERE list_id IN ('21430')
 )
 AND contact_id @@@ paradedb.boolean(
     must => ARRAY[
@@ -51,7 +51,7 @@ WHERE contact_id IN (
 AND contact_id NOT IN (
     SELECT ldf_id
     FROM contact_list
-    WHERE list_id IN ('loxSXiPQRww','SZWEZLQhwbE')
+    WHERE list_id IN ('21430')
 )
 AND contact_id @@@ paradedb.boolean(
     must => ARRAY[

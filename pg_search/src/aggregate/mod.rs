@@ -18,6 +18,7 @@
 use std::error::Error;
 use std::ptr::NonNull;
 
+use crate::aggregate::interrupt_collector::InterruptableCollector;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::HashSet;
 use crate::index::mvcc::MvccSatisfies;
@@ -297,9 +298,9 @@ impl<'a> ParallelAggregationWorker<'a> {
                     pg_sys::GetActiveSnapshot()
                 }),
             );
-            reader.collect(mvcc_collector)
+            reader.collect(InterruptableCollector::new(mvcc_collector))
         } else {
-            reader.collect(base_collector)
+            reader.collect(InterruptableCollector::new(base_collector))
         };
         pgrx::debug1!(
             "Worker #{}: collected {segment_ids:?} in {:?}",
@@ -633,6 +634,95 @@ fn set_missing_on_terms(
     }
 }
 
+// Batch size used by both the MVCC visibility collector and the interrupt-check collector.
+//
+// This is significantly larger than COLLECT_BLOCK_BUFFER_LEN (64) to reduce the overhead
+// of visibility checks. Specifically:
+// 1. It amortizes the dynamic dispatch overhead of looking up ctids from the fast field.
+// 2. It allows `VisibilityChecker` to process ctids in sorted order, which is critical because
+//    checking visibility requires acquiring locks on the visibility map (VM) pages and potentially
+//    tuple locks on the heap. Accessing these in a sorted, batched manner reduces lock contention
+//    and random I/O.
+const COLLECTOR_BATCH_SIZE: usize = 2048;
+
+pub mod interrupt_collector {
+    use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
+
+    /// A collector wrapper that periodically checks for Postgres query cancellation
+    /// during Tantivy's collection loop, which otherwise runs without yielding control.
+    pub struct InterruptableCollector<C: Collector> {
+        inner: C,
+    }
+
+    impl<C: Collector> InterruptableCollector<C> {
+        pub fn new(inner: C) -> Self {
+            Self { inner }
+        }
+    }
+
+    impl<C: Collector> Collector for InterruptableCollector<C> {
+        type Fruit = C::Fruit;
+        type Child = InterruptableSegmentCollector<C::Child>;
+
+        fn for_segment(
+            &self,
+            segment_local_id: SegmentOrdinal,
+            segment: &SegmentReader,
+        ) -> tantivy::Result<Self::Child> {
+            Ok(InterruptableSegmentCollector {
+                inner: self.inner.for_segment(segment_local_id, segment)?,
+                docs_since_check: 0,
+            })
+        }
+
+        fn requires_scoring(&self) -> bool {
+            self.inner.requires_scoring()
+        }
+
+        fn merge_fruits(
+            &self,
+            segment_fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
+        ) -> tantivy::Result<Self::Fruit> {
+            self.inner.merge_fruits(segment_fruits)
+        }
+    }
+
+    pub struct InterruptableSegmentCollector<SC: SegmentCollector> {
+        inner: SC,
+        docs_since_check: usize,
+    }
+
+    impl<SC: SegmentCollector> InterruptableSegmentCollector<SC> {
+        #[inline]
+        fn maybe_check_interrupt(&mut self, docs: usize) {
+            self.docs_since_check += docs;
+            if self.docs_since_check >= super::COLLECTOR_BATCH_SIZE {
+                self.docs_since_check = 0;
+                pgrx::check_for_interrupts!();
+            }
+        }
+    }
+
+    impl<SC: SegmentCollector> SegmentCollector for InterruptableSegmentCollector<SC> {
+        type Fruit = SC::Fruit;
+
+        fn collect(&mut self, doc: DocId, score: Score) {
+            self.maybe_check_interrupt(1);
+            self.inner.collect(doc, score);
+        }
+
+        fn collect_block(&mut self, docs: &[DocId]) {
+            self.maybe_check_interrupt(docs.len());
+            self.inner.collect_block(docs);
+        }
+
+        fn harvest(self) -> Self::Fruit {
+            self.inner.harvest()
+        }
+    }
+}
+
 pub mod mvcc_collector {
     use parking_lot::Mutex;
     use std::sync::Arc;
@@ -642,16 +732,7 @@ pub mod mvcc_collector {
     use crate::postgres::heap::VisibilityChecker;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
-    // Buffer size for batching visibility checks.
-    //
-    // This is significantly larger than COLLECT_BLOCK_BUFFER_LEN (64) to reduce the overhead
-    // of visibility checks. Specifically:
-    // 1. It amortizes the dynamic dispatch overhead of looking up ctids from the fast field.
-    // 2. It allows `VisibilityChecker` to process ctids in sorted order, which is critical because
-    //    checking visibility requires acquiring locks on the visibility map (VM) pages and potentially
-    //    tuple locks on the heap. Accessing these in a sorted, batched manner reduces lock contention
-    //    and random I/O.
-    const BATCH_SIZE: usize = 2048;
+    use super::COLLECTOR_BATCH_SIZE as BATCH_SIZE;
 
     pub struct MVCCFilterCollector<C: Collector> {
         inner: C,

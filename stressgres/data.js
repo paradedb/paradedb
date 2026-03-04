@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772588633477,
+  "lastUpdate": 1772588640682,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13712,6 +13712,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.94709316468013, max segment_count: 127.0, count: 57554"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "28feba97826a07a20bb04cacec64ef2c3d055d8b",
+          "message": "fix: Make the aggregate custom scan collector interruptable (#4271)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere was a problem where the aggregate custom scan was not\ninterruptible while Tantivy was collecting over a segment, which could\ntake a very long time if the segment is large.\n\nIntroduces a new wrapping collector that checks for interrupts per batch\nof `2048` documents.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-03-03T17:11:03-08:00",
+          "tree_id": "8c7d5e14213931a8f65d74b96bae6872ceffcc8b",
+          "url": "https://github.com/paradedb/paradedb/commit/28feba97826a07a20bb04cacec64ef2c3d055d8b"
+        },
+        "date": 1772588635075,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.27456446482807, max cpu: 42.857143, count: 57795"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.9175789022623, max mem: 234.49609375, count: 57795"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.494309841207013, max cpu: 33.267326, count: 57795"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 175.1050278733022, max mem: 175.8984375, count: 57795"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33932,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33336.27384721862, max block_count: 36094.0, count: 57795"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.85017735098192, max segment_count: 125.0, count: 57795"
           }
         ]
       }

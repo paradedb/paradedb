@@ -22,7 +22,7 @@ pub mod range;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
-pub use crate::postgres::utils::FieldSource;
+pub use crate::postgres::utils::{convert_pg_date_string, FieldSource};
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
 use anyhow::bail;
@@ -754,6 +754,18 @@ impl SearchField {
             | (FieldType::Bool(_), OwnedValue::Bool(_))
             | (FieldType::Date(_), OwnedValue::Date(_))
             | (FieldType::JsonObject(_), OwnedValue::Object(_)) => Ok(()),
+            (FieldType::Date(_), OwnedValue::Str(s)) => {
+                let typeoid = match self.field_type {
+                    SearchFieldType::Date(oid) => PgOid::from(oid),
+                    _ => bail!(
+                        "field type mismatch: expected Date but got {:?}",
+                        self.field_type
+                    ),
+                };
+                let datetime = convert_pg_date_string(typeoid, &s);
+                *value = OwnedValue::Date(datetime);
+                Ok(())
+            }
             (FieldType::U64(_), OwnedValue::I64(v)) => {
                 *value = OwnedValue::U64(v.try_into()?);
                 Ok(())

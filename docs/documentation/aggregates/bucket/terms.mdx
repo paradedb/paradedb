@@ -32,14 +32,13 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-# coming soon
-ActiveRecord::Base.connection.exec_query(<<~SQL)
-  SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') AS agg
-  FROM mock_items
-  WHERE id @@@ pdb.all()
-  GROUP BY rating
-  LIMIT 10;
-SQL
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.value_count(:id)
+        )
+        .limit(10)
 ```
 
 </CodeGroup>
@@ -77,15 +76,14 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-# coming soon
-ActiveRecord::Base.connection.exec_query(<<~SQL)
-  SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') AS agg
-  FROM mock_items
-  WHERE id @@@ pdb.all()
-  GROUP BY rating
-  ORDER BY rating
-  LIMIT 10;
-SQL
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.value_count(:id)
+        )
+        .order(:rating)
+        .limit(10)
 ```
 
 </CodeGroup>

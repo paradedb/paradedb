@@ -62,15 +62,14 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-# coming soon
-ActiveRecord::Base.connection.exec_query(<<~SQL)
-  SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') AS agg
-  FROM mock_items
-  WHERE category === 'electronics'
-  GROUP BY rating
-  ORDER BY rating
-  LIMIT 5;
-SQL
+MockItem.search(:category)
+        .term("electronics")
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.value_count(:id)
+        )
+        .order(:rating)
+        .limit(5)
 ```
 
 </CodeGroup>

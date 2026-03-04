@@ -29,13 +29,16 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-# coming soon
-ActiveRecord::Base.connection.exec_query(<<~SQL)
-  SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}') AS agg
-  FROM mock_items
-  WHERE id @@@ pdb.all()
-  GROUP BY rating;
-SQL
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.top_hits(
+            size: 3,
+            sort: [{ created_at: "desc" }],
+            docvalue_fields: %w[id created_at]
+          )
+        )
 ```
 
 </CodeGroup>
@@ -78,13 +81,17 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-# coming soon
-ActiveRecord::Base.connection.exec_query(<<~SQL)
-  SELECT pdb.agg('{"top_hits": {"size": 3, "from": 1, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}') AS agg
-  FROM mock_items
-  WHERE id @@@ pdb.all()
-  GROUP BY rating;
-SQL
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.top_hits(
+            size: 3,
+            from: 1,
+            sort: [{ created_at: "desc" }],
+            docvalue_fields: %w[id created_at]
+          )
+        )
 ```
 
 </CodeGroup>
@@ -110,13 +117,16 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-# coming soon
-ActiveRecord::Base.connection.exec_query(<<~SQL)
-  SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}') AS agg
-  FROM mock_items
-  WHERE id @@@ pdb.all()
-  GROUP BY rating;
-SQL
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.top_hits(
+            size: 3,
+            sort: [{ created_at: "desc" }, { id: "asc" }],
+            docvalue_fields: %w[id created_at]
+          )
+        )
 ```
 
 </CodeGroup>

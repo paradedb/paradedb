@@ -233,14 +233,19 @@ fn build_relnode_df<'a>(
     let f = async move {
         match node {
             RelNode::Scan(source) => {
-                let is_parallel = source.scan_info.heap_rti == partitioning_rti;
-                let mut df = build_source_df(ctx, source, join_clause, is_parallel).await?;
-
                 let plan_sources = join_clause.plan.sources();
+                // Use pointer identity to find the source index, not heap_rti.
+                // SubPlan extraction can produce sources with locally-scoped RTIs
+                // that collide with outer query RTIs (e.g., both get RTI=1).
+                let source_ptr = &**source as *const JoinSource;
                 let source_idx = plan_sources
                     .iter()
-                    .position(|s| s.scan_info.heap_rti == source.scan_info.heap_rti)
+                    .position(|s| std::ptr::eq(*s, source_ptr))
                     .unwrap();
+                let is_parallel = source.scan_info.heap_rti == partitioning_rti;
+                let mut df =
+                    build_source_df(ctx, source, source_idx, join_clause, is_parallel).await?;
+
                 let alias = source.execution_alias(source_idx);
                 df = df.alias(&alias)?;
                 Ok(df)
@@ -323,8 +328,9 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::RightAnti => {
                         JoinType::RightAnti
                     }
-                    unsupported => {
-                        panic!("Join type {} is unsupported during execution", unsupported)
+                    crate::postgres::customscan::joinscan::build::JoinType::UniqueOuter
+                    | crate::postgres::customscan::joinscan::build::JoinType::UniqueInner => {
+                        JoinType::Inner
                     }
                 };
 
@@ -526,21 +532,27 @@ fn build_clause_df<'a>(
                 final_cols.push(expr.alias(col_alias));
             }
 
-            // ALWAYS carry forward all CTID columns from both sides
+            // ALWAYS carry forward all CTID columns from both sides.
+            // Deduplicate by ctid name because SubPlan extraction can produce
+            // sources with locally-scoped RTIs that collide with outer RTIs.
+            let mut seen_ctids = crate::api::HashSet::<String>::default();
             let mut base_relations = Vec::new();
             join_clause.collect_base_relations(&mut base_relations);
             for base in base_relations {
                 let rti = base.heap_rti;
                 let ctid_name = format!("ctid_{}", rti);
-                // Check if it already exists in df schema (it should)
-                if df.schema().field_with_unqualified_name(&ctid_name).is_ok() {
-                    // Carry it.
+                if df.schema().field_with_unqualified_name(&ctid_name).is_ok()
+                    && seen_ctids.insert(ctid_name.clone())
+                {
                     final_cols.push(col(&ctid_name));
                 }
             }
         } else {
+            let mut seen = crate::api::HashSet::<&str>::default();
             for field in df.schema().fields() {
-                final_cols.push(col(field.name()));
+                if seen.insert(field.name()) {
+                    final_cols.push(col(field.name()));
+                }
             }
         }
 
@@ -590,13 +602,16 @@ fn build_projection_expr(
 fn build_source_df<'a>(
     ctx: &'a SessionContext,
     source: &'a JoinSource,
+    source_idx: usize,
     join_clause: &'a JoinCSClause,
     is_parallel: bool,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = source.scan_info.clone();
-        let source_alias = source.scan_info.alias.clone();
-        let alias = source_alias.as_deref().unwrap_or("base");
+        // Use the unique execution alias as the registration name to avoid
+        // collisions when the same table appears multiple times (e.g. contact_list
+        // in both IN and NOT IN subqueries).
+        let reg_name = source.execution_alias(source_idx);
         let fields: Vec<WhichFastField> = source
             .scan_info
             .fields
@@ -627,25 +642,34 @@ fn build_source_df<'a>(
         provider.try_enable_late_materialization(&required_early);
 
         let provider = Arc::new(provider);
-        ctx.register_table(alias, provider)?;
+        ctx.register_table(&reg_name, provider)?;
 
-        let mut df = ctx.table(alias).await?;
+        let mut df = ctx.table(&reg_name).await?;
 
-        // Select fields AND ensure CTID is aliased uniquely
+        // Select fields AND ensure CTID is aliased uniquely.
+        // Track seen expression names to skip duplicates — the same column name
+        // can appear more than once in the schema (e.g. system and user ctid).
         let mut exprs = Vec::new();
+        let mut seen_names = crate::api::HashSet::<String>::default();
         for df_field in df.schema().fields().iter() {
             let name = df_field.name();
             // NOTE: Matching on WhichFastField::Ctid specifically will fail if
             // the field list order doesn't match the DataFrame schema field order.
-            let expr = match fields.iter().find(|w| w.name() == *name) {
+            let (expr, expr_name) = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
-                    make_col(alias, name).alias(format!("ctid_{}", scan_info.heap_rti))
+                    let alias = format!("ctid_{}", scan_info.heap_rti);
+                    (make_col(&reg_name, name).alias(&alias), alias)
                 }
-                Some(WhichFastField::Score) => make_col(alias, name).alias(SCORE_COL_NAME),
-                _ => make_col(alias, name),
+                Some(WhichFastField::Score) => (
+                    make_col(&reg_name, name).alias(SCORE_COL_NAME),
+                    SCORE_COL_NAME.to_string(),
+                ),
+                _ => (make_col(&reg_name, name), name.to_string()),
             };
 
-            exprs.push(expr);
+            if seen_names.insert(expr_name) {
+                exprs.push(expr);
+            }
         }
         df = df.select(exprs)?;
 

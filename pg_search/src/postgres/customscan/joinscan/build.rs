@@ -214,8 +214,15 @@ impl JoinSourceCandidate {
     }
 
     /// Returns the alias to be used for this source in the DataFusion plan.
+    ///
+    /// Always incorporates the source index to guarantee uniqueness when the
+    /// same table appears multiple times (e.g. `contact_list` in both
+    /// `IN (SELECT ...)` and `NOT IN (SELECT ...)`).
     pub fn execution_alias(&self, index: usize) -> String {
-        self.alias().unwrap_or_else(|| format!("source_{}", index))
+        match &self.alias {
+            Some(alias) => format!("{}_{}", alias, index),
+            None => format!("source_{}", index),
+        }
     }
 
     /// Check if this source contains the given RTI.
@@ -274,13 +281,13 @@ pub struct JoinSource {
 impl JoinSource {
     /// Returns the alias to be used for this source in the DataFusion plan.
     ///
-    /// If the source has an explicit alias (from SQL), it is used.
-    /// Otherwise, a synthetic alias `source_{index}` is generated based on its position.
+    /// Always incorporates the source index to guarantee uniqueness when the
+    /// same table appears multiple times in a query.
     pub fn execution_alias(&self, index: usize) -> String {
-        self.scan_info
-            .alias
-            .clone()
-            .unwrap_or_else(|| format!("source_{}", index))
+        match &self.scan_info.alias {
+            Some(alias) => format!("{}_{}", alias, index),
+            None => format!("source_{}", index),
+        }
     }
 
     /// Check if this source contains the given RTI.
@@ -474,7 +481,14 @@ impl RelNode {
         match self {
             RelNode::Scan(_) => {}
             RelNode::Join(j) => {
-                if !matches!(j.join_type, JoinType::Inner | JoinType::Semi) {
+                if !matches!(
+                    j.join_type,
+                    JoinType::Inner
+                        | JoinType::Semi
+                        | JoinType::RightSemi
+                        | JoinType::UniqueOuter
+                        | JoinType::UniqueInner
+                ) {
                     acc.push(j.join_type);
                 }
                 j.left.collect_unsupported_join_types(acc);
@@ -489,6 +503,26 @@ impl RelNode {
             RelNode::Scan(s) => s.scan_info.heap_rti == rti,
             RelNode::Join(j) => j.left.contains_rti(rti) || j.right.contains_rti(rti),
             RelNode::Filter(f) => f.input.contains_rti(rti),
+        }
+    }
+
+    /// Remaps all RTIs in this subtree by applying the given offset.
+    /// Used to avoid RTI collisions when SubPlan inner queries have locally-scoped
+    /// RTIs that may collide with the outer query's RTIs.
+    pub fn remap_rtis(&mut self, offset: pg_sys::Index) {
+        match self {
+            RelNode::Scan(s) => {
+                s.scan_info.heap_rti += offset;
+            }
+            RelNode::Join(j) => {
+                j.left.remap_rtis(offset);
+                j.right.remap_rtis(offset);
+                for key in &mut j.equi_keys {
+                    key.outer_rti += offset;
+                    key.inner_rti += offset;
+                }
+            }
+            RelNode::Filter(f) => f.input.remap_rtis(offset),
         }
     }
 

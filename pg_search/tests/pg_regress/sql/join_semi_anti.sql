@@ -104,6 +104,26 @@ AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
 
+-- =====================================================================
+-- 4. Two Semi Joins on the same table (RTI collision repro)
+-- =====================================================================
+EXPLAIN (COSTS OFF)
+SELECT id, category
+FROM table_a
+WHERE id IN (SELECT a_id FROM table_b WHERE group_id IN ('group_1'))
+AND id IN (SELECT a_id FROM table_b WHERE group_id IN ('group_2'))
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+
+SELECT id, category
+FROM table_a
+WHERE id IN (SELECT a_id FROM table_b WHERE group_id IN ('group_1'))
+AND id IN (SELECT a_id FROM table_b WHERE group_id IN ('group_2'))
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+
 -- Cleanup
 DROP TABLE table_a CASCADE;
 DROP TABLE table_b CASCADE;

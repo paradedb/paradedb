@@ -284,6 +284,12 @@ unsafe fn collect_join_sources_base_rel(
     let mut current_node = RelNode::Scan(Box::new(source));
     let mut all_keys = Vec::new();
 
+    // Use the outer query's simple_rel_array_size as a base offset for inner RTIs.
+    // Each extracted subquery gets a larger offset to avoid collisions between
+    // the outer query RTIs and between multiple subqueries.
+    let outer_rti_count = (*root).simple_rel_array_size as pg_sys::Index;
+    let mut rti_offset_base = outer_rti_count;
+
     // Wrap current_node in Join nodes for each extracted subquery
     for (subplan, is_anti, inner_root) in extracted_subqueries {
         // Find the final rel for the inner subquery
@@ -292,12 +298,23 @@ unsafe fn collect_join_sources_base_rel(
             continue; // Can't resolve inner relation, maybe log or skip
         }
 
-        let Some((inner_node, inner_keys)) = collect_join_sources(inner_root, inner_rel) else {
+        let Some((mut inner_node, inner_keys)) = collect_join_sources(inner_root, inner_rel) else {
             continue;
         };
 
-        // Recursively collect join sources for the inner subquery
-        all_keys.extend(inner_keys);
+        // Remap inner RTIs to avoid collisions with outer query RTIs.
+        // SubPlan inner queries have locally-scoped RTIs starting from 1,
+        // which can collide with the outer query's RTIs.
+        let inner_rti_count = (*inner_root).simple_rel_array_size as pg_sys::Index;
+        inner_node.remap_rtis(rti_offset_base);
+
+        // Also remap the inner keys
+        let mut remapped_inner_keys = inner_keys;
+        for key in &mut remapped_inner_keys {
+            key.outer_rti += rti_offset_base;
+            key.inner_rti += rti_offset_base;
+        }
+        all_keys.extend(remapped_inner_keys);
 
         let equi_keys = extract_equi_keys_from_subplan(subplan, &current_node, &inner_node);
 
@@ -315,6 +332,9 @@ unsafe fn collect_join_sources_base_rel(
 
         all_keys.extend(equi_keys);
         current_node = RelNode::Join(Box::new(join_node));
+
+        // Advance the offset for the next subquery
+        rti_offset_base += inner_rti_count;
     }
 
     Some((current_node, all_keys))

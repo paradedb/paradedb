@@ -100,7 +100,7 @@ SELECT UNNEST(author), pdb.agg('{"value_count": {"field": "dwf_doid"}}') FROM do
 WHERE dwf_doid @@@ pdb.all()
 GROUP BY UNNEST(author)
 LIMIT 5 OFFSET 0;
-WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: core)
+WARNING:  Aggregate Scan not used: could not resolve grouping column from expression (table: core)
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: core)
                                            QUERY PLAN                                            
 -------------------------------------------------------------------------------------------------
@@ -121,7 +121,7 @@ SELECT UNNEST(author), pdb.agg('{"value_count": {"field": "dwf_doid"}}') FROM do
 WHERE dwf_doid @@@ pdb.all()
 GROUP BY UNNEST(author)
 LIMIT 5 OFFSET 0;
-WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: core)
+WARNING:  Aggregate Scan not used: could not resolve grouping column from expression (table: core)
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: core)
 ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
 -- Drop the schema and everything in it

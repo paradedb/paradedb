@@ -90,6 +90,8 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                     PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
                 let mut found_valid_column = false;
+                let mut last_error: Option<String> = None;
+
                 for member in members.iter_ptr() {
                     let expr = (*member).em_expr;
 
@@ -101,6 +103,8 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                         // JSON operator expression or complex field access
                         let (heaprelid, attno, _) = find_var_relation(var, args.root);
                         if heaprelid == pg_sys::InvalidOid {
+                            last_error =
+                                Some("find_var_relation returned InvalidOid for var".to_string());
                             continue;
                         }
                         (field_name.to_string(), attno)
@@ -112,6 +116,8 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                     ) {
                         (ff.name(), 0) // Complex expressions don't have a single attno
                     } else {
+                        last_error =
+                            Some("could not resolve grouping column from expression".to_string());
                         continue;
                     };
 
@@ -120,22 +126,38 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                         // Reject NUMERIC fields - GROUP BY pushdown not supported
                         // (NUMERIC values are stored scaled and would need descaling)
                         if search_field.field_type().is_numeric() {
-                            return Err(format!("field {} is numeric", field_name).into());
+                            return Err(format!(
+                                "grouping field {} is numeric, which is not supported",
+                                field_name
+                            )
+                            .into());
                         }
                         if search_field.is_fast() {
                             grouping_columns.push(GroupingColumn { field_name, attno });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey
                         } else {
+                            last_error = Some(format!(
+                                "grouping column {} exists, but is not a fast field",
+                                field_name
+                            ));
                             // wait to return error until we check all members
                         }
                     } else {
+                        last_error = Some(format!(
+                            "grouping column {} is missing from index",
+                            field_name
+                        ));
                         // wait to return error
                     }
                 }
 
                 if !found_valid_column {
-                    return Err("grouping column is missing, or is not a fast field".into());
+                    if let Some(err) = last_error {
+                        return Err(err.into());
+                    } else {
+                        return Err("grouping column could not be found".into());
+                    }
                 }
             }
         }

@@ -77,6 +77,7 @@ FROM issue_3827_t
 GROUP BY txt
 HAVING (txt @@@ pdb.parse('foo')) OR SUM(n) < 0
 ORDER BY txt;
+WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: issue_3827_t)
  txt 
 -----
  foo
@@ -90,6 +91,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY not_indexed
 ORDER BY not_indexed;
+WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: issue_3827_t)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  GroupAggregate
@@ -112,6 +114,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY not_indexed
 ORDER BY not_indexed;
+WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: issue_3827_t)
  not_indexed | count 
 -------------+-------
           10 |     1
@@ -126,6 +129,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY txt, n
 ORDER BY txt, n;
+WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: issue_3827_t)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  GroupAggregate
@@ -148,6 +152,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY txt, n
 ORDER BY txt, n;
+WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: issue_3827_t)
  txt | n | count 
 -----+---+-------
  foo | 1 |     1

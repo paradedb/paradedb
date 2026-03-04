@@ -47,6 +47,7 @@ SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: mock_items)
                               QUERY PLAN                               
 -----------------------------------------------------------------------
  Aggregate
@@ -60,6 +61,7 @@ SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
 (8 rows)
 
 SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: mock_items)
  count 
 -------
     41
@@ -84,6 +86,7 @@ SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: first argument of COALESCE must resolve to a variable (table: mock_items)
                               QUERY PLAN                               
 -----------------------------------------------------------------------
  Aggregate
@@ -97,6 +100,7 @@ SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ p
 (8 rows)
 
 SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: first argument of COALESCE must resolve to a variable (table: mock_items)
  count 
 -------
     43

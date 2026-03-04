@@ -17,7 +17,9 @@
 
 use crate::gucs;
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::{
+    AggregateScan, CustomScanBuildError, CustomScanClause,
+};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
@@ -64,9 +66,15 @@ impl CustomScanClause<AggregateScan> for LimitOffsetClause {
 
     fn from_pg(
         args: &Self::Args,
+<<<<<<< HEAD
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Option<Self> {
+=======
+        _heap_rti: pg_sys::Index,
+        _index: &PgSearchRelation,
+    ) -> Result<Self, CustomScanBuildError> {
+>>>>>>> 2b3be233d (fix: Add support for expressions and planner warnings to the aggregate scan (#4273))
         let parse = args.root().parse;
         let (limit, offset) = unsafe {
             let limit_count = (*parse).limitCount;
@@ -88,10 +96,10 @@ impl CustomScanClause<AggregateScan> for LimitOffsetClause {
             if !(*parse).groupClause.is_null()
                 && limit.unwrap_or(0) + offset.unwrap_or(0) > gucs::max_term_agg_buckets() as u32
             {
-                return None;
+                return Err("limit + offset exceeds max_term_agg_buckets".into());
             }
         }
 
-        Some(LimitOffsetClause { limit, offset })
+        Ok(LimitOffsetClause { limit, offset })
     }
 }

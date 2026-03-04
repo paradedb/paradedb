@@ -305,8 +305,9 @@ pub unsafe fn extract_field_attributes(
 
     let heap_relation = PgSearchRelation::from_pg(indexrel).heap_relation().unwrap();
     let heap_tupdesc = heap_relation.tuple_desc();
-    let index_info = pg_sys::BuildIndexInfo(indexrel);
-    let expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
+    let pg_search_indexrel = PgSearchRelation::from_pg(indexrel);
+    let index_info = pg_search_indexrel.index_info();
+    let expressions = pg_search_indexrel.index_expressions();
     let mut expressions_iter = expressions.iter_ptr().enumerate();
     let mut field_attributes: FxHashMap<FieldName, ExtractedFieldAttribute> = Default::default();
     for attno in 0..(*index_info).ii_NumIndexAttrs {

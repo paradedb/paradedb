@@ -123,7 +123,7 @@ impl AggregateType {
         root: *mut pg_sys::PlannerInfo,
         heap_rti: pg_sys::Index,
         qual_state: &mut QualExtractState,
-    ) -> Option<Self> {
+    ) -> Result<Self, String> {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
 
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
@@ -152,13 +152,15 @@ impl AggregateType {
 
         if aggfnoid == agg_oid || aggfnoid == agg_with_mvcc_oid {
             // Extract JSON argument (first arg)
-            let arg = args.get_ptr(0)?;
+            let arg = args.get_ptr(0).expect("pdb.agg missing argument");
             let expr = (*arg).expr;
             let json_value = if let Some(const_node) = nodecast!(Const, T_Const, expr) {
                 let json_datum = (*const_node).constvalue;
-                pgrx::JsonB::from_datum(json_datum, false)?.0
+                pgrx::JsonB::from_datum(json_datum, false)
+                    .expect("invalid JSON in pdb.agg")
+                    .0
             } else {
-                return None;
+                panic!("pdb.agg argument must be a constant");
             };
 
             // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
@@ -177,7 +179,29 @@ impl AggregateType {
                 MvccVisibility::Disabled
             };
 
+<<<<<<< HEAD
             return Some(AggregateType::Custom {
+=======
+            // Check if any existing fields in the custom aggregate are NUMERIC
+            // NUMERIC fields do not support aggregate pushdown
+            // Note: Non-existent fields are caught by validate_fields() with proper error
+            let schema = bm25_index.schema().expect("could not get index schema");
+            let mut fields = HashSet::default();
+            extract_fields_from_agg_json(&json_value, &mut fields);
+            for field_name in &fields {
+                // Only check NUMERIC support if field exists in schema
+                if schema.search_field(field_name).is_some()
+                    && !schema.field_supports_aggregate(field_name)
+                {
+                    return Err(format!(
+                        "field '{}' does not support aggregate pushdown (NUMERIC)",
+                        field_name
+                    ));
+                }
+            }
+
+            return Ok(AggregateType::Custom {
+>>>>>>> 2b3be233d (fix: Add support for expressions and planner warnings to the aggregate scan (#4273))
                 agg_json: json_value,
                 filter: filter_query,
                 indexrelid: bm25_index.oid(),
@@ -186,22 +210,36 @@ impl AggregateType {
         }
 
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
-            return Some(AggregateType::CountAny {
+            return Ok(AggregateType::CountAny {
                 filter: filter_query,
                 indexrelid: bm25_index.oid(),
             });
         }
 
         if args.is_empty() {
-            return None;
+            return Err("aggregate missing arguments".into());
         }
 
-        let first_arg = args.get_ptr(0)?;
+        let first_arg = args.get_ptr(0).ok_or("aggregate missing argument")?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
-        let agg_type =
-            create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())?;
+<<<<<<< HEAD
+=======
 
-        Some(agg_type)
+        // Check if aggregate pushdown is supported for this field type
+        // NUMERIC fields are not supported - they fall back to PostgreSQL
+        if !bm25_index.field_supports_aggregate(&field).unwrap_or(false) {
+            return Err(format!(
+                "field '{}' does not support aggregate pushdown",
+                field
+            ));
+        }
+
+>>>>>>> 2b3be233d (fix: Add support for expressions and planner warnings to the aggregate scan (#4273))
+        let agg_type =
+            create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())
+                .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
+
+        Ok(agg_type)
     }
 
     pub fn can_use_doc_count(&self) -> bool {
@@ -452,40 +490,67 @@ impl F64Lossless for i64 {
 unsafe fn parse_aggregate_field(
     first_arg: *mut pg_sys::TargetEntry,
     heaprelid: pg_sys::Oid,
-) -> Option<(String, Option<f64>)> {
-    let (var, missing) =
-        if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr) {
-            parse_coalesce_expression(coalesce_node)?
-        } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
-            (var, None)
-        } else {
-            return None;
-        };
+) -> Result<(String, Option<f64>), String> {
+    let (var, missing) = if let Some(coalesce_node) =
+        nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr)
+    {
+        parse_coalesce_expression(coalesce_node)?
+    } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
+        (var, None)
+    } else {
+        return Err("argument to aggregate function is neither a direct column reference nor a COALESCE expression".into());
+    };
 
-    let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
-    Some((field, missing))
+    let field = fieldname_from_var(heaprelid, var, (*var).varattno)
+        .ok_or("could not map variable to field name (may not be in the index)")?
+        .into_inner();
+    Ok((field, missing))
 }
 
 /// Parse COALESCE expression to extract variable and missing value
 pub unsafe fn parse_coalesce_expression(
     coalesce_node: *mut pg_sys::CoalesceExpr,
-) -> Option<(*mut pg_sys::Var, Option<f64>)> {
+) -> Result<(*mut pg_sys::Var, Option<f64>), String> {
     let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
     if args.is_empty() {
-        return None;
+        return Err("COALESCE expression has no arguments".into());
     }
 
+<<<<<<< HEAD
     let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
     let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
+=======
+    // First argument might be wrapped in type coercion (RelabelType, CoerceViaIO)
+    // when PostgreSQL needs to cast FLOAT4 → FLOAT8 for COALESCE consistency
+    let first_arg = args
+        .get_ptr(0)
+        .ok_or("COALESCE expression missing first argument")?;
+    let var = <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)
+        .ok_or("first argument of COALESCE must resolve to a variable")?;
+
+    // Second argument (the default value) might also be wrapped in type coercion
+    let second_arg = args
+        .get_ptr(1)
+        .ok_or("COALESCE expression missing second argument")?;
+    let const_node = ConstNode::unwrap_from_expr(second_arg as *mut pg_sys::Expr)
+        .ok_or("second argument of COALESCE must resolve to a constant")?;
+
+>>>>>>> 2b3be233d (fix: Add support for expressions and planner warnings to the aggregate scan (#4273))
     let missing = match TantivyValue::try_from(const_node) {
         Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),
         Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),
         Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
         Ok(TantivyValue(OwnedValue::Null)) => None,
+<<<<<<< HEAD
         _ => return None,
+=======
+        // Handle string values from NUMERIC - parse to f64 for missing value
+        Ok(TantivyValue(OwnedValue::Str(s))) => s.parse::<f64>().ok(),
+        _ => return Err("unsupported constant type in COALESCE default value".into()),
+>>>>>>> 2b3be233d (fix: Add support for expressions and planner warnings to the aggregate scan (#4273))
     };
 
-    Some((var, missing))
+    Ok((var, missing))
 }
 
 /// Create appropriate AggregateType from function OID

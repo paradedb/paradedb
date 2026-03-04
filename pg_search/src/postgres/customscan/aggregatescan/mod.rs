@@ -52,10 +52,11 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
+use crate::postgres::utils::{is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 
 use chrono::{DateTime as ChronoDateTime, Utc};
-use pgrx::{pg_sys, IntoDatum, PgList, PgMemoryContexts, PgTupleDesc};
+use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 use tantivy::schema::OwnedValue;
 
@@ -435,17 +436,13 @@ impl CustomScan for AggregateScan {
                     PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory);
                 per_tuple_context.reset();
 
-                // Mutate Const nodes with aggregate values directly from the row results.
-                // We DON'T use the slot's datums because those were converted using the
-                // output tuple descriptor's types (e.g., TEXT for jsonb_pretty output),
+                // Mutate Const nodes with values directly from the row results.
+                // We DON'T use the slot's datums for aggregates because those were converted
+                // using the output tuple descriptor's types (e.g., TEXT for jsonb_pretty output),
                 // but we need the native aggregate type (e.g., JSONB for pdb.agg).
                 // This matches basescan's approach of setting Const values directly.
                 let mut agg_iter = row.aggregates.iter();
                 for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
-                    let TargetListEntry::Aggregate(agg_type) = entry else {
-                        continue;
-                    };
-
                     let Some(const_node) = state
                         .custom_state()
                         .const_agg_nodes
@@ -453,49 +450,56 @@ impl CustomScan for AggregateScan {
                         .copied()
                         .flatten()
                     else {
-                        // No Const node for this aggregate, skip the iterator
-                        agg_iter.next();
+                        // No Const node for this entry, skip the aggregate iterator if it's an aggregate
+                        if matches!(entry, TargetListEntry::Aggregate(_)) {
+                            agg_iter.next();
+                        }
                         continue;
                     };
 
-                    // Get the next aggregate result
-                    let agg_result = agg_iter.next().and_then(|v| v.clone());
+                    let (datum, is_null) = match entry {
+                        TargetListEntry::Aggregate(agg_type) => {
+                            // Get the next aggregate result
+                            let agg_result = agg_iter.next().and_then(|v| v.clone());
 
-                    // Convert to datum using the Const node's type (native aggregate type)
-                    // not the output tuple descriptor's type
-                    let (datum, is_null) = if row.is_empty() {
-                        // Empty result - use nullish value
-                        let nullish_datum = agg_type.nullish().value.and_then(|value| {
-                            TantivyValue(OwnedValue::F64(value))
-                                .try_into_datum((*const_node).consttype.into())
-                                .unwrap()
-                        });
-                        (
-                            nullish_datum.unwrap_or(pg_sys::Datum::null()),
-                            nullish_datum.is_none(),
-                        )
-                    } else if agg_type.can_use_doc_count()
-                        && !state.custom_state().aggregate_clause.has_filter()
-                        && state.custom_state().aggregate_clause.has_groupby()
-                    {
-                        let d = row
-                            .doc_count()
-                            .try_into_datum(pgrx::PgOid::from((*const_node).consttype));
-                        match d {
-                            Ok(Some(datum)) => (datum, false),
-                            _ => (pg_sys::Datum::null(), true),
+                            // Convert to datum using the Const node's type (native aggregate type)
+                            // not the output tuple descriptor's type
+                            if row.is_empty() {
+                                // Empty result - use nullish value
+                                let nullish_datum = agg_type.nullish().value.and_then(|value| {
+                                    TantivyValue(OwnedValue::F64(value))
+                                        .try_into_datum((*const_node).consttype.into())
+                                        .unwrap()
+                                });
+                                (
+                                    nullish_datum.unwrap_or(pg_sys::Datum::null()),
+                                    nullish_datum.is_none(),
+                                )
+                            } else if agg_type.can_use_doc_count()
+                                && !state.custom_state().aggregate_clause.has_filter()
+                                && state.custom_state().aggregate_clause.has_groupby()
+                            {
+                                let d = row
+                                    .doc_count()
+                                    .try_into_datum(pgrx::PgOid::from((*const_node).consttype));
+                                match d {
+                                    Ok(Some(datum)) => (datum, false),
+                                    _ => (pg_sys::Datum::null(), true),
+                                }
+                            } else {
+                                // Use the native aggregate result type (from the Const node)
+                                let d = exec::aggregate_result_to_datum(
+                                    agg_result,
+                                    agg_type,
+                                    (*const_node).consttype, // Use Const's type, not output type
+                                );
+                                match d {
+                                    Some(datum) => (datum, false),
+                                    None => (pg_sys::Datum::null(), true),
+                                }
+                            }
                         }
-                    } else {
-                        // Use the native aggregate result type (from the Const node)
-                        let d = exec::aggregate_result_to_datum(
-                            agg_result,
-                            agg_type,
-                            (*const_node).consttype, // Use Const's type, not output type
-                        );
-                        match d {
-                            Some(datum) => (datum, false),
-                            None => (pg_sys::Datum::null(), true),
-                        }
+                        TargetListEntry::GroupingColumn(_) => (datums[i], isnull[i]),
                     };
 
                     (*const_node).constvalue = datum;
@@ -603,7 +607,7 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     #[pg_guard]
     unsafe extern "C-unwind" fn aggref_mutator(
         node: *mut pg_sys::Node,
-        _context: *mut core::ffi::c_void,
+        context: *mut core::ffi::c_void,
     ) -> *mut pg_sys::Node {
         if node.is_null() {
             return std::ptr::null_mut();
@@ -615,40 +619,55 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
             return make_placeholder_func_expr(aggref) as *mut pg_sys::Node;
         }
 
+        // If this is an UNNEST FuncExpr, replace it with a placeholder FuncExpr of its result type.
+        // This is safe because AggregateScan handles the unnesting via Tantivy's terms aggregation.
+        if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
+            let func_expr = node as *mut pg_sys::FuncExpr;
+            if is_unnest_func((*func_expr).funcid) {
+                return make_placeholder_func_expr_internal(
+                    (*func_expr).funcresulttype,
+                    (*func_expr).inputcollid,
+                    (*func_expr).location,
+                    "UNNEST",
+                ) as *mut pg_sys::Node;
+            }
+        }
+
         // For all other nodes, use the standard mutator to walk children
         #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
             let fnptr = aggref_mutator as usize as *const ();
             let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
                 std::mem::transmute(fnptr);
-            pg_sys::expression_tree_mutator(node, Some(mutator), std::ptr::null_mut())
+            pg_sys::expression_tree_mutator(node, Some(mutator), context)
         }
 
         #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
         {
-            pg_sys::expression_tree_mutator_impl(node, Some(aggref_mutator), std::ptr::null_mut())
+            pg_sys::expression_tree_mutator_impl(node, Some(aggref_mutator), context)
         }
     }
 
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*plan).targetlist);
 
-    // Check if there are any Aggref nodes anywhere in the target list
-    let has_aggref = targetlist.iter_ptr().any(|te| {
+    // Check if there are any Aggref or UNNEST nodes anywhere in the target list
+    let has_unpushable = targetlist.iter_ptr().any(|te| {
         !te.is_null()
             && !(*te).expr.is_null()
-            && expr_contains_aggref((*te).expr as *mut pg_sys::Node)
+            && (expr_contains_aggref((*te).expr as *mut pg_sys::Node)
+                || expr_contains_unnest((*te).expr as *mut pg_sys::Node))
     });
 
-    if !has_aggref {
+    if !has_unpushable {
         return;
     }
 
-    // Build a new target list with Aggrefs replaced by placeholders
+    // Build a new target list with Aggrefs replaced by placeholders and UNNEST stripped
     let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
     for te in targetlist.iter_ptr() {
         let new_te = pg_sys::flatCopyTargetEntry(te);
 
-        // Use the mutator to replace any Aggref nodes in the expression
+        // Use the mutator to replace any Aggref or UNNEST nodes in the expression
         let new_expr = aggref_mutator((*te).expr as *mut pg_sys::Node, std::ptr::null_mut());
         (*new_te).expr = new_expr as *mut pg_sys::Expr;
 
@@ -656,6 +675,37 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     }
 
     (*plan).targetlist = new_targetlist;
+}
+
+/// Check if an expression tree contains any UNNEST nodes
+unsafe fn expr_contains_unnest(node: *mut pg_sys::Node) -> bool {
+    use pgrx::pg_guard;
+    use std::ptr::addr_of_mut;
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if (*node).type_ == pg_sys::NodeTag::T_FuncExpr {
+            let func_expr = node as *mut pg_sys::FuncExpr;
+            if is_unnest_func((*func_expr).funcid) {
+                let ctx = &mut *(context as *mut bool);
+                *ctx = true;
+                return true; // Stop walking
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    let mut found = false;
+    walker(node, addr_of_mut!(found).cast());
+    found
 }
 
 /// Check if an expression tree contains any Aggref nodes
@@ -686,24 +736,45 @@ unsafe fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
     found
 }
 
+/// Creates a placeholder `FuncExpr` for a PostgreSQL `Aggref`.
+///
+/// The placeholder is used during execution to avoid "Aggref found in non-Agg plan node" errors.
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {
+    let agg_name = get_aggregate_name(aggref);
+    make_placeholder_func_expr_internal(
+        (*aggref).aggtype,
+        (*aggref).inputcollid,
+        (*aggref).location,
+        &agg_name,
+    )
+}
+
+/// Creates a placeholder `FuncExpr` with the specified result type and label.
+///
+/// This is used both for `Aggref` nodes and for `UNNEST` calls which are handled
+/// internally by the custom aggregate scan.
+unsafe fn make_placeholder_func_expr_internal(
+    result_type: pg_sys::Oid,
+    input_collid: pg_sys::Oid,
+    location: i32,
+    label: &str,
+) -> *mut pg_sys::FuncExpr {
     let paradedb_funcexpr: *mut pg_sys::FuncExpr =
         pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
     (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
     (*paradedb_funcexpr).funcid = placeholder_procid();
-    (*paradedb_funcexpr).funcresulttype = (*aggref).aggtype;
+    (*paradedb_funcexpr).funcresulttype = result_type;
     (*paradedb_funcexpr).funcretset = false;
     (*paradedb_funcexpr).funcvariadic = false;
     (*paradedb_funcexpr).funcformat = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
     (*paradedb_funcexpr).funccollid = pg_sys::InvalidOid;
-    (*paradedb_funcexpr).inputcollid = (*aggref).inputcollid;
-    (*paradedb_funcexpr).location = (*aggref).location;
+    (*paradedb_funcexpr).inputcollid = input_collid;
+    (*paradedb_funcexpr).location = location;
 
-    // Create a string argument with the aggregate function name for better EXPLAIN output
-    let agg_name = get_aggregate_name(aggref);
-    let agg_name_const = make_text_const(&agg_name);
+    // Create a string argument with the label for better EXPLAIN output
+    let label_const = make_text_const(label);
     let mut args = PgList::<pg_sys::Node>::new();
-    args.push(agg_name_const.cast());
+    args.push(label_const.cast());
     (*paradedb_funcexpr).args = args.into_pg();
 
     paradedb_funcexpr
@@ -736,26 +807,4 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
     } else {
         "UNKNOWN".to_string()
     }
-}
-
-/// Create a text Const node from a string
-///
-/// # Safety
-/// This function must be called within a PostgreSQL memory context that will persist
-/// for the lifetime of the plan tree. The returned Const node will be allocated in the
-/// current memory context and should not be freed manually.
-unsafe fn make_text_const(text: &str) -> *mut pg_sys::Const {
-    let text_datum = text
-        .into_datum()
-        .expect("failed to convert string to datum");
-
-    pg_sys::makeConst(
-        pg_sys::TEXTOID,
-        -1,
-        pg_sys::DEFAULT_COLLATION_OID,
-        -1,
-        text_datum,
-        false, // constisnull
-        false, // constbyval (text is not passed by value)
-    )
 }

@@ -405,6 +405,103 @@ pub unsafe fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node
     node
 }
 
+/// Recursively strips `UNNEST` function calls and basic type coercion wrappers
+/// (`RelabelType`, `CoerceToDomain`, `CoerceViaIO`) from an expression.
+///
+/// Returns a tuple containing the stripped node and a boolean indicating if `UNNEST` was found.
+pub unsafe fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_sys::Node, bool) {
+    let mut found_unnest = false;
+    loop {
+        if node.is_null() {
+            return (node, found_unnest);
+        }
+
+        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
+            node = (*relabel).arg.cast();
+            continue;
+        }
+        if let Some(coerce) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
+            node = (*coerce).arg.cast();
+            continue;
+        }
+        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
+            node = (*coerce).arg.cast();
+            continue;
+        }
+        if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, node) {
+            node = (*phv).phexpr.cast();
+            continue;
+        }
+        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            if is_unnest_func((*func).funcid) {
+                found_unnest = true;
+                let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+                if let Some(arg) = args.get_ptr(0) {
+                    node = arg;
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+    (node, found_unnest)
+}
+
+/// Identifies if the function identified by `funcid` is `pg_catalog.unnest(anyarray)`.
+pub fn is_unnest_func(funcid: pg_sys::Oid) -> bool {
+    use std::sync::Once;
+    static mut UNNEST_OID: pg_sys::Oid = pg_sys::InvalidOid;
+    static APPROVE_SRF_ONCE: Once = Once::new();
+
+    unsafe {
+        APPROVE_SRF_ONCE.call_once(|| {
+            if let Some(oid) = direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"pg_catalog.unnest(anyarray)".into_datum()],
+            ) {
+                UNNEST_OID = oid;
+            }
+        });
+
+        if funcid == UNNEST_OID && UNNEST_OID != pg_sys::InvalidOid {
+            return true;
+        }
+
+        // Fallback: check function name
+        let fn_name = pg_sys::get_func_name(funcid);
+        if !fn_name.is_null() {
+            let name = std::ffi::CStr::from_ptr(fn_name);
+            if name == c"unnest" {
+                return true;
+            }
+        }
+
+        false
+    }
+}
+
+/// Create a text Const node from a string
+///
+/// # Safety
+/// This function must be called within a PostgreSQL memory context that will persist
+/// for the lifetime of the plan tree. The returned Const node will be allocated in the
+/// current memory context and should not be freed manually.
+pub unsafe fn make_text_const(text: &str) -> *mut pg_sys::Const {
+    let text_datum = text
+        .into_datum()
+        .expect("failed to convert string to datum");
+
+    pg_sys::makeConst(
+        pg_sys::TEXTOID,
+        -1,
+        pg_sys::DEFAULT_COLLATION_OID,
+        -1,
+        text_datum,
+        false, // constisnull
+        false, // constbyval (text is not passed by value)
+    )
+}
+
 /// Extracts the field attributes from the index relation.
 /// It returns a vector of tuples containing the field name and its type OID.
 pub unsafe fn extract_field_attributes(

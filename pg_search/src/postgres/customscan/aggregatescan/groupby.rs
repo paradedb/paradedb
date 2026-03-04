@@ -21,6 +21,7 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::utils::strip_unnest_and_relabel;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
@@ -93,12 +94,13 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                 let mut last_error: Option<String> = None;
 
                 for member in members.iter_ptr() {
-                    let expr = (*member).em_expr;
+                    let (expr, is_unnest) =
+                        strip_unnest_and_relabel((*member).em_expr as *mut pg_sys::Node);
 
                     let var_context = VarContext::from_planner(args.root);
 
                     let (field_name, attno) = if let Some((var, field_name)) =
-                        find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
+                        find_one_var_and_fieldname(var_context, expr)
                     {
                         // JSON operator expression or complex field access
                         let (heaprelid, attno, _) = find_var_relation(var, args.root);
@@ -109,7 +111,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                         }
                         (field_name.to_string(), attno)
                     } else if let Some(ff) = find_matching_fast_field(
-                        expr as *mut pg_sys::Node,
+                        expr,
                         &index_expressions,
                         schema.clone(),
                         _heap_rti,
@@ -133,6 +135,27 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                             .into());
                         }
                         if search_field.is_fast() {
+                            let categorized_fields = schema.categorized_fields();
+                            let is_array = categorized_fields
+                                .iter()
+                                .find(|(sf, _)| sf.field_name().as_ref() == field_name)
+                                .map(|(_, data)| data.is_array)
+                                .unwrap_or(false);
+
+                            if is_array && !is_unnest {
+                                return Err(format!(
+                                    "grouping field {} is an array, which requires UNNEST() to be used in GROUP BY",
+                                    field_name
+                                )
+                                .into());
+                            } else if !is_array && is_unnest {
+                                return Err(format!(
+                                    "grouping field {} is not an array, but UNNEST() was used in GROUP BY",
+                                    field_name
+                                )
+                                .into());
+                            }
+
                             grouping_columns.push(GroupingColumn { field_name, attno });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey

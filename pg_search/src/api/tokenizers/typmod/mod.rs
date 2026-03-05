@@ -233,6 +233,7 @@ impl Property {
                 let lcase = stemmer.to_lowercase();
                 match lcase.as_str() {
                     "arabic" => Ok(Language::Arabic),
+                    "czech" => Ok(Language::Czech),
                     "danish" => Ok(Language::Danish),
                     "dutch" => Ok(Language::Dutch),
                     "english" => Ok(Language::English),
@@ -268,6 +269,7 @@ impl Property {
                         let lcase = s.trim().to_lowercase();
                         match lcase.as_str() {
                             "arabic" => Ok(Language::Arabic),
+                            "czech" => Ok(Language::Czech),
                             "danish" => Ok(Language::Danish),
                             "dutch" => Ok(Language::Dutch),
                             "english" => Ok(Language::English),
@@ -360,6 +362,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                     let lcase = stemmer.to_lowercase();
                     match lcase.as_str() {
                         "arabic" => Language::Arabic,
+                        "czech" => Language::Czech,
                         "danish" => Language::Danish,
                         "dutch" => Language::Dutch,
                         "english" => Language::English,

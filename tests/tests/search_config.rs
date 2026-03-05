@@ -36,6 +36,15 @@ static MOCK_LANGUAGES: &[(Language, &str, &str, &str, &str)] = &[
         "هنا",
     ),
     (
+        Language::Czech,
+        "('Jan Novák', 'Starý Most', 'Krátká zpráva o městě.'),
+        ('Eva Svobodová', 'Novinka o Technologii', 'Podrobnosti o nové platformě.'),
+        ('Petr Dvořák', 'Kulturní Akce', 'Projekt funguje během víkendu.')",
+        "jan",
+        "novink",
+        "funguj",
+    ),
+    (
         Language::Danish,
         "('Mette Hansen', 'Ny Bogudgivelse', 'Spændende ny bog udgivet af anerkendt forfatter.'),
         ('Lars Jensen', 'Teknologikonference Højdepunkter', 'Højdepunkter fra den seneste teknologikonference.'),

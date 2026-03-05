@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772747494170,
+  "lastUpdate": 1772748262003,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34234,6 +34234,54 @@ window.BENCHMARK_DATA = {
             "value": 528.3028283163329,
             "unit": "median tps",
             "extra": "avg tps: 493.05929030201753, max tps: 718.9406457514228, count: 107792"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "13d3222c19e1383392c4faa80e83b6e67cdb77d3",
+          "message": "chore: Upgrade to `0.21.13` (#4299)\n\n## What\nUpgrade pg_search to 0.21.13.\n\n## Why\nNew patch release with performance improvements.\n\n## How\n- Bump workspace version to 0.21.13\n- Add changelog for 0.21.13\n- Update docs download URLs, upgrade instructions, and version\nreferences\n- Add SQL upgrade script from 0.21.12 to 0.21.13\n- Rename bridge SQL file to maintain upgrade path to 0.22.0\n- Update nix derivation comment\n\n## Tests\nN/A — version bump only.",
+          "timestamp": "2026-03-05T12:49:27-08:00",
+          "tree_id": "1e87cd245f3f3323cbbc912358ff59d658c86844",
+          "url": "https://github.com/paradedb/paradedb/commit/13d3222c19e1383392c4faa80e83b6e67cdb77d3"
+        },
+        "date": 1772748256685,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 572.5260962724661,
+            "unit": "median tps",
+            "extra": "avg tps: 576.2598708905382, max tps: 706.4896540725466, count: 53911"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 639.7671183493876,
+            "unit": "median tps",
+            "extra": "avg tps: 647.1659148699098, max tps: 876.8874895751403, count: 53911"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 92.99140530696036,
+            "unit": "median tps",
+            "extra": "avg tps: 92.99870430547904, max tps: 98.30713386632593, count: 53911"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 560.8448322958889,
+            "unit": "median tps",
+            "extra": "avg tps: 503.31125633845187, max tps: 733.1606524936252, count: 107822"
           }
         ]
       }

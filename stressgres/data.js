@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772670839221,
+  "lastUpdate": 1772670845703,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10044,6 +10044,138 @@ window.BENCHMARK_DATA = {
             "value": 54.46484375,
             "unit": "median mem",
             "extra": "avg mem: 53.40732994942065, max mem: 66.09765625, count: 54889"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5074237ade12b15d389074b4ddfd0cabc6b35d4b",
+          "message": "chore: Upgrade to `0.21.12` (#4289)\n\n## What\nUpgrade pg_search to 0.21.12.\n\n## Why\nNew patch release with performance improvements.\n\n## How\n- Bump workspace version to 0.21.12\n- Add changelog for 0.21.12\n- Update docs download URLs, upgrade instructions, and version\nreferences\n- Add SQL upgrade script from 0.21.11 to 0.21.12\n- Rename bridge SQL file to maintain upgrade path to 0.22.0\n- Update nix derivation comment\n\n## Tests\nN/A — version bump only.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-03-04T16:11:56-08:00",
+          "tree_id": "b967a91cff71dfe0f5590cda6345dc0d3b630ba7",
+          "url": "https://github.com/paradedb/paradedb/commit/5074237ade12b15d389074b4ddfd0cabc6b35d4b"
+        },
+        "date": 1772670840796,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.234548489939336, max cpu: 27.77242, count: 55176"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 62.736328125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.70426071231151, max mem: 74.484375, count: 55176"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.669877435874051, max cpu: 9.448819, count: 55176"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 34.67795171927106, max mem: 35.7890625, count: 55176"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.599841565642886, max cpu: 9.221902, count: 55176"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.74641728854031, max mem: 72.89453125, count: 55176"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.619522474735936, max cpu: 9.311348, count: 110352"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.03483352561576, max mem: 69.95703125, count: 110352"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.561365459986168, max cpu: 14.215202, count: 55176"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 61.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.83927546906717, max mem: 73.609375, count: 55176"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1780,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1793.4833260838045, max block_count: 3230.0, count: 55176"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 16,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 16.619834710743802, max segment_count: 30.0, count: 55176"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.519608700266253, max cpu: 18.897638, count: 55176"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 61.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 61.71344120688796, max mem: 73.484375, count: 55176"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5563832094611865, max cpu: 4.7524753, count: 55176"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.43516202696825, max mem: 62.515625, count: 55176"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.871913601082201, max cpu: 4.6376815, count: 55176"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.116088743294185, max mem: 66.296875, count: 55176"
           }
         ]
       }

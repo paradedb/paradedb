@@ -281,7 +281,15 @@ impl ExecutionPlan for TantivyLookupExec {
         child_pushdown_result: ChildPushdownResult,
         _config: &datafusion::common::config::ConfigOptions,
     ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
-        Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+        let mut result = FilterPushdownPropagation::if_all(child_pushdown_result);
+        if let Some(updated_child) = result.updated_node.take() {
+            result.updated_node = Some(Arc::new(TantivyLookupExec::new(
+                updated_child,
+                self.deferred_fields.clone(),
+                self.ffhelpers.clone(),
+            )?) as Arc<dyn ExecutionPlan>);
+        }
+        Ok(result)
     }
 }
 

@@ -31,7 +31,6 @@ use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 
-use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 
 /// A DataFusion physical optimizer rule that replaces `HashJoinExec` with `SortMergeJoinExec`
 /// when the inputs are already sorted by the join keys.
@@ -166,9 +165,7 @@ impl SortMergeJoinEnforcer {
                         null_equality,
                     )?;
 
-                    // TODO: See https://github.com/apache/datafusion/pull/20455
-                    let exec = Arc::new(FilterPassthroughExec::new(Arc::new(exec)))
-                        as Arc<dyn ExecutionPlan>;
+                    let exec = Arc::new(exec) as Arc<dyn ExecutionPlan>;
 
                     // HashJoinExec might have an internal projection (pruning columns).
                     // SortMergeJoinExec outputs all columns from both sides.

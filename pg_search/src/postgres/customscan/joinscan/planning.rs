@@ -302,9 +302,6 @@ unsafe fn collect_join_sources_base_rel(
             continue;
         };
 
-        // Remap inner RTIs to avoid collisions with outer query RTIs.
-        // SubPlan inner queries have locally-scoped RTIs starting from 1,
-        // which can collide with the outer query's RTIs.
         let inner_rti_count = (*inner_root).simple_rel_array_size as pg_sys::Index;
         inner_node.remap_rtis(rti_offset_base);
 

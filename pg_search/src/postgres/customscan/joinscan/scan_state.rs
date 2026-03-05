@@ -532,7 +532,7 @@ fn build_clause_df<'a>(
                 final_cols.push(expr.alias(col_alias));
             }
 
-            // ALWAYS carry forward all CTID columns from both sides.
+            // ALWAYS carry forward all CTID columns from both sides
             let mut base_relations = Vec::new();
             join_clause.collect_base_relations(&mut base_relations);
             for base in base_relations {
@@ -606,7 +606,7 @@ fn build_source_df<'a>(
         // Use the unique execution alias as the registration name to avoid
         // collisions when the same table appears multiple times (e.g. contact_list
         // in both IN and NOT IN subqueries).
-        let reg_name = source.scan_info.execution_alias(source_idx);
+        let alias = source.scan_info.execution_alias(source_idx);
         let fields: Vec<WhichFastField> = source
             .scan_info
             .fields
@@ -637,9 +637,9 @@ fn build_source_df<'a>(
         provider.try_enable_late_materialization(&required_early);
 
         let provider = Arc::new(provider);
-        ctx.register_table(&reg_name, provider)?;
+        ctx.register_table(&alias, provider)?;
 
-        let mut df = ctx.table(&reg_name).await?;
+        let mut df = ctx.table(&alias).await?;
 
         // Select fields and ensure CTID is aliased uniquely.
         let mut exprs = Vec::new();
@@ -648,10 +648,10 @@ fn build_source_df<'a>(
             let expr = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
                     let alias = format!("ctid_{}", scan_info.heap_rti);
-                    make_col(&reg_name, name).alias(&alias)
+                    make_col(&alias, name).alias(&alias)
                 }
-                Some(WhichFastField::Score) => make_col(&reg_name, name).alias(SCORE_COL_NAME),
-                _ => make_col(&reg_name, name),
+                Some(WhichFastField::Score) => make_col(&alias, name).alias(SCORE_COL_NAME),
+                _ => make_col(&alias, name),
             };
             exprs.push(expr);
         }

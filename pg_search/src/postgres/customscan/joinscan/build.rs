@@ -484,9 +484,9 @@ impl RelNode {
         }
     }
 
-    /// Remaps all RTIs in this subtree by applying the given offset.
-    /// Used to avoid RTI collisions when SubPlan inner queries have locally-scoped
-    /// RTIs that may collide with the outer query's RTIs.
+    /// Remaps all RTIs in the JoinScan intermediate representation by applying the given offset.
+    /// This is necessary to avoid collisions, for example when a subplan has locally-scoped RTIs
+    /// that may collide with the outer query's RTIs.
     pub fn remap_rtis(&mut self, offset: pg_sys::Index) {
         match self {
             RelNode::Scan(s) => {

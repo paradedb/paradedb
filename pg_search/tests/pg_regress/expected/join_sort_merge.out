@@ -1,55 +1,10 @@
 -- Test for the JoinScan Custom Scan planning
--- This test verifies that the join custom scan is proposed when:
--- 1. Query has a LIMIT clause
--- 2. At least one side has a BM25 index with a @@@ predicate
+-- SortMergeJoin mechanics, sorting by join keys, TopK dynamic filters.
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 -- Load the pg_search extension
 CREATE EXTENSION IF NOT EXISTS pg_search;
--- =============================================================================
--- SETUP
--- =============================================================================
-DROP TABLE IF EXISTS products CASCADE;
-DROP TABLE IF EXISTS suppliers CASCADE;
--- Create test tables
--- Using explicit IDs in distinct ranges to differentiate from ctids:
--- Suppliers: IDs 151-154
--- Products: IDs 201-208
-CREATE TABLE products (
-    id INTEGER PRIMARY KEY,
-    name TEXT,
-    description TEXT,
-    supplier_id INTEGER,
-    price DECIMAL(10,2)
-);
-CREATE TABLE suppliers (
-    id INTEGER PRIMARY KEY,
-    name TEXT,
-    contact_info TEXT,
-    country TEXT
-);
--- Insert test data with explicit IDs
-INSERT INTO suppliers (id, name, contact_info, country) VALUES
-(151, 'TechCorp', 'contact@techcorp.com wireless technology', 'USA'),
-(152, 'GlobalSupply', 'info@globalsupply.com international shipping', 'UK'),
-(153, 'FastParts', 'sales@fastparts.com quick delivery', 'Germany'),
-(154, 'QualityFirst', 'quality@first.com premium products', 'Japan');
-INSERT INTO products (id, name, description, supplier_id, price) VALUES
-(201, 'Wireless Mouse', 'Ergonomic wireless mouse with Bluetooth connectivity', 151, 29.99),
-(202, 'USB Cable', 'High-speed USB-C cable for fast data transfer', 152, 9.99),
-(203, 'Keyboard', 'Mechanical keyboard with RGB lighting', 151, 89.99),
-(204, 'Monitor Stand', 'Adjustable monitor stand for ergonomic setup', 153, 49.99),
-(205, 'Webcam', 'HD webcam for video conferencing', 154, 59.99),
-(206, 'Headphones', 'Wireless noise-canceling headphones with premium sound', 151, 199.99),
-(207, 'Mouse Pad', 'Large gaming mouse pad with wireless charging', 152, 39.69),
-(208, 'Cable Organizer', 'Desktop cable organizer for clean setup', 153, 14.99);
--- Create BM25 indexes on both tables
--- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, price)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
-CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country)
-WITH (key_field = 'id');
 -- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
@@ -776,56 +731,17 @@ LIMIT 15;
 -- CLEANUP
 -- =============================================================================
 RESET paradedb.dynamic_filter_batch_size;
-DROP TABLE IF EXISTS products CASCADE;
-DROP TABLE IF EXISTS level1 CASCADE;
-DROP TABLE IF EXISTS level2 CASCADE;
-DROP TABLE IF EXISTS level3 CASCADE;
-DROP TABLE IF EXISTS level4 CASCADE;
-DROP TABLE IF EXISTS suppliers CASCADE;
-DROP TABLE IF EXISTS categories CASCADE;
-DROP TABLE IF EXISTS orders CASCADE;
-DROP TABLE IF EXISTS customers CASCADE;
-DROP TABLE IF EXISTS inventory CASCADE;
-DROP TABLE IF EXISTS warehouses CASCADE;
-DROP TABLE IF EXISTS items CASCADE;
-DROP TABLE IF EXISTS item_types CASCADE;
-DROP TABLE IF EXISTS large_orders CASCADE;
-DROP TABLE IF EXISTS large_suppliers CASCADE;
-DROP TABLE IF EXISTS docs CASCADE;
-DROP TABLE IF EXISTS authors CASCADE;
-DROP TABLE IF EXISTS items_with_nulls CASCADE;
-DROP TABLE IF EXISTS categories_with_nulls CASCADE;
-DROP TABLE IF EXISTS colors CASCADE;
-DROP TABLE IF EXISTS sizes CASCADE;
-DROP TABLE IF EXISTS order_items CASCADE;
-DROP TABLE IF EXISTS order_details CASCADE;
-DROP TABLE IF EXISTS mem_test_products CASCADE;
-DROP TABLE IF EXISTS mem_test_suppliers CASCADE;
-DROP TABLE IF EXISTS uuid_orders CASCADE;
-DROP TABLE IF EXISTS uuid_customers CASCADE;
-DROP TABLE IF EXISTS numeric_transactions CASCADE;
-DROP TABLE IF EXISTS numeric_accounts CASCADE;
-DROP TABLE IF EXISTS large_items CASCADE;
-DROP TABLE IF EXISTS large_categories CASCADE;
-DROP TABLE IF EXISTS update_test_items CASCADE;
-DROP TABLE IF EXISTS update_test_refs CASCADE;
-DROP TABLE IF EXISTS qgen_products CASCADE;
-DROP TABLE IF EXISTS qgen_users CASCADE;
-DROP TABLE IF EXISTS tiny_products CASCADE;
-DROP TABLE IF EXISTS tiny_refs CASCADE;
-DROP TABLE IF EXISTS hint_test_products CASCADE;
-DROP TABLE IF EXISTS hint_test_categories CASCADE;
 DROP TABLE IF EXISTS sorted_t1 CASCADE;
 DROP TABLE IF EXISTS sorted_t2 CASCADE;
-DROP TABLE IF EXISTS dyn_filter_t1 CASCADE;
-DROP TABLE IF EXISTS dyn_filter_t2 CASCADE;
-DROP TABLE IF EXISTS null_val_t1 CASCADE;
-DROP TABLE IF EXISTS null_val_t2 CASCADE;
 DROP TABLE IF EXISTS multi_seg_1 CASCADE;
 DROP TABLE IF EXISTS multi_seg_2 CASCADE;
 DROP TABLE IF EXISTS recursive_smj_1 CASCADE;
 DROP TABLE IF EXISTS recursive_smj_2 CASCADE;
 DROP TABLE IF EXISTS recursive_smj_3 CASCADE;
+DROP TABLE IF EXISTS dyn_filter_t1 CASCADE;
+DROP TABLE IF EXISTS dyn_filter_t2 CASCADE;
+DROP TABLE IF EXISTS null_val_t1 CASCADE;
+DROP TABLE IF EXISTS null_val_t2 CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_join_custom_scan;

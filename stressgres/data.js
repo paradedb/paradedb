@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772746439059,
+  "lastUpdate": 1772746446010,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42920,6 +42920,186 @@ window.BENCHMARK_DATA = {
             "value": 32.69921875,
             "unit": "median mem",
             "extra": "avg mem: 32.043010402951374, max mem: 33.109375, count: 53924"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed668b8e30f2e8c556dd91774914f77489aab04f",
+          "message": "perf: 45X speedup on term bucket queries with high bucket counts (#4292)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nRemoved overhead from Tantivy\nhttps://github.com/paradedb/tantivy/pull/110\n\nRepro: \n\n```sql\n  DROP TABLE IF EXISTS bench_agg CASCADE;                                                                                                  \n                                                                                                                                           \n  CREATE TABLE bench_agg (                                        \n      id SERIAL PRIMARY KEY,\n      category TEXT NOT NULL,\n      subcategory TEXT NOT NULL\n  );\n\n  INSERT INTO bench_agg (category, subcategory)\n  SELECT\n      'cat_' || (i % 5000),\n      'sub_' || (i % 3)\n  FROM generate_series(1, 25000000) AS i;\n\n\n  SET max_parallel_maintenance_workers = 8;\n  SET maintenance_work_mem = '1GB';\n\n  CREATE INDEX bench_agg_idx ON bench_agg USING bm25 (id, (category::pdb.literal), (subcategory::pdb.literal))\n  WITH (key_field = 'id');\n\n  set paradedb.enable_aggregate_custom_scan to on;\n  set work_mem = '1GB';\n```\n\nBEFORE\n\n```sql\nexplain analyze SELECT category, subcategory, COUNT(*) FROM bench_agg WHERE id @@@ pdb.all() GROUP BY category, subcategory ORDER BY category LIMIT 500;\n                                                                                                         QUERY PLAN                                                                                                         \n----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Limit  (cost=0.00..0.00 rows=1 width=22) (actual time=45395.321..45395.592 rows=500.00 loops=1)\n   Buffers: shared hit=9205 read=4956\n   ->  Custom Scan (ParadeDB Aggregate Scan) on bench_agg  (cost=0.00..0.00 rows=0 width=22) (actual time=45395.319..45395.572 rows=500.00 loops=1)\n         Index: bench_agg_idx\n         Tantivy Query: {\"with_index\":{\"query\":\"all\"}}\n           Applies to Aggregates: COUNT(*)\n           Group By: category, subcategory\n           Limit: 500\n           Aggregate Definition: {\"grouped\":{\"aggs\":{\"grouped\":{\"terms\":{\"field\":\"subcategory\",\"segment_size\":65000,\"size\":65000}}},\"terms\":{\"field\":\"category\",\"order\":{\"_key\":\"asc\"},\"segment_size\":65000,\"size\":65000}}}\n         Buffers: shared hit=9205 read=4956\n Planning:\n   Buffers: shared hit=215 read=26\n Planning Time: 12.819 ms\n Execution Time: 45397.752 ms\n(14 rows)\n```\n\nAFTER\n\n```sql\nexplain analyze SELECT category, subcategory, COUNT(*) FROM bench_agg WHERE id @@@ paradedb.all() GROUP BY category, subcategory ORDER BY category LIMIT 500;\n                                                                                                         QUERY PLAN                                                                                                         \n----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Limit  (cost=0.00..0.00 rows=1 width=72) (actual time=1173.952..1174.215 rows=500.00 loops=1)\n   Buffers: shared hit=102816\n   ->  Custom Scan (ParadeDB Aggregate Scan) on bench_agg  (cost=0.00..0.00 rows=0 width=72) (actual time=1173.950..1174.194 rows=500.00 loops=1)\n         Index: bench_agg_idx\n         Tantivy Query: {\"with_index\":{\"query\":\"all\"}}\n           Applies to Aggregates: COUNT(*)\n           Group By: category, subcategory\n           Limit: 500\n           Aggregate Definition: {\"grouped\":{\"aggs\":{\"grouped\":{\"terms\":{\"field\":\"subcategory\",\"segment_size\":65000,\"size\":65000}}},\"terms\":{\"field\":\"category\",\"order\":{\"_key\":\"asc\"},\"segment_size\":65000,\"size\":65000}}}\n         Buffers: shared hit=102816\n Planning:\n   Buffers: shared hit=75\n Planning Time: 1.395 ms\n Execution Time: 1176.687 ms\n(14 rows)\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-03-05T12:19:39-08:00",
+          "tree_id": "29dd78b11c5ac0229e20f5033e54e41ae52050b8",
+          "url": "https://github.com/paradedb/paradedb/commit/ed668b8e30f2e8c556dd91774914f77489aab04f"
+        },
+        "date": 1772746440761,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.963839096652006, max cpu: 9.448819, count: 53896"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 50.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.554292279923374, max mem: 56.5078125, count: 53896"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.2209190773488015, max cpu: 4.6021094, count: 53896"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 31.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 30.771383921116595, max mem: 31.84375, count: 53896"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.134158,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.883443291911041, max cpu: 18.461538, count: 53896"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 54.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.7826417139027, max mem: 60.02734375, count: 53896"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.967279993408285, max cpu: 9.284333, count: 53896"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 50.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.15223329421478, max mem: 56.08203125, count: 53896"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.632205725980467, max cpu: 9.204219, count: 53896"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.45036092370027, max mem: 38.63671875, count: 53896"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1128,
+            "unit": "median pages",
+            "extra": "avg pages: 1119.666802731186, max pages: 1859.0, count: 53896"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.8125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.747397331202686, max relation_size:MB: 14.5234375, count: 53896"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.780466082826184, max segment_count: 21.0, count: 53896"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.052714583309615, max cpu: 4.58891, count: 53896"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.542782700130807, max mem: 29.65625, count: 53896"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.982017883829775, max cpu: 4.5933013, count: 53896"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.564316794729663, max mem: 29.58984375, count: 53896"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.521354989485647, max cpu: 23.032629, count: 53896"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 48.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.51544039968179, max mem: 54.48828125, count: 53896"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000030401076126721486, max replication_lag:MB: 0.31922149658203125, count: 53896"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.149890102897594, max cpu: 13.832853, count: 107792"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 49.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.24350988912674, max mem: 55.3203125, count: 107792"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.316382573983771, max cpu: 9.169055, count: 53896"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.46271464951017, max mem: 32.50390625, count: 53896"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.510468059944359, max cpu: 4.624277, count: 53896"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 32.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.44664260798575, max mem: 32.26171875, count: 53896"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772672420461,
+  "lastUpdate": 1772673162494,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25112,6 +25112,60 @@ window.BENCHMARK_DATA = {
             "value": 17.56328666852644,
             "unit": "median tps",
             "extra": "avg tps: 17.40638865459042, max tps: 20.995227092039485, count: 55475"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5074237ade12b15d389074b4ddfd0cabc6b35d4b",
+          "message": "chore: Upgrade to `0.21.12` (#4289)\n\n## What\nUpgrade pg_search to 0.21.12.\n\n## Why\nNew patch release with performance improvements.\n\n## How\n- Bump workspace version to 0.21.12\n- Add changelog for 0.21.12\n- Update docs download URLs, upgrade instructions, and version\nreferences\n- Add SQL upgrade script from 0.21.11 to 0.21.12\n- Rename bridge SQL file to maintain upgrade path to 0.22.0\n- Update nix derivation comment\n\n## Tests\nN/A — version bump only.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-03-04T16:11:56-08:00",
+          "tree_id": "b967a91cff71dfe0f5590cda6345dc0d3b630ba7",
+          "url": "https://github.com/paradedb/paradedb/commit/5074237ade12b15d389074b4ddfd0cabc6b35d4b"
+        },
+        "date": 1772673156923,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.442767905816964,
+            "unit": "median tps",
+            "extra": "avg tps: 31.207525464529887, max tps: 33.37230064941235, count: 55524"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.22245527329898,
+            "unit": "median tps",
+            "extra": "avg tps: 270.86113214544116, max tps: 2800.8583430453573, count: 55524"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 685.8937574132394,
+            "unit": "median tps",
+            "extra": "avg tps: 673.5248457153334, max tps: 1209.8255869029651, count: 55524"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 164.45129527769575,
+            "unit": "median tps",
+            "extra": "avg tps: 184.28236967407776, max tps: 1337.7517404953542, count: 111048"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.497456087962984,
+            "unit": "median tps",
+            "extra": "avg tps: 16.45707487917925, max tps: 21.290981653284327, count: 55524"
           }
         ]
       }

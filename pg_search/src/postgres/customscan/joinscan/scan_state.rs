@@ -533,17 +533,12 @@ fn build_clause_df<'a>(
             }
 
             // ALWAYS carry forward all CTID columns from both sides.
-            // Deduplicate by ctid name because SubPlan extraction can produce
-            // sources with locally-scoped RTIs that collide with outer RTIs.
-            let mut seen_ctids = crate::api::HashSet::<String>::default();
             let mut base_relations = Vec::new();
             join_clause.collect_base_relations(&mut base_relations);
             for base in base_relations {
                 let rti = base.heap_rti;
                 let ctid_name = format!("ctid_{}", rti);
-                if df.schema().field_with_unqualified_name(&ctid_name).is_ok()
-                    && seen_ctids.insert(ctid_name.clone())
-                {
+                if df.schema().field_with_unqualified_name(&ctid_name).is_ok() {
                     final_cols.push(col(&ctid_name));
                 }
             }

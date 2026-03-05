@@ -367,15 +367,17 @@ impl CustomScan for JoinScan {
                 return Vec::new();
             }
 
-            // TODO(join-types): Currently INNER, SEMI, ANTI, RIGHTSEMI, UNIQUEINNER, and
-            // UNIQUEOUTER joins are supported. Future work should add:
+            // TODO(join-types): Currently INNER, SEMI, ANTI, UNIQUEOUTER, and
+            // UNIQUEINNER joins are supported. Future work should add:
             // - LEFT JOIN: Return NULL for non-matching non-ordering rows; track matched ordering rows
             // - RIGHT JOIN: Swap ordering/non-ordering sides, then use LEFT logic
             // - FULL OUTER JOIN: Track unmatched rows on both sides; two-pass or marking approach
+            // - RIGHT SEMI: Requires right-side partitioning (current strategy partitions left)
             //
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
-            // The current "Partition Outer / Replicate Inner" strategy is incorrect for Right/Full joins.
+            // The current "Partition Outer / Replicate Inner" strategy is incorrect for
+            // Right/Full/RightSemi joins.
 
             // JoinScan requires a LIMIT clause. This restriction exists because we gain a
             // significant benefit from using the column store when it enables late-materialization
@@ -518,26 +520,16 @@ impl CustomScan for JoinScan {
             let current_sources = join_clause.plan.sources();
 
             // The current parallel strategy partitions exactly one source and replicates all
-            // others. For SEMI/ANTI/RIGHTSEMI JOIN correctness, the partitioned source must be
-            // the left side. We currently enforce a conservative subset: binary base-table joins only.
-            let is_semi_like = {
-                #[cfg(feature = "pg18")]
-                {
-                    matches!(
-                        jointype,
-                        pg_sys::JoinType::JOIN_SEMI
-                            | pg_sys::JoinType::JOIN_ANTI
-                            | pg_sys::JoinType::JOIN_RIGHT_SEMI
-                    )
-                }
-                #[cfg(not(feature = "pg18"))]
-                {
-                    matches!(
-                        jointype,
-                        pg_sys::JoinType::JOIN_SEMI | pg_sys::JoinType::JOIN_ANTI
-                    )
-                }
-            };
+            // others. For SEMI/ANTI JOIN correctness, the partitioned source must be the left
+            // side. UNIQUE_OUTER/INNER are mapped to LeftSemi at execution time, so they have
+            // the same constraint. We currently enforce binary base-table joins only.
+            let is_semi_like = matches!(
+                jointype,
+                pg_sys::JoinType::JOIN_SEMI
+                    | pg_sys::JoinType::JOIN_ANTI
+                    | pg_sys::JoinType::JOIN_UNIQUE_OUTER
+                    | pg_sys::JoinType::JOIN_UNIQUE_INNER
+            );
             if is_semi_like {
                 if current_sources.len() > 2 {
                     if is_interesting {

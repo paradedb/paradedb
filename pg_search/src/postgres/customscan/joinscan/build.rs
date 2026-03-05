@@ -463,7 +463,6 @@ impl RelNode {
                     JoinType::Inner
                         | JoinType::Semi
                         | JoinType::Anti
-                        | JoinType::RightSemi
                         | JoinType::UniqueOuter
                         | JoinType::UniqueInner
                 ) {

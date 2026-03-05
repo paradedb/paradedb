@@ -37,8 +37,10 @@
 //! This strategy is **ONLY CORRECT** for:
 //! 1.  **Inner Joins**: `JOIN_INNER`
 //! 2.  **Left Outer Joins** (where the Left/Outer table is partitioned)
-//! 3.  **Semi Joins** (where the Left table is partitioned)
-//! 4.  **Anti Joins** (where the Left table is partitioned)
+//! 3.  **Semi Joins** (where the Left table is partitioned): `JOIN_SEMI`
+//! 4.  **Anti Joins** (where the Left table is partitioned): `JOIN_ANTI`
+//! 5.  **UniqueOuter/UniqueInner** (mapped to LeftSemi, same constraint as Semi):
+//!     `JOIN_UNIQUE_OUTER`, `JOIN_UNIQUE_INNER`
 //!
 //! It is **INCORRECT** and will produce duplicate or wrong results for:
 //! 1.  **Right Outer Joins**: Unmatched rows from the replicated Right table would be emitted
@@ -330,7 +332,11 @@ fn build_relnode_df<'a>(
                     }
                     crate::postgres::customscan::joinscan::build::JoinType::UniqueOuter
                     | crate::postgres::customscan::joinscan::build::JoinType::UniqueInner => {
-                        JoinType::Inner
+                        // PostgreSQL uses JOIN_UNIQUE_OUTER/INNER for IN (subquery) when it
+                        // plans to deduplicate one side and then inner-join. The correct
+                        // semantics for JoinScan is LeftSemi, which naturally deduplicates
+                        // the left side (each left row appears at most once if matched).
+                        JoinType::LeftSemi
                     }
                 };
 
@@ -606,7 +612,7 @@ fn build_source_df<'a>(
         // Use the unique execution alias as the registration name to avoid
         // collisions when the same table appears multiple times (e.g. contact_list
         // in both IN and NOT IN subqueries).
-        let alias = source.scan_info.execution_alias(source_idx);
+        let reg_name = source.scan_info.execution_alias(source_idx);
         let fields: Vec<WhichFastField> = source
             .scan_info
             .fields
@@ -637,9 +643,9 @@ fn build_source_df<'a>(
         provider.try_enable_late_materialization(&required_early);
 
         let provider = Arc::new(provider);
-        ctx.register_table(&alias, provider)?;
+        ctx.register_table(&reg_name, provider)?;
 
-        let mut df = ctx.table(&alias).await?;
+        let mut df = ctx.table(&reg_name).await?;
 
         // Select fields and ensure CTID is aliased uniquely.
         let mut exprs = Vec::new();
@@ -648,10 +654,10 @@ fn build_source_df<'a>(
             let expr = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
                     let alias = format!("ctid_{}", scan_info.heap_rti);
-                    make_col(&alias, name).alias(&alias)
+                    make_col(&reg_name, name).alias(&alias)
                 }
-                Some(WhichFastField::Score) => make_col(&alias, name).alias(SCORE_COL_NAME),
-                _ => make_col(&alias, name),
+                Some(WhichFastField::Score) => make_col(&reg_name, name).alias(SCORE_COL_NAME),
+                _ => make_col(&reg_name, name),
             };
             exprs.push(expr);
         }

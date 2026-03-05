@@ -129,4 +129,13 @@ impl ScanInfo {
     pub fn is_sorted(&self) -> bool {
         self.sort_order.is_some()
     }
+
+    /// Returns a unique execution alias by combining the table alias (if any)
+    /// with the source index.
+    pub fn execution_alias(&self, index: usize) -> String {
+        match &self.alias {
+            Some(alias) => format!("{}_{}", alias, index),
+            None => format!("source_{}", index),
+        }
+    }
 }

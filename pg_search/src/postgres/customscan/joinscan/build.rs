@@ -284,10 +284,7 @@ impl JoinSource {
     /// Always incorporates the source index to guarantee uniqueness when the
     /// same table appears multiple times in a query.
     pub fn execution_alias(&self, index: usize) -> String {
-        match &self.scan_info.alias {
-            Some(alias) => format!("{}_{}", alias, index),
-            None => format!("source_{}", index),
-        }
+        self.scan_info.execution_alias(index)
     }
 
     /// Check if this source contains the given RTI.

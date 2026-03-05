@@ -51,7 +51,7 @@ WITH (key_field = 'id');
 -- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
--- TEST 10: Multi-table joins (3 tables) - includes UPDATE that moves product ctids
+-- TEST 1: Multi-table joins (3 tables) - includes UPDATE that moves product ctids
 -- =============================================================================
 -- Create a third table for multi-table join testing
 -- Categories: IDs 301-303
@@ -135,7 +135,7 @@ WARNING:  JoinScan not used: join key columns must be fast fields (table: c)
 (3 rows)
 
 -- =============================================================================
--- TEST 11: OR across tables (without LIMIT) - AFTER UPDATE moved product ctids
+-- TEST 2: OR across tables (without LIMIT) - AFTER UPDATE moved product ctids
 -- =============================================================================
 -- NOTE: Products were just UPDATED above (category_id added), so their ctids
 -- have moved from (0,1)-(0,8) to new locations (0,9)-(0,16).
@@ -175,9 +175,9 @@ ORDER BY p.id;
 (4 rows)
 
 -- =============================================================================
--- TEST 12: OR across tables WITH LIMIT - AFTER UPDATE moved product ctids
+-- TEST 3: OR across tables WITH LIMIT - AFTER UPDATE moved product ctids
 -- =============================================================================
--- Same as TEST 9 but with LIMIT - uses JoinScan.
+-- OR across tables WITH LIMIT - uses JoinScan.
 -- JoinScan's ctid-based matching for join-level predicates may fail here
 -- because the indexed ctids don't match the current heap ctids.
 -- EXPECTED: 4 rows (products 201, 203, 206, 207 match 'wireless' in description,
@@ -227,7 +227,7 @@ LIMIT 10;
 (4 rows)
 
 -- =============================================================================
--- TEST 35A: Multi-table join - Star Schema (3 tables)
+-- TEST 4: Multi-table join - Star Schema (3 tables)
 -- =============================================================================
 -- Setup specific data for these tests
 DROP TABLE IF EXISTS products CASCADE;
@@ -482,7 +482,7 @@ LIMIT 5;
 (3 rows)
 
 -- =============================================================================
--- TEST 35B: Multi-table join - Chain Schema (4 tables)
+-- TEST 5: Multi-table join - Chain Schema (4 tables)
 -- =============================================================================
 DROP TABLE IF EXISTS level1 CASCADE;
 DROP TABLE IF EXISTS level2 CASCADE;
@@ -561,7 +561,7 @@ LIMIT 5;
 (1 row)
 
 -- =============================================================================
--- TEST 35C: Chain Schema - Mixed Predicates
+-- TEST 6: Chain Schema - Mixed Predicates
 -- =============================================================================
 -- Predicates on level1 (outermost) and level4 (innermost)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

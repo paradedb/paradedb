@@ -51,7 +51,7 @@ WITH (key_field = 'id');
 -- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
--- TEST 7: Both sides have search predicates
+-- TEST 1: Both sides have search predicates
 -- =============================================================================
 -- When both sides have @@@ predicates with LIMIT, JoinScan should be proposed
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -96,7 +96,7 @@ LIMIT 10;
 (2 rows)
 
 -- =============================================================================
--- TEST 7B: Both side-level AND join-level predicates combined
+-- TEST 2: Both side-level AND join-level predicates combined
 -- =============================================================================
 -- This test shows a query where both sides have side-level predicates AND
 -- there's a join-level predicate spanning both tables.
@@ -155,7 +155,7 @@ LIMIT 10;
 (2 rows)
 
 -- =============================================================================
--- TEST 8: Aggregate Score pattern - OR across tables (without LIMIT)
+-- TEST 3: Aggregate Score pattern - OR across tables (without LIMIT)
 -- =============================================================================
 -- NOTE: This case should propose JoinScan even WITHOUT LIMIT because
 -- there's a join-level search predicate (OR spanning both relations).
@@ -180,13 +180,13 @@ ORDER BY p.id;
 (4 rows)
 
 -- =============================================================================
--- TEST 9: OR across tables WITH LIMIT
+-- TEST 4: OR across tables WITH LIMIT
 -- =============================================================================
--- Same as TEST 8 but with LIMIT.
+-- Same as TEST 3 but with LIMIT.
 -- JoinScan IS proposed for join-level predicates (OR across tables).
 -- The OR condition means a row passes if EITHER the product description
 -- contains 'wireless' OR the supplier contact_info contains 'wireless'.
--- EXPECTED: 4 rows matching the OR condition (same as TEST 8).
+-- EXPECTED: 4 rows matching the OR condition (same as TEST 3).
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -232,7 +232,7 @@ LIMIT 10;
 (4 rows)
 
 -- =============================================================================
--- TEST 19: Complex join-level predicate with NOT and OR
+-- TEST 5: Complex join-level predicate with NOT and OR
 -- =============================================================================
 -- Complex condition: (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
 -- This tests:
@@ -331,7 +331,7 @@ LIMIT 10;
 (5 rows)
 
 -- =============================================================================
--- TEST 20: Deeply nested boolean expressions
+-- TEST 6: Deeply nested boolean expressions
 -- =============================================================================
 -- Deeply nested: (p_cond1 OR (p_cond2 OR (s_cond AND NOT p_cond3)))
 -- This tests the recursive expression tree building
@@ -477,7 +477,7 @@ LIMIT 10;
 (6 rows)
 
 -- =============================================================================
--- TEST 30: Qgen-style setup - Index before data with NOT operator
+-- TEST 7: Qgen-style setup - Index before data with NOT operator
 -- =============================================================================
 -- This test replicates the qgen test setup which revealed a bug:
 -- 1. Create index BEFORE inserting data (creates multiple segments)
@@ -556,7 +556,7 @@ SELECT
 FROM generate_series(1, 100);
 ANALYZE qgen_users;
 ANALYZE qgen_products;
--- TEST 30A: Simple query without NOT (baseline - should work)
+-- TEST 8: Simple query without NOT (baseline - should work)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -602,7 +602,7 @@ LIMIT 5;
   1 | bob
 (5 rows)
 
--- TEST 30B: Query with NOT operator (this is where the bug occurred)
+-- TEST 9: Query with NOT operator (this is where the bug occurred)
 -- Error was: "could not read blocks 65536..65536: read only 0 of 8192 bytes"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
@@ -648,7 +648,7 @@ LIMIT 5;
   3 | brisket
 (5 rows)
 
--- TEST 30C: OR with predicates spanning both tables
+-- TEST 10: OR with predicates spanning both tables
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -695,7 +695,7 @@ LIMIT 5;
 (5 rows)
 
 -- =============================================================================
--- TEST 33: Multi-table predicates with fast fields
+-- TEST 11: Multi-table predicates with fast fields
 -- =============================================================================
 -- This test demonstrates JoinScan handling multi-table predicates (conditions
 -- that reference columns from both tables) when ALL referenced columns are

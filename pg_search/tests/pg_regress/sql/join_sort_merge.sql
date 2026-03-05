@@ -14,7 +14,7 @@ SET paradedb.enable_join_custom_scan = on;
 
 
 -- =============================================================================
--- TEST 36: Join on sorted keys (Both sides sorted on join key)
+-- TEST 1: Join on sorted keys (Both sides sorted on join key)
 -- =============================================================================
 
 DROP TABLE IF EXISTS sorted_t1 CASCADE;
@@ -56,7 +56,7 @@ ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
 
 -- =============================================================================
--- TEST 36b: OFFSET + LIMIT on sorted join keys
+-- TEST 2: OFFSET + LIMIT on sorted join keys
 -- PostgreSQL's limit_tuples includes the offset (5+10=15), so JoinScan passes
 -- fetch=15 to DataFusion. The EXPLAIN should show SortExec: TopK(fetch=15)
 -- wrapping StripOrderingExec. PostgreSQL's outer Limit applies the offset.
@@ -78,7 +78,7 @@ ORDER BY t1.id ASC NULLS FIRST
 OFFSET 5 LIMIT 10;
 
 -- =============================================================================
--- TEST 37: Multi-segment sorted join
+-- TEST 3: Multi-segment sorted join
 -- =============================================================================
 
 DROP TABLE IF EXISTS multi_seg_1 CASCADE;
@@ -119,7 +119,7 @@ ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
 
 -- =============================================================================
--- TEST 38: Recursive SortMergeJoin (3 tables sorted by t1.id)
+-- TEST 4: Recursive SortMergeJoin (3 tables sorted by t1.id)
 -- =============================================================================
 
 DROP TABLE IF EXISTS recursive_smj_1 CASCADE;
@@ -172,7 +172,7 @@ ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
 
 -- =============================================================================
--- TEST 39: TopK dynamic filter pushdown through SortMergeJoin
+-- TEST 5: TopK dynamic filter pushdown through SortMergeJoin
 -- ORDER BY differs from join key => SortExec(TopK) stays in the plan.
 -- Multiple segments ensure the scan produces multiple batches so TopK can
 -- tighten its threshold between batches and the pre-filter actually prunes.
@@ -229,7 +229,7 @@ ORDER BY t1.val ASC
 LIMIT 10;
 
 -- =============================================================================
--- TEST 39b: TopK dynamic filter does not prune NULLs
+-- TEST 6: TopK dynamic filter does not prune NULLs
 -- TopK emits "col IS NULL OR col < threshold". Rows with NULL in the ORDER BY
 -- column must survive the pre-filter (nulls_pass=true) and be returned when
 -- they belong in the top-K. Without nulls_pass, the pre-filter would
@@ -296,10 +296,10 @@ ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
 
 -- =============================================================================
--- TEST 40: Explicit NULL handling with deferred columns
+-- TEST 7: Explicit NULL handling with deferred columns
 -- =============================================================================
 
--- TEST 40A: ORDER BY val ASC NULLS LAST
+-- TEST 8: ORDER BY val ASC NULLS LAST
 -- NULLs should appear last, so the top 10 should be strictly non-NULL values.
 -- This verifies the dictionary decoder correctly sorts NULL_TERM_ORDINAL to the end.
 EXPLAIN (COSTS OFF, VERBOSE)
@@ -317,7 +317,7 @@ WHERE t1.val @@@ 'val' OR t1.val IS NULL
 ORDER BY t1.val ASC NULLS LAST
 LIMIT 10;
 
--- TEST 40B: WHERE val IS NULL alone (no BM25 predicate)
+-- TEST 9: WHERE val IS NULL alone (no BM25 predicate)
 -- Should fetch exactly the 10 NULL rows. 
 -- Verifies the scanner can yield rows when the only filter is a NULL check.
 EXPLAIN (COSTS OFF, VERBOSE)
@@ -335,7 +335,7 @@ WHERE t1.val IS NULL
 ORDER BY t1.id
 LIMIT 25;
 
--- TEST 40C: Mixed NULL and non-NULL rows in LIMIT results
+-- TEST 10: Mixed NULL and non-NULL rows in LIMIT results
 -- ORDER BY id DESC limits to the boundary where NULLs and non-NULLs meet.
 -- IDs 19991-20000 are NULL, IDs <= 19990 are non-NULL.
 -- A LIMIT 15 should return exactly 10 NULLs and 5 non-NULLs mixed in the same output batch.

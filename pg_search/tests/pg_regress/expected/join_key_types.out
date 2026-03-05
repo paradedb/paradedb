@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
--- TEST 15: TEXT join keys (non-integer)
+-- TEST 1: TEXT join keys (non-integer)
 -- =============================================================================
 -- Create tables with TEXT join keys
 DROP TABLE IF EXISTS orders CASCADE;
@@ -82,7 +82,7 @@ LIMIT 10;
 (3 rows)
 
 -- =============================================================================
--- TEST 16: Composite join keys (multiple columns)
+-- TEST 2: Composite join keys (multiple columns)
 -- =============================================================================
 -- Create tables with composite keys
 DROP TABLE IF EXISTS inventory CASCADE;
@@ -164,7 +164,7 @@ LIMIT 10;
 (3 rows)
 
 -- =============================================================================
--- TEST 17: Join key value of 0 (regression test for magic key collision)
+-- TEST 3: Join key value of 0 (regression test for magic key collision)
 -- =============================================================================
 -- Create tables where join key value 0 is valid
 DROP TABLE IF EXISTS items CASCADE;
@@ -250,7 +250,7 @@ ORDER BY i.id;
 (2 rows)
 
 -- =============================================================================
--- TEST 21: Different join key types - TEXT keys
+-- TEST 4: Different join key types - TEXT keys
 -- =============================================================================
 -- Verify JoinScan works with TEXT join keys, not just INTEGER
 DROP TABLE IF EXISTS docs CASCADE;
@@ -325,7 +325,7 @@ LIMIT 10;
 (2 rows)
 
 -- =============================================================================
--- TEST 22: NULL key handling
+-- TEST 5: NULL key handling
 -- =============================================================================
 -- Verify that NULL join keys are correctly excluded (standard SQL semantics)
 DROP TABLE IF EXISTS items_with_nulls CASCADE;
@@ -403,7 +403,7 @@ LIMIT 10;
 (2 rows)
 
 -- =============================================================================
--- TEST 24: Multi-column composite join keys
+-- TEST 6: Multi-column composite join keys
 -- =============================================================================
 -- Verify JoinScan handles composite (multi-column) join keys
 DROP TABLE IF EXISTS order_items CASCADE;
@@ -482,7 +482,7 @@ LIMIT 10;
 (1 row)
 
 -- =============================================================================
--- TEST 26: UUID join keys
+-- TEST 7: UUID join keys
 -- =============================================================================
 -- Verify JoinScan works with UUID join keys
 DROP TABLE IF EXISTS uuid_orders CASCADE;
@@ -560,7 +560,7 @@ LIMIT 10;
 (2 rows)
 
 -- =============================================================================
--- TEST 27: NUMERIC join keys
+-- TEST 8: NUMERIC join keys
 -- =============================================================================
 -- Verify JoinScan works with NUMERIC (decimal) join keys
 DROP TABLE IF EXISTS numeric_transactions CASCADE;

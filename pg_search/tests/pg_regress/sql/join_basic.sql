@@ -163,7 +163,7 @@ LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
--- TEST 13: Non-equijoin conditions (arbitrary join expressions)
+-- TEST 6: Non-equijoin conditions (arbitrary join expressions)
 -- =============================================================================
 
 -- -- Join with non-equality condition
@@ -182,7 +182,7 @@ ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 14: LIMIT without ORDER BY vs with ORDER BY
+-- TEST 7: LIMIT without ORDER BY vs with ORDER BY
 -- =============================================================================
 
 -- LIMIT without ORDER BY - should still use JoinScan
@@ -218,7 +218,7 @@ ORDER BY p.price DESC
 LIMIT 3;
 
 -- =============================================================================
--- TEST 23: Cross join (no equi-join keys) - JoinScan NOT proposed
+-- TEST 8: Cross join (no equi-join keys) - JoinScan NOT proposed
 -- =============================================================================
 -- Verify JoinScan does NOT handle cross joins (no equi-join conditions).
 -- Cross joins require O(N*M) comparisons and are better handled by PostgreSQL.
@@ -261,7 +261,7 @@ ORDER BY c.id, s.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 34: Mixed-case column names (regression test for quoting issues)
+-- TEST 9: Mixed-case column names (regression test for quoting issues)
 -- =============================================================================
 -- Verify JoinScan handles mixed-case column names correctly in join keys and sort
 DROP TABLE IF EXISTS "MixedCaseTable" CASCADE;

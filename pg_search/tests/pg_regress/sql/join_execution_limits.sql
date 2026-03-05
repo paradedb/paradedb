@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
--- TEST 18: Memory Limit Enforcement (Expect OOM)
+-- TEST 1: Memory Limit Enforcement (Expect OOM)
 -- =============================================================================
 
 -- Save current work_mem and set very small value to trigger OOM
@@ -74,7 +74,7 @@ LIMIT 10;
 RESET work_mem;
 
 -- =============================================================================
--- TEST 25: Memory Limit Enforcement (Expect OOM)
+-- TEST 2: Memory Limit Enforcement (Expect OOM)
 -- =============================================================================
 -- Verify JoinScan handles memory overflow by erroring out (OOM)
 -- Note: This is a functional test to ensure we don't crash when memory is exceeded.
@@ -138,7 +138,7 @@ LIMIT 5;
 RESET work_mem;
 
 -- =============================================================================
--- TEST 28: Large result set (functional, not performance)
+-- TEST 3: Large result set (functional, not performance)
 -- =============================================================================
 -- Verify JoinScan handles larger result sets correctly
 -- This is a functional test, not a benchmark
@@ -197,7 +197,7 @@ ORDER BY li.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 29: Visibility after multiple UPDATEs
+-- TEST 4: Visibility after multiple UPDATEs
 -- =============================================================================
 -- Verify JoinScan handles visibility correctly after multiple UPDATE cycles
 -- Note: True concurrent update testing requires multiple connections,
@@ -273,7 +273,7 @@ ORDER BY i.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 31: Execution hints - small build side (nested loop preference)
+-- TEST 5: Execution hints - small build side (nested loop preference)
 -- =============================================================================
 -- This test verifies that execution hints work for very small joins.
 -- When estimated_build_rows < 10, the planner hints to prefer nested loop
@@ -323,7 +323,7 @@ ORDER BY tp.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 32: Execution hints - verify hash table pre-sizing (functional test)
+-- TEST 6: Execution hints - verify hash table pre-sizing (functional test)
 -- =============================================================================
 -- This test verifies that the execution hints system works with larger datasets.
 -- The planner should estimate build rows and pass hints to the executor.

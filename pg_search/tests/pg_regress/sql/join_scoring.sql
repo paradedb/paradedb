@@ -62,7 +62,7 @@ WITH (key_field = 'id');
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
--- TEST 6: ORDER BY pdb.score() - Single Feature join pattern
+-- TEST 1: ORDER BY pdb.score() - Single Feature join pattern
 -- =============================================================================
 
 -- This is the canonical "Single Feature" join pattern from the TopN spec.
@@ -84,7 +84,7 @@ ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 6B: SELECT paradedb.score() WITHOUT ORDER BY score
+-- TEST 2: SELECT paradedb.score() WITHOUT ORDER BY score
 -- =============================================================================
 
 -- This test verifies that paradedb.score() works correctly in SELECT
@@ -108,7 +108,7 @@ ORDER BY p.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 6C: paradedb.score() from build side (not driving side)
+-- TEST 3: paradedb.score() from build side (not driving side)
 -- =============================================================================
 
 -- This test verifies that paradedb.score() works correctly when it references
@@ -136,7 +136,7 @@ ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 6D: Both driving side AND build side scores in the same query
+-- TEST 4: Both driving side AND build side scores in the same query
 -- =============================================================================
 
 -- This test verifies that we can SELECT paradedb.score() from BOTH sides

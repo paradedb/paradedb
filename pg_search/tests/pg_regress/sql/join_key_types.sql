@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
--- TEST 15: TEXT join keys (non-integer)
+-- TEST 1: TEXT join keys (non-integer)
 -- =============================================================================
 
 -- Create tables with TEXT join keys
@@ -66,7 +66,7 @@ ORDER BY o.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 16: Composite join keys (multiple columns)
+-- TEST 2: Composite join keys (multiple columns)
 -- =============================================================================
 
 -- Create tables with composite keys
@@ -127,7 +127,7 @@ ORDER BY i.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 17: Join key value of 0 (regression test for magic key collision)
+-- TEST 3: Join key value of 0 (regression test for magic key collision)
 -- =============================================================================
 
 -- Create tables where join key value 0 is valid
@@ -188,7 +188,7 @@ WHERE i.type_id = 0
 ORDER BY i.id;
 
 -- =============================================================================
--- TEST 21: Different join key types - TEXT keys
+-- TEST 4: Different join key types - TEXT keys
 -- =============================================================================
 -- Verify JoinScan works with TEXT join keys, not just INTEGER
 
@@ -241,7 +241,7 @@ ORDER BY d.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 22: NULL key handling
+-- TEST 5: NULL key handling
 -- =============================================================================
 -- Verify that NULL join keys are correctly excluded (standard SQL semantics)
 
@@ -297,7 +297,7 @@ ORDER BY i.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 24: Multi-column composite join keys
+-- TEST 6: Multi-column composite join keys
 -- =============================================================================
 -- Verify JoinScan handles composite (multi-column) join keys
 
@@ -355,7 +355,7 @@ ORDER BY od.order_id, od.line_num
 LIMIT 10;
 
 -- =============================================================================
--- TEST 26: UUID join keys
+-- TEST 7: UUID join keys
 -- =============================================================================
 -- Verify JoinScan works with UUID join keys
 
@@ -411,7 +411,7 @@ ORDER BY o.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 27: NUMERIC join keys
+-- TEST 8: NUMERIC join keys
 -- =============================================================================
 -- Verify JoinScan works with NUMERIC (decimal) join keys
 

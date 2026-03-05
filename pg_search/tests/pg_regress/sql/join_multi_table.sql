@@ -62,7 +62,7 @@ WITH (key_field = 'id');
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
--- TEST 10: Multi-table joins (3 tables) - includes UPDATE that moves product ctids
+-- TEST 1: Multi-table joins (3 tables) - includes UPDATE that moves product ctids
 -- =============================================================================
 
 -- Create a third table for multi-table join testing
@@ -111,7 +111,7 @@ ORDER BY p.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 11: OR across tables (without LIMIT) - AFTER UPDATE moved product ctids
+-- TEST 2: OR across tables (without LIMIT) - AFTER UPDATE moved product ctids
 -- =============================================================================
 -- NOTE: Products were just UPDATED above (category_id added), so their ctids
 -- have moved from (0,1)-(0,8) to new locations (0,9)-(0,16).
@@ -129,9 +129,9 @@ WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
 ORDER BY p.id;
 
 -- =============================================================================
--- TEST 12: OR across tables WITH LIMIT - AFTER UPDATE moved product ctids
+-- TEST 3: OR across tables WITH LIMIT - AFTER UPDATE moved product ctids
 -- =============================================================================
--- Same as TEST 9 but with LIMIT - uses JoinScan.
+-- OR across tables WITH LIMIT - uses JoinScan.
 -- JoinScan's ctid-based matching for join-level predicates may fail here
 -- because the indexed ctids don't match the current heap ctids.
 -- EXPECTED: 4 rows (products 201, 203, 206, 207 match 'wireless' in description,
@@ -153,7 +153,7 @@ ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 35A: Multi-table join - Star Schema (3 tables)
+-- TEST 4: Multi-table join - Star Schema (3 tables)
 -- =============================================================================
 
 -- Setup specific data for these tests
@@ -294,7 +294,7 @@ ORDER BY paradedb.score(s.id) DESC
 LIMIT 5;
 
 -- =============================================================================
--- TEST 35B: Multi-table join - Chain Schema (4 tables)
+-- TEST 5: Multi-table join - Chain Schema (4 tables)
 -- =============================================================================
 
 DROP TABLE IF EXISTS level1 CASCADE;
@@ -343,7 +343,7 @@ ORDER BY l1.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 35C: Chain Schema - Mixed Predicates
+-- TEST 6: Chain Schema - Mixed Predicates
 -- =============================================================================
 
 -- Predicates on level1 (outermost) and level4 (innermost)

@@ -3945,7 +3945,11 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=6338e83a36f947d37aaa602cc57b253ec1c5d652#6338e83a36f947d37aaa602cc57b253ec1c5d652"
+>>>>>>> ed668b8e3 (perf: 45X speedup on term bucket queries with high bucket counts (#4292))
 dependencies = [
  "stable_deref_trait",
 ]
@@ -6357,7 +6361,11 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.26.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=6338e83a36f947d37aaa602cc57b253ec1c5d652#6338e83a36f947d37aaa602cc57b253ec1c5d652"
+>>>>>>> ed668b8e3 (perf: 45X speedup on term bucket queries with high bucket counts (#4292))
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -6412,7 +6420,11 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.9.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=6338e83a36f947d37aaa602cc57b253ec1c5d652#6338e83a36f947d37aaa602cc57b253ec1c5d652"
+>>>>>>> ed668b8e3 (perf: 45X speedup on term bucket queries with high bucket counts (#4292))
 dependencies = [
  "bitpacking",
 ]
@@ -6420,7 +6432,11 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.6.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=6338e83a36f947d37aaa602cc57b253ec1c5d652#6338e83a36f947d37aaa602cc57b253ec1c5d652"
+>>>>>>> ed668b8e3 (perf: 45X speedup on term bucket queries with high bucket counts (#4292))
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -6435,7 +6451,11 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.10.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=6338e83a36f947d37aaa602cc57b253ec1c5d652#6338e83a36f947d37aaa602cc57b253ec1c5d652"
+>>>>>>> ed668b8e3 (perf: 45X speedup on term bucket queries with high bucket counts (#4292))
 dependencies = [
  "async-trait",
  "byteorder",
@@ -6468,7 +6488,11 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.25.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=6338e83a36f947d37aaa602cc57b253ec1c5d652#6338e83a36f947d37aaa602cc57b253ec1c5d652"
+>>>>>>> ed668b8e3 (perf: 45X speedup on term bucket queries with high bucket counts (#4292))
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -6480,7 +6504,11 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.6.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=6338e83a36f947d37aaa602cc57b253ec1c5d652#6338e83a36f947d37aaa602cc57b253ec1c5d652"
+>>>>>>> ed668b8e3 (perf: 45X speedup on term bucket queries with high bucket counts (#4292))
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -6493,7 +6521,11 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.6.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=6338e83a36f947d37aaa602cc57b253ec1c5d652#6338e83a36f947d37aaa602cc57b253ec1c5d652"
+>>>>>>> ed668b8e3 (perf: 45X speedup on term bucket queries with high bucket counts (#4292))
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -6530,7 +6562,11 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.6.0"
+<<<<<<< HEAD
 source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+=======
+source = "git+https://github.com/paradedb/tantivy.git?rev=6338e83a36f947d37aaa602cc57b253ec1c5d652#6338e83a36f947d37aaa602cc57b253ec1c5d652"
+>>>>>>> ed668b8e3 (perf: 45X speedup on term bucket queries with high bucket counts (#4292))
 dependencies = [
  "serde",
 ]

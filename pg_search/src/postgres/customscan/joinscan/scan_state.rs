@@ -646,30 +646,19 @@ fn build_source_df<'a>(
 
         let mut df = ctx.table(&reg_name).await?;
 
-        // Select fields AND ensure CTID is aliased uniquely.
-        // Track seen expression names to skip duplicates — the same column name
-        // can appear more than once in the schema (e.g. system and user ctid).
+        // Select fields and ensure CTID is aliased uniquely.
         let mut exprs = Vec::new();
-        let mut seen_names = crate::api::HashSet::<String>::default();
         for df_field in df.schema().fields().iter() {
             let name = df_field.name();
-            // NOTE: Matching on WhichFastField::Ctid specifically will fail if
-            // the field list order doesn't match the DataFrame schema field order.
-            let (expr, expr_name) = match fields.iter().find(|w| w.name() == *name) {
+            let expr = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
                     let alias = format!("ctid_{}", scan_info.heap_rti);
-                    (make_col(&reg_name, name).alias(&alias), alias)
+                    make_col(&reg_name, name).alias(&alias)
                 }
-                Some(WhichFastField::Score) => (
-                    make_col(&reg_name, name).alias(SCORE_COL_NAME),
-                    SCORE_COL_NAME.to_string(),
-                ),
-                _ => (make_col(&reg_name, name), name.to_string()),
+                Some(WhichFastField::Score) => make_col(&reg_name, name).alias(SCORE_COL_NAME),
+                _ => make_col(&reg_name, name),
             };
-
-            if seen_names.insert(expr_name) {
-                exprs.push(expr);
-            }
+            exprs.push(expr);
         }
         df = df.select(exprs)?;
 

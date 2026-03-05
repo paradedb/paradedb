@@ -55,13 +55,13 @@ fn mlt_datetime_key(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let rows: Vec<(i32, String)> = r#"
+    let rows: Vec<i32> = r#"
     SELECT id FROM more_like_this_dt WHERE id @@@ pdb.more_like_this(
         document => '{"created_at": "2013-01-03 00:00:00"}'
     );
     "#
-    .fetch_collect(&mut conn);
-    assert_eq!(rows.len(), 1);
+    .fetch_scalar(&mut conn);
+    assert_eq!(rows, vec![2]);
 }
 
 #[rstest]

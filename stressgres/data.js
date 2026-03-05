@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772670953934,
+  "lastUpdate": 1772670960378,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41144,6 +41144,186 @@ window.BENCHMARK_DATA = {
             "value": 32.09375,
             "unit": "median mem",
             "extra": "avg mem: 31.440502171064836, max mem: 32.1875, count: 53905"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a9687d3d281437ecdd4b16be874fcc3fcf98af4",
+          "message": "fix: Eliminate clones in aggregate custom scan, 100x+ speedup in certain cases (#4284)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn a customer cell, an aggregate custom scan query was hanging/not\nresponding to interrupts.\n\nA backtrace revealed that `flatten_grouped` was cloning the entire\naggregation results HashMap for every output row.\n\nTo demonstrate, run this repro:\n\n```sql\n  DROP TABLE IF EXISTS bench_agg CASCADE;                                                                                                  \n                                                                                                                                           \n  CREATE TABLE bench_agg (                                        \n      id SERIAL PRIMARY KEY,\n      category TEXT NOT NULL,\n      subcategory TEXT NOT NULL,\n      amount INT NOT NULL,\n      description TEXT NOT NULL\n  );\n\n  INSERT INTO bench_agg (category, subcategory, amount, description)\n  SELECT\n      'cat_' || (i % 5000),\n      'sub_' || (i % 10),\n      (random() * 1000)::int,\n      'This is a description for item number ' || i || ' in the benchmark dataset'\n  FROM generate_series(1, 100000) AS i;\n\n  CREATE INDEX bench_agg_idx ON bench_agg USING bm25 (id, (category::pdb.literal), (subcategory::pdb.literal), description, amount)\n  WITH (key_field = 'id')\n```\n\nBEFORE:\n\n```sql\nexplain analyze   SELECT category, COUNT(*), MIN(amount), MAX(amount), SUM(amount)\nFROM bench_agg WHERE description @@@ 'description' GROUP BY category;\n                                                                                                                        QUERY PLAN                                                                                                                         \n-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Custom Scan (ParadeDB Aggregate Scan) on bench_agg  (cost=0.00..0.00 rows=0 width=56) (actual time=8732.547..8735.523 rows=5000.00 loops=1)\n   Index: bench_agg_idx\n   Tantivy Query: {\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"description\",\"lenient\":null,\"conjunction_mode\":null}}}}\n     Applies to Aggregates: COUNT(*), MIN(amount), MAX(amount), SUM(amount)\n     Group By: category\n     Aggregate Definition: {\"grouped\":{\"aggs\":{\"0\":{\"min\":{\"field\":\"amount\",\"missing\":null}},\"1\":{\"max\":{\"field\":\"amount\",\"missing\":null}},\"2\":{\"sum\":{\"field\":\"amount\",\"missing\":null}}},\"terms\":{\"field\":\"category\",\"segment_size\":65000,\"size\":65000}}}\n   Buffers: shared hit=1789\n Planning:\n   Buffers: shared hit=34\n Planning Time: 2.179 ms\n Execution Time: 8735.961 ms\n(11 rows)\n```\n\nAFTER:\n\n```sql\nexplain analyze   SELECT category, COUNT(*), MIN(amount), MAX(amount), SUM(amount)\nFROM bench_agg WHERE description @@@ 'description' GROUP BY category;\n                                                                                                                        QUERY PLAN                                                                                                                         \n-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Custom Scan (ParadeDB Aggregate Scan) on bench_agg  (cost=0.00..0.00 rows=0 width=56) (actual time=62.668..65.283 rows=5000.00 loops=1)\n   Index: bench_agg_idx\n   Tantivy Query: {\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"description\",\"query_string\":\"description\",\"lenient\":null,\"conjunction_mode\":null}}}}\n     Applies to Aggregates: COUNT(*), MIN(amount), MAX(amount), SUM(amount)\n     Group By: category\n     Aggregate Definition: {\"grouped\":{\"aggs\":{\"0\":{\"min\":{\"field\":\"amount\",\"missing\":null}},\"1\":{\"max\":{\"field\":\"amount\",\"missing\":null}},\"2\":{\"sum\":{\"field\":\"amount\",\"missing\":null}}},\"terms\":{\"field\":\"category\",\"segment_size\":65000,\"size\":65000}}}\n   Buffers: shared hit=1789\n Planning:\n   Buffers: shared hit=138 read=23\n Planning Time: 10.170 ms\n Execution Time: 65.741 ms\n(11 rows)\n```\n\n## Why\n\n## How\n\nReplace owned clones with borrows throughout the tree traversal.\n\nAlso add `check_for_interrupts!` in the hot loops so cancels are honored\nduring result flattening.\n\n## Tests",
+          "timestamp": "2026-03-04T15:24:38-08:00",
+          "tree_id": "d15f92de38ab0d16efb545d42411d8f30f6e61bf",
+          "url": "https://github.com/paradedb/paradedb/commit/1a9687d3d281437ecdd4b16be874fcc3fcf98af4"
+        },
+        "date": 1772670955428,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.963037969854653, max cpu: 9.257474, count: 53940"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 50.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.14233364038747, max mem: 55.84375, count: 53940"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.045016599936839, max cpu: 4.5714283, count: 53940"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 31.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.832382769048944, max mem: 31.8359375, count: 53940"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.090909,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.5668648603817505, max cpu: 18.35564, count: 53940"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 53.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.47886511633296, max mem: 59.5078125, count: 53940"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.909358486522238, max cpu: 9.239654, count: 53940"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 49.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.761921376761215, max mem: 55.4453125, count: 53940"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.595597625466242, max cpu: 9.134158, count: 53940"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 32.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.70720614050334, max mem: 37.65625, count: 53940"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1086,
+            "unit": "median pages",
+            "extra": "avg pages: 1088.6382276603633, max pages: 1799.0, count: 53940"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.484375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.504986153596588, max relation_size:MB: 14.0546875, count: 53940"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.335391175380052, max segment_count: 17.0, count: 53940"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.020591412233838, max cpu: 4.5933013, count: 53940"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.4525678850343, max mem: 29.515625, count: 53940"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.616872517440364, max cpu: 4.5714283, count: 53940"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.496240107642752, max mem: 29.5546875, count: 53940"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.373797408938169, max cpu: 23.032629, count: 53940"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 47.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.95889486582314, max mem: 53.6796875, count: 53940"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000027383218043196144, max replication_lag:MB: 0.31896209716796875, count: 53940"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.135030711134928, max cpu: 13.806328, count: 107880"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 48.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.476314285838434, max mem: 54.4375, count: 107880"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.747095545737021, max cpu: 4.597701, count: 53940"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.25,
+            "unit": "median mem",
+            "extra": "avg mem: 31.563754432007787, max mem: 32.59375, count: 53940"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.402492324664389, max cpu: 4.597701, count: 53940"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 32.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.699203831803857, max mem: 32.46875, count: 53940"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772673920991,
+  "lastUpdate": 1772743303477,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3590,6 +3590,78 @@ window.BENCHMARK_DATA = {
             "value": 72.86377408876265,
             "unit": "median tps",
             "extra": "avg tps: 93.57998119021998, max tps: 797.2625194133424, count: 55176"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed668b8e30f2e8c556dd91774914f77489aab04f",
+          "message": "perf: 45X speedup on term bucket queries with high bucket counts (#4292)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nRemoved overhead from Tantivy\nhttps://github.com/paradedb/tantivy/pull/110\n\nRepro: \n\n```sql\n  DROP TABLE IF EXISTS bench_agg CASCADE;                                                                                                  \n                                                                                                                                           \n  CREATE TABLE bench_agg (                                        \n      id SERIAL PRIMARY KEY,\n      category TEXT NOT NULL,\n      subcategory TEXT NOT NULL\n  );\n\n  INSERT INTO bench_agg (category, subcategory)\n  SELECT\n      'cat_' || (i % 5000),\n      'sub_' || (i % 3)\n  FROM generate_series(1, 25000000) AS i;\n\n\n  SET max_parallel_maintenance_workers = 8;\n  SET maintenance_work_mem = '1GB';\n\n  CREATE INDEX bench_agg_idx ON bench_agg USING bm25 (id, (category::pdb.literal), (subcategory::pdb.literal))\n  WITH (key_field = 'id');\n\n  set paradedb.enable_aggregate_custom_scan to on;\n  set work_mem = '1GB';\n```\n\nBEFORE\n\n```sql\nexplain analyze SELECT category, subcategory, COUNT(*) FROM bench_agg WHERE id @@@ pdb.all() GROUP BY category, subcategory ORDER BY category LIMIT 500;\n                                                                                                         QUERY PLAN                                                                                                         \n----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Limit  (cost=0.00..0.00 rows=1 width=22) (actual time=45395.321..45395.592 rows=500.00 loops=1)\n   Buffers: shared hit=9205 read=4956\n   ->  Custom Scan (ParadeDB Aggregate Scan) on bench_agg  (cost=0.00..0.00 rows=0 width=22) (actual time=45395.319..45395.572 rows=500.00 loops=1)\n         Index: bench_agg_idx\n         Tantivy Query: {\"with_index\":{\"query\":\"all\"}}\n           Applies to Aggregates: COUNT(*)\n           Group By: category, subcategory\n           Limit: 500\n           Aggregate Definition: {\"grouped\":{\"aggs\":{\"grouped\":{\"terms\":{\"field\":\"subcategory\",\"segment_size\":65000,\"size\":65000}}},\"terms\":{\"field\":\"category\",\"order\":{\"_key\":\"asc\"},\"segment_size\":65000,\"size\":65000}}}\n         Buffers: shared hit=9205 read=4956\n Planning:\n   Buffers: shared hit=215 read=26\n Planning Time: 12.819 ms\n Execution Time: 45397.752 ms\n(14 rows)\n```\n\nAFTER\n\n```sql\nexplain analyze SELECT category, subcategory, COUNT(*) FROM bench_agg WHERE id @@@ paradedb.all() GROUP BY category, subcategory ORDER BY category LIMIT 500;\n                                                                                                         QUERY PLAN                                                                                                         \n----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n Limit  (cost=0.00..0.00 rows=1 width=72) (actual time=1173.952..1174.215 rows=500.00 loops=1)\n   Buffers: shared hit=102816\n   ->  Custom Scan (ParadeDB Aggregate Scan) on bench_agg  (cost=0.00..0.00 rows=0 width=72) (actual time=1173.950..1174.194 rows=500.00 loops=1)\n         Index: bench_agg_idx\n         Tantivy Query: {\"with_index\":{\"query\":\"all\"}}\n           Applies to Aggregates: COUNT(*)\n           Group By: category, subcategory\n           Limit: 500\n           Aggregate Definition: {\"grouped\":{\"aggs\":{\"grouped\":{\"terms\":{\"field\":\"subcategory\",\"segment_size\":65000,\"size\":65000}}},\"terms\":{\"field\":\"category\",\"order\":{\"_key\":\"asc\"},\"segment_size\":65000,\"size\":65000}}}\n         Buffers: shared hit=102816\n Planning:\n   Buffers: shared hit=75\n Planning Time: 1.395 ms\n Execution Time: 1176.687 ms\n(14 rows)\n```\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-03-05T12:19:39-08:00",
+          "tree_id": "29dd78b11c5ac0229e20f5033e54e41ae52050b8",
+          "url": "https://github.com/paradedb/paradedb/commit/ed668b8e30f2e8c556dd91774914f77489aab04f"
+        },
+        "date": 1772743298260,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 133.3790744968202,
+            "unit": "median tps",
+            "extra": "avg tps: 133.5285826931642, max tps: 152.10208682505004, count: 55206"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2864.020858044873,
+            "unit": "median tps",
+            "extra": "avg tps: 2845.425619815259, max tps: 2966.865388042917, count: 55206"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 512.4433630038945,
+            "unit": "median tps",
+            "extra": "avg tps: 511.82071289624906, max tps: 530.7206941327056, count: 55206"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2926.9887267800486,
+            "unit": "median tps",
+            "extra": "avg tps: 2950.6640378350294, max tps: 3083.8559646831877, count: 110412"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 513.8249171322873,
+            "unit": "median tps",
+            "extra": "avg tps: 512.9523416819966, max tps: 617.6757703231985, count: 55206"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 569.6480081563964,
+            "unit": "median tps",
+            "extra": "avg tps: 569.9112477189132, max tps: 630.8243134081067, count: 55206"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1964.7863623921987,
+            "unit": "median tps",
+            "extra": "avg tps: 1950.9530327520397, max tps: 1972.435259715525, count: 55206"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 63.31078152987681,
+            "unit": "median tps",
+            "extra": "avg tps: 126.45686256810687, max tps: 779.6231457638007, count: 55206"
           }
         ]
       }

@@ -332,7 +332,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             .enumerate()
             .find(|(_, s)| s.contains_rti(rti))?;
 
-        let alias = source.execution_alias(source_idx);
+        let alias = source.scan_info.execution_alias(source_idx);
 
         // 3. Resolve column name
         if is_score {

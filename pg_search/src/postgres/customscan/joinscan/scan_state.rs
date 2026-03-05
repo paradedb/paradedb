@@ -246,7 +246,7 @@ fn build_relnode_df<'a>(
                 let mut df =
                     build_source_df(ctx, source, source_idx, join_clause, is_parallel).await?;
 
-                let alias = source.execution_alias(source_idx);
+                let alias = source.scan_info.execution_alias(source_idx);
                 df = df.alias(&alias)?;
                 Ok(df)
             }
@@ -284,8 +284,8 @@ fn build_relnode_df<'a>(
                         .find(|(_, s)| s.contains_rti(jk.inner_rti))
                         .unwrap();
 
-                    let outer_alias = outer_entry.1.execution_alias(outer_entry.0);
-                    let inner_alias = inner_entry.1.execution_alias(inner_entry.0);
+                    let outer_alias = outer_entry.1.scan_info.execution_alias(outer_entry.0);
+                    let inner_alias = inner_entry.1.scan_info.execution_alias(inner_entry.0);
 
                     let outer_col_name = outer_entry
                         .1
@@ -437,7 +437,7 @@ fn build_clause_df<'a>(
 
         let mut ctid_map = crate::api::HashMap::default();
         for (i, source) in plan_sources.iter().enumerate() {
-            let alias = source.execution_alias(i);
+            let alias = source.scan_info.execution_alias(i);
 
             let mut base_relations = Vec::new();
             source.collect_base_relations(&mut base_relations);
@@ -471,7 +471,7 @@ fn build_clause_df<'a>(
                         let ordering_idx = join_clause.ordering_side_index();
                         if let Some(idx) = ordering_idx {
                             let source = &plan_sources[idx];
-                            let alias = source.execution_alias(idx);
+                            let alias = source.scan_info.execution_alias(idx);
 
                             // Try to find the score column
                             // Logic similar to build_projection_expr
@@ -494,7 +494,7 @@ fn build_clause_df<'a>(
                         for (i, source) in plan_sources.iter().enumerate() {
                             if let Some(mapped_attno) = source.map_var(*rti, *attno) {
                                 if let Some(field_name) = source.column_name(mapped_attno) {
-                                    let alias = source.execution_alias(i);
+                                    let alias = source.scan_info.execution_alias(i);
                                     resolved_expr = Some(make_col(&alias, &field_name));
                                     break;
                                 }
@@ -568,7 +568,7 @@ fn build_projection_expr(
 ) -> Expr {
     let plan_sources = join_clause.plan.sources();
     for (i, source) in plan_sources.iter().enumerate() {
-        let alias = source.execution_alias(i);
+        let alias = source.scan_info.execution_alias(i);
 
         if proj.is_score {
             if let Some(attno) = source.map_var(proj.rti, 0) {
@@ -606,7 +606,7 @@ fn build_source_df<'a>(
         // Use the unique execution alias as the registration name to avoid
         // collisions when the same table appears multiple times (e.g. contact_list
         // in both IN and NOT IN subqueries).
-        let reg_name = source.execution_alias(source_idx);
+        let reg_name = source.scan_info.execution_alias(source_idx);
         let fields: Vec<WhichFastField> = source
             .scan_info
             .fields

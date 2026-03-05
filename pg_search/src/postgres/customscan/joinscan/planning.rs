@@ -1181,7 +1181,7 @@ pub(super) unsafe fn extract_orderby(
                             direction,
                         });
                     } else {
-                        let alias = source.execution_alias(i);
+                        let alias = source.scan_info.execution_alias(i);
                         result.push(OrderByInfo {
                             feature: OrderByFeature::Field(
                                 format!("{}.{}", alias, SCORE_COL_NAME).into(),

@@ -345,7 +345,7 @@ impl CustomScan for JoinScan {
             let aliases: Vec<String> = all_sources
                 .iter()
                 .enumerate()
-                .map(|(i, s)| s.execution_alias(i))
+                .map(|(i, s)| s.scan_info.execution_alias(i))
                 .collect();
 
             // A join is "potentially interesting" if at least one side has a BM25 index and a search predicate.
@@ -898,14 +898,14 @@ impl CustomScan for JoinScan {
                         .iter()
                         .enumerate()
                         .find(|(_, s)| s.contains_rti(k.outer_rti))
-                        .map(|(i, s)| (Some(s.scan_info.heaprelid), s.execution_alias(i)))
+                        .map(|(i, s)| (Some(s.scan_info.heaprelid), s.scan_info.execution_alias(i)))
                         .expect("Outer source not found");
 
                     let (inner_relid, inner_alias_name) = plan_sources
                         .iter()
                         .enumerate()
                         .find(|(_, s)| s.contains_rti(k.inner_rti))
-                        .map(|(i, s)| (Some(s.scan_info.heaprelid), s.execution_alias(i)))
+                        .map(|(i, s)| (Some(s.scan_info.heaprelid), s.scan_info.execution_alias(i)))
                         .expect("Inner source not found");
 
                     format!(

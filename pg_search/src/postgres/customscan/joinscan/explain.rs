@@ -70,7 +70,7 @@ pub(super) fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSC
         } => {
             let all_sources = join_clause.plan.sources();
             let label = if let Some(source) = all_sources.get(*source_idx) {
-                source.execution_alias(*source_idx)
+                source.scan_info.execution_alias(*source_idx)
             } else {
                 format!("source_{}", source_idx)
             };

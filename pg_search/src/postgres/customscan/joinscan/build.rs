@@ -141,7 +141,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
-use crate::scan::info::{self, FieldInfo, RowEstimate};
+use crate::scan::info::{FieldInfo, RowEstimate};
 
 /// Source information collected during planning.
 ///
@@ -213,10 +213,6 @@ impl JoinSourceCandidate {
         self.alias.clone()
     }
 
-    pub fn execution_alias(&self, index: usize) -> String {
-        info::execution_alias(self.alias.as_deref(), index)
-    }
-
     /// Check if this source contains the given RTI.
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
         self.heap_rti == rti
@@ -271,14 +267,6 @@ pub struct JoinSource {
 }
 
 impl JoinSource {
-    /// Returns the alias to be used for this source in the DataFusion plan.
-    ///
-    /// Always incorporates the source index to guarantee uniqueness when the
-    /// same table appears multiple times in a query.
-    pub fn execution_alias(&self, index: usize) -> String {
-        self.scan_info.execution_alias(index)
-    }
-
     /// Check if this source contains the given RTI.
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
         self.scan_info.heap_rti == rti

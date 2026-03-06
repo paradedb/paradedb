@@ -53,6 +53,7 @@
 //! **Before enabling any JoinType other than `JOIN_INNER`, you must verify that the partitioning
 //! logic in `build_clause_df` respects these constraints.**
 
+use std::cell::Cell;
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, JoinType, Result};
@@ -231,19 +232,14 @@ fn build_relnode_df<'a>(
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
     ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
+    next_source_idx: &'a std::cell::Cell<usize>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     let f = async move {
         match node {
             RelNode::Scan(source) => {
-                let plan_sources = join_clause.plan.sources();
-                // Use pointer identity to find the source index, not heap_rti.
-                // SubPlan extraction can produce sources with locally-scoped RTIs
-                // that collide with outer query RTIs (e.g., both get RTI=1).
-                let source_ptr = &**source as *const JoinSource;
-                let source_idx = plan_sources
-                    .iter()
-                    .position(|s| std::ptr::eq(*s, source_ptr))
-                    .unwrap();
+                // The scan counter tracks DFS order, matching `RelNode::sources()`.
+                let source_idx = next_source_idx.get();
+                next_source_idx.set(source_idx + 1);
                 let is_parallel = source.scan_info.heap_rti == partitioning_rti;
                 let mut df =
                     build_source_df(ctx, source, source_idx, join_clause, is_parallel).await?;
@@ -260,6 +256,7 @@ fn build_relnode_df<'a>(
                     join_clause,
                     translated_exprs,
                     ctid_map,
+                    next_source_idx,
                 )
                 .await?;
                 let right_df = build_relnode_df(
@@ -269,6 +266,7 @@ fn build_relnode_df<'a>(
                     join_clause,
                     translated_exprs,
                     ctid_map,
+                    next_source_idx,
                 )
                 .await?;
 
@@ -362,6 +360,7 @@ fn build_relnode_df<'a>(
                     join_clause,
                     translated_exprs,
                     ctid_map,
+                    next_source_idx,
                 )
                 .await?;
 
@@ -456,6 +455,7 @@ fn build_clause_df<'a>(
             }
         }
 
+        let next_source_idx = Cell::new(0);
         let mut df = build_relnode_df(
             ctx,
             plan,
@@ -463,6 +463,7 @@ fn build_clause_df<'a>(
             join_clause,
             &translated_exprs,
             &ctid_map,
+            &next_source_idx,
         )
         .await?;
 

@@ -101,7 +101,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
+         Join Cond: p_1.supplier_id = s_0.id
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -147,7 +147,7 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
+         Join Cond: p_1.supplier_id = s_0.id
          Limit: 5
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -190,7 +190,7 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name, s.id
          Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
+         Join Cond: p_1.supplier_id = s_0.id
          Limit: 5
          Order By: p.supplier_id asc
          DataFusion Physical Plan: 
@@ -229,7 +229,7 @@ LEFT JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-WARNING:  JoinScan not used: only INNER and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, s)
+WARNING:  JoinScan not used: unsupported join type (types: LEFT, RIGHT) (tables: p_0, p_1, s_0, s_1)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -306,7 +306,7 @@ JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, s)
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p_0, p_1, s_0, s_1)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -333,7 +333,7 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
+         Join Cond: p_1.supplier_id = s_0.id
          Limit: 3
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -378,7 +378,7 @@ LIMIT 3;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.id, p.name, p.price, s.name
                Relation Tree: s INNER p
-               Join Cond: p.supplier_id = s.id
+               Join Cond: p_1.supplier_id = s_0.id
                Limit: 3
                Order By: p.price desc
                DataFusion Physical Plan: 
@@ -441,7 +441,7 @@ FROM colors c, sizes s
 WHERE c.description @@@ 'color' AND s.description @@@ 'size'
 ORDER BY c.id, s.id
 LIMIT 10;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: c, s)
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: c_0, c_1, s_0, s_1)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -500,7 +500,7 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: m."Content", m."ID", s.name
                Relation Tree: s INNER m
-               Join Cond: m.JoinKey = s.id
+               Join Cond: m_1.JoinKey = s_0.id
                Limit: 5
                Order By: m.ID asc
                DataFusion Physical Plan: 

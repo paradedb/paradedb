@@ -209,3 +209,4 @@ SELECT * FROM paradedb.tokenize(
 --------+----------
  äpplen |        1
 (1 row)
+

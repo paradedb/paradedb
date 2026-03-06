@@ -640,6 +640,8 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
+    /// Whether the join has DISTINCT specified.
+    pub has_distinct: bool,
 }
 
 impl JoinCSClause {
@@ -651,6 +653,7 @@ impl JoinCSClause {
             multi_table_predicates: Vec::new(),
             order_by: Vec::new(),
             output_projection: None,
+            has_distinct: false,
         }
     }
 
@@ -661,6 +664,11 @@ impl JoinCSClause {
 
     pub fn with_order_by(mut self, order_by: Vec<OrderByInfo>) -> Self {
         self.order_by = order_by;
+        self
+    }
+
+    pub fn with_distinct(mut self, has_distinct: bool) -> Self {
+        self.has_distinct = has_distinct;
         self
     }
 

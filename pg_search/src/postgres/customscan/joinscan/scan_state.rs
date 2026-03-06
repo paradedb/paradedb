@@ -77,6 +77,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::scan::PgSearchTableProvider;
 use datafusion::execution::session_state::SessionStateBuilder;
+use datafusion::functions_aggregate::expr_fn::min;
 
 /// Execution state for a single base relation in a join.
 pub struct RelationState {
@@ -454,48 +455,97 @@ fn build_clause_df<'a>(
         )
         .await?;
 
-        // 4. Apply Sort
+        // Maps (rti, attno) → col_N alias, populated only when has_distinct is true.
+        // For regular columns: (rti, attno) → col_N
+        // For score columns:   (rti, 0)     → col_N  (attno=0 is the score sentinel)
+        // When has_distinct is false, map is empty and sort uses existing qualified path.
+        let mut distinct_col_map: crate::api::HashMap<(pg_sys::Index, pg_sys::AttrNumber), String> =
+            Default::default();
+
+        // 4. Apply DISTINCT via GROUP BY
+        if join_clause.has_distinct {
+            if let Some(projection) = &join_clause.output_projection {
+                let mut group_exprs: Vec<Expr> = Vec::new();
+
+                for (i, proj) in projection.iter().enumerate() {
+                    let col_alias = format!("col_{}", i + 1);
+                    let expr = build_projection_expr(proj, join_clause);
+                    group_exprs.push(expr.alias(&col_alias));
+
+                    // Record mapping for sort step:
+                    // score uses (rti, 0) sentinel, regular columns use (rti, attno)
+                    let key = if proj.is_score {
+                        (proj.rti, 0)
+                    } else {
+                        (proj.rti, proj.attno)
+                    };
+                    distinct_col_map.insert(key, col_alias);
+                }
+
+                let agg_exprs: Vec<Expr> = ctid_map
+                    .iter()
+                    .map(|(_rti, expr)| {
+                        let ctid_name = match expr {
+                            Expr::Column(col) => col.name.clone(),
+                            _ => unreachable!("ctid_map always contains Column expressions"),
+                        };
+                        min(expr.clone()).alias(&ctid_name)
+                    })
+                    .collect();
+
+                df = df.aggregate(group_exprs, agg_exprs)?;
+            }
+        }
+
+        // 5. Apply Sort
         if !join_clause.order_by.is_empty() {
             let mut sort_exprs = Vec::new();
             for info in &join_clause.order_by {
                 let expr = match &info.feature {
                     OrderByFeature::Score => {
-                        // For N-way, 'ordering_side_is_outer' is insufficient.
-                        // We need the index of the ordering side.
-                        let ordering_idx = join_clause.ordering_side_index();
-                        if let Some(idx) = ordering_idx {
-                            let source = &plan_sources[idx];
-                            let alias = source.execution_alias(idx);
+                        // Look up by (ordering_rti, 0) — the score sentinel key
+                        let maybe_col = join_clause
+                            .ordering_side_index()
+                            .and_then(|idx| {
+                                let source = &plan_sources[idx];
+                                let rti = source.scan_info.heap_rti;
+                                distinct_col_map.get(&(rti, 0))
+                            })
+                            .map(|alias| col(alias.as_str()));
 
-                            // Try to find the score column
-                            // Logic similar to build_projection_expr
-                            // Default to SCORE_COL_NAME
-                            make_col(&alias, SCORE_COL_NAME)
-                        } else {
-                            // Fallback
-                            col("unknown_score")
-                        }
+                        maybe_col.unwrap_or_else(|| {
+                            let ordering_idx = join_clause.ordering_side_index();
+                            if let Some(idx) = ordering_idx {
+                                let source = &plan_sources[idx];
+                                let alias = source.execution_alias(idx);
+                                make_col(&alias, SCORE_COL_NAME)
+                            } else {
+                                col("unknown_score")
+                            }
+                        })
                     }
                     OrderByFeature::Field(name) => col(name.as_ref()),
                     OrderByFeature::Var {
                         rti,
                         attno,
                         name: _,
-                    } => {
-                        // Resolve RTI/Attno to column expression
-                        let mut resolved_expr = None;
-                        let plan_sources = join_clause.plan.sources();
-                        for (i, source) in plan_sources.iter().enumerate() {
-                            if let Some(mapped_attno) = source.map_var(*rti, *attno) {
-                                if let Some(field_name) = source.column_name(mapped_attno) {
-                                    let alias = source.execution_alias(i);
-                                    resolved_expr = Some(make_col(&alias, &field_name));
-                                    break;
+                    } => distinct_col_map
+                        .get(&(*rti, *attno))
+                        .map(|alias| col(alias.as_str()))
+                        .unwrap_or_else(|| {
+                            let mut resolved_expr = None;
+                            let plan_sources = join_clause.plan.sources();
+                            for (i, source) in plan_sources.iter().enumerate() {
+                                if let Some(mapped_attno) = source.map_var(*rti, *attno) {
+                                    if let Some(field_name) = source.column_name(mapped_attno) {
+                                        let alias = source.execution_alias(i);
+                                        resolved_expr = Some(make_col(&alias, &field_name));
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                        resolved_expr.unwrap_or_else(|| col("unknown_col"))
-                    }
+                            resolved_expr.unwrap_or_else(|| col("unknown_col"))
+                        }),
                 };
 
                 let asc = matches!(
@@ -511,18 +561,30 @@ fn build_clause_df<'a>(
             df = df.sort(sort_exprs)?;
         }
 
-        // 5. Apply Limit
+        // 6. Apply Limit
         if let Some(limit) = join_clause.limit {
             df = df.limit(0, Some(limit))?;
         }
 
-        // 6. Apply Output Projection
+        // 7. Apply Output Projection
         let mut final_cols = Vec::new();
 
         if let Some(projection) = &join_clause.output_projection {
             for (i, proj) in projection.iter().enumerate() {
                 let col_alias = format!("col_{}", i + 1);
-                let expr = build_projection_expr(proj, join_clause);
+                // When distinct_col_map is populated, columns are already named col_N
+                // from GROUP BY so reference them directly. Otherwise, resolve via
+                // build_projection_expr as usual.
+                let key = if proj.is_score {
+                    (proj.rti, 0)
+                } else {
+                    (proj.rti, proj.attno)
+                };
+                let expr = if distinct_col_map.contains_key(&key) {
+                    col(&col_alias)
+                } else {
+                    build_projection_expr(proj, join_clause)
+                };
                 final_cols.push(expr.alias(col_alias));
             }
 
@@ -624,6 +686,30 @@ fn build_source_df<'a>(
         if let Some(ref sort_order) = scan_info.sort_order {
             required_early.insert(sort_order.field_name.as_ref().to_string());
         }
+
+        // When DISTINCT is present, PostgreSQL expands the query path-keys
+        // to include all DISTINCT columns.
+        if join_clause.has_distinct {
+            for info in &join_clause.order_by {
+                match &info.feature {
+                    OrderByFeature::Field(name) => {
+                        required_early.insert(name.as_ref().to_string());
+                    }
+                    OrderByFeature::Var { rti, attno, .. } => {
+                        // Only insert columns belonging to THIS source
+                        if source.contains_rti(*rti) {
+                            if let Some(col_name) = source.column_name(*attno) {
+                                required_early.insert(col_name);
+                            }
+                        }
+                    }
+                    OrderByFeature::Score => {
+                        // Score is not a late-materialized column, skip
+                    }
+                }
+            }
+        }
+
         provider.try_enable_late_materialization(&required_early);
 
         let provider = Arc::new(provider);

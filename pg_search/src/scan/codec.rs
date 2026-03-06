@@ -163,6 +163,29 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         Ok(())
     }
 
+    fn try_decode_udaf(
+        &self,
+        name: &str,
+        _buf: &[u8],
+    ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
+        match name {
+            "min" => Ok(datafusion::functions_aggregate::min_max::min_udaf()),
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "LogicalExtensionCodec is not provided for aggregate function {name}"
+            ))),
+        }
+    }
+
+    fn try_encode_udaf(
+        &self,
+        node: &datafusion::logical_expr::AggregateUDF,
+        buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        // Built-in aggregates are looked up by name on decode, no state to serialize
+        buf.extend_from_slice(node.name().as_bytes());
+        Ok(())
+    }
+
     decode_udfs! {
         "pdb_search_predicate" => SearchPredicateUDF,
     }

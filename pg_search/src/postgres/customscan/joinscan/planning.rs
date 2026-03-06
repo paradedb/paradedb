@@ -22,6 +22,7 @@
 //! - Gather information about join sides (tables, indexes, predicates)
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
+//! - Extract LIMIT value from the query root
 
 use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode};
 use super::predicate::{find_base_info_recursive, is_column_fast_field};
@@ -45,7 +46,7 @@ use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 
-use pgrx::{pg_sys, PgList};
+use pgrx::{pg_sys, FromDatum, PgList};
 
 /// Check if an expression uses paradedb.score() for any relation in the JoinSource.
 pub(super) unsafe fn expr_uses_scores_from_source(
@@ -98,6 +99,19 @@ pub(super) unsafe fn expr_uses_scores_from_source(
 
     walker(node, addr_of_mut!(data).cast());
     data.found
+}
+
+/// Extract the LIMIT value from the query root.
+/// Returns `None` if no LIMIT is present, signalling that JoinScan cannot be used.
+pub unsafe fn extract_limit(root: *mut pg_sys::PlannerInfo) -> Option<usize> {
+    if (*root).limit_tuples > -1.0 {
+        return Some((*root).limit_tuples as usize);
+    }
+
+    let parse = (*root).parse;
+    let limit_count = (*parse).limitCount;
+    let const_node = nodecast!(Const, T_Const, limit_count)?;
+    u32::from_datum((*const_node).constvalue, (*const_node).constisnull).map(|v| v as usize)
 }
 
 pub(super) struct JoinConditions {
@@ -886,6 +900,71 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     return false;
                 }
             }
+        }
+    }
+
+    true
+}
+
+/// Check if all DISTINCT columns are fast fields in their respective BM25 indexes.
+///
+/// DISTINCT requires all target columns to be available as fast fields so that
+/// deduplication can happen within DataFusion without heap access.
+/// Walks `parse->distinctClause` (a list of SortGroupClause), resolves each to
+/// its TargetEntry, and checks the referenced Var against source fast fields.
+pub(super) unsafe fn distinct_columns_are_fast_fields(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[&JoinSource],
+) -> bool {
+    let parse = (*root).parse;
+    if (*parse).distinctClause.is_null() {
+        return true; // No DISTINCT
+    }
+
+    let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+
+    for clause_ptr in distinct_list.iter_ptr() {
+        let tle_ref = (*clause_ptr).tleSortGroupRef;
+
+        // Find the TargetEntry matching this SortGroupClause
+        let mut found_te = false;
+        for te_ptr in target_list.iter_ptr() {
+            if (*te_ptr).ressortgroupref != tle_ref {
+                continue;
+            }
+            found_te = true;
+
+            let expr = (*te_ptr).expr as *mut pg_sys::Node;
+
+            // Extract Var from the expression
+            if let Some(var) = nodecast!(Var, T_Var, expr) {
+                let varno = (*var).varno as pg_sys::Index;
+                let varattno = (*var).varattno;
+
+                let mut found_source = false;
+                for source in sources {
+                    if source.contains_rti(varno) {
+                        if !is_column_fast_field(
+                            source.scan_info.heaprelid,
+                            source.scan_info.indexrelid,
+                            varattno,
+                        ) {
+                            return false;
+                        }
+                        found_source = true;
+                        break;
+                    }
+                }
+                if !found_source {
+                    return false;
+                }
+            }
+            // Non-Var expressions (functions, constants) don't need fast field checks
+            break;
+        }
+        if !found_te {
+            return false; // SortGroupClause references a TargetEntry we can't find
         }
     }
 

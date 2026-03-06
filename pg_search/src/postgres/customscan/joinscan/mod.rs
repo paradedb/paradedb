@@ -174,6 +174,9 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::joinscan::planning::{
+    distinct_columns_are_fast_fields, extract_limit,
+};
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
@@ -367,6 +370,20 @@ impl CustomScan for JoinScan {
                 return Vec::new();
             }
 
+            // TODO: Add support for Aggregate functions
+            // Bail out if the query has aggregates — LIMIT applies to aggregate
+            // output not to the rows feeding the aggregate, so pushing LIMIT into
+            // DataFusion would produce wrong results until we add support for Agg functions
+            if (*(*root).parse).hasAggs {
+                if is_interesting {
+                    Self::add_planner_warning(
+                        "JoinScan not used: queries with aggregate functions are not supported",
+                        (),
+                    );
+                }
+                return Vec::new();
+            }
+
             // TODO(join-types): Currently only INNER JOIN is supported.
             // Future work should add:
             // - LEFT JOIN: Return NULL for non-matching non-ordering rows; track matched ordering rows
@@ -382,17 +399,19 @@ impl CustomScan for JoinScan {
             // JoinScan requires a LIMIT clause. This restriction exists because we gain a
             // significant benefit from using the column store when it enables late-materialization
             // of heap tuples _after_ the join has run.
-            let limit = if (*root).limit_tuples > -1.0 {
-                Some((*root).limit_tuples as usize)
-            } else {
-                if is_interesting {
-                    Self::add_planner_warning(
-                        "JoinScan not used: query must have a LIMIT clause",
-                        (),
-                    );
+            let limit = match extract_limit(root) {
+                Some(l) => Some(l),
+                None => {
+                    if is_interesting {
+                        Self::add_planner_warning(
+                            "JoinScan not used: query must have a LIMIT clause",
+                            (),
+                        );
+                    }
+                    return Vec::new();
                 }
-                return Vec::new();
             };
+
             let join_conditions = extract_join_conditions(extra, &all_sources);
 
             // Require equi-join keys for JoinScan.
@@ -403,6 +422,18 @@ impl CustomScan for JoinScan {
                 if is_interesting {
                     Self::add_planner_warning(
                         "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
+                        &aliases,
+                    );
+                }
+                return Vec::new();
+            }
+
+            // Detect DISTINCT and validate columns are fast fields
+            let has_distinct = !(*(*root).parse).distinctClause.is_null();
+            if has_distinct && !distinct_columns_are_fast_fields(root, &all_sources) {
+                if is_interesting {
+                    Self::add_planner_warning(
+                        "JoinScan not used: all DISTINCT columns must be fast fields in the BM25 index",
                         &aliases,
                     );
                 }
@@ -486,7 +517,9 @@ impl CustomScan for JoinScan {
                 return Vec::new();
             }
 
-            let mut join_clause = JoinCSClause::new(plan).with_limit(limit);
+            let mut join_clause = JoinCSClause::new(plan)
+                .with_limit(limit)
+                .with_distinct(has_distinct);
 
             // Determine ordering side index
             let ordering_idx = join_clause.ordering_side_index();
@@ -908,6 +941,10 @@ impl CustomScan for JoinScan {
 
         if let Some(limit) = join_clause.limit {
             explainer.add_text("Limit", limit.to_string());
+        }
+
+        if join_clause.has_distinct {
+            explainer.add_text("Distinct", "true");
         }
 
         if !join_clause.order_by.is_empty() {

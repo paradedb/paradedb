@@ -654,6 +654,44 @@ ORDER BY p.name
 (3 rows)
 
 -- =============================================================================
+-- TEST 16: DISTINCT with multiple OR conditions
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id,
+    p.name,
+    paradedb.score(p.id) as score
+FROM dist_products p
+JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE
+    s.country @@@ 'USA'
+    AND (
+        p.name @@@ 'Wireless'
+        OR
+        s.name @@@ 'Wireless'
+    )
+ORDER BY
+    score DESC
+LIMIT 10;
+ERROR:  Failed to create execution plan: SchemaError(FieldNotFound { field: Column { relation: Some(Bare { table: "p" }), name: "score" }, valid_fields: [Column { relation: None, name: "col_1" }, Column { relation: None, name: "col_2" }, Column { relation: None, name: "col_3" }, Column { relation: None, name: "ctid_1" }, Column { relation: None, name: "ctid_2" }] }, Some(""))
+SELECT DISTINCT
+    p.id,
+    p.name,
+    paradedb.score(p.id) as score
+FROM dist_products p
+JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE
+    s.country @@@ 'USA'
+    AND (
+        p.name @@@ 'Wireless'
+        OR
+        s.name @@@ 'Wireless'
+    )
+ORDER BY
+    score DESC
+LIMIT 10;
+ERROR:  Failed to create execution plan: SchemaError(FieldNotFound { field: Column { relation: Some(Bare { table: "p" }), name: "score" }, valid_fields: [Column { relation: None, name: "col_1" }, Column { relation: None, name: "col_2" }, Column { relation: None, name: "col_3" }, Column { relation: None, name: "ctid_1" }, Column { relation: None, name: "ctid_2" }] }, Some(""))
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS dist_products CASCADE;

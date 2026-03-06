@@ -401,6 +401,45 @@ ORDER BY p.name
     LIMIT 3;
 
 -- =============================================================================
+-- TEST 16: DISTINCT with multiple OR conditions
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id,
+    p.name,
+    paradedb.score(p.id) as score
+FROM dist_products p
+JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE
+    s.country @@@ 'USA'
+    AND (
+        p.name @@@ 'Wireless'
+        OR
+        s.name @@@ 'Wireless'
+    )
+ORDER BY
+    score DESC
+LIMIT 10;
+
+SELECT DISTINCT
+    p.id,
+    p.name,
+    paradedb.score(p.id) as score
+FROM dist_products p
+JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE
+    s.country @@@ 'USA'
+    AND (
+        p.name @@@ 'Wireless'
+        OR
+        s.name @@@ 'Wireless'
+    )
+ORDER BY
+    score DESC
+LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

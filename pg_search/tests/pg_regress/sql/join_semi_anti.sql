@@ -86,24 +86,10 @@ LIMIT 10;
 
 -- =====================================================================
 -- 3. Both Semi and Anti Join on the same table
+-- JoinScan does not handle this combination (requires RightSemi which
+-- is not supported with the current partition-left strategy), so we
+-- skip the EXPLAIN (the Postgres fallback plan contains unstable OIDs).
 -- =====================================================================
-EXPLAIN (COSTS OFF)
-SELECT id, category
-FROM table_a
-WHERE id IN (
-    SELECT a_id
-    FROM table_b
-    WHERE group_id IN ('group_1')
-)
-AND id NOT IN (
-    SELECT a_id
-    FROM table_b
-    WHERE group_id IN ('group_3', 'group_4')
-)
-AND id @@@ 'category:"target_category"'
-ORDER BY id ASC
-LIMIT 10;
-
 SELECT id, category
 FROM table_a
 WHERE id IN (

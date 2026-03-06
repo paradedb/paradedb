@@ -58,25 +58,26 @@ WHERE id IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: unsupported join type (type: RIGHTSEMI) (tables: table_a_1, table_b_0)
+WARNING:  JoinScan not used: SEMI/ANTI JOIN requires the left side to be the largest source (tables: table_a_1, table_b_0)
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=10.00..11.00 rows=10 width=40)
    ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=10 width=40)
-         Relation Tree: table_b UNIQUEOUTER table_a
-         Join Cond: table_a_1.id = table_b_0.a_id
+         Relation Tree: table_a UNIQUEINNER table_b
+         Join Cond: table_a_0.id = table_b_1.a_id
          Limit: 10
          Order By: table_a.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(a_id@1, id@1)], projection=[ctid_3@0, ctid_1@2, id@3]
-           :       ProjectionExec: expr=[ctid@0 as ctid_3, a_id@1 as a_id]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
+           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_1@0 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 -- =====================================================================
 -- 2. Anti Join Only
@@ -109,8 +110,10 @@ LIMIT 10;
 
 -- =====================================================================
 -- 3. Both Semi and Anti Join on the same table
+-- JoinScan does not handle this combination (requires RightSemi which
+-- is not supported with the current partition-left strategy), so we
+-- skip the EXPLAIN (the Postgres fallback plan contains unstable OIDs).
 -- =====================================================================
-EXPLAIN (COSTS OFF)
 SELECT id, category
 FROM table_a
 WHERE id IN (
@@ -126,44 +129,8 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: table_b UNIQUEOUTER (table_a ANTI table_b)
-         Join Cond: table_a_1.id = table_b_0.a_id, table_a_1.id = table_b_2.a_id
-         Limit: 10
-         Order By: table_a.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(a_id@1, id@1)], projection=[ctid_3@0, ctid_1@2, id@3]
-           :       ProjectionExec: expr=[ctid@0 as ctid_3, a_id@1 as a_id]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
-           :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
-           :         ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
-
-SELECT id, category
-FROM table_a
-WHERE id IN (
-    SELECT a_id
-    FROM table_b
-    WHERE group_id IN ('group_1')
-)
-AND id NOT IN (
-    SELECT a_id
-    FROM table_b
-    WHERE group_id IN ('group_3', 'group_4')
-)
-AND id @@@ 'category:"target_category"'
-ORDER BY id ASC
-LIMIT 10;
+WARNING:  JoinScan not used: unsupported join type (type: RIGHTSEMI) (tables: table_a_1, table_b_0, table_b_2)
+WARNING:  JoinScan not used: SEMI/ANTI JOIN currently supports only binary base-table joins (tables: table_a_0, table_a_1, table_b_0, table_b_1, table_b_2)
  id  |    category     
 -----+-----------------
   10 | target_category
@@ -189,28 +156,32 @@ AND id IN (SELECT a_id FROM table_b WHERE group_id IN ('group_2'))
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index (tables: table_a_0, table_a_1, table_b_0, table_b_1)
+WARNING:  JoinScan not used: unsupported join type (type: RIGHTSEMI) (tables: table_a_1, table_b_0, table_b_2)
+WARNING:  JoinScan not used: SEMI/ANTI JOIN currently supports only binary base-table joins (tables: table_a_0, table_a_1, table_b_0, table_b_1, table_b_2)
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: table_b UNIQUEOUTER (table_a SEMI table_b)
-         Join Cond: table_a_1.id = table_b_0.a_id, table_a_1.id = table_b_2.a_id
-         Limit: 10
-         Order By: table_a.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_4@0 as ctid_4, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(a_id@1, id@1)], projection=[ctid_4@0, ctid_1@2, id@3]
-           :       ProjectionExec: expr=[ctid@0 as ctid_4, a_id@1 as a_id]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
-           :         ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_2","is_datetime":false}}
-(19 rows)
+   ->  Sort
+         Sort Key: table_a.id
+         ->  Nested Loop Semi Join
+               ->  Hash Semi Join
+                     Hash Cond: (table_a.id = table_b.a_id)
+                     ->  Custom Scan (ParadeDB Scan) on table_a
+                           Table: table_a
+                           Index: table_a_idx
+                           Exec Method: MixedFastFieldExecState
+                           Fast Fields: category, id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+                     ->  Hash
+                           ->  Bitmap Heap Scan on table_b
+                                 Recheck Cond: ((group_id)::text = 'group_1'::text)
+                                 ->  Bitmap Index Scan on table_b_group_id_a_id_idx
+                                       Index Cond: ((group_id)::text = 'group_1'::text)
+               ->  Index Only Scan using table_b_group_id_a_id_idx on table_b table_b_1
+                     Index Cond: ((group_id = 'group_2'::text) AND (a_id = table_a.id))
+(20 rows)
 
 SELECT id, category
 FROM table_a
@@ -219,6 +190,9 @@ AND id IN (SELECT a_id FROM table_b WHERE group_id IN ('group_2'))
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
+WARNING:  JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index (tables: table_a_0, table_a_1, table_b_0, table_b_1)
+WARNING:  JoinScan not used: unsupported join type (type: RIGHTSEMI) (tables: table_a_1, table_b_0, table_b_2)
+WARNING:  JoinScan not used: SEMI/ANTI JOIN currently supports only binary base-table joins (tables: table_a_0, table_a_1, table_b_0, table_b_1, table_b_2)
  id | category 
 ----+----------
 (0 rows)

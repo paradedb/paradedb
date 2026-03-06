@@ -526,12 +526,13 @@ impl CustomScan for JoinScan {
             // leftmost leaf (index 0 in DFS order). RightSemi/RightAnti are normalized to
             // Semi/Anti above by swapping children, so the same constraint applies.
             // We currently enforce binary base-table joins only for semi-like types.
+            // UNIQUE_OUTER/INNER are not semi-like: they are inner joins with
+            // deduplication (see nodes.h: "temporary proxies for what will eventually
+            // be an INNER join"). Both sides' columns are preserved, so the
+            // partitioning constraint doesn't apply.
             let is_semi_like = matches!(
                 jointype,
-                pg_sys::JoinType::JOIN_SEMI
-                    | pg_sys::JoinType::JOIN_ANTI
-                    | pg_sys::JoinType::JOIN_UNIQUE_OUTER
-                    | pg_sys::JoinType::JOIN_UNIQUE_INNER
+                pg_sys::JoinType::JOIN_SEMI | pg_sys::JoinType::JOIN_ANTI
             ) || {
                 #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
                 {
@@ -552,16 +553,6 @@ impl CustomScan for JoinScan {
                 }
             };
             if is_semi_like {
-                if current_sources.len() > 2 {
-                    if is_interesting {
-                        Self::add_planner_warning(
-                            "JoinScan not used: SEMI/ANTI JOIN currently supports only binary base-table joins",
-                            &aliases,
-                        );
-                    }
-                    return Vec::new();
-                }
-
                 let partitioning_idx = join_clause.partitioning_source_index();
                 if partitioning_idx != 0 {
                     if is_interesting {

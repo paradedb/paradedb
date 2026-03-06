@@ -86,9 +86,6 @@ LIMIT 10;
 
 -- =====================================================================
 -- 3. Both Semi and Anti Join on the same table
--- JoinScan does not handle this combination (requires RightSemi which
--- is not supported with the current partition-left strategy), so we
--- skip the EXPLAIN (the Postgres fallback plan contains unstable OIDs).
 -- =====================================================================
 SELECT id, category
 FROM table_a

@@ -126,7 +126,7 @@ FROM mem_test_products p
 JOIN mem_test_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 LIMIT 100;
-WARNING:  JoinScan not used: query must have a LIMIT clause
+WARNING:  JoinScan not used: queries with aggregate functions are not supported
  match_count 
 -------------
          166
@@ -184,7 +184,7 @@ FROM large_items li
 JOIN large_categories lc ON li.category_id = lc.id
 WHERE li.content @@@ 'wireless'
 LIMIT 500;
-WARNING:  JoinScan not used: query must have a LIMIT clause
+WARNING:  JoinScan not used: queries with aggregate functions are not supported
  wireless_count 
 ----------------
             200
@@ -455,7 +455,7 @@ SELECT COUNT(*) AS wireless_count
 FROM hint_test_products hp
 JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless';
-WARNING:  JoinScan not used: query must have a LIMIT clause
+WARNING:  JoinScan not used: queries with aggregate functions are not supported
  wireless_count 
 ----------------
              66

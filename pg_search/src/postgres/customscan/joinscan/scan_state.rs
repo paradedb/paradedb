@@ -612,7 +612,11 @@ fn build_source_df<'a>(
         // Use the unique execution alias as the registration name to avoid
         // collisions when the same table appears multiple times (e.g. contact_list
         // in both IN and NOT IN subqueries).
-        let alias = source.scan_info.execution_alias(source_idx);
+        // Use `reg_name` (not `alias`) because the CTID branch below creates a
+        // local `let alias = ...` for the ctid alias. If this outer binding were
+        // also called `alias`, the inner one would shadow it, causing subsequent
+        // `make_col` calls to use the wrong table name (e.g. "ctid_2" instead of "s_0").
+        let reg_name = source.scan_info.execution_alias(source_idx);
         let fields: Vec<WhichFastField> = source
             .scan_info
             .fields
@@ -643,9 +647,9 @@ fn build_source_df<'a>(
         provider.try_enable_late_materialization(&required_early);
 
         let provider = Arc::new(provider);
-        ctx.register_table(&alias, provider)?;
+        ctx.register_table(&reg_name, provider)?;
 
-        let mut df = ctx.table(&alias).await?;
+        let mut df = ctx.table(&reg_name).await?;
 
         // Select fields and ensure CTID is aliased uniquely.
         let mut exprs = Vec::new();
@@ -653,11 +657,11 @@ fn build_source_df<'a>(
             let name = df_field.name();
             let expr = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
-                    let ctid_name = format!("ctid_{}", scan_info.heap_rti);
-                    make_col(&alias, &ctid_name)
+                    let alias = format!("ctid_{}", scan_info.heap_rti);
+                    make_col(&reg_name, name).alias(&alias)
                 }
-                Some(WhichFastField::Score) => make_col(&alias, name).alias(SCORE_COL_NAME),
-                _ => make_col(&alias, name),
+                Some(WhichFastField::Score) => make_col(&reg_name, name).alias(SCORE_COL_NAME),
+                _ => make_col(&reg_name, name),
             };
             exprs.push(expr);
         }

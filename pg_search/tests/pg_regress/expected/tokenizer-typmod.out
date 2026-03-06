@@ -186,8 +186,8 @@ SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=arabic')::text[];
 (1 row)
 
 SELECT 'Novinka počasí funguje.'::pdb.simple('stemmer=czech')::text[];
-          text          
-------------------------
+         text          
+-----------------------
  {novink,počas,funguj}
 (1 row)
 

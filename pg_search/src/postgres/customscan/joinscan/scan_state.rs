@@ -483,8 +483,8 @@ fn build_clause_df<'a>(
                 }
 
                 let agg_exprs: Vec<Expr> = ctid_map
-                    .iter()
-                    .map(|(_rti, expr)| {
+                    .values()
+                    .map(|expr| {
                         let ctid_name = match expr {
                             Expr::Column(col) => col.name.clone(),
                             _ => unreachable!("ctid_map always contains Column expressions"),

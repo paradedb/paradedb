@@ -158,12 +158,13 @@ unsafe fn get_type_info(type_oid: pg_sys::Oid) -> (i16, bool) {
 /// 3. Reconstructing physical join paths (`JoinPath`) by gathering the source base relations and
 ///    equi-join conditions.
 ///
-/// Returns an intermediate `RelNode` tree capturing the execution plan structure, as well as a list
-/// of all extracted equi-join keys.
+/// Returns an intermediate `RelNode` tree capturing the execution plan structure.
+/// All equi-join keys are stored within the tree's `JoinNode::equi_keys` fields
+/// and can be retrieved via `RelNode::join_keys()`.
 pub(super) unsafe fn collect_join_sources(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
-) -> Option<(RelNode, Vec<JoinKeyPair>)> {
+) -> Option<RelNode> {
     if rel.is_null() {
         return None;
     }
@@ -194,7 +195,7 @@ unsafe fn collect_join_sources_base_rel(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
     rti: pg_sys::Index,
-) -> Option<(RelNode, Vec<JoinKeyPair>)> {
+) -> Option<RelNode> {
     let rtable = (*(*root).parse).rtable;
     if rtable.is_null() {
         return None;
@@ -282,7 +283,6 @@ unsafe fn collect_join_sources_base_rel(
     let source = JoinSource::try_from(side_info).ok()?;
 
     let mut current_node = RelNode::Scan(Box::new(source));
-    let mut all_keys = Vec::new();
 
     // Use the outer query's simple_rel_array_size as a base offset for inner RTIs.
     // Each extracted subquery gets a larger offset to avoid collisions between
@@ -298,20 +298,12 @@ unsafe fn collect_join_sources_base_rel(
             continue; // Can't resolve inner relation, maybe log or skip
         }
 
-        let Some((mut inner_node, inner_keys)) = collect_join_sources(inner_root, inner_rel) else {
+        let Some(mut inner_node) = collect_join_sources(inner_root, inner_rel) else {
             continue;
         };
 
         let inner_rti_count = (*inner_root).simple_rel_array_size as pg_sys::Index;
         inner_node.remap_rtis(rti_offset_base);
-
-        // Also remap the inner keys
-        let mut remapped_inner_keys = inner_keys;
-        for key in &mut remapped_inner_keys {
-            key.outer_rti += rti_offset_base;
-            key.inner_rti += rti_offset_base;
-        }
-        all_keys.extend(remapped_inner_keys);
 
         let equi_keys =
             extract_equi_keys_from_subplan(subplan, &current_node, &inner_node, inner_root);
@@ -324,18 +316,17 @@ unsafe fn collect_join_sources_base_rel(
             },
             left: current_node,
             right: inner_node,
-            equi_keys: equi_keys.clone(),
+            equi_keys,
             filter: None,
         };
 
-        all_keys.extend(equi_keys);
         current_node = RelNode::Join(Box::new(join_node));
 
         // Advance the offset for the next subquery
         rti_offset_base += inner_rti_count;
     }
 
-    Some((current_node, all_keys))
+    Some(current_node)
 }
 
 /// Recursively reconstructs the intermediate relational tree from standard PostgreSQL join paths.
@@ -343,7 +334,7 @@ unsafe fn collect_join_sources_base_rel(
 unsafe fn collect_join_sources_join_rel(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
-) -> Option<(RelNode, Vec<JoinKeyPair>)> {
+) -> Option<RelNode> {
     // We only inspect the cheapest path chosen by PostgreSQL.
     let path = (*rel).cheapest_total_path;
     if path.is_null() {
@@ -363,9 +354,7 @@ unsafe fn collect_join_sources_join_rel(
                 if !private_list.is_empty() {
                     let private_data = PrivateData::from((*custom_path).custom_private);
                     // Return the plan from the existing JoinScan
-                    let plan = private_data.join_clause.plan.clone();
-                    let join_keys = plan.join_keys();
-                    return Some((plan, join_keys));
+                    return Some(private_data.join_clause.plan.clone());
                 }
             }
         }
@@ -381,9 +370,8 @@ unsafe fn collect_join_sources_join_rel(
         let outer_rel = (*outer_path).parent;
         let inner_rel = (*inner_path).parent;
 
-        let (outer_node, mut keys) = collect_join_sources(root, outer_rel)?;
-        let (inner_node, inner_keys) = collect_join_sources(root, inner_rel)?;
-        keys.extend(inner_keys);
+        let outer_node = collect_join_sources(root, outer_rel)?;
+        let inner_node = collect_join_sources(root, inner_rel)?;
 
         let mut all_sources = outer_node.sources();
         all_sources.extend(inner_node.sources());
@@ -441,13 +429,11 @@ unsafe fn collect_join_sources_join_rel(
             join_type: parsed_jointype,
             left: outer_node,
             right: inner_node,
-            equi_keys: join_conditions.equi_keys.clone(),
+            equi_keys: join_conditions.equi_keys,
             filter: None,
         };
 
-        keys.extend(join_conditions.equi_keys);
-
-        return Some((RelNode::Join(Box::new(join_node)), keys));
+        return Some(RelNode::Join(Box::new(join_node)));
     }
 
     None

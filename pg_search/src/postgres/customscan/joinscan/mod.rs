@@ -324,19 +324,16 @@ impl CustomScan for JoinScan {
             let innerrel = args.innerrel;
             let extra = args.extra;
 
-            let (outer_node, mut join_keys) =
-                if let Some(res) = collect_join_sources(root, outerrel) {
-                    res
-                } else {
-                    return Vec::new();
-                };
-            let (inner_node, inner_keys) = if let Some(res) = collect_join_sources(root, innerrel) {
+            let outer_node = if let Some(res) = collect_join_sources(root, outerrel) {
                 res
             } else {
                 return Vec::new();
             };
-
-            join_keys.extend(inner_keys);
+            let inner_node = if let Some(res) = collect_join_sources(root, innerrel) {
+                res
+            } else {
+                return Vec::new();
+            };
 
             let mut all_sources = outer_node.sources();
             all_sources.extend(inner_node.sources());
@@ -451,9 +448,6 @@ impl CustomScan for JoinScan {
                     _ => return Vec::new(), // Should not happen if extraction logic is correct
                 }
             }
-
-            // Add current level keys
-            join_keys.extend(join_conditions.equi_keys.clone());
 
             let parsed_jointype = match build::JoinType::try_from(jointype) {
                 Ok(jt) => jt,

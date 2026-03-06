@@ -39,7 +39,9 @@
 //! 2.  **Left Outer Joins** (where the Left/Outer table is partitioned)
 //! 3.  **Semi Joins** (where the Left table is partitioned): `JOIN_SEMI`
 //! 4.  **Anti Joins** (where the Left table is partitioned): `JOIN_ANTI`
-//! 5.  **UniqueOuter/UniqueInner** (mapped to LeftSemi, same constraint as Semi):
+//! 5.  **RightSemi/RightAnti** (normalized to Semi/Anti by swapping children):
+//!     `JOIN_RIGHT_SEMI`, `JOIN_RIGHT_ANTI`
+//! 6.  **UniqueOuter/UniqueInner** (mapped to LeftSemi, same constraint as Semi):
 //!     `JOIN_UNIQUE_OUTER`, `JOIN_UNIQUE_INNER`
 //!
 //! It is **INCORRECT** and will produce duplicate or wrong results for:

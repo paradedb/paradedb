@@ -364,17 +364,17 @@ impl CustomScan for JoinScan {
                 return Vec::new();
             }
 
-            // TODO(join-types): Currently INNER, SEMI, ANTI, UNIQUEOUTER, and
-            // UNIQUEINNER joins are supported. Future work should add:
+            // TODO(join-types): Currently INNER, SEMI, ANTI, RIGHTSEMI, RIGHTANTI,
+            // UNIQUEOUTER, and UNIQUEINNER joins are supported. RightSemi/RightAnti are
+            // normalized to Semi/Anti by swapping children above. Future work should add:
             // - LEFT JOIN: Return NULL for non-matching non-ordering rows; track matched ordering rows
             // - RIGHT JOIN: Swap ordering/non-ordering sides, then use LEFT logic
             // - FULL OUTER JOIN: Track unmatched rows on both sides; two-pass or marking approach
-            // - RIGHT SEMI: Requires right-side partitioning (current strategy partitions left)
             //
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
             // The current "Partition Outer / Replicate Inner" strategy is incorrect for
-            // Right/Full/RightSemi joins.
+            // Right/Full joins.
 
             // JoinScan requires a LIMIT clause. This restriction exists because we gain a
             // significant benefit from using the column store when it enables late-materialization
@@ -457,10 +457,18 @@ impl CustomScan for JoinScan {
                 }
             };
 
+            // Normalize RightSemi/RightAnti → Semi/Anti by swapping children.
+            // RightSemi(A, B) = Semi(B, A): "return each B row once if matched in A".
+            let (left, right, normalized_jointype) = match parsed_jointype {
+                build::JoinType::RightSemi => (inner_node, outer_node, build::JoinType::Semi),
+                build::JoinType::RightAnti => (inner_node, outer_node, build::JoinType::Anti),
+                _ => (outer_node, inner_node, parsed_jointype),
+            };
+
             let plan = RelNode::Join(Box::new(build::JoinNode {
-                join_type: parsed_jointype,
-                left: outer_node,
-                right: inner_node,
+                join_type: normalized_jointype,
+                left,
+                right,
                 equi_keys: join_conditions.equi_keys,
                 filter: None,
             }));
@@ -514,16 +522,35 @@ impl CustomScan for JoinScan {
             let current_sources = join_clause.plan.sources();
 
             // The current parallel strategy partitions exactly one source and replicates all
-            // others. For SEMI/ANTI JOIN correctness, the partitioned source must be the left
-            // side. UNIQUE_OUTER/INNER are mapped to LeftSemi at execution time, so they have
-            // the same constraint. We currently enforce binary base-table joins only.
+            // others. For SEMI/ANTI JOIN correctness, the partitioned source must be the
+            // leftmost leaf (index 0 in DFS order). RightSemi/RightAnti are normalized to
+            // Semi/Anti above by swapping children, so the same constraint applies.
+            // We currently enforce binary base-table joins only for semi-like types.
             let is_semi_like = matches!(
                 jointype,
                 pg_sys::JoinType::JOIN_SEMI
                     | pg_sys::JoinType::JOIN_ANTI
                     | pg_sys::JoinType::JOIN_UNIQUE_OUTER
                     | pg_sys::JoinType::JOIN_UNIQUE_INNER
-            );
+            ) || {
+                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+                {
+                    jointype == pg_sys::JoinType::JOIN_RIGHT_ANTI
+                }
+                #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+                {
+                    false
+                }
+            } || {
+                #[cfg(feature = "pg18")]
+                {
+                    jointype == pg_sys::JoinType::JOIN_RIGHT_SEMI
+                }
+                #[cfg(not(feature = "pg18"))]
+                {
+                    false
+                }
+            };
             if is_semi_like {
                 if current_sources.len() > 2 {
                     if is_interesting {

@@ -58,7 +58,6 @@ WHERE id IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: unsupported join type (type: RIGHTSEMI) (tables: table_a_1, table_b_0)
 WARNING:  JoinScan not used: SEMI/ANTI JOIN requires the left side to be the largest source (tables: table_a_1, table_b_0)
                                                                                                QUERY PLAN                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -129,7 +128,6 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: unsupported join type (type: RIGHTSEMI) (tables: table_a_1, table_b_0, table_b_2)
 WARNING:  JoinScan not used: SEMI/ANTI JOIN currently supports only binary base-table joins (tables: table_a_0, table_a_1, table_b_0, table_b_1, table_b_2)
  id  |    category     
 -----+-----------------
@@ -157,7 +155,6 @@ AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
 WARNING:  JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index (tables: table_a_0, table_a_1, table_b_0, table_b_1)
-WARNING:  JoinScan not used: unsupported join type (type: RIGHTSEMI) (tables: table_a_1, table_b_0, table_b_2)
 WARNING:  JoinScan not used: SEMI/ANTI JOIN currently supports only binary base-table joins (tables: table_a_0, table_a_1, table_b_0, table_b_1, table_b_2)
                                                                                          QUERY PLAN                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -191,7 +188,6 @@ AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
 WARNING:  JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index (tables: table_a_0, table_a_1, table_b_0, table_b_1)
-WARNING:  JoinScan not used: unsupported join type (type: RIGHTSEMI) (tables: table_a_1, table_b_0, table_b_2)
 WARNING:  JoinScan not used: SEMI/ANTI JOIN currently supports only binary base-table joins (tables: table_a_0, table_a_1, table_b_0, table_b_1, table_b_2)
  id | category 
 ----+----------

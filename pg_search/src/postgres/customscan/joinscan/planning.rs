@@ -159,8 +159,6 @@ unsafe fn get_type_info(type_oid: pg_sys::Oid) -> (i16, bool) {
 ///    equi-join conditions.
 ///
 /// Returns an intermediate `RelNode` tree capturing the execution plan structure.
-/// All equi-join keys are stored within the tree's `JoinNode::equi_keys` fields
-/// and can be retrieved via `RelNode::join_keys()`.
 pub(super) unsafe fn collect_join_sources(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
@@ -425,10 +423,26 @@ unsafe fn collect_join_sources_join_rel(
             }
         }
 
+        // Normalize RightSemi/RightAnti → Semi/Anti by swapping children.
+        // RightSemi(A, B) = Semi(B, A): "return each B row once if matched in A".
+        let (left, right, normalized_jointype) = match parsed_jointype {
+            crate::postgres::customscan::joinscan::build::JoinType::RightSemi => (
+                inner_node,
+                outer_node,
+                crate::postgres::customscan::joinscan::build::JoinType::Semi,
+            ),
+            crate::postgres::customscan::joinscan::build::JoinType::RightAnti => (
+                inner_node,
+                outer_node,
+                crate::postgres::customscan::joinscan::build::JoinType::Anti,
+            ),
+            _ => (outer_node, inner_node, parsed_jointype),
+        };
+
         let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
-            join_type: parsed_jointype,
-            left: outer_node,
-            right: inner_node,
+            join_type: normalized_jointype,
+            left,
+            right,
             equi_keys: join_conditions.equi_keys,
             filter: None,
         };

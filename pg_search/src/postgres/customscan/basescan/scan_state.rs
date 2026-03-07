@@ -197,6 +197,7 @@ impl BaseScanState {
             segment_readers,
             query,
             with_aggregates,
+            non_partitioning_nsegments: vec![],
         }
     }
 

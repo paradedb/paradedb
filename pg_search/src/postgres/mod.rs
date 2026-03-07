@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::ops::Range;
 
-use crate::api::HashMap;
+use crate::api::{HashMap, HashSet};
 use crate::gucs;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::condition_variable::ConditionVariable;
@@ -166,6 +166,18 @@ struct ParallelScanPayloadLayout {
     deleted_docs: Range<usize>,
     max_docs: Range<usize>,
     claims: Range<usize>,
+    /// One `u32` per non-partitioning source: number of segments that source contributed.
+    /// `None` when there are no non-partitioning sources (non-join or serial scans).
+    non_partitioning_counts: Option<Range<usize>>,
+    /// Concatenated 16-byte segment UUIDs for all non-partitioning sources, in source order.
+    /// `None` when there are no non-partitioning segments.
+    non_partitioning_ids: Option<Range<usize>>,
+    /// One `u32` per non-partitioning segment: deleted document count, all sources concatenated.
+    /// `None` when there are no non-partitioning sources.
+    non_partitioning_deleted_docs: Option<Range<usize>>,
+    /// One `u32` per non-partitioning segment: max doc count, all sources concatenated.
+    /// `None` when there are no non-partitioning sources.
+    non_partitioning_max_docs: Option<Range<usize>>,
     aggregates_header: Option<Range<usize>>,
     aggregates_data: Option<Range<usize>>,
     /// The padded size of the layout.
@@ -177,6 +189,7 @@ impl ParallelScanPayloadLayout {
         nsegments: usize,
         serialized_query: &[u8],
         with_aggregates: bool,
+        non_partitioning_nsegments: &[usize],
     ) -> Result<Self, std::alloc::LayoutError> {
         // Query.
         let layout = Layout::from_size_align(serialized_query.len(), 1)?;
@@ -203,6 +216,51 @@ impl ParallelScanPayloadLayout {
         let (mut layout, claims_offset) = layout.extend(claims_layout)?;
         let claims_range = (claims_offset)..(claims_offset + claims_layout.size());
 
+        // Non-partitioning source segment data: counts, IDs, deleted_docs, and max_docs.
+        // Only present in parallel JoinScans with at least one non-partitioning source.
+        let (
+            non_partitioning_counts,
+            non_partitioning_ids,
+            non_partitioning_deleted_docs,
+            non_partitioning_max_docs,
+        ) = if !non_partitioning_nsegments.is_empty() {
+            let n_sources = non_partitioning_nsegments.len();
+            let total_np_segments: usize = non_partitioning_nsegments.iter().sum();
+
+            // One u32 per non-partitioning source storing its segment count.
+            let counts_layout = Layout::array::<u32>(n_sources)?;
+            let (l, counts_offset) = layout.extend(counts_layout)?;
+            layout = l;
+            let counts_range = counts_offset..(counts_offset + counts_layout.size());
+
+            // 16-byte UUID for each non-partitioning segment, all sources concatenated.
+            let np_ids_layout = Layout::from_size_align(total_np_segments * SEGMENT_ID_SIZE, 1)?;
+            let (l, np_ids_offset) = layout.extend(np_ids_layout)?;
+            layout = l;
+            let np_ids_range = np_ids_offset..(np_ids_offset + np_ids_layout.size());
+
+            // One u32 per non-partitioning segment: deleted document count, all sources concatenated.
+            let np_del_layout = Layout::array::<u32>(total_np_segments)?;
+            let (l, np_del_offset) = layout.extend(np_del_layout)?;
+            layout = l;
+            let np_del_range = np_del_offset..(np_del_offset + np_del_layout.size());
+
+            // One u32 per non-partitioning segment: max doc count, all sources concatenated.
+            let np_max_layout = Layout::array::<u32>(total_np_segments)?;
+            let (l, np_max_offset) = layout.extend(np_max_layout)?;
+            layout = l;
+            let np_max_range = np_max_offset..(np_max_offset + np_max_layout.size());
+
+            (
+                Some(counts_range),
+                Some(np_ids_range),
+                Some(np_del_range),
+                Some(np_max_range),
+            )
+        } else {
+            (None, None, None, None)
+        };
+
         let (aggregates_header, aggregates_data) = if with_aggregates {
             let (l, offset) = layout.extend(Layout::new::<AggregatesPayloadHeader>())?;
             layout = l;
@@ -225,6 +283,10 @@ impl ParallelScanPayloadLayout {
             deleted_docs: deleted_docs_range,
             max_docs: max_docs_range,
             claims: claims_range,
+            non_partitioning_counts,
+            non_partitioning_ids,
+            non_partitioning_deleted_docs,
+            non_partitioning_max_docs,
             aggregates_header,
             aggregates_data,
             // Finalize the layout by padding it to its overall alignment.
@@ -245,10 +307,21 @@ struct ParallelScanPayload {
 }
 
 impl ParallelScanPayload {
-    fn init(&mut self, segments: &[SegmentReader], query: &[u8], with_aggregates: bool) {
+    fn init(
+        &mut self,
+        segments: &[SegmentReader],
+        query: &[u8],
+        with_aggregates: bool,
+        non_partitioning_nsegments: &[usize],
+    ) {
         // Compute and assign our Layout: must match what we were allocated with.
-        self.layout = ParallelScanPayloadLayout::new(segments.len(), query, with_aggregates)
-            .expect("could not layout `ParallelScanPayload` for initialization");
+        self.layout = ParallelScanPayloadLayout::new(
+            segments.len(),
+            query,
+            with_aggregates,
+            non_partitioning_nsegments,
+        )
+        .expect("could not layout `ParallelScanPayload` for initialization");
 
         // Query.
         let query_range = self.layout.query.clone();
@@ -373,12 +446,163 @@ impl ParallelScanPayload {
         let range = self.layout.aggregates_data.clone()?;
         Some(&self.data()[range])
     }
+
+    /// Write canonical segment lists for non-partitioning sources into shared memory.
+    ///
+    /// Stores segment counts, UUIDs, deleted-doc counts, and max-doc counts for every
+    /// non-partitioning source.  `sources` must be in the same order as the
+    /// `non_partitioning_nsegments` slice passed to `ParallelScanPayloadLayout::new()` —
+    /// i.e., all join sources except the partitioning source, in ascending `plan.sources()`
+    /// index order.
+    fn init_non_partitioning(&mut self, sources: &[&[SegmentReader]]) {
+        let Some(counts_range) = self.layout.non_partitioning_counts.clone() else {
+            return;
+        };
+        let Some(ids_range) = self.layout.non_partitioning_ids.clone() else {
+            return;
+        };
+        let Some(del_range) = self.layout.non_partitioning_deleted_docs.clone() else {
+            return;
+        };
+        let Some(max_range) = self.layout.non_partitioning_max_docs.clone() else {
+            return;
+        };
+
+        // Write per-source segment counts.
+        let counts_slice: &mut [u32] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[counts_range]).unwrap();
+        for (source_readers, count_target) in sources.iter().zip(counts_slice.iter_mut()) {
+            *count_target = source_readers.len() as u32;
+        }
+
+        // Write all segment IDs concatenated (source 0 first, then source 1, …).
+        let ids_slice: &mut [[u8; SEGMENT_ID_SIZE]] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[ids_range]).unwrap();
+        let mut offset = 0;
+        for source_readers in sources.iter() {
+            for (reader, target) in source_readers.iter().zip(ids_slice[offset..].iter_mut()) {
+                let mut writer = &mut target[..];
+                writer
+                    .write_all(reader.segment_id().uuid_bytes())
+                    .expect("failed to write non-partitioning segment bytes");
+            }
+            offset += source_readers.len();
+        }
+
+        // Write deleted doc counts for all non-partitioning segments, concatenated.
+        let del_slice: &mut [u32] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[del_range]).unwrap();
+        let mut offset = 0;
+        for source_readers in sources.iter() {
+            for (reader, target) in source_readers.iter().zip(del_slice[offset..].iter_mut()) {
+                *target = reader.num_deleted_docs();
+            }
+            offset += source_readers.len();
+        }
+
+        // Write max doc counts for all non-partitioning segments, concatenated.
+        let max_slice: &mut [u32] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[max_range]).unwrap();
+        let mut offset = 0;
+        for source_readers in sources.iter() {
+            for (reader, target) in source_readers.iter().zip(max_slice[offset..].iter_mut()) {
+                *target = reader.max_doc();
+            }
+            offset += source_readers.len();
+        }
+    }
+
+    /// Read back the canonical segment ID sets for all non-partitioning sources.
+    ///
+    /// Returns one `HashSet<SegmentId>` per source, in the same order they were written
+    /// by `init_non_partitioning()`. Returns an empty `Vec` for non-join or serial scans.
+    fn non_partitioning_segment_ids(&self) -> Vec<HashSet<SegmentId>> {
+        let Some(counts_range) = self.layout.non_partitioning_counts.clone() else {
+            return vec![];
+        };
+        let Some(ids_range) = self.layout.non_partitioning_ids.clone() else {
+            return vec![];
+        };
+
+        let counts_slice: &[u32] = bytemuck::try_cast_slice(&self.data()[counts_range]).unwrap();
+        let ids_slice: &[[u8; SEGMENT_ID_SIZE]] =
+            bytemuck::try_cast_slice(&self.data()[ids_range]).unwrap();
+
+        let mut result = Vec::with_capacity(counts_slice.len());
+        let mut offset = 0;
+        for &count in counts_slice.iter() {
+            let count = count as usize;
+            let mut set = HashSet::default();
+            for id_bytes in &ids_slice[offset..offset + count] {
+                set.insert(SegmentId::from_bytes(*id_bytes));
+            }
+            offset += count;
+            result.push(set);
+        }
+        result
+    }
+
+    /// Read back deleted doc counts for all non-partitioning sources.
+    ///
+    /// Returns one `Vec<u32>` per source (one entry per segment), in the same order they
+    /// were written by `init_non_partitioning()`. Returns an empty `Vec` for non-join or
+    /// serial scans.
+    fn non_partitioning_deleted_docs(&self) -> Vec<Vec<u32>> {
+        let Some(counts_range) = self.layout.non_partitioning_counts.clone() else {
+            return vec![];
+        };
+        let Some(del_range) = self.layout.non_partitioning_deleted_docs.clone() else {
+            return vec![];
+        };
+
+        let counts_slice: &[u32] = bytemuck::try_cast_slice(&self.data()[counts_range]).unwrap();
+        let del_slice: &[u32] = bytemuck::try_cast_slice(&self.data()[del_range]).unwrap();
+
+        let mut result = Vec::with_capacity(counts_slice.len());
+        let mut offset = 0;
+        for &count in counts_slice.iter() {
+            let count = count as usize;
+            result.push(del_slice[offset..offset + count].to_vec());
+            offset += count;
+        }
+        result
+    }
+
+    /// Read back max doc counts for all non-partitioning sources.
+    ///
+    /// Returns one `Vec<u32>` per source (one entry per segment), in the same order they
+    /// were written by `init_non_partitioning()`. Returns an empty `Vec` for non-join or
+    /// serial scans.
+    fn non_partitioning_max_docs(&self) -> Vec<Vec<u32>> {
+        let Some(counts_range) = self.layout.non_partitioning_counts.clone() else {
+            return vec![];
+        };
+        let Some(max_range) = self.layout.non_partitioning_max_docs.clone() else {
+            return vec![];
+        };
+
+        let counts_slice: &[u32] = bytemuck::try_cast_slice(&self.data()[counts_range]).unwrap();
+        let max_slice: &[u32] = bytemuck::try_cast_slice(&self.data()[max_range]).unwrap();
+
+        let mut result = Vec::with_capacity(counts_slice.len());
+        let mut offset = 0;
+        for &count in counts_slice.iter() {
+            let count = count as usize;
+            result.push(max_slice[offset..offset + count].to_vec());
+            offset += count;
+        }
+        result
+    }
 }
 
 pub struct ParallelScanArgs<'a> {
     segment_readers: &'a [SegmentReader],
     query: Vec<u8>,
     with_aggregates: bool,
+    /// Segment counts for each non-partitioning source, in the same order the
+    /// sources appear in `join_clause.plan.sources()` (partitioning source excluded).
+    /// Empty for non-join scans or serial scans.
+    non_partitioning_nsegments: Vec<usize>,
 }
 
 // We do not know ahead of time how many workers there will be, so we preallocate fixed size
@@ -434,10 +658,19 @@ pub struct ParallelScanState {
 }
 
 impl ParallelScanState {
-    fn size_of(nsegments: usize, serialized_query: &[u8], with_aggregates: bool) -> usize {
-        let dynamic_layout =
-            ParallelScanPayloadLayout::new(nsegments, serialized_query, with_aggregates)
-                .expect("could not layout `ParallelScanPayload` for allocation");
+    fn size_of(
+        nsegments: usize,
+        serialized_query: &[u8],
+        with_aggregates: bool,
+        non_partitioning_nsegments: &[usize],
+    ) -> usize {
+        let dynamic_layout = ParallelScanPayloadLayout::new(
+            nsegments,
+            serialized_query,
+            with_aggregates,
+            non_partitioning_nsegments,
+        )
+        .expect("could not layout `ParallelScanPayload` for allocation");
         std::mem::size_of::<Self>() + dynamic_layout.total.size()
     }
 
@@ -447,7 +680,12 @@ impl ParallelScanState {
         self.mutex.init();
         self.aggregation_cv.init();
         self.init_cv.init();
-        self.populate(args.segment_readers, &args.query, args.with_aggregates);
+        self.populate(
+            args.segment_readers,
+            &args.query,
+            args.with_aggregates,
+            &args.non_partitioning_nsegments,
+        );
     }
 
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
@@ -455,8 +693,15 @@ impl ParallelScanState {
     ///
     /// Caller must hold the mutex. After populating, broadcasts to wake any workers
     /// waiting in `wait_for_initialization()`.
-    fn populate(&mut self, segments: &[SegmentReader], query: &[u8], with_aggregates: bool) {
-        self.payload.init(segments, query, with_aggregates);
+    fn populate(
+        &mut self,
+        segments: &[SegmentReader],
+        query: &[u8],
+        with_aggregates: bool,
+        non_partitioning_nsegments: &[usize],
+    ) {
+        self.payload
+            .init(segments, query, with_aggregates, non_partitioning_nsegments);
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
         self.remaining_segments = segments.len();
         // Set nsegments LAST - this signals initialization is complete
@@ -464,6 +709,41 @@ impl ParallelScanState {
 
         // Wake up any workers waiting in `wait_for_initialization()`.
         self.init_cv.broadcast();
+    }
+
+    /// Write canonical segment IDs for all non-partitioning sources into shared memory.
+    ///
+    /// Must be called AFTER `create_and_populate()` has already set up the layout with the
+    /// correct `non_partitioning_nsegments` values.  `sources` must be in the same order as
+    /// the planning-time non-partitioning source list (ascending `plan.sources()` index,
+    /// partitioning source excluded).
+    pub fn populate_non_partitioning(&mut self, sources: &[&[SegmentReader]]) {
+        self.payload.init_non_partitioning(sources);
+    }
+
+    /// Return the canonical segment ID sets for all non-partitioning sources.
+    ///
+    /// Workers call this after `wait_for_initialization()` to obtain the frozen set of
+    /// segments that the leader snapshotted for each replicated source.  Returns an empty
+    /// `Vec` for non-join or serial scans.
+    pub fn non_partitioning_segment_ids(&self) -> Vec<HashSet<SegmentId>> {
+        self.payload.non_partitioning_segment_ids()
+    }
+
+    /// Return deleted doc counts for all non-partitioning sources.
+    ///
+    /// Returns one `Vec<u32>` per source (one entry per segment).  Returns an empty `Vec`
+    /// for non-join or serial scans.
+    pub fn non_partitioning_deleted_docs(&self) -> Vec<Vec<u32>> {
+        self.payload.non_partitioning_deleted_docs()
+    }
+
+    /// Return max doc counts for all non-partitioning sources.
+    ///
+    /// Returns one `Vec<u32>` per source (one entry per segment).  Returns an empty `Vec`
+    /// for non-join or serial scans.
+    pub fn non_partitioning_max_docs(&self) -> Vec<Vec<u32>> {
+        self.payload.non_partitioning_max_docs()
     }
 
     /// Phase 1: Create the mutex but mark state as uninitialized.

@@ -38,6 +38,7 @@ impl ParallelQueryCapable for BaseScan {
             args.segment_readers.len(),
             &args.query,
             args.with_aggregates,
+            &[],
         )
     }
 

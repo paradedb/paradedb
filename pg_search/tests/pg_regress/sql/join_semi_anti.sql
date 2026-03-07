@@ -1,4 +1,5 @@
 -- Tests for Semi and Anti Joins with Join Custom Scan
+SET client_min_messages TO warning;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
 DROP TABLE IF EXISTS table_a CASCADE;
@@ -51,6 +52,7 @@ WITH (
 );
 
 -- Query execution
+RESET client_min_messages;
 SET paradedb.enable_join_custom_scan TO on;
 
 -- =====================================================================

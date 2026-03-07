@@ -653,6 +653,11 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
+    /// When true, force partitioning at index 0 (leftmost source) instead of
+    /// the largest source. Required for SEMI/ANTI join correctness where
+    /// the left (preserved) side must be partitioned.
+    #[serde(default)]
+    pub semi_partitioning: bool,
 }
 
 impl JoinCSClause {
@@ -664,6 +669,7 @@ impl JoinCSClause {
             multi_table_predicates: Vec::new(),
             order_by: Vec::new(),
             output_projection: None,
+            semi_partitioning: false,
         }
     }
 
@@ -747,19 +753,31 @@ impl JoinCSClause {
     }
 
     /// Returns the source that should be partitioned for parallel execution.
-    /// This is the source with the largest row estimate.
+    /// For semi-like joins, this is always the leftmost source (index 0).
+    /// Otherwise, it's the source with the largest row estimate.
     pub fn partitioning_source(&self) -> JoinSource {
         let sources = self.plan.sources();
-        sources
-            .into_iter()
-            .max_by(|a, b| a.scan_info.estimate.cmp(&b.scan_info.estimate))
-            .cloned()
-            .expect("JoinScan requires at least one source")
+        if self.semi_partitioning {
+            sources
+                .into_iter()
+                .next()
+                .cloned()
+                .expect("JoinScan requires at least one source")
+        } else {
+            sources
+                .into_iter()
+                .max_by(|a, b| a.scan_info.estimate.cmp(&b.scan_info.estimate))
+                .cloned()
+                .expect("JoinScan requires at least one source")
+        }
     }
 
     /// Returns the index of the source that should be partitioned for parallel execution.
-    /// This is the source with the largest row estimate.
+    /// For semi-like joins, returns 0 (leftmost). Otherwise, the largest source index.
     pub fn partitioning_source_index(&self) -> usize {
+        if self.semi_partitioning {
+            return 0;
+        }
         let sources = self.plan.sources();
         sources
             .iter()

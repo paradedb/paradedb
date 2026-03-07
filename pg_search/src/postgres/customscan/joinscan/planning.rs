@@ -424,10 +424,10 @@ unsafe fn collect_join_sources_join_rel(
         }
 
         // Normalize join types that need child swapping.
-        // - RightSemi(A, B) = Semi(B, A)
-        // - RightAnti(A, B) = Anti(B, A)
-        // - UniqueOuter(L, R) → Semi(R, L): L is deduplicated for semi-join with R
-        // - UniqueInner(L, R) → Semi(L, R): R is deduplicated for semi-join with L
+        // - RightSemi(A, B) = Semi(B, A): swap children
+        // - RightAnti(A, B) = Anti(B, A): swap children
+        // - UniqueOuter: PG swaps outer/inner before hook, so swap back
+        // - UniqueInner: no swap needed
         let (left, right, normalized_jointype) = match parsed_jointype {
             crate::postgres::customscan::joinscan::build::JoinType::RightSemi
             | crate::postgres::customscan::joinscan::build::JoinType::UniqueOuter => (

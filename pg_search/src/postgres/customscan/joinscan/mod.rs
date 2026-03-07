@@ -458,10 +458,12 @@ impl CustomScan for JoinScan {
             };
 
             // Normalize join types that need child swapping.
-            // - RightSemi(A, B) = Semi(B, A): "return each B row once if matched in A"
-            // - RightAnti(A, B) = Anti(B, A): "return each B row that has no match in A"
-            // - UniqueOuter(L, R): L is deduplicated for semi-join with R → Semi(R, L)
-            // - UniqueInner(L, R): R is deduplicated for semi-join with L → Semi(L, R)
+            // - RightSemi(A, B) = Semi(B, A): swap children for left-to-right convention
+            // - RightAnti(A, B) = Anti(B, A): swap children for left-to-right convention
+            // - UniqueOuter: PostgreSQL swaps outer/inner before calling the hook for
+            //   UNIQUE_OUTER, so we swap back. Semi(inner, outer) restores the original
+            //   Semi(preserved_side, subquery_side) order.
+            // - UniqueInner: no swap needed; hook receives (preserved, subquery) directly.
             let (left, right, normalized_jointype) = match parsed_jointype {
                 build::JoinType::RightSemi | build::JoinType::UniqueOuter => {
                     (inner_node, outer_node, build::JoinType::Semi)
@@ -531,10 +533,12 @@ impl CustomScan for JoinScan {
             // others. For SEMI/ANTI JOIN correctness, the partitioned source must be the
             // leftmost leaf (index 0 in DFS order). RightSemi/RightAnti are normalized to
             // Semi/Anti above by swapping children, so the same constraint applies.
-            // We currently enforce binary base-table joins only for semi-like types.
             // UNIQUE_OUTER/INNER are normalized to Semi above (with child
             // swapping for UniqueOuter), so they have the same partitioning
             // constraint as Semi joins.
+            //
+            // When the largest source is not at index 0, we force partitioning at
+            // index 0 anyway (accepting a potential performance trade-off for correctness).
             let is_semi_like = matches!(
                 jointype,
                 pg_sys::JoinType::JOIN_SEMI
@@ -561,16 +565,7 @@ impl CustomScan for JoinScan {
                 }
             };
             if is_semi_like {
-                let partitioning_idx = join_clause.partitioning_source_index();
-                if partitioning_idx != 0 {
-                    if is_interesting {
-                        Self::add_planner_warning(
-                            "JoinScan not used: SEMI/ANTI JOIN requires the left side to be the largest source",
-                            &aliases,
-                        );
-                    }
-                    return Vec::new();
-                }
+                join_clause.semi_partitioning = true;
             }
 
             // Extract join-level predicates (search predicates and heap conditions)

@@ -142,13 +142,13 @@ impl PreFilter {
             .transform(|node| {
                 if let Some(binary) = node.as_any().downcast_ref::<BinaryExpr>() {
                     if let Some(rewritten) =
-                        try_rewrite_binary(binary, ffhelper, segment_ord, schema)
+                        try_rewrite_binary(binary, ffhelper, segment_ord, schema)?
                     {
                         return Ok(Transformed::yes(rewritten));
                     }
                 } else if let Some(in_list) = node.as_any().downcast_ref::<InListExpr>() {
                     if let Some(rewritten) =
-                        try_rewrite_in_list(in_list, ffhelper, segment_ord, schema)
+                        try_rewrite_in_list(in_list, ffhelper, segment_ord, schema)?
                     {
                         return Ok(Transformed::yes(rewritten));
                     }
@@ -201,11 +201,16 @@ impl PreFilter {
                     | datafusion::arrow::datatypes::DataType::Binary
                     | datafusion::arrow::datatypes::DataType::LargeBinary
                     | datafusion::arrow::datatypes::DataType::BinaryView
+                    | datafusion::arrow::datatypes::DataType::Dictionary(_, _)
+                    | datafusion::arrow::datatypes::DataType::Union(_, _)
             ) && array.data_type() != schema_type
             {
-                if let Ok(casted) = cast(&array, schema_type) {
-                    array = casted;
-                }
+                array = cast(&array, schema_type).map_err(|e| {
+                    format!(
+                        "Failed to cast Tantivy fast field from {:?} to DataFusion schema type {:?}: {}",
+                        array.data_type(), schema_type, e
+                    )
+                })?;
             }
             // Note: The schema of the array might differ from the global schema
             // (e.g. UInt64 ordinals instead of Utf8). DataFusion `Column` exprs just extract by name/index,
@@ -308,9 +313,9 @@ fn is_supported(
             }
         } else if node_any.downcast_ref::<IsNullExpr>().is_some()
             || node_any.downcast_ref::<NotExpr>().is_some()
+            || node_any.downcast_ref::<InListExpr>().is_some()
         {
             // Allowed
-        } else if node_any.downcast_ref::<InListExpr>().is_some() {
         } else if node_any.downcast_ref::<HashTableLookupExpr>().is_some() {
             // We only support HashTableLookupExpr for non-string columns.
             let mut is_numeric = true;
@@ -372,7 +377,7 @@ fn try_rewrite_binary(
     ffhelper: &FFHelper,
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
-) -> Option<Arc<dyn PhysicalExpr>> {
+) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
     let left_col = binary.left().as_any().downcast_ref::<Column>();
     let right_lit = binary.right().as_any().downcast_ref::<Literal>();
 
@@ -389,7 +394,7 @@ fn try_rewrite_binary(
         }
     }
 
-    None
+    Ok(None)
 }
 
 fn try_rewrite_in_list(
@@ -397,21 +402,30 @@ fn try_rewrite_in_list(
     ffhelper: &FFHelper,
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
-) -> Option<Arc<dyn PhysicalExpr>> {
-    let col = in_list.expr().as_any().downcast_ref::<Column>()?;
-    let ff_index = schema.index_of(col.name()).ok()?;
+) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
+    let col = match in_list.expr().as_any().downcast_ref::<Column>() {
+        Some(col) => col,
+        None => return Ok(None),
+    };
+    let ff_index = match schema.index_of(col.name()) {
+        Ok(idx) => idx,
+        Err(_) => return Ok(None),
+    };
     let ff_type = ffhelper.column(segment_ord, ff_index);
 
     let dict = match ff_type {
         FFType::Text(c) => c.dictionary(),
         FFType::Bytes(c) => c.dictionary(),
-        _ => return None, // Not a string/bytes column. Leave for native DataFusion eval
+        _ => return Ok(None), // Not a string/bytes column. Leave for native DataFusion eval
     };
 
     let mut ordinals = Vec::with_capacity(in_list.list().len());
 
     for lit_expr in in_list.list() {
-        let lit = lit_expr.as_any().downcast_ref::<Literal>()?;
+        let lit = match lit_expr.as_any().downcast_ref::<Literal>() {
+            Some(lit) => lit,
+            None => return Ok(None),
+        };
         let bytes = match lit.value() {
             ScalarValue::Utf8(Some(s))
             | ScalarValue::LargeUtf8(Some(s))
@@ -428,16 +442,17 @@ fn try_rewrite_in_list(
             | ScalarValue::Binary(None)
             | ScalarValue::LargeBinary(None)
             | ScalarValue::BinaryView(None) => {
-                return Some(Arc::new(Literal::new(ScalarValue::Boolean(None))))
+                return Ok(Some(Arc::new(Literal::new(ScalarValue::Boolean(None)))))
             }
 
-            _ => return None, // Early abort if non-string literal is found
+            _ => return Ok(None), // Early abort if non-string literal is found
         };
 
         let target_ord = dict
             .term_ord(bytes)
-            .ok()
-            .flatten()
+            .map_err(|e| {
+                datafusion::error::DataFusionError::Execution(format!("Tantivy dict error: {}", e))
+            })?
             .unwrap_or(NULL_TERM_ORDINAL);
         ordinals.push(target_ord);
     }
@@ -447,10 +462,15 @@ fn try_rewrite_in_list(
     let new_col_expr = Arc::new(col.clone()) as Arc<dyn PhysicalExpr>;
 
     // Bypass schema validation entirely
-    let new_in_list =
-        InListExpr::try_new_from_array(new_col_expr, array, in_list.negated()).ok()?;
+    let new_in_list = InListExpr::try_new_from_array(new_col_expr, array, in_list.negated())
+        .map_err(|e| {
+            datafusion::error::DataFusionError::Execution(format!(
+                "try_new_from_array failed: {}",
+                e
+            ))
+        })?;
 
-    Some(Arc::new(new_in_list))
+    Ok(Some(Arc::new(new_in_list)))
 }
 
 /// Rewrites `Column op Literal` to `Column(UInt64) op Literal(UInt64)` if the column is a string type.
@@ -461,8 +481,11 @@ fn rewrite_col_op_lit(
     ffhelper: &FFHelper,
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
-) -> Option<Arc<dyn PhysicalExpr>> {
-    let ff_index = schema.index_of(col.name()).ok()?;
+) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
+    let ff_index = match schema.index_of(col.name()) {
+        Ok(idx) => idx,
+        Err(_) => return Ok(None),
+    };
     let ff_type = ffhelper.column(segment_ord, ff_index);
 
     let bytes = match lit.value() {
@@ -478,19 +501,21 @@ fn rewrite_col_op_lit(
         | ScalarValue::Binary(None)
         | ScalarValue::LargeBinary(None)
         | ScalarValue::BinaryView(None) => {
-            return Some(Arc::new(Literal::new(ScalarValue::Boolean(None))))
+            return Ok(Some(Arc::new(Literal::new(ScalarValue::Boolean(None)))))
         }
-        _ => return None, // Not a string/bytes literal. Leave for native DataFusion eval over numerics.
+        _ => return Ok(None), // Not a string/bytes literal. Leave for native DataFusion eval over numerics.
     };
 
     let dict = match ff_type {
         FFType::Text(c) => c.dictionary(),
         FFType::Bytes(c) => c.dictionary(),
-        _ => return None, // Not a string/bytes column. Leave for native DataFusion eval over numerics.
+        _ => return Ok(None), // Not a string/bytes column. Leave for native DataFusion eval over numerics.
     };
 
     if op == &Operator::NotEq {
-        let ord_opt = dict.term_ord(bytes).ok().flatten();
+        let ord_opt = dict.term_ord(bytes).map_err(|e| {
+            datafusion::error::DataFusionError::Execution(format!("Tantivy dict error: {}", e))
+        })?;
         // If the term does not exist, all non-null values match.
         // We use NULL_TERM_ORDINAL to represent an ordinal that does not exist in the data.
         let target_ord = ord_opt.unwrap_or(NULL_TERM_ORDINAL);
@@ -498,9 +523,9 @@ fn rewrite_col_op_lit(
         let col_expr = Arc::new(col.clone()) as Arc<dyn PhysicalExpr>;
         let lit_expr =
             Arc::new(Literal::new(ScalarValue::UInt64(Some(target_ord)))) as Arc<dyn PhysicalExpr>;
-        return Some(
+        return Ok(Some(
             Arc::new(BinaryExpr::new(col_expr, Operator::NotEq, lit_expr)) as Arc<dyn PhysicalExpr>,
-        );
+        ));
     }
 
     // Convert string bounds to native string bounds.
@@ -510,11 +535,13 @@ fn rewrite_col_op_lit(
         Operator::Gt => (Bound::Excluded(bytes), Bound::Unbounded),
         Operator::GtEq => (Bound::Included(bytes), Bound::Unbounded),
         Operator::Eq => (Bound::Included(bytes), Bound::Included(bytes)),
-        _ => return None,
+        _ => return Ok(None),
     };
 
     // Lookup ordinal bounds.
-    let (lo_ord, hi_ord) = dict.term_bounds_to_ord(lower, upper).ok()?;
+    let (lo_ord, hi_ord) = dict.term_bounds_to_ord(lower, upper).map_err(|e| {
+        datafusion::error::DataFusionError::Execution(format!("Tantivy dict error: {}", e))
+    })?;
 
     // The Column must point to the correct index in our mock RecordBatch
     let col_expr = Arc::new(col.clone()) as Arc<dyn PhysicalExpr>;
@@ -562,16 +589,18 @@ fn rewrite_col_op_lit(
 
     if exprs.is_empty() {
         // Condition represents the entire dictionary range.
-        Some(Arc::new(Literal::new(ScalarValue::Boolean(Some(true)))))
+        Ok(Some(Arc::new(Literal::new(ScalarValue::Boolean(Some(
+            true,
+        ))))))
     } else if exprs.len() == 1 {
-        Some(exprs.into_iter().next().unwrap())
+        Ok(Some(exprs.into_iter().next().unwrap()))
     } else {
         // Map exact bounds (lo_ord AND hi_ord) via AND
-        Some(Arc::new(BinaryExpr::new(
+        Ok(Some(Arc::new(BinaryExpr::new(
             exprs[0].clone(),
             Operator::And,
             exprs[1].clone(),
-        )))
+        ))))
     }
 }
 

@@ -29,6 +29,12 @@ if [ "${PG_TUNE_ENABLED:-true}" = "false" ]; then
   exit 0
 fi
 
+# Skip auto-tuning in Kubernetes environments to avoid conflicts with resource limits
+if [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+  echo "ParadeDB auto-tune: Kubernetes environment detected. Disabling auto-tuning."
+  exit 0
+fi
+
 if [ ! -d "$PGDATA" ]; then
   echo "ParadeDB auto-tune: PGDATA ($PGDATA) does not exist. Skipping tuning."
   exit 0

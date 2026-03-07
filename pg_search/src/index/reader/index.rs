@@ -25,7 +25,7 @@ use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
+use crate::index::reader::scorer::ScorerIter;
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
@@ -638,12 +638,9 @@ impl SearchIndexReader {
             .segment_readers_in_segments(segment_ids)
             .map(|(segment_ord, segment_reader)| {
                 ScorerIter::new(
-                    DeferredScorer::new(
-                        self.query().box_clone(),
-                        self.need_scores,
-                        segment_reader.clone(),
-                        self.searcher.clone(),
-                    ),
+                    self.query().box_clone(),
+                    self.need_scores,
+                    self.searcher.clone(),
                     segment_ord,
                     segment_reader.clone(),
                 )
@@ -702,12 +699,9 @@ impl SearchIndexReader {
             let segment_ord = segment_ord as SegmentOrdinal;
 
             ScorerIter::new(
-                DeferredScorer::new(
-                    query.box_clone(),
-                    need_scores,
-                    segment_reader.clone(),
-                    searcher.clone(),
-                ),
+                query.box_clone(),
+                need_scores,
+                searcher.clone(),
                 segment_ord,
                 segment_reader.clone(),
             )

@@ -175,6 +175,8 @@ pub struct MultiSegmentSearchResults {
     iterators: Vec<ScorerIter>,
     lazy_iterators: Option<Box<dyn Iterator<Item = ScorerIter> + Send>>,
     lazy_estimated_rows: Option<u64>,
+    seek_handle: crate::query::seekable::SeekHandle,
+    sort_order: Option<SortByField>,
 }
 
 /// A score which sorts in ascending direction.
@@ -229,26 +231,53 @@ impl MultiSegmentSearchResults {
         }
     }
 
-    /// Consumes and returns all segment iterators along with the searcher.
+    /// Consumes and returns all segment iterators along with the searcher and relevant scan metadata.
     ///
     /// This is useful for DataFusion integration where each segment iterator
     /// becomes a separate partition in the execution plan. The searcher is needed
     /// to create single-segment wrappers via `from_single_segment`.
-    pub fn into_segments(self) -> (Searcher, Vec<ScorerIter>) {
-        (self.searcher, self.iterators)
+    pub fn into_segments(
+        self,
+    ) -> (
+        Searcher,
+        Vec<ScorerIter>,
+        crate::query::seekable::SeekHandle,
+        Option<SortByField>,
+    ) {
+        (
+            self.searcher,
+            self.iterators,
+            self.seek_handle,
+            self.sort_order,
+        )
     }
 
     /// Creates a new `MultiSegmentSearchResults` from a single segment iterator.
     ///
     /// This is used for per-segment partition scanning in DataFusion integration.
-    pub fn from_single_segment(searcher: Searcher, scorer_iter: ScorerIter) -> Self {
+    pub fn from_single_segment(
+        searcher: Searcher,
+        scorer_iter: ScorerIter,
+        seek_handle: crate::query::seekable::SeekHandle,
+        sort_order: Option<SortByField>,
+    ) -> Self {
         Self {
             searcher,
             ctid_column: None,
             iterators: vec![scorer_iter],
             lazy_iterators: None,
             lazy_estimated_rows: None,
+            seek_handle,
+            sort_order,
         }
+    }
+
+    pub fn seek_handle(&self) -> &crate::query::seekable::SeekHandle {
+        &self.seek_handle
+    }
+
+    pub fn sort_order(&self) -> Option<&SortByField> {
+        self.sort_order.as_ref()
     }
 }
 
@@ -316,6 +345,7 @@ pub struct SearchIndexReader {
     need_scores: bool,
     total_segment_count: usize,
     total_docs: u64,
+    seek_handle: crate::query::seekable::SeekHandle,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -343,6 +373,7 @@ impl Clone for SearchIndexReader {
             need_scores: self.need_scores,
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
+            seek_handle: self.seek_handle.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -456,6 +487,12 @@ impl SearchIndexReader {
                 .unwrap_or_else(|e| panic!("{e}"))
         };
 
+        let seek_handle = crate::query::seekable::SeekHandle::default();
+        let query = Box::new(crate::query::seekable::SeekableQuery::new(
+            query,
+            seek_handle.clone(),
+        )) as Box<dyn Query>;
+
         Ok(Self {
             index_rel: index_relation.clone(),
             searcher,
@@ -466,6 +503,7 @@ impl SearchIndexReader {
             need_scores,
             total_segment_count,
             total_docs,
+            seek_handle,
             _cleanup_lock: cleanup_lock,
         })
     }
@@ -653,6 +691,8 @@ impl SearchIndexReader {
             iterators,
             lazy_iterators: None,
             lazy_estimated_rows: None,
+            seek_handle: self.seek_handle.clone(),
+            sort_order: self.sort_order(),
         }
     }
 
@@ -713,6 +753,8 @@ impl SearchIndexReader {
             iterators: vec![],
             lazy_iterators: Some(Box::new(lazy_iterators)),
             lazy_estimated_rows: Some(estimated_rows),
+            seek_handle: self.seek_handle.clone(),
+            sort_order: self.sort_order(),
         }
     }
 

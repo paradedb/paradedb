@@ -24,6 +24,7 @@ pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
 mod score;
+pub mod seekable;
 
 use builder::{QueryBuilder, QueryOnlyBuilder, QueryTreeBuilder};
 use estimate_tree::QueryWithEstimates;

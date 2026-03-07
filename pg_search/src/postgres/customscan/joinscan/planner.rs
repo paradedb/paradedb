@@ -31,7 +31,6 @@ use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 
-
 /// A DataFusion physical optimizer rule that replaces `HashJoinExec` with `SortMergeJoinExec`
 /// when the inputs are already sorted by the join keys.
 ///

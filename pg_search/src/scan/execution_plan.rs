@@ -331,6 +331,8 @@ impl ExecutionPlan for PgSearchScanPlan {
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", partition));
         let rows_pruned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", partition));
+        let rows_seeked_past = has_dynamic_filters
+            .then(|| MetricBuilder::new(&self.metrics).counter("rows_seeked_past", partition));
 
         let schema = self.properties.eq_properties.schema().clone();
         let dynamic_filters = self.dynamic_filters.clone();
@@ -362,6 +364,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                         }
                         if let Some(ref counter) = rows_pruned {
                             counter.add(scanner.pre_filter_rows_pruned);
+                        }
+                        if let Some(ref counter) = rows_seeked_past {
+                            counter.add(scanner.docs_seeked_past() as usize);
                         }
                         break;
                     }

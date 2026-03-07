@@ -208,6 +208,11 @@ impl Scanner {
         self.search_results.estimated_doc_count()
     }
 
+    /// Returns the total number of documents skipped due to dynamic seek filters.
+    pub fn docs_seeked_past(&self) -> u64 {
+        self.search_results.seek_handle().docs_seeked_past()
+    }
+
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
         // Collect a batch of ids for a single segment.
         loop {
@@ -256,6 +261,36 @@ impl Scanner {
             return Some(batch);
         }
         pgrx::check_for_interrupts!();
+
+        // Before calling try_get_batch_ids, inspect the pre_filters to check for dynamic
+        // filters that can update the SeekHandle threshold.
+        // We do this here because `try_get_batch_ids` will advance the Scorer, so we want
+        // to set the threshold beforehand if the bounds have changed.
+        if let Some(pre_filters) = pre_filters {
+            // Need a way to fetch current segment BEFORE try_get_batch_ids if possible?
+            // Actually, we can get it from search_results.
+            let mut segment_id = None;
+            let mut segment_ord = None;
+
+            if let Some(current_segment_iter) = self.search_results.current_segment() {
+                segment_id = Some(current_segment_iter.segment_id());
+                segment_ord = Some(current_segment_iter.segment_ord());
+            }
+
+            if let (Some(id), Some(ord)) = (segment_id, segment_ord) {
+                let threshold_atomic = self.search_results.seek_handle().get_threshold(id);
+                // We'll update the threshold_atomic inside a helper function
+                crate::scan::pre_filter::update_seek_threshold(
+                    pre_filters.filters,
+                    pre_filters.schema,
+                    ffhelper,
+                    ord,
+                    self.search_results.sort_order(),
+                    &threshold_atomic,
+                );
+            }
+        }
+
         let (segment_ord, mut scores, mut ids) = self.try_get_batch_ids()?;
 
         // Memoize fetched columns to avoid redundant fetches.

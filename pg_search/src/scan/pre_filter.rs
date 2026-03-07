@@ -113,6 +113,206 @@ use datafusion::physical_plan::joins::HashTableLookupExpr;
 use tantivy::SegmentOrdinal;
 
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::postgres::options::{SortByDirection, SortByField};
+use std::sync::atomic::Ordering;
+
+fn extract_binary_search_range_bytes(
+    column: &tantivy::columnar::BytesColumn,
+    lit: &Literal,
+    op: &Operator,
+    is_descending: bool,
+) -> Option<std::ops::Range<u32>> {
+    let bytes = match lit.value() {
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::LargeUtf8(Some(s))
+        | ScalarValue::Utf8View(Some(s)) => s.as_bytes(),
+        ScalarValue::Binary(Some(b))
+        | ScalarValue::LargeBinary(Some(b))
+        | ScalarValue::BinaryView(Some(b)) => b.as_slice(),
+        _ => return None,
+    };
+
+    let (lower, upper) = match op {
+        Operator::Gt => (Bound::Excluded(bytes), Bound::Unbounded),
+        Operator::GtEq => (Bound::Included(bytes), Bound::Unbounded),
+        Operator::Lt => (Bound::Unbounded, Bound::Excluded(bytes)),
+        Operator::LtEq => (Bound::Unbounded, Bound::Included(bytes)),
+        Operator::Eq => (Bound::Included(bytes), Bound::Included(bytes)),
+        _ => return None,
+    };
+
+    column
+        .binary_search_range(None, lower, upper, is_descending)
+        .ok()
+}
+
+macro_rules! extract_numeric_range {
+    ($col:expr, $lit:expr, $op:expr, $is_descending:expr, $val_type:ident, $scalar_pat:path) => {{
+        let target_val_opt: Option<$val_type> = match $lit.value() {
+            $scalar_pat(Some(v)) => (*v).try_into().ok(),
+            _ => None,
+        };
+
+        if let Some(target_val) = target_val_opt {
+            let min_val = $col.min_value();
+            let max_val = $col.max_value();
+
+            let target_range_opt = match $op {
+                Operator::Gt => Some(target_val..=max_val), // Assuming equality is OK for Gt as we're just seeking forward
+                Operator::GtEq => Some(target_val..=max_val),
+                Operator::Lt => Some(min_val..=target_val),
+                Operator::LtEq => Some(min_val..=target_val),
+                Operator::Eq => Some(target_val..=target_val),
+                _ => None,
+            };
+
+            if let Some(target_range) = target_range_opt {
+                Some($col.binary_search_range(None, &target_range, $is_descending))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }};
+}
+
+/// Updates the dynamic threshold for a specific segment by checking dynamic filters on the segment's sorted field.
+pub fn update_seek_threshold(
+    filters: &[PreFilter],
+    schema: &SchemaRef,
+    ffhelper: &FFHelper,
+    segment_ord: SegmentOrdinal,
+    sort_order: Option<&SortByField>,
+    thresholds: &crate::query::seekable::Thresholds,
+) {
+    let sort_field = match sort_order {
+        Some(s) => s,
+        None => return,
+    };
+
+    let col_name = sort_field.field_name.as_ref();
+    let col_idx = match schema.index_of(col_name) {
+        Ok(idx) => idx,
+        Err(_) => return,
+    };
+
+    let is_descending = matches!(sort_field.direction, SortByDirection::Desc);
+    let mut min_doc = 0u32;
+    let mut max_doc = u32::MAX;
+
+    for filter in filters {
+        if !filter.required_columns.contains(&col_idx) {
+            continue;
+        }
+
+        // We only attempt to push bounds for binary expressions (e.g. col > val)
+        let binary_expr = match filter.expr.as_any().downcast_ref::<BinaryExpr>() {
+            Some(e) => e,
+            None => continue,
+        };
+
+        let (col, lit, op) = if binary_expr
+            .left()
+            .as_any()
+            .downcast_ref::<Column>()
+            .is_some()
+            && binary_expr
+                .right()
+                .as_any()
+                .downcast_ref::<Literal>()
+                .is_some()
+        {
+            (
+                binary_expr
+                    .left()
+                    .as_any()
+                    .downcast_ref::<Column>()
+                    .unwrap(),
+                binary_expr
+                    .right()
+                    .as_any()
+                    .downcast_ref::<Literal>()
+                    .unwrap(),
+                *binary_expr.op(),
+            )
+        } else if binary_expr
+            .left()
+            .as_any()
+            .downcast_ref::<Literal>()
+            .is_some()
+            && binary_expr
+                .right()
+                .as_any()
+                .downcast_ref::<Column>()
+                .is_some()
+        {
+            if let Some(flipped) = flip_operator(binary_expr.op()) {
+                (
+                    binary_expr
+                        .right()
+                        .as_any()
+                        .downcast_ref::<Column>()
+                        .unwrap(),
+                    binary_expr
+                        .left()
+                        .as_any()
+                        .downcast_ref::<Literal>()
+                        .unwrap(),
+                    flipped,
+                )
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        };
+
+        if col.name() != col_name {
+            continue;
+        }
+
+        let ff_type = ffhelper.column(segment_ord, col_idx);
+
+        let range_opt = match ff_type {
+            FFType::I64(c) => {
+                extract_numeric_range!(c, lit, &op, is_descending, i64, ScalarValue::Int64)
+            }
+            FFType::U64(c) => {
+                extract_numeric_range!(c, lit, &op, is_descending, u64, ScalarValue::UInt64)
+            }
+            FFType::F64(c) => {
+                extract_numeric_range!(c, lit, &op, is_descending, f64, ScalarValue::Float64)
+            }
+            FFType::Bool(c) => {
+                extract_numeric_range!(c, lit, &op, is_descending, bool, ScalarValue::Boolean)
+            }
+            FFType::Text(c) => extract_binary_search_range_bytes(c, lit, &op, is_descending),
+            FFType::Bytes(c) => extract_binary_search_range_bytes(c, lit, &op, is_descending),
+            _ => None,
+        };
+
+        if let Some(range) = range_opt {
+            min_doc = min_doc.max(range.start);
+            max_doc = max_doc.min(range.end);
+        }
+    }
+
+    if min_doc > 0 {
+        // Relaxed ordering is fine because this thread is the sole producer for this segment's scorer.
+        let current_min = thresholds.min_doc.load(Ordering::Relaxed);
+        if min_doc > current_min {
+            thresholds.min_doc.store(min_doc, Ordering::Relaxed);
+        }
+    }
+
+    if max_doc < u32::MAX {
+        let current_max = thresholds.max_doc.load(Ordering::Relaxed);
+        if max_doc < current_max {
+            thresholds.max_doc.store(max_doc, Ordering::Relaxed);
+        }
+    }
+}
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
 ///

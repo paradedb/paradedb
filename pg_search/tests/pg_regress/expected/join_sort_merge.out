@@ -373,10 +373,10 @@ LIMIT 10;
            :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], left_dynamic_filter=DynamicFilter [ false ], right_dynamic_filter=DynamicFilter [ false ], metrics=[output_rows=18.19 K, output_bytes=1496.4 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, dynamic_filter_updates=6, input_batches=6, input_rows=38.19 K, peak_mem_used=1.20 M]
            :             SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
            :               ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
-           :                 PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=20.00 K]
+           :                 PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=20.00 K, rows_seeked_past=0]
            :             SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=18.19 K, output_bytes=1012.7 KB, output_batches=3]
            :               ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=18.19 K, output_bytes=515.2 KB, output_batches=4]
-           :                 PgSearchScan: segments=2, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=1.81 K, rows_scanned=20.00 K]
+           :                 PgSearchScan: segments=2, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=1.81 K, rows_scanned=20.00 K, rows_seeked_past=0]
 (19 rows)
 
 -- Verify results
@@ -495,10 +495,10 @@ LIMIT 25;
            :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], left_dynamic_filter=DynamicFilter [ false ], right_dynamic_filter=DynamicFilter [ false ], metrics=[output_rows=16.62 K, output_bytes=1472.6 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, dynamic_filter_updates=6, input_batches=6, input_rows=36.62 K, peak_mem_used=524.9 K]
            :               SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=16.62 K, output_bytes=925.4 KB, output_batches=3]
            :                 ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=16.62 K, output_bytes=471.9 KB, output_batches=4]
-           :                   PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[rows_pruned=3.38 K, rows_scanned=20.00 K]
+           :                   PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[rows_pruned=3.38 K, rows_scanned=20.00 K, rows_seeked_past=0]
            :               SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
            :                 ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
-           :                   PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=20.00 K]
+           :                   PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=20.00 K, rows_seeked_past=0]
 (20 rows)
 
 SELECT t1.id, t1.val
@@ -776,10 +776,10 @@ OFFSET 15 LIMIT 10;
            :         SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], left_dynamic_filter=DynamicFilter [ false ], right_dynamic_filter=DynamicFilter [ false ], metrics=[output_rows=25, output_bytes=256.0 KB, output_batches=1, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, dynamic_filter_updates=15, input_batches=17, input_rows=1.90 K, peak_mem_used=8.82 K]
            :           ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id], metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=8]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"val"}}}}, metrics=[rows_pruned=0, rows_scanned=1.00 K]
+           :               PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"val"}}}}, metrics=[rows_pruned=0, rows_scanned=1.00 K, rows_seeked_past=0]
            :           ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=896, output_bytes=14.0 KB, output_batches=9]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[rows_pruned=129, rows_scanned=1.02 K]
+           :               PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[rows_pruned=129, rows_scanned=1.02 K, rows_seeked_past=0]
 (19 rows)
 
 SELECT t1.id, t2.id

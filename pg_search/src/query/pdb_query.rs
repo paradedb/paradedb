@@ -1938,19 +1938,15 @@ fn fuzzy_term(
     let distance = distance.unwrap_or(2);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
     let query: Box<dyn TantivyQuery> = match prefix {
-    Some(true) => Box::new(FuzzyTermQuery::new_prefix(
-        term,
-        distance,
-        transposition_cost_one,
-    )),
-    Some(false) | None => Box::new(FuzzyTermQuery::new(
-        term,
-        distance,
-        transposition_cost_one,
-    )),
-};
+        Some(true) => Box::new(FuzzyTermQuery::new_prefix(
+            term,
+            distance,
+            transposition_cost_one,
+        )),
+        Some(false) | None => Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one)),
+    };
 
-Ok(query)
+    Ok(query)
 }
 
 fn fast_field_range_weight(

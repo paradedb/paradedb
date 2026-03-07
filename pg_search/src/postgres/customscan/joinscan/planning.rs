@@ -423,10 +423,14 @@ unsafe fn collect_join_sources_join_rel(
             }
         }
 
-        // Normalize RightSemi/RightAnti → Semi/Anti by swapping children.
-        // RightSemi(A, B) = Semi(B, A): "return each B row once if matched in A".
+        // Normalize join types that need child swapping.
+        // - RightSemi(A, B) = Semi(B, A)
+        // - RightAnti(A, B) = Anti(B, A)
+        // - UniqueOuter(L, R) → Semi(R, L): L is deduplicated for semi-join with R
+        // - UniqueInner(L, R) → Semi(L, R): R is deduplicated for semi-join with L
         let (left, right, normalized_jointype) = match parsed_jointype {
-            crate::postgres::customscan::joinscan::build::JoinType::RightSemi => (
+            crate::postgres::customscan::joinscan::build::JoinType::RightSemi
+            | crate::postgres::customscan::joinscan::build::JoinType::UniqueOuter => (
                 inner_node,
                 outer_node,
                 crate::postgres::customscan::joinscan::build::JoinType::Semi,
@@ -435,6 +439,11 @@ unsafe fn collect_join_sources_join_rel(
                 inner_node,
                 outer_node,
                 crate::postgres::customscan::joinscan::build::JoinType::Anti,
+            ),
+            crate::postgres::customscan::joinscan::build::JoinType::UniqueInner => (
+                outer_node,
+                inner_node,
+                crate::postgres::customscan::joinscan::build::JoinType::Semi,
             ),
             _ => (outer_node, inner_node, parsed_jointype),
         };

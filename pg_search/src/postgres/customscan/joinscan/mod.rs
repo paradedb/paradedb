@@ -457,11 +457,17 @@ impl CustomScan for JoinScan {
                 }
             };
 
-            // Normalize RightSemi/RightAnti → Semi/Anti by swapping children.
-            // RightSemi(A, B) = Semi(B, A): "return each B row once if matched in A".
+            // Normalize join types that need child swapping.
+            // - RightSemi(A, B) = Semi(B, A): "return each B row once if matched in A"
+            // - RightAnti(A, B) = Anti(B, A): "return each B row that has no match in A"
+            // - UniqueOuter(L, R): L is deduplicated for semi-join with R → Semi(R, L)
+            // - UniqueInner(L, R): R is deduplicated for semi-join with L → Semi(L, R)
             let (left, right, normalized_jointype) = match parsed_jointype {
-                build::JoinType::RightSemi => (inner_node, outer_node, build::JoinType::Semi),
+                build::JoinType::RightSemi | build::JoinType::UniqueOuter => {
+                    (inner_node, outer_node, build::JoinType::Semi)
+                }
                 build::JoinType::RightAnti => (inner_node, outer_node, build::JoinType::Anti),
+                build::JoinType::UniqueInner => (outer_node, inner_node, build::JoinType::Semi),
                 _ => (outer_node, inner_node, parsed_jointype),
             };
 
@@ -526,13 +532,15 @@ impl CustomScan for JoinScan {
             // leftmost leaf (index 0 in DFS order). RightSemi/RightAnti are normalized to
             // Semi/Anti above by swapping children, so the same constraint applies.
             // We currently enforce binary base-table joins only for semi-like types.
-            // UNIQUE_OUTER/INNER are not semi-like: they are inner joins with
-            // deduplication (see nodes.h: "temporary proxies for what will eventually
-            // be an INNER join"). Both sides' columns are preserved, so the
-            // partitioning constraint doesn't apply.
+            // UNIQUE_OUTER/INNER are normalized to Semi above (with child
+            // swapping for UniqueOuter), so they have the same partitioning
+            // constraint as Semi joins.
             let is_semi_like = matches!(
                 jointype,
-                pg_sys::JoinType::JOIN_SEMI | pg_sys::JoinType::JOIN_ANTI
+                pg_sys::JoinType::JOIN_SEMI
+                    | pg_sys::JoinType::JOIN_ANTI
+                    | pg_sys::JoinType::JOIN_UNIQUE_OUTER
+                    | pg_sys::JoinType::JOIN_UNIQUE_INNER
             ) || {
                 #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
                 {

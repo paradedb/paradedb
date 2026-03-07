@@ -332,12 +332,9 @@ fn build_relnode_df<'a>(
                     }
                     crate::postgres::customscan::joinscan::build::JoinType::UniqueOuter
                     | crate::postgres::customscan::joinscan::build::JoinType::UniqueInner => {
-                        // PostgreSQL uses JOIN_UNIQUE_OUTER/INNER as "temporary proxies for
-                        // what will eventually be an INNER join" (see nodes.h). The LHS or
-                        // RHS is pre-deduplicated, then inner-joined. Both sides' columns
-                        // are in the output, so we use Inner — not LeftSemi, which would
-                        // drop the right side's columns in nested join trees.
-                        JoinType::Inner
+                        // Normalized to Semi during planning (with child swapping for
+                        // UniqueOuter). This arm is a fallback — should not be reached.
+                        JoinType::LeftSemi
                     }
                 };
 

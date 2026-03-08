@@ -673,7 +673,33 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
-ERROR:  Failed to create execution plan: SchemaError(FieldNotFound { field: Column { relation: Some(Bare { table: "p" }), name: "score" }, valid_fields: [Column { relation: None, name: "col_1" }, Column { relation: None, name: "col_2" }, Column { relation: None, name: "col_3" }, Column { relation: None, name: "ctid_1" }, Column { relation: None, name: "ctid_2" }] }, Some(""))
+                                                                                                                                               QUERY PLAN                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, (paradedb.score(p.id))
+   ->  Unique
+         Output: p.id, p.name, (paradedb.score(p.id))
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, (paradedb.score(p.id))
+               Relation Tree: s INNER p
+               Join Cond: p.supplier_id = s.id
+               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}})
+               Limit: 10
+               Distinct: true
+               Order By: pdb.score() desc, p.id asc, p.name asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_2@4 as ctid_2, ctid_1@3 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     AggregateExec: mode=Single, gby=[id@3 as col_1, name@4 as col_2, score@1 as col_3], aggr=[ctid_1, ctid_2]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, score@2, ctid_1@3, id@5, name@6]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id, name@4 as name]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(23 rows)
+
 SELECT DISTINCT
     p.id,
     p.name,
@@ -690,7 +716,12 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
-ERROR:  Failed to create execution plan: SchemaError(FieldNotFound { field: Column { relation: Some(Bare { table: "p" }), name: "score" }, valid_fields: [Column { relation: None, name: "col_1" }, Column { relation: None, name: "col_2" }, Column { relation: None, name: "col_3" }, Column { relation: None, name: "ctid_1" }, Column { relation: None, name: "ctid_2" }] }, Some(""))
+ id  |       name       | score 
+-----+------------------+-------
+ 201 | Wireless Mouse   |     0
+ 209 | Wireless Charger |     0
+(2 rows)
+
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================

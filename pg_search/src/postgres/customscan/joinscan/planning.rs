@@ -1177,22 +1177,13 @@ pub(super) unsafe fn extract_orderby(
                         continue;
                     }
 
-                    let is_ordering_source = Some(i) == ordering_side_index;
-
-                    if is_ordering_source {
-                        result.push(OrderByInfo {
-                            feature: OrderByFeature::Score,
-                            direction,
-                        });
-                    } else {
-                        let alias = source.execution_alias(i);
-                        result.push(OrderByInfo {
-                            feature: OrderByFeature::Field(
-                                format!("{}.{}", alias, SCORE_COL_NAME).into(),
-                            ),
-                            direction,
-                        });
-                    }
+                    // Always emit Score regardless of which source owns it.
+                    // The Field("p.score") path was wrong — after GROUP BY renames
+                    // columns to col_N, qualified names no longer exist.
+                    result.push(OrderByInfo {
+                        feature: OrderByFeature::Score,
+                        direction,
+                    });
                     score_found = true;
                     break;
                 }

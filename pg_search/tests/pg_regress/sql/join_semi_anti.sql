@@ -102,7 +102,23 @@ LIMIT 10;
 -- =====================================================================
 -- 3. Both Semi and Anti Join
 -- =====================================================================
--- TODO: This query should produce a warning because only binary base table joins are supported
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+
 SELECT id, category
 FROM table_a
 WHERE id IN (

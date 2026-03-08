@@ -149,7 +149,7 @@ mod privdat;
 mod scan_state;
 mod translator;
 
-use self::build::{JoinCSClause, RelNode};
+use self::build::{ColumnAlias, CtidColumn, JoinCSClause, RelNode};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::memory::PanicOnOOMMemoryPool;
 use self::planning::{
@@ -346,8 +346,10 @@ impl CustomScan for JoinScan {
             // Collect aliases for warnings
             let aliases: Vec<String> = all_sources
                 .iter()
-                .enumerate()
-                .map(|(i, s)| s.execution_alias(i))
+                .map(|s| {
+                    ColumnAlias::new(s.scan_info.alias.as_deref())
+                        .warning_context(s.scan_info.heaprelid)
+                })
                 .collect();
 
             // A join is "potentially interesting" if at least one side has a BM25 index and a search predicate.
@@ -518,6 +520,7 @@ impl CustomScan for JoinScan {
                 .with_limit(limit_offset.limit)
                 .with_offset(limit_offset.offset)
                 .with_distinct(has_distinct);
+            join_clause.assign_source_indices();
 
             // Determine ordering side index
             let ordering_idx = join_clause.ordering_side_index();
@@ -554,16 +557,6 @@ impl CustomScan for JoinScan {
             // others. For SEMI JOIN correctness, the partitioned source must be the left side.
             // We currently enforce a conservative subset: binary base-table joins only.
             if jointype == pg_sys::JoinType::JOIN_SEMI {
-                if current_sources.len() > 2 {
-                    if is_interesting {
-                        Self::add_planner_warning(
-                            "JoinScan not used: SEMI JOIN currently supports only binary base-table joins",
-                            &aliases,
-                        );
-                    }
-                    return Vec::new();
-                }
-
                 let partitioning_idx = join_clause.partitioning_source_index();
                 if partitioning_idx != 0 {
                     if is_interesting {
@@ -600,6 +593,7 @@ impl CustomScan for JoinScan {
                         return Vec::new();
                     }
                 };
+            join_clause.assign_source_indices();
 
             let current_sources_after_cond = join_clause.plan.sources();
 
@@ -756,6 +750,7 @@ impl CustomScan for JoinScan {
 
         // Get best_path before builder is consumed
         let best_path = builder.args().best_path;
+        let root = builder.args().root;
 
         let mut node = builder.build();
 
@@ -784,25 +779,40 @@ impl CustomScan for JoinScan {
             for te in original_entries.iter_ptr() {
                 if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
                     let var = (*te).expr as *mut pg_sys::Var;
+                    let rti = (*var).varno as pg_sys::Index;
+                    let attno = (*var).varattno;
+                    let source_idx = private_data
+                        .join_clause
+                        .source_idx(root as usize, rti, attno)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Failed to resolve output Var to source_idx (rti={}, attno={})",
+                                rti, attno
+                            )
+                        });
                     // Determine if this column comes from outer or inner relation
                     output_columns.push(privdat::OutputColumnInfo {
-                        rti: (*var).varno as pg_sys::Index,
-                        original_attno: (*var).varattno,
+                        source_idx,
+                        rti,
+                        original_attno: attno,
                         is_score: false,
                     });
                 } else {
                     let mut is_score = false;
                     let mut rti = 0;
+                    let mut source_idx = 0usize;
                     for source in private_data.join_clause.plan.sources() {
                         if expr_uses_scores_from_source((*te).expr.cast(), source) {
                             // This expression contains paradedb.score()
                             is_score = true;
                             rti = get_score_func_rti((*te).expr.cast()).unwrap_or(0);
+                            source_idx = source.source_idx;
                             break;
                         }
                     }
                     // Non-Var, non-score expression - mark as null (attno = 0)
                     output_columns.push(privdat::OutputColumnInfo {
+                        source_idx,
                         rti,
                         original_attno: 0,
                         is_score,
@@ -901,22 +911,35 @@ impl CustomScan for JoinScan {
         let plan_sources = join_clause.plan.sources();
 
         if !join_keys.is_empty() {
+            let resolve_key_side = |rti: pg_sys::Index, attno: pg_sys::AttrNumber| {
+                plan_sources
+                    .iter()
+                    .enumerate()
+                    .find(|(_, s)| s.contains_rti(rti) && s.column_name(attno).is_some())
+                    .or_else(|| {
+                        plan_sources
+                            .iter()
+                            .enumerate()
+                            .find(|(_, s)| s.contains_rti(rti))
+                    })
+                    .map(|(i, s)| {
+                        (
+                            Some(s.scan_info.heaprelid),
+                            ColumnAlias::new(s.scan_info.alias.as_deref()).execution(i),
+                        )
+                    })
+            };
+
             let keys_str: Vec<_> = join_keys
                 .iter()
                 .map(|k| {
-                    let (outer_relid, outer_alias_name) = plan_sources
-                        .iter()
-                        .enumerate()
-                        .find(|(_, s)| s.contains_rti(k.outer_rti))
-                        .map(|(i, s)| (Some(s.scan_info.heaprelid), s.execution_alias(i)))
-                        .expect("Outer source not found");
+                    let (outer_relid, outer_alias_name) =
+                        resolve_key_side(k.outer_rti, k.outer_attno)
+                            .expect("Outer source not found");
 
-                    let (inner_relid, inner_alias_name) = plan_sources
-                        .iter()
-                        .enumerate()
-                        .find(|(_, s)| s.contains_rti(k.inner_rti))
-                        .map(|(i, s)| (Some(s.scan_info.heaprelid), s.execution_alias(i)))
-                        .expect("Inner source not found");
+                    let (inner_relid, inner_alias_name) =
+                        resolve_key_side(k.inner_rti, k.inner_attno)
+                            .expect("Inner source not found");
 
                     format!(
                         "{} = {}",
@@ -1050,18 +1073,16 @@ impl CustomScan for JoinScan {
                 let join_clause = state.custom_state().join_clause.clone();
                 let snapshot = state.csstate.ss.ps.state.as_ref().unwrap().es_snapshot;
 
-                let mut base_relations = Vec::new();
-                join_clause.collect_base_relations(&mut base_relations);
-                for base in base_relations {
-                    let rti = base.heap_rti;
-                    let heaprelid = base.heaprelid;
+                let plan_sources = join_clause.plan.sources();
+                for (source_idx, source) in plan_sources.iter().enumerate() {
+                    let heaprelid = source.scan_info.heaprelid;
                     let heaprel = PgSearchRelation::open(heaprelid);
                     let visibility_checker =
                         VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
                     let fetch_slot =
                         pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
                     state.custom_state_mut().relations.insert(
-                        rti,
+                        source_idx,
                         scan_state::RelationState {
                             _heaprel: heaprel,
                             visibility_checker,
@@ -1119,13 +1140,12 @@ impl CustomScan for JoinScan {
 
                 let schema = plan.schema();
                 for (i, field) in schema.fields().iter().enumerate() {
-                    if let Some(stripped) = field.name().strip_prefix("ctid_") {
-                        if let Ok(rti) = stripped.parse::<pg_sys::Index>() {
-                            if let Some(rel_state) =
-                                state.custom_state_mut().relations.get_mut(&rti)
-                            {
-                                rel_state.ctid_col_idx = Some(i);
-                            }
+                    if let Ok(ctid_col) = CtidColumn::try_from(field.name().as_str()) {
+                        let source_idx = ctid_col.source_idx();
+                        if let Some(rel_state) =
+                            state.custom_state_mut().relations.get_mut(&source_idx)
+                        {
+                            rel_state.ctid_col_idx = Some(i);
                         }
                     }
                 }
@@ -1197,16 +1217,15 @@ impl JoinScan {
     ) -> Option<*mut pg_sys::TupleTableSlot> {
         let result_slot = state.custom_state().result_slot?;
         let output_columns = state.custom_state().output_columns.clone();
-        let mut fetched_rtis = crate::api::HashSet::default();
+        let mut fetched_sources = crate::api::HashSet::default();
 
         // Fetch tuples for all RTIs referenced in the output columns
         for col_info in &output_columns {
-            if col_info.rti != 0 && !fetched_rtis.contains(&col_info.rti) {
-                let rti = col_info.rti;
+            if col_info.rti != 0 && !fetched_sources.contains(&col_info.source_idx) {
                 // Get the CTID for this RTI from the DataFusion result batch
                 let ctid = {
                     let batch = state.custom_state().current_batch.as_ref()?;
-                    let rel_state = state.custom_state().relations.get(&rti)?;
+                    let rel_state = state.custom_state().relations.get(&col_info.source_idx)?;
                     let ctid_col = batch.column(rel_state.ctid_col_idx?);
                     ctid_col
                         .as_any()
@@ -1215,7 +1234,10 @@ impl JoinScan {
                         .value(row_idx)
                 };
                 // Fetch the tuple from the heap using the CTID
-                let rel_state = state.custom_state_mut().relations.get_mut(&rti)?;
+                let rel_state = state
+                    .custom_state_mut()
+                    .relations
+                    .get_mut(&col_info.source_idx)?;
                 if !rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)
@@ -1224,7 +1246,7 @@ impl JoinScan {
                 }
                 // Make sure slots have all attributes deformed
                 pg_sys::slot_getallattrs(rel_state.fetch_slot);
-                fetched_rtis.insert(rti);
+                fetched_sources.insert(col_info.source_idx);
             }
         }
         // Get the result tuple descriptor from the result slot
@@ -1269,7 +1291,7 @@ impl JoinScan {
                 continue;
             }
             // Determine which slot to read from based on RTI
-            let rel_state = state.custom_state().relations.get(&col_info.rti)?;
+            let rel_state = state.custom_state().relations.get(&col_info.source_idx)?;
             let source_slot = rel_state.fetch_slot;
             let original_attno = col_info.original_attno;
             // Get the attribute value from the source slot using the original attribute number

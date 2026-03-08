@@ -490,23 +490,51 @@ async fn generated_subquery(database: Db) {
             COLUMNS,
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
+        use_exists in proptest::bool::ANY,
+        negate_subquery in proptest::bool::ANY,
         paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
+        let build_subquery_clause = |op: &str| {
+            if use_exists {
+                let exists_clause = format!(
+                    "EXISTS (\
+                        SELECT 1 FROM {inner_table_name} \
+                        WHERE {inner_table_name}.{subquery_column} = {outer_table_name}.{subquery_column} \
+                        AND {} {paging_exprs}\
+                    )",
+                    inner_where_expr.to_sql(op),
+                );
+                if negate_subquery {
+                    format!("NOT {exists_clause}")
+                } else {
+                    exists_clause
+                }
+            } else {
+                let in_clause = format!(
+                    "{outer_table_name}.{subquery_column} IN (\
+                        SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
+                    )",
+                    inner_where_expr.to_sql(op),
+                );
+                if negate_subquery {
+                    format!("NOT ({in_clause})")
+                } else {
+                    in_clause
+                }
+            }
+        };
+
         let pg = format!(
             "SELECT COUNT(*) FROM {outer_table_name} \
-            WHERE {outer_table_name}.{subquery_column} IN (\
-                SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
-            ) AND {}",
-            inner_where_expr.to_sql(" = "),
+            WHERE {} AND {}",
+            build_subquery_clause(" = "),
             outer_where_expr.to_sql(" = "),
         );
         let bm25 = format!(
             "SELECT COUNT(*) FROM {outer_table_name} \
-            WHERE {outer_table_name}.{subquery_column} IN (\
-                SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
-            ) AND {}",
-            inner_where_expr.to_sql("@@@"),
+            WHERE {} AND {}",
+            build_subquery_clause("@@@"),
             outer_where_expr.to_sql("@@@"),
         );
 

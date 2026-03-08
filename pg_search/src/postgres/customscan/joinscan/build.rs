@@ -33,6 +33,70 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ptr::NonNull;
 
+#[derive(Debug, Clone, Copy)]
+pub struct ColumnAlias<'a> {
+    name: Option<&'a str>,
+}
+
+impl<'a> ColumnAlias<'a> {
+    pub fn new(name: Option<&'a str>) -> Self {
+        Self { name }
+    }
+
+    pub fn execution(&self, index: usize) -> String {
+        match self.name {
+            Some(alias) => format!("{alias}_{index}"),
+            None => format!("source_{}", index),
+        }
+    }
+
+    /// Returns a stable context label for planner warnings.
+    ///
+    /// Context labels should not depend on per-plan source ordering, otherwise
+    /// failed exploratory paths cannot be cleared when a successful path is found.
+    pub fn warning_context(&self, heaprelid: pg_sys::Oid) -> String {
+        self.name
+            .map(ToString::to_string)
+            .unwrap_or_else(|| format!("relid_{}", heaprelid))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CtidColumn {
+    source_idx: usize,
+}
+
+impl CtidColumn {
+    const PREFIX: &'static str = "ctid_";
+
+    pub fn new(source_idx: usize) -> Self {
+        Self { source_idx }
+    }
+
+    pub fn source_idx(self) -> usize {
+        self.source_idx
+    }
+}
+
+impl fmt::Display for CtidColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", Self::PREFIX, self.source_idx)
+    }
+}
+
+impl TryFrom<&str> for CtidColumn {
+    type Error = ();
+
+    fn try_from(col_name: &str) -> Result<Self, Self::Error> {
+        let source_idx = col_name
+            .strip_prefix(Self::PREFIX)
+            .ok_or(())?
+            .parse::<usize>()
+            .map_err(|_| ())?;
+        Ok(Self::new(source_idx))
+    }
+}
+
 /// Represents the join type for serialization.
 ///
 /// Note: Currently only Inner join is supported, but other variants are
@@ -150,6 +214,7 @@ use crate::scan::info::{FieldInfo, RowEstimate};
 /// Optional fields are progressively filled as planning discovers index metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct JoinSourceCandidate {
+    pub planner_root_id: Option<usize>,
     pub heap_rti: pg_sys::Index,
     pub heaprelid: Option<pg_sys::Oid>,
     pub indexrelid: Option<pg_sys::Oid>,
@@ -170,6 +235,11 @@ impl JoinSourceCandidate {
             heap_rti,
             ..Default::default()
         }
+    }
+
+    pub fn with_planner_root_id(mut self, planner_root_id: usize) -> Self {
+        self.planner_root_id = Some(planner_root_id);
+        self
     }
 
     pub fn with_heaprelid(mut self, oid: pg_sys::Oid) -> Self {
@@ -212,11 +282,6 @@ impl JoinSourceCandidate {
 
     pub fn alias(&self) -> Option<String> {
         self.alias.clone()
-    }
-
-    /// Returns the alias to be used for this source in the DataFusion plan.
-    pub fn execution_alias(&self, index: usize) -> String {
-        self.alias().unwrap_or_else(|| format!("source_{}", index))
     }
 
     /// Check if this source contains the given RTI.
@@ -267,21 +332,15 @@ impl JoinSourceCandidate {
 /// Represents the validated source of data for a join side used during execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinSource {
+    /// Stable source index in `RelNode::sources()` order.
+    #[serde(default)]
+    pub source_idx: usize,
+    /// Identity of the PlannerInfo root this source originated from.
+    pub planner_root_id: Option<usize>,
     pub scan_info: ScanInfo,
 }
 
 impl JoinSource {
-    /// Returns the alias to be used for this source in the DataFusion plan.
-    ///
-    /// If the source has an explicit alias (from SQL), it is used.
-    /// Otherwise, a synthetic alias `source_{index}` is generated based on its position.
-    pub fn execution_alias(&self, index: usize) -> String {
-        self.scan_info
-            .alias
-            .clone()
-            .unwrap_or_else(|| format!("source_{}", index))
-    }
-
     /// Check if this source contains the given RTI.
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
         self.scan_info.heap_rti == rti
@@ -290,6 +349,22 @@ impl JoinSource {
     /// Check if this source has a search predicate.
     pub fn has_search_predicate(&self) -> bool {
         self.scan_info.has_search_predicate
+    }
+
+    /// Returns true when this source can reference the provided attribute number.
+    pub fn has_attno(&self, attno: pg_sys::AttrNumber) -> bool {
+        if attno == 0 {
+            return true;
+        }
+        if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+            return true;
+        }
+        if attno < 0 {
+            return false;
+        }
+        let heaprel = PgSearchRelation::open(self.scan_info.heaprelid);
+        let tupdesc = heaprel.tuple_desc();
+        (attno as usize) <= tupdesc.len()
     }
 
     /// Map a base relation variable to its position in this source's output.
@@ -335,6 +410,13 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
 
     fn try_from(candidate: JoinSourceCandidate) -> Result<Self, Self::Error> {
         Ok(JoinSource {
+            source_idx: 0,
+            planner_root_id: Some(candidate.planner_root_id.ok_or_else(|| {
+                anyhow!(
+                    "cannot build JoinSource for RTI {}: planner_root_id is missing",
+                    candidate.heap_rti
+                )
+            })?),
             scan_info: ScanInfo {
                 heap_rti: candidate.heap_rti,
                 heaprelid: candidate.heaprelid.ok_or_else(|| {
@@ -530,27 +612,36 @@ impl RelNode {
 
     /// Recursively collects all output RTIs (ignoring pruned sides like the right side of SemiJoin).
     pub fn output_rtis(&self) -> Vec<pg_sys::Index> {
+        self.output_sources()
+            .into_iter()
+            .map(|s| s.scan_info.heap_rti)
+            .collect()
+    }
+
+    /// Recursively collects output-visible base sources (ignoring pruned sides like the
+    /// right side of SemiJoin).
+    pub fn output_sources(&self) -> Vec<&JoinSource> {
         let mut result = Vec::new();
-        self.collect_output_rtis(&mut result);
+        self.collect_output_sources(&mut result);
         result
     }
 
-    fn collect_output_rtis(&self, acc: &mut Vec<pg_sys::Index>) {
+    fn collect_output_sources<'a>(&'a self, acc: &mut Vec<&'a JoinSource>) {
         match self {
-            RelNode::Scan(s) => acc.push(s.scan_info.heap_rti),
+            RelNode::Scan(s) => acc.push(&**s),
             RelNode::Join(j) => match j.join_type {
                 JoinType::Semi | JoinType::Anti => {
-                    j.left.collect_output_rtis(acc);
+                    j.left.collect_output_sources(acc);
                 }
                 JoinType::RightSemi | JoinType::RightAnti => {
-                    j.right.collect_output_rtis(acc);
+                    j.right.collect_output_sources(acc);
                 }
                 _ => {
-                    j.left.collect_output_rtis(acc);
-                    j.right.collect_output_rtis(acc);
+                    j.left.collect_output_sources(acc);
+                    j.right.collect_output_sources(acc);
                 }
             },
-            RelNode::Filter(f) => f.input.collect_output_rtis(acc),
+            RelNode::Filter(f) => f.input.collect_output_sources(acc),
         }
     }
 
@@ -620,6 +711,8 @@ impl RelNode {
 impl Default for RelNode {
     fn default() -> Self {
         RelNode::Scan(Box::new(JoinSource {
+            source_idx: 0,
+            planner_root_id: None,
             scan_info: ScanInfo::default(),
         }))
     }
@@ -665,6 +758,13 @@ impl JoinCSClause {
     pub fn with_offset(mut self, offset: Option<u32>) -> Self {
         self.limit_offset.offset = offset;
         self
+    }
+
+    /// Assign stable source indices based on `plan.sources()` order.
+    pub fn assign_source_indices(&mut self) {
+        for (i, source) in self.plan.sources_mut().into_iter().enumerate() {
+            source.source_idx = i;
+        }
     }
 
     pub fn with_order_by(mut self, order_by: Vec<OrderByInfo>) -> Self {
@@ -773,6 +873,32 @@ impl JoinCSClause {
     pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
         for source in self.plan.sources() {
             source.collect_base_relations(acc);
+        }
+    }
+
+    /// Resolve an output Var to a unique source index using output-visible sources.
+    pub fn source_idx(
+        &self,
+        planner_root_id: usize,
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<usize> {
+        let mut matches = self
+            .plan
+            .output_sources()
+            .into_iter()
+            .filter(|s| {
+                s.planner_root_id == Some(planner_root_id)
+                    && s.contains_rti(rti)
+                    && s.has_attno(attno)
+            })
+            .map(|s| s.source_idx);
+
+        let first = matches.next()?;
+        if matches.next().is_none() {
+            Some(first)
+        } else {
+            None
         }
     }
 }

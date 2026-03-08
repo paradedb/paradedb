@@ -57,14 +57,14 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: lo.id, lo.description, ls.name
          Relation Tree: ls INNER lo
-         Join Cond: lo.supplier_id = ls.id
+         Join Cond: lo_1.supplier_id = ls_0.id
          Limit: 10
          Order By: lo.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
@@ -334,14 +334,14 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: tp.id, tp.description, tr.name
          Relation Tree: tr INNER tp
-         Join Cond: tp.ref_id = tr.id
+         Join Cond: tp_1.ref_id = tr_0.id
          Limit: 10
          Order By: tp.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, ref_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, ref_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, ref_id@1 as ref_id, id@2 as id]
@@ -405,14 +405,14 @@ LIMIT 20;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: hp.id, hp.description, hc.name
          Relation Tree: hc INNER hp
-         Join Cond: hp.category_id = hc.id
+         Join Cond: hp_1.category_id = hc_0.id
          Limit: 20
          Order By: hp.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=20), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, id@2 as id]

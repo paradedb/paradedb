@@ -63,7 +63,9 @@ use pgrx::pg_sys;
 
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource, RelNode};
+use crate::postgres::customscan::joinscan::build::{
+    ColumnAlias, CtidColumn, JoinCSClause, JoinSource, RelNode,
+};
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -96,8 +98,8 @@ pub struct JoinScanState {
     /// The join clause from planning.
     pub join_clause: JoinCSClause,
 
-    /// Map of range table index (RTI) to relation execution state.
-    pub relations: crate::api::HashMap<pg_sys::Index, RelationState>,
+    /// Map of source index (in plan.sources()) to relation execution state.
+    pub relations: crate::api::HashMap<usize, RelationState>,
 
     /// Result tuple slot.
     pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
@@ -229,20 +231,37 @@ fn build_relnode_df<'a>(
     partitioning_rti: pg_sys::Index,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
-    ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
+    ctid_map: &'a crate::api::HashMap<usize, Expr>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
+    fn source_index_in_plan(plan_sources: &[&JoinSource], target: &JoinSource) -> Option<usize> {
+        let idx = target.source_idx;
+        if idx < plan_sources.len() {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+
+    fn source_for_rti_in_subtree(node: &RelNode, rti: pg_sys::Index) -> Option<&JoinSource> {
+        node.sources().into_iter().find(|s| s.contains_rti(rti))
+    }
+
     let f = async move {
         match node {
             RelNode::Scan(source) => {
                 let is_parallel = source.scan_info.heap_rti == partitioning_rti;
-                let mut df = build_source_df(ctx, source, join_clause, is_parallel).await?;
-
                 let plan_sources = join_clause.plan.sources();
-                let source_idx = plan_sources
-                    .iter()
-                    .position(|s| s.scan_info.heap_rti == source.scan_info.heap_rti)
-                    .unwrap();
-                let alias = source.execution_alias(source_idx);
+                let source_idx = source_index_in_plan(&plan_sources, source).ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "Invalid source_idx {} for plan with {} sources",
+                        source.source_idx,
+                        plan_sources.len()
+                    ))
+                })?;
+                let mut df =
+                    build_source_df(ctx, source, source_idx, join_clause, is_parallel).await?;
+                let alias =
+                    ColumnAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
                 df = df.alias(&alias)?;
                 Ok(df)
             }
@@ -267,40 +286,55 @@ fn build_relnode_df<'a>(
                 .await?;
 
                 let mut on: Vec<Expr> = Vec::new();
+                let plan_sources = join_clause.plan.sources();
                 for jk in &join.equi_keys {
-                    let plan_sources = join_clause.plan.sources();
-                    let outer_entry = plan_sources
-                        .iter()
-                        .enumerate()
-                        .find(|(_, s)| s.contains_rti(jk.outer_rti))
-                        .unwrap();
-                    let inner_entry = plan_sources
-                        .iter()
-                        .enumerate()
-                        .find(|(_, s)| s.contains_rti(jk.inner_rti))
-                        .unwrap();
-
-                    let outer_alias = outer_entry.1.execution_alias(outer_entry.0);
-                    let inner_alias = inner_entry.1.execution_alias(inner_entry.0);
-
-                    let outer_col_name = outer_entry
-                        .1
-                        .column_name(jk.outer_attno)
-                        .ok_or_else(|| DataFusionError::Internal("Missing column name".into()))?;
-                    let inner_col_name = inner_entry
-                        .1
-                        .column_name(jk.inner_attno)
-                        .ok_or_else(|| DataFusionError::Internal("Missing column name".into()))?;
-
-                    let outer_expr = make_col(&outer_alias, &outer_col_name);
-                    let inner_expr = make_col(&inner_alias, &inner_col_name);
-
-                    // Ensure that the left side of `eq()` corresponds to a column from `join.left`
-                    if join.left.contains_rti(jk.outer_rti) {
-                        on.push(outer_expr.eq(inner_expr));
+                    // Resolve key sides against the CURRENT join node first.
+                    // This avoids binding to the wrong source when the same base table
+                    // appears multiple times in the overall plan.
+                    let (left_source, left_attno, right_source, right_attno) = if let (
+                        Some(left_source),
+                        Some(right_source),
+                    ) = (
+                        source_for_rti_in_subtree(&join.left, jk.outer_rti),
+                        source_for_rti_in_subtree(&join.right, jk.inner_rti),
+                    ) {
+                        (left_source, jk.outer_attno, right_source, jk.inner_attno)
+                    } else if let (Some(left_source), Some(right_source)) = (
+                        source_for_rti_in_subtree(&join.left, jk.inner_rti),
+                        source_for_rti_in_subtree(&join.right, jk.outer_rti),
+                    ) {
+                        (left_source, jk.inner_attno, right_source, jk.outer_attno)
                     } else {
-                        on.push(inner_expr.eq(outer_expr));
-                    }
+                        return Err(DataFusionError::Internal(format!(
+                            "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",
+                            jk.outer_rti, jk.inner_rti
+                        )));
+                    };
+
+                    let left_idx =
+                        source_index_in_plan(&plan_sources, left_source).ok_or_else(|| {
+                            DataFusionError::Internal("Left join source not found in plan".into())
+                        })?;
+                    let right_idx =
+                        source_index_in_plan(&plan_sources, right_source).ok_or_else(|| {
+                            DataFusionError::Internal("Right join source not found in plan".into())
+                        })?;
+
+                    let left_alias = ColumnAlias::new(left_source.scan_info.alias.as_deref())
+                        .execution(left_idx);
+                    let right_alias = ColumnAlias::new(right_source.scan_info.alias.as_deref())
+                        .execution(right_idx);
+
+                    let left_col_name = left_source
+                        .column_name(left_attno)
+                        .ok_or_else(|| DataFusionError::Internal("Missing column name".into()))?;
+                    let right_col_name = right_source
+                        .column_name(right_attno)
+                        .ok_or_else(|| DataFusionError::Internal("Missing column name".into()))?;
+
+                    let left_expr = make_col(&left_alias, &left_col_name);
+                    let right_expr = make_col(&right_alias, &right_col_name);
+                    on.push(left_expr.eq(right_expr));
                 }
 
                 let df_join_type = match join.join_type {
@@ -431,18 +465,10 @@ fn build_clause_df<'a>(
         }
 
         let mut ctid_map = crate::api::HashMap::default();
-        for (i, source) in plan_sources.iter().enumerate() {
-            let alias = source.execution_alias(i);
-
-            let mut base_relations = Vec::new();
-            source.collect_base_relations(&mut base_relations);
-
-            for base in base_relations {
-                let rti = base.heap_rti;
-                let ctid_name = format!("ctid_{}", rti);
-                let expr = make_col(&alias, &ctid_name);
-                ctid_map.insert(rti, expr);
-            }
+        for (i, _) in plan_sources.iter().enumerate() {
+            let ctid_name = CtidColumn::new(i).to_string();
+            let expr = col(&ctid_name);
+            ctid_map.insert(i, expr);
         }
 
         let mut df = build_relnode_df(
@@ -591,12 +617,9 @@ fn build_clause_df<'a>(
             }
 
             // ALWAYS carry forward all CTID columns from both sides
-            let mut base_relations = Vec::new();
-            join_clause.collect_base_relations(&mut base_relations);
-            for base in base_relations {
-                let ctid_name = format!("ctid_{}", base.heap_rti);
+            for (i, _) in plan_sources.iter().enumerate() {
+                let ctid_name = CtidColumn::new(i).to_string();
                 if df.schema().field_with_unqualified_name(&ctid_name).is_ok() {
-                    // Carry it.
                     final_cols.push(col(&ctid_name));
                 }
             }
@@ -623,7 +646,7 @@ fn build_projection_expr(
 ) -> Expr {
     let plan_sources = join_clause.plan.sources();
     for (i, source) in plan_sources.iter().enumerate() {
-        let alias = source.execution_alias(i);
+        let alias = ColumnAlias::new(source.scan_info.alias.as_deref()).execution(i);
 
         if proj.is_score {
             if let Some(attno) = source.map_var(proj.rti, 0) {
@@ -652,13 +675,13 @@ fn build_projection_expr(
 fn build_source_df<'a>(
     ctx: &'a SessionContext,
     source: &'a JoinSource,
+    source_idx: usize,
     join_clause: &'a JoinCSClause,
     is_parallel: bool,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = source.scan_info.clone();
-        let source_alias = source.scan_info.alias.clone();
-        let alias = source_alias.as_deref().unwrap_or("base");
+        let alias = ColumnAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
         let fields: Vec<WhichFastField> = source
             .scan_info
             .fields
@@ -713,9 +736,9 @@ fn build_source_df<'a>(
         provider.try_enable_late_materialization(&required_early);
 
         let provider = Arc::new(provider);
-        ctx.register_table(alias, provider)?;
+        ctx.register_table(alias.as_str(), provider)?;
 
-        let mut df = ctx.table(alias).await?;
+        let mut df = ctx.table(alias.as_str()).await?;
 
         // Select fields AND ensure CTID is aliased uniquely
         let mut exprs = Vec::new();
@@ -725,10 +748,12 @@ fn build_source_df<'a>(
             // the field list order doesn't match the DataFrame schema field order.
             let expr = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
-                    make_col(alias, name).alias(format!("ctid_{}", scan_info.heap_rti))
+                    make_col(alias.as_str(), name).alias(CtidColumn::new(source_idx).to_string())
                 }
-                Some(WhichFastField::Score) => make_col(alias, name).alias(SCORE_COL_NAME),
-                _ => make_col(alias, name),
+                // Normalize score fast-field column name so all score references resolve
+                // through `<execution_alias>.score`.
+                Some(WhichFastField::Score) => make_col(alias.as_str(), name).alias(SCORE_COL_NAME),
+                _ => make_col(alias.as_str(), name),
             };
 
             exprs.push(expr);

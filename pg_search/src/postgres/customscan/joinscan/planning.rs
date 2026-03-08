@@ -23,7 +23,9 @@
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
 
-use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode};
+use super::build::{
+    ColumnAlias, JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode,
+};
 use super::predicate::{find_base_info_recursive, is_column_fast_field};
 use super::privdat::{OutputColumnInfo, PrivateData};
 
@@ -205,7 +207,9 @@ unsafe fn collect_join_sources_base_rel(
     let rte = pg_sys::rt_fetch(rti, rtable);
     let relid = get_plain_relation_relid(rte)?;
 
-    let mut side_info = JoinSourceCandidate::new(rti).with_heaprelid(relid);
+    let mut side_info = JoinSourceCandidate::new(rti)
+        .with_planner_root_id(root as usize)
+        .with_heaprelid(relid);
 
     if !(*rte).eref.is_null() {
         let eref = (*rte).eref;
@@ -301,7 +305,8 @@ unsafe fn collect_join_sources_base_rel(
         // Recursively collect join sources for the inner subquery
         all_keys.extend(inner_keys);
 
-        let equi_keys = extract_equi_keys_from_subplan(subplan, &current_node, &inner_node);
+        let equi_keys =
+            extract_equi_keys_from_subplan(subplan, inner_root, &current_node, &inner_node);
 
         let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
             join_type: if is_anti {
@@ -530,6 +535,7 @@ unsafe fn extract_subplan_from_clause(
 /// Extracts equi-join keys from a subplan's testexpr for `Semi`/`Anti` joins.
 unsafe fn extract_equi_keys_from_subplan(
     subplan: *mut pg_sys::SubPlan,
+    inner_root: *mut pg_sys::PlannerInfo,
     current_node: &RelNode,
     inner_node: &RelNode,
 ) -> Vec<JoinKeyPair> {
@@ -563,44 +569,53 @@ unsafe fn extract_equi_keys_from_subplan(
                     let varno = (*var_node).varno as pg_sys::Index;
                     let attno = (*var_node).varattno;
 
-                    // Since we don't have all sources easily here, we'll map the Var to the current_node
                     let current_sources = current_node.sources();
                     let inner_sources = inner_node.sources();
 
                     let outer_source = find_source_for_var(&current_sources, varno, attno);
 
-                    // To find the inner mapping, we need to look at the target list of the subquery plan
-                    // For now, let's just make a dummy mapping for the inner source if outer maps.
-                    // In a full implementation, we'd map the Param to the subquery's target list.
-                    if let Some((outer_rti, outer_attno)) = outer_source {
-                        // Hack: Assume inner_rti is the first RTI of the inner node and attno is 1
-                        // Real implementation requires mapping testexpr's Param to the inner plan's targetlist
-                        let inner_rti = if !inner_sources.is_empty() {
-                            inner_sources[0].scan_info.heap_rti
-                        } else {
-                            0
-                        };
+                    let inner_source = resolve_subplan_output_var(inner_root).and_then(
+                        |(inner_varno, inner_attno)| {
+                            find_source_for_var(&inner_sources, inner_varno, inner_attno)
+                        },
+                    );
 
-                        if inner_rti > 0 {
-                            let type_oid = (*var_node).vartype;
-                            let (typlen, typbyval) = get_type_info(type_oid);
+                    if let (Some((outer_rti, outer_attno)), Some((inner_rti, inner_attno))) =
+                        (outer_source, inner_source)
+                    {
+                        let type_oid = (*var_node).vartype;
+                        let (typlen, typbyval) = get_type_info(type_oid);
 
-                            equi_keys.push(JoinKeyPair {
-                                outer_rti,
-                                outer_attno,
-                                inner_rti,
-                                inner_attno: 1, // DUMMY
-                                type_oid,
-                                typlen,
-                                typbyval,
-                            });
-                        }
+                        equi_keys.push(JoinKeyPair {
+                            outer_rti,
+                            outer_attno,
+                            inner_rti,
+                            inner_attno,
+                            type_oid,
+                            typlen,
+                            typbyval,
+                        });
                     }
                 }
             }
         }
     }
     equi_keys
+}
+
+/// Resolve the base-table Var exported by an IN/NOT IN subquery's targetlist.
+unsafe fn resolve_subplan_output_var(
+    inner_root: *mut pg_sys::PlannerInfo,
+) -> Option<(pg_sys::Index, pg_sys::AttrNumber)> {
+    if inner_root.is_null() || (*inner_root).parse.is_null() {
+        return None;
+    }
+
+    let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*(*inner_root).parse).targetList);
+    let te = targetlist.iter_ptr().find(|te| !(*(*te)).resjunk)?;
+    let expr = strip_wrappers((*te).expr.cast());
+    let var = nodecast!(Var, T_Var, expr)?;
+    Some(((*var).varno as pg_sys::Index, (*var).varattno))
 }
 /// Parses a given list of `RestrictInfo` nodes to extract equi-join conditions and other join filters.
 /// Iterates over the given restrict list and groups conditions according to whether they are
@@ -727,11 +742,22 @@ pub(super) unsafe fn collect_required_fields(
     }
 
     if plan_sources.len() >= 2 {
-        for jk in &join_keys {
-            for source in &mut plan_sources {
-                ensure_column(source, jk.outer_rti, jk.outer_attno);
-                ensure_column(source, jk.inner_rti, jk.inner_attno);
+        let mut ensure_join_key_side = |rti: pg_sys::Index, attno: pg_sys::AttrNumber| {
+            let idx = plan_sources
+                .iter()
+                .position(|s| s.contains_rti(rti) && s.has_attno(attno));
+            if let Some(idx) = idx {
+                ensure_field(plan_sources[idx], attno);
+            } else {
+                for source in &mut plan_sources {
+                    ensure_column(source, rti, attno);
+                }
             }
+        };
+
+        for jk in &join_keys {
+            ensure_join_key_side(jk.outer_rti, jk.outer_attno);
+            ensure_join_key_side(jk.inner_rti, jk.inner_attno);
         }
     }
 

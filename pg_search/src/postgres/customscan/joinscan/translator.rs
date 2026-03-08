@@ -21,7 +21,7 @@ use pgrx::{pg_sys, PgList};
 
 use crate::api::HashMap;
 use crate::postgres::customscan::joinscan::build::{
-    JoinLevelExpr, JoinLevelSearchPredicate, JoinSource,
+    ColumnAlias, JoinLevelExpr, JoinLevelSearchPredicate, JoinSource,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
 use crate::postgres::customscan::opexpr::lookup_operator;
@@ -59,16 +59,16 @@ impl<'a> PredicateTranslator<'a> {
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
-        ctid_map: &HashMap<pg_sys::Index, Expr>,
+        ctid_map: &HashMap<usize, Expr>,
         predicates: &[JoinLevelSearchPredicate],
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
-                source_idx: _,
+                source_idx,
                 predicate_idx,
             } => {
                 let predicate = predicates.get(*predicate_idx)?;
-                let col = ctid_map.get(&predicate.rti)?;
+                let col = ctid_map.get(source_idx)?;
                 // Create a SearchPredicateUDF that carries the search query.
                 // This will be pushed down to PgSearchTableProvider via filter pushdown.
                 let udf = SearchPredicateUDF::new(
@@ -332,7 +332,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             .enumerate()
             .find(|(_, s)| s.contains_rti(rti))?;
 
-        let alias = source.execution_alias(source_idx);
+        let alias = ColumnAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
 
         // 3. Resolve column name
         if is_score {

@@ -477,6 +477,27 @@ impl RelNode {
         }
     }
 
+    /// Returns `true` if any join node in the tree has a semi-like join type
+    /// (Semi, Anti, RightSemi, RightAnti, UniqueOuter, UniqueInner).
+    pub fn has_semi_like_join(&self) -> bool {
+        match self {
+            RelNode::Scan(_) => false,
+            RelNode::Join(j) => {
+                matches!(
+                    j.join_type,
+                    JoinType::Semi
+                        | JoinType::Anti
+                        | JoinType::RightSemi
+                        | JoinType::RightAnti
+                        | JoinType::UniqueOuter
+                        | JoinType::UniqueInner
+                ) || j.left.has_semi_like_join()
+                    || j.right.has_semi_like_join()
+            }
+            RelNode::Filter(f) => f.input.has_semi_like_join(),
+        }
+    }
+
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
         match self {
             RelNode::Scan(s) => s.scan_info.heap_rti == rti,
@@ -653,11 +674,6 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
-    /// When true, force partitioning at index 0 (leftmost source) instead of
-    /// the largest source. Required for SEMI/ANTI join correctness where
-    /// the left (preserved) side must be partitioned.
-    #[serde(default)]
-    pub semi_partitioning: bool,
 }
 
 impl JoinCSClause {
@@ -669,7 +685,6 @@ impl JoinCSClause {
             multi_table_predicates: Vec::new(),
             order_by: Vec::new(),
             output_projection: None,
-            semi_partitioning: false,
         }
     }
 
@@ -757,7 +772,7 @@ impl JoinCSClause {
     /// Otherwise, it's the source with the largest row estimate.
     pub fn partitioning_source(&self) -> JoinSource {
         let sources = self.plan.sources();
-        if self.semi_partitioning {
+        if self.plan.has_semi_like_join() {
             sources
                 .into_iter()
                 .next()
@@ -775,7 +790,7 @@ impl JoinCSClause {
     /// Returns the index of the source that should be partitioned for parallel execution.
     /// For semi-like joins, returns 0 (leftmost). Otherwise, the largest source index.
     pub fn partitioning_source_index(&self) -> usize {
-        if self.semi_partitioning {
+        if self.plan.has_semi_like_join() {
             return 0;
         }
         let sources = self.plan.sources();

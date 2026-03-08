@@ -529,45 +529,6 @@ impl CustomScan for JoinScan {
 
             let current_sources = join_clause.plan.sources();
 
-            // The current parallel strategy partitions exactly one source and replicates all
-            // others. For SEMI/ANTI JOIN correctness, the partitioned source must be the
-            // leftmost leaf (index 0 in DFS order). RightSemi/RightAnti are normalized to
-            // Semi/Anti above by swapping children, so the same constraint applies.
-            // UNIQUE_OUTER/INNER are normalized to Semi above (with child
-            // swapping for UniqueOuter), so they have the same partitioning
-            // constraint as Semi joins.
-            //
-            // When the largest source is not at index 0, we force partitioning at
-            // index 0 anyway (accepting a potential performance trade-off for correctness).
-            let is_semi_like = matches!(
-                jointype,
-                pg_sys::JoinType::JOIN_SEMI
-                    | pg_sys::JoinType::JOIN_ANTI
-                    | pg_sys::JoinType::JOIN_UNIQUE_OUTER
-                    | pg_sys::JoinType::JOIN_UNIQUE_INNER
-            ) || {
-                #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-                {
-                    jointype == pg_sys::JoinType::JOIN_RIGHT_ANTI
-                }
-                #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
-                {
-                    false
-                }
-            } || {
-                #[cfg(feature = "pg18")]
-                {
-                    jointype == pg_sys::JoinType::JOIN_RIGHT_SEMI
-                }
-                #[cfg(not(feature = "pg18"))]
-                {
-                    false
-                }
-            };
-            if is_semi_like {
-                join_clause.semi_partitioning = true;
-            }
-
             // Extract join-level predicates (search predicates and heap conditions)
             // This builds an expression tree that can reference:
             // - Predicate nodes: Tantivy search queries

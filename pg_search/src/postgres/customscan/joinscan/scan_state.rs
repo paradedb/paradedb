@@ -501,7 +501,11 @@ fn build_clause_df<'a>(
         // When distinct_col_map is populated, all columns are renamed to col_N.
         // Score uses sentinel (rti, 0) — we iterate rather than exact key match
         // because proj.rti may not match in cross-table OR predicate cases.
-        let resolve_distinct_col = |is_score: bool, rti: pg_sys::Index, attno: pg_sys::AttrNumber, col_alias: &str| -> Expr {
+        let resolve_distinct_col = |is_score: bool,
+                                    rti: pg_sys::Index,
+                                    attno: pg_sys::AttrNumber,
+                                    col_alias: &str|
+         -> Expr {
             if is_score {
                 distinct_col_map
                     .iter()
@@ -539,7 +543,9 @@ fn build_clause_df<'a>(
                         if !distinct_col_map.is_empty() {
                             resolve_distinct_col(false, *rti, *attno, "")
                         } else {
-                            join_clause.plan.sources()
+                            join_clause
+                                .plan
+                                .sources()
                                 .iter()
                                 .enumerate()
                                 .find_map(|(i, source)| {
@@ -552,8 +558,14 @@ fn build_clause_df<'a>(
                     }
                 };
 
-                let asc = matches!(info.direction, SortDirection::AscNullsFirst | SortDirection::AscNullsLast);
-                let nulls_first = matches!(info.direction, SortDirection::AscNullsFirst | SortDirection::DescNullsFirst);
+                let asc = matches!(
+                    info.direction,
+                    SortDirection::AscNullsFirst | SortDirection::AscNullsLast
+                );
+                let nulls_first = matches!(
+                    info.direction,
+                    SortDirection::AscNullsFirst | SortDirection::DescNullsFirst
+                );
                 sort_exprs.push(expr.sort(asc, nulls_first));
             }
             df = df.sort(sort_exprs)?;

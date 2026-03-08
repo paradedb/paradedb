@@ -26,7 +26,7 @@
 
 use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode};
 use super::predicate::{find_base_info_recursive, is_column_fast_field};
-use super::privdat::{OutputColumnInfo, PrivateData, SCORE_COL_NAME};
+use super::privdat::{OutputColumnInfo, PrivateData};
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
@@ -1121,7 +1121,6 @@ unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) 
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
-    ordering_side_index: Option<usize>,
     output_rtis: &[pg_sys::Index],
 ) -> Option<Vec<OrderByInfo>> {
     let mut result = Vec::new();
@@ -1171,7 +1170,7 @@ pub(super) unsafe fn extract_orderby(
 
             // Check if ordering by score
             let mut score_found = false;
-            for (i, source) in sources.iter().enumerate() {
+            for (_, source) in sources.iter().enumerate() {
                 if is_score_func_recursive(check_expr.cast(), source) {
                     if !output_rtis.contains(&source.scan_info.heap_rti) {
                         continue;

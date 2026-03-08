@@ -624,12 +624,7 @@ impl CustomScan for JoinScan {
 
             // Extract ORDER BY info for DataFusion execution
             let output_rtis = join_clause.plan.output_rtis();
-            let order_by = match extract_orderby(
-                root,
-                &current_sources_after_cond,
-                ordering_idx,
-                &output_rtis,
-            ) {
+            let order_by = match extract_orderby(root, &current_sources_after_cond, &output_rtis) {
                 Some(ob) => ob,
                 None => {
                     if is_interesting {

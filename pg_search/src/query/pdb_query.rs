@@ -123,8 +123,6 @@ pub mod pdb {
 
         let _query_prefix = FuzzyTermQuery::new_prefix(term.clone(), 1, true);
         let _query_normal = FuzzyTermQuery::new(term, 1, true);
-
-        assert!(true);
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]

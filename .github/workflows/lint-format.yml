@@ -23,14 +23,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
 
-      - name: Install fd Search Tool
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y fd-find
-          mkdir -p "$HOME/.local/bin"
-          sudo ln -s $(which fdfind) "$HOME/.local/bin/fd"
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
       - name: Check for CRLF Files
         run: |
           FILES=$(git ls-files --eol | grep crlf || true)

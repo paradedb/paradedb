@@ -384,7 +384,7 @@ WARNING:  JoinScan not used: query must have a LIMIT clause
          Output: p.id, p.name, s.name
          Inner Unique: true
          Hash Cond: (p.supplier_id = s.id)
-         ->  Custom Scan (ParadeDB Scan) on public.products p
+         ->  Custom Scan (ParadeDB Base Scan) on public.products p
                Output: p.id, p.name, p.supplier_id
                Table: products
                Index: products_bm25_idx

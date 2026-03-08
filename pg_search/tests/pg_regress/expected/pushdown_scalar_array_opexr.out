@@ -74,7 +74,7 @@ LIMIT 10;
                                                                                                            QUERY PLAN                                                                                                            
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
          Exec Method: TopNScanExecState
@@ -92,7 +92,7 @@ LIMIT 10;
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
          Exec Method: TopNScanExecState
@@ -110,7 +110,7 @@ LIMIT 10;
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
          Exec Method: TopNScanExecState
@@ -128,7 +128,7 @@ LIMIT 10;
                                                                                           QUERY PLAN                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
          Exec Method: TopNScanExecState
@@ -146,7 +146,7 @@ LIMIT 10;
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
          Exec Method: TopNScanExecState
@@ -168,7 +168,7 @@ LIMIT 10;
                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
          Exec Method: TopNScanExecState

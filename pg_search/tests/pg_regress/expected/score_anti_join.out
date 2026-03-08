@@ -50,7 +50,7 @@ LIMIT 5;
          Sort Key: (pdb.score(s.id)) DESC, s.id
          ->  Nested Loop Anti Join
                Join Filter: (score_aj_entries.item_id = s.id)
-               ->  Custom Scan (ParadeDB Scan) on score_aj_items s
+               ->  Custom Scan (ParadeDB Base Scan) on score_aj_items s
                      Table: score_aj_items
                      Index: score_aj_items_idx
                      Exec Method: NormalScanExecState
@@ -103,7 +103,7 @@ LIMIT 5;
          Sort Key: (pdb.score(s.id)) DESC, s.id
          ->  Nested Loop Semi Join
                Join Filter: (s.id = score_aj_entries.item_id)
-               ->  Custom Scan (ParadeDB Scan) on score_aj_items s
+               ->  Custom Scan (ParadeDB Base Scan) on score_aj_items s
                      Table: score_aj_items
                      Index: score_aj_items_idx
                      Exec Method: NormalScanExecState
@@ -164,7 +164,7 @@ LIMIT 5;
          Sort Key: (pdb.score(s.id)) DESC, s.id
          ->  Nested Loop Anti Join
                Join Filter: (score_aj_entries.item_id = s.id)
-               ->  Custom Scan (ParadeDB Scan) on score_aj_items s
+               ->  Custom Scan (ParadeDB Base Scan) on score_aj_items s
                      Table: score_aj_items
                      Index: score_aj_items_idx
                      Exec Method: NormalScanExecState

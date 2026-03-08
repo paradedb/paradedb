@@ -26,7 +26,7 @@ use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
 use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
 
-/// Allows the user to toggle the use of our "ParadeDB Scan".
+/// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".

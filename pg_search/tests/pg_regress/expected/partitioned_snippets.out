@@ -44,7 +44,7 @@ LIMIT 3;
  Limit
    ->  Merge Append
          Sort Key: logs.id
-         ->  Custom Scan (ParadeDB Scan) on logs_2020 logs_1
+         ->  Custom Scan (ParadeDB Base Scan) on logs_2020 logs_1
                Table: logs_2020
                Index: logs_2020_id_message_country_idx
                Exec Method: TopNScanExecState
@@ -52,7 +52,7 @@ LIMIT 3;
                   TopN Order By: id asc
                   TopN Limit: 3
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
-         ->  Custom Scan (ParadeDB Scan) on logs_2021 logs_2
+         ->  Custom Scan (ParadeDB Base Scan) on logs_2021 logs_2
                Table: logs_2021
                Index: logs_2021_id_message_country_idx
                Exec Method: TopNScanExecState
@@ -90,7 +90,7 @@ LIMIT 3;
          ->  Result
                ->  Merge Append
                      Sort Key: logs.id
-                     ->  Custom Scan (ParadeDB Scan) on logs_2020 logs_1
+                     ->  Custom Scan (ParadeDB Base Scan) on logs_2020 logs_1
                            Table: logs_2020
                            Index: logs_2020_id_message_country_idx
                            Exec Method: TopNScanExecState
@@ -98,7 +98,7 @@ LIMIT 3;
                               TopN Order By: id asc
                               TopN Limit: 3
                            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
-                     ->  Custom Scan (ParadeDB Scan) on logs_2021 logs_2
+                     ->  Custom Scan (ParadeDB Base Scan) on logs_2021 logs_2
                            Table: logs_2021
                            Index: logs_2021_id_message_country_idx
                            Exec Method: TopNScanExecState
@@ -126,7 +126,7 @@ LIMIT 3;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
-         ->  Custom Scan (ParadeDB Scan) on logs_2020
+         ->  Custom Scan (ParadeDB Base Scan) on logs_2020
                Table: logs_2020
                Index: logs_2020_id_message_country_idx
                Exec Method: TopNScanExecState
@@ -160,7 +160,7 @@ LIMIT 2 OFFSET 1;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
-         ->  Custom Scan (ParadeDB Scan) on logs_2020
+         ->  Custom Scan (ParadeDB Base Scan) on logs_2020
                Table: logs_2020
                Index: logs_2020_id_message_country_idx
                Exec Method: TopNScanExecState
@@ -193,7 +193,7 @@ LIMIT 0;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
-         ->  Custom Scan (ParadeDB Scan) on logs_2020
+         ->  Custom Scan (ParadeDB Base Scan) on logs_2020
                Table: logs_2020
                Index: logs_2020_id_message_country_idx
                Exec Method: TopNScanExecState
@@ -228,7 +228,7 @@ LIMIT 3;
          ->  Result
                ->  Sort
                      Sort Key: id
-                     ->  Custom Scan (ParadeDB Scan) on logs_2020
+                     ->  Custom Scan (ParadeDB Base Scan) on logs_2020
                            Table: logs_2020
                            Index: logs_2020_id_message_country_idx
                            Exec Method: NormalScanExecState

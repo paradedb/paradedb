@@ -129,7 +129,7 @@ LIMIT 5;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
-         ->  Custom Scan (ParadeDB Scan) on articles a
+         ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
                Exec Method: TopNScanExecState
@@ -194,7 +194,7 @@ ORDER BY paradedb.score(a.id) DESC;
  Sort
    Sort Key: (paradedb.score(a.id)) DESC
    ->  Nested Loop Left Join
-         ->  Custom Scan (ParadeDB Scan) on articles a
+         ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
                Exec Method: NormalScanExecState
@@ -253,7 +253,7 @@ LIMIT 5;
    ->  Sort
          Sort Key: (paradedb.score(a.id)) DESC
          ->  Nested Loop
-               ->  Custom Scan (ParadeDB Scan) on articles a
+               ->  Custom Scan (ParadeDB Base Scan) on articles a
                      Table: articles
                      Index: articles_bm25_idx
                      Exec Method: NormalScanExecState
@@ -309,7 +309,7 @@ LIMIT 5;
          Sort Key: (paradedb.score(a.id)) DESC
          ->  Nested Loop Left Join
                Join Filter: (a.author_id = au.id)
-               ->  Custom Scan (ParadeDB Scan) on articles a
+               ->  Custom Scan (ParadeDB Base Scan) on articles a
                      Table: articles
                      Index: articles_bm25_idx
                      Exec Method: NormalScanExecState
@@ -361,7 +361,7 @@ LIMIT 10;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
-         ->  Custom Scan (ParadeDB Scan) on articles a
+         ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
                Exec Method: TopNScanExecState
@@ -419,7 +419,7 @@ LIMIT 5;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
-         ->  Custom Scan (ParadeDB Scan) on articles a
+         ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
                Exec Method: TopNScanExecState
@@ -481,7 +481,7 @@ LIMIT 3;
  Limit
    ->  Nested Loop Left Join
          ->  Nested Loop Left Join
-               ->  Custom Scan (ParadeDB Scan) on articles a
+               ->  Custom Scan (ParadeDB Base Scan) on articles a
                      Table: articles
                      Index: articles_bm25_idx
                      Exec Method: TopNScanExecState
@@ -548,7 +548,7 @@ LIMIT 5;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
-         ->  Custom Scan (ParadeDB Scan) on articles a
+         ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
                Exec Method: TopNScanExecState
@@ -610,7 +610,7 @@ LIMIT 5;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
-         ->  Custom Scan (ParadeDB Scan) on articles a
+         ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
                Exec Method: TopNScanExecState
@@ -671,7 +671,7 @@ LIMIT 5;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
-         ->  Custom Scan (ParadeDB Scan) on articles a
+         ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
                Exec Method: TopNScanExecState
@@ -737,7 +737,7 @@ LIMIT 5;
  Limit
    ->  Nested Loop Left Join
          Join Filter: (a.author_id = au.id)
-         ->  Custom Scan (ParadeDB Scan) on articles a
+         ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
                Exec Method: TopNScanExecState
@@ -824,7 +824,7 @@ LIMIT 3;
  Limit
    ->  Nested Loop Left Join
          Join Filter: (a.author_id = au.id)
-         ->  Custom Scan (ParadeDB Scan) on articles a
+         ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
                Exec Method: TopNScanExecState
@@ -904,7 +904,7 @@ LIMIT 3;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
-         ->  Custom Scan (ParadeDB Scan) on articles a
+         ->  Custom Scan (ParadeDB Base Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
                Exec Method: TopNScanExecState

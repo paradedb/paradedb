@@ -440,7 +440,7 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
    ->  Sort
          Output: category, price
          Sort Key: products.category
-         ->  Custom Scan (ParadeDB Scan) on public.products
+         ->  Custom Scan (ParadeDB Base Scan) on public.products
                Output: category, price
                Table: products
                Index: products_idx
@@ -470,7 +470,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: avg(length(description))
-   ->  Custom Scan (ParadeDB Scan) on public.products
+   ->  Custom Scan (ParadeDB Base Scan) on public.products
          Output: description
          Table: products
          Index: products_idx

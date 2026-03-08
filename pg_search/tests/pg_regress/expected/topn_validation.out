@@ -147,7 +147,7 @@ WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: category DESC
-         ->  Custom Scan (ParadeDB Scan) on test_products
+         ->  Custom Scan (ParadeDB Base Scan) on test_products
                Table: test_products
                Index: products_lower_idx
                Exec Method: NormalScanExecState

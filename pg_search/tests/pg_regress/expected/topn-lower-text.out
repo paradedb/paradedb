@@ -19,7 +19,7 @@ LIMIT 5;
                                                              QUERY PLAN                                                             
 ------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=10.00..10.01 rows=1 width=68)
-   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.01 rows=1 width=68)
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items  (cost=10.00..10.01 rows=1 width=68)
          Table: mock_items
          Index: search_idx
          Segment Count: 1
@@ -50,7 +50,7 @@ WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). R
  Limit  (cost=10.02..10.03 rows=1 width=36)
    ->  Sort  (cost=10.02..10.03 rows=1 width=36)
          Sort Key: description DESC
-         ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.01 rows=1 width=36)
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items  (cost=10.00..10.01 rows=1 width=36)
                Table: mock_items
                Index: search_idx
                Segment Count: 1

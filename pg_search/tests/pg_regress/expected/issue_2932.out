@@ -50,7 +50,7 @@ SELECT id, pdb.score(id) AS score FROM mock_items WHERE description @@@ 'shoes' 
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: mock_items_id_description_rating_idx
          Exec Method: TopNScanExecState
@@ -68,7 +68,7 @@ WARNING:  Query has LIMIT 3 but is not using TopN scan (using Normal instead). R
  Limit
    ->  Sort
          Sort Key: ((pdb.score(id) * '2'::double precision)) DESC
-         ->  Custom Scan (ParadeDB Scan) on mock_items
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
                Table: mock_items
                Index: mock_items_id_description_rating_idx
                Exec Method: NormalScanExecState

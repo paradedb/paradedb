@@ -46,7 +46,7 @@ select assert(count(*), 8), count(*) from (select id from test where message @@@
    ->  Aggregate
          ->  Sort
                Sort Key: test.severity
-               ->  Custom Scan (ParadeDB Scan) on test
+               ->  Custom Scan (ParadeDB Base Scan) on test
                      Table: test
                      Index: idxtest
                      Exec Method: MixedFastFieldExecState
@@ -69,7 +69,7 @@ select assert(count(*), 8), count(*), max(id) from (select id from test where me
    ->  Aggregate
          ->  Sort
                Sort Key: test.severity
-               ->  Custom Scan (ParadeDB Scan) on test
+               ->  Custom Scan (ParadeDB Base Scan) on test
                      Table: test
                      Index: idxtest
                      Exec Method: MixedFastFieldExecState
@@ -92,7 +92,7 @@ select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from tes
    ->  Aggregate
          ->  Sort
                Sort Key: test.severity
-               ->  Custom Scan (ParadeDB Scan) on test
+               ->  Custom Scan (ParadeDB Base Scan) on test
                      Table: test
                      Index: idxtest
                      Exec Method: MixedFastFieldExecState

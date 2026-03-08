@@ -59,7 +59,7 @@ fn generates_custom_scan_for_or(mut conn: PgConnection) {
 
     assert_eq!(
         plan.get("Custom Plan Provider"),
-        Some(&Value::String(String::from("ParadeDB Scan")))
+        Some(&Value::String(String::from("ParadeDB Base Scan")))
     );
 }
 
@@ -76,7 +76,7 @@ fn generates_custom_scan_for_and(mut conn: PgConnection) {
     let plan = plan.pointer("/0/Plan").unwrap();
     assert_eq!(
         plan.get("Custom Plan Provider"),
-        Some(&Value::String(String::from("ParadeDB Scan")))
+        Some(&Value::String(String::from("ParadeDB Base Scan")))
     );
 }
 
@@ -555,7 +555,7 @@ fn without_operator_guc(mut conn: PgConnection) {
         let (plan,) = format!("EXPLAIN (FORMAT JSON) {query_string}").fetch_one::<(Value,)>(conn);
         eprintln!("{query_string}");
         eprintln!("{plan:#?}");
-        format!("{plan:?}").contains("ParadeDB Scan")
+        format!("{plan:?}").contains("ParadeDB Base Scan")
     }
 
     for custom_scan_without_operator in [true, false] {

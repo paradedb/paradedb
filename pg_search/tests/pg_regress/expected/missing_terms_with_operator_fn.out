@@ -7,7 +7,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM missing_fn WHERE id =
 ----------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on missing_fn
+   ->  Custom Scan (ParadeDB Base Scan) on missing_fn
          Table: missing_fn
          Index: idxmissing_fn
          Exec Method: MixedFastFieldExecState
@@ -30,7 +30,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM missing_fn WHERE id =
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on missing_fn
+   ->  Custom Scan (ParadeDB Base Scan) on missing_fn
          Table: missing_fn
          Index: idxmissing_fn
          Exec Method: MixedFastFieldExecState

@@ -19,7 +19,7 @@ SELECT * FROM paradedb.schema('idxindex_json') ORDER BY name;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -36,7 +36,7 @@ SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' &&& 'value1';
                                                                                           QUERY PLAN                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -53,7 +53,7 @@ SELECT * FROM index_json WHERE j->'key1' &&& 'value1';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
                                                                                           QUERY PLAN                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -70,7 +70,7 @@ SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ### 'value1';
                                                    QUERY PLAN                                                    
 -----------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -87,7 +87,7 @@ SELECT * FROM index_json WHERE j->'key1' ### 'value1';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
                                                  QUERY PLAN                                                 
 ------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -104,7 +104,7 @@ SELECT * FROM index_json WHERE j->'key1' === 'value1';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -121,7 +121,7 @@ SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' &&& 'value2';
                                                                                           QUERY PLAN                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -138,7 +138,7 @@ SELECT * FROM index_json WHERE jb->'key2' &&& 'value2';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
                                                                                            QUERY PLAN                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -155,7 +155,7 @@ SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
                                                     QUERY PLAN                                                    
 ------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -172,7 +172,7 @@ SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' === 'value2';
                                                  QUERY PLAN                                                  
 -------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -200,7 +200,7 @@ SELECT * FROM paradedb.schema('idxindex_json') ORDER BY name;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -217,7 +217,7 @@ SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' &&& 'value1';
                                                                                           QUERY PLAN                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -234,7 +234,7 @@ SELECT * FROM index_json WHERE j->'key1' &&& 'value1';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
                                                                                           QUERY PLAN                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -255,7 +255,7 @@ ERROR:  field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
                                                  QUERY PLAN                                                 
 ------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -271,7 +271,7 @@ SELECT * FROM index_json WHERE j->'key1' === 'value1';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -288,7 +288,7 @@ SELECT * FROM index_json WHERE jb->'key2' @@@ 'value2';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' &&& 'value2';
                                                                                           QUERY PLAN                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -305,7 +305,7 @@ SELECT * FROM index_json WHERE jb->'key2' &&& 'value2';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
                                                                                            QUERY PLAN                                                                                           
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -322,7 +322,7 @@ SELECT * FROM index_json WHERE jb->'key2' ||| 'value2';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
                                                     QUERY PLAN                                                    
 ------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
@@ -339,7 +339,7 @@ SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' === 'value2';
                                                  QUERY PLAN                                                  
 -------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
+ Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState

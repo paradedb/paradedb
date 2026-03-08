@@ -138,7 +138,7 @@ ORDER BY document_title, file_title, page_number;
  Sort
    Sort Key: sd.title, mf.title, p.page_number
    CTE searchable_docs
-     ->  Custom Scan (ParadeDB Scan) on documents d
+     ->  Custom Scan (ParadeDB Base Scan) on documents d
            Table: documents
            Index: documents_search
            Exec Method: MixedFastFieldExecState
@@ -148,7 +148,7 @@ ORDER BY document_title, file_title, page_number;
    CTE matching_files
      ->  Nested Loop
            Join Filter: (f.documentid = sd_1.id)
-           ->  Custom Scan (ParadeDB Scan) on files f
+           ->  Custom Scan (ParadeDB Base Scan) on files f
                  Table: files
                  Index: files_search
                  Exec Method: MixedFastFieldExecState
@@ -165,7 +165,7 @@ ORDER BY document_title, file_title, page_number;
                      ->  CTE Scan on searchable_docs sd
                      ->  CTE Scan on matching_files mf
                ->  CTE Scan on matching_files mf_1
-         ->  Custom Scan (ParadeDB Scan) on pages p
+         ->  Custom Scan (ParadeDB Base Scan) on pages p
                Table: pages
                Index: pages_search
                Exec Method: MixedFastFieldExecState

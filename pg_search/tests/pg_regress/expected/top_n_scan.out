@@ -112,7 +112,7 @@ LIMIT 25;
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on records
+   ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
          Index: records_search_idx
          Exec Method: TopNScanExecState
@@ -143,7 +143,7 @@ WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: time_period DESC
-         ->  Custom Scan (ParadeDB Scan) on records
+         ->  Custom Scan (ParadeDB Base Scan) on records
                Table: records
                Index: records_search_idx
                Exec Method: NormalScanExecState
@@ -171,7 +171,7 @@ WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: time_period DESC
-         ->  Custom Scan (ParadeDB Scan) on records
+         ->  Custom Scan (ParadeDB Base Scan) on records
                Table: records
                Index: records_search_idx
                Exec Method: NormalScanExecState
@@ -191,7 +191,7 @@ LIMIT 25;
                       QUERY PLAN                       
 -------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on records
+   ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
          Index: records_search_idx
          Exec Method: TopNScanExecState
@@ -214,7 +214,7 @@ LIMIT 25;
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on records
+   ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
          Index: records_search_idx
          Exec Method: TopNScanExecState
@@ -236,7 +236,7 @@ LIMIT 25;
                                                                                                           QUERY PLAN                                                                                                          
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on records
+   ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
          Index: records_search_idx
          Exec Method: TopNScanExecState
@@ -263,7 +263,7 @@ WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: time_period DESC
-         ->  Custom Scan (ParadeDB Scan) on records
+         ->  Custom Scan (ParadeDB Base Scan) on records
                Table: records
                Index: records_search_idx
                Exec Method: NormalScanExecState
@@ -283,7 +283,7 @@ LIMIT 25;
                                                                                                                                           QUERY PLAN                                                                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on records
+   ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
          Index: records_search_idx
          Exec Method: TopNScanExecState
@@ -320,7 +320,7 @@ WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: time_period DESC
-         ->  Custom Scan (ParadeDB Scan) on records
+         ->  Custom Scan (ParadeDB Base Scan) on records
                Table: records
                Index: records_search_idx
                Exec Method: NormalScanExecState
@@ -345,7 +345,7 @@ WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: time_period DESC
-         ->  Custom Scan (ParadeDB Scan) on records
+         ->  Custom Scan (ParadeDB Base Scan) on records
                Table: records
                Index: records_search_idx
                Exec Method: NormalScanExecState
@@ -366,7 +366,7 @@ LIMIT 10000;
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=2500.00 loops=1)
-   ->  Custom Scan (ParadeDB Scan) on records (actual rows=2500.00 loops=1)
+   ->  Custom Scan (ParadeDB Base Scan) on records (actual rows=2500.00 loops=1)
          Table: records
          Index: records_search_idx
          Heap Fetches: 2500
@@ -390,7 +390,7 @@ ORDER BY state, flow_type, currency_code, id
                                   QUERY PLAN                                   
 -------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on records
+   ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
          Index: records_search_idx
          Exec Method: TopNScanExecState
@@ -413,7 +413,7 @@ ORDER BY state, flow_type, currency_code, tenant_id, id
                                           QUERY PLAN                                          
 ----------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on records
+   ->  Custom Scan (ParadeDB Base Scan) on records
          Table: records
          Index: records_search_idx
          Exec Method: TopNScanExecState
@@ -439,7 +439,7 @@ WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: state, flow_type, currency_code, tenant_id, source_id, id
-         ->  Custom Scan (ParadeDB Scan) on records
+         ->  Custom Scan (ParadeDB Base Scan) on records
                Table: records
                Index: records_search_idx
                Exec Method: NormalScanExecState

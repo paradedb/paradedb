@@ -100,7 +100,7 @@ WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast 
    ->  Sort
          Output: not_indexed
          Sort Key: issue_3827_t.not_indexed
-         ->  Custom Scan (ParadeDB Scan) on public.issue_3827_t
+         ->  Custom Scan (ParadeDB Base Scan) on public.issue_3827_t
                Output: not_indexed
                Table: issue_3827_t
                Index: issue_3827_t_idx
@@ -138,7 +138,7 @@ WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast 
    ->  Sort
          Output: txt, n
          Sort Key: issue_3827_t.txt, issue_3827_t.n
-         ->  Custom Scan (ParadeDB Scan) on public.issue_3827_t
+         ->  Custom Scan (ParadeDB Base Scan) on public.issue_3827_t
                Output: txt, n
                Table: issue_3827_t
                Index: issue_3827_t_idx

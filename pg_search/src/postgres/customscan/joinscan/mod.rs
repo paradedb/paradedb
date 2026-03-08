@@ -205,20 +205,12 @@ impl ParallelQueryCapable for JoinScan {
         let partitioning_idx = join_clause.partitioning_source_index();
         let sources = join_clause.plan.sources();
 
-        // Largest source is partitioned; all others are replicated across workers.
-        let segment_count = sources[partitioning_idx].scan_info.segment_count;
-
-        // Collect planning-time segment counts for every non-partitioning source (safe
-        // upper bound: merges can only reduce the segment count before initialization).
-        let non_partitioning_nsegments: Vec<usize> = sources
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != partitioning_idx)
-            .map(|(_, s)| s.scan_info.segment_count)
-            .collect();
+        // Collect planning-time segment counts for all sources (safe upper bound:
+        // merges can only reduce the segment count before initialization).
+        let all_nsegments: Vec<usize> = sources.iter().map(|s| s.scan_info.segment_count).collect();
 
         // JoinScan doesn't currently support aggregates in the scan
-        ParallelScanState::size_of(segment_count, &[], false, &non_partitioning_nsegments)
+        ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false)
     }
 
     fn initialize_dsm_custom_scan(
@@ -235,35 +227,18 @@ impl ParallelQueryCapable for JoinScan {
 
         let expr_context = crate::postgres::utils::ExprContextGuard::new();
 
-        // Open the partitioning source (largest table) to populate the shared segment pool.
-        let partitioning_source = &sources[partitioning_idx];
-        let partitioning_rel = PgSearchRelation::open(partitioning_source.scan_info.indexrelid);
-        let partitioning_reader = SearchIndexReader::open_with_context(
-            &partitioning_rel,
-            partitioning_source.scan_info.query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            std::ptr::NonNull::new(expr_context.as_ptr()),
-            None,
-        )
-        .expect("Failed to open partitioning reader for DSM initialization");
-
-        // Open each non-partitioning source once with a Snapshot read.  We capture the
-        // frozen segment list now so that every worker sees the identical set of segments,
-        // eliminating the per-worker snapshot divergence that caused DocAddress mismatches.
-        let np_rels: Vec<PgSearchRelation> = sources
+        // Open ALL sources with Snapshot visibility, in ascending sources() order.
+        // The leader captures a single frozen segment list for every source so that
+        // all workers see identical segment ordinals (required for DocAddress consistency).
+        let rels: Vec<PgSearchRelation> = sources
             .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != partitioning_idx)
-            .map(|(_, s)| PgSearchRelation::open(s.scan_info.indexrelid))
+            .map(|s| PgSearchRelation::open(s.scan_info.indexrelid))
             .collect();
 
-        let np_readers: Vec<SearchIndexReader> = sources
+        let readers: Vec<SearchIndexReader> = sources
             .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != partitioning_idx)
-            .zip(np_rels.iter())
-            .map(|((_, s), rel)| {
+            .zip(rels.iter())
+            .map(|(s, rel)| {
                 SearchIndexReader::open_with_context(
                     rel,
                     s.scan_info.query.clone(),
@@ -272,47 +247,27 @@ impl ParallelQueryCapable for JoinScan {
                     std::ptr::NonNull::new(expr_context.as_ptr()),
                     None,
                 )
-                .expect("Failed to open non-partitioning reader for DSM initialization")
+                .expect("Failed to open reader for DSM initialization")
             })
             .collect();
 
-        // Compute actual segment counts from the opened readers (used for the layout).
-        let non_partitioning_nsegments: Vec<usize> = np_readers
-            .iter()
-            .map(|r| r.segment_readers().len())
-            .collect();
+        let all_sources: Vec<&[tantivy::SegmentReader]> =
+            readers.iter().map(|r| r.segment_readers()).collect();
 
         let args = crate::postgres::ParallelScanArgs {
-            segment_readers: partitioning_reader.segment_readers(),
+            all_sources,
+            partitioning_source_idx: partitioning_idx,
             query: vec![], // JoinScan passes query via PrivateData, not shared state
             with_aggregates: false,
-            non_partitioning_nsegments,
         };
 
         unsafe {
             (*pscan_state).create_and_populate(args);
         }
 
-        // Write the canonical non-partitioning segment IDs into shared memory.
-        //
-        // Safety note: `create_and_populate` already called `init_cv.broadcast()`, which
-        // logically signals workers to proceed.  However, PostgreSQL only calls
-        // `LaunchParallelWorkers` *after* `InitializeDSMCustomScan` returns, so no worker
-        // can have started (let alone reached `wait_for_initialization`) at this point.
-        // There is therefore no data race between this write and a worker read.
-        let np_segment_readers: Vec<&[tantivy::SegmentReader]> =
-            np_readers.iter().map(|r| r.segment_readers()).collect();
-        unsafe {
-            (*pscan_state).populate_non_partitioning(&np_segment_readers);
-        }
-
-        // Keep the canonical segment ID sets in the leader's execution state so that
-        // exec_custom_scan can inject them into the codec for non-partitioning providers.
-        let non_partitioning_segments: Vec<crate::api::HashSet<tantivy::index::SegmentId>> =
-            np_readers
-                .iter()
-                .map(|r| r.segment_readers().iter().map(|s| s.segment_id()).collect())
-                .collect();
+        // Read the canonical non-partitioning segment ID sets from shared memory.
+        // The leader uses these in exec_custom_scan to inject them into the codec.
+        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
         state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;

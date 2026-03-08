@@ -141,6 +141,56 @@ impl JoinScanState {
     }
 }
 
+impl Drop for JoinScanState {
+    fn drop(&mut self) {
+        // Each field that may hold PostgreSQL or DataFusion resources is
+        // dropped inside its own `catch_unwind`.
+        //
+        // Why this is necessary:
+        //   In a parallel worker, PostgreSQL can deliver SIGTERM at any
+        //   CHECK_FOR_INTERRUPTS() point (e.g. during a buffer read inside
+        //   the tokio `block_on` loop).  ProcessInterrupts raises FATAL,
+        //   which calls proc_exit(1) **directly** — no longjmp, no Rust
+        //   unwinding — while the entire Rust call-stack is still live.
+        //
+        //   During proc_exit, MemoryContextReset drops this struct via the
+        //   `leak_and_drop_on_delete` callback.  If any field's destructor
+        //   panics (e.g. the DataFusion stream is mid-poll and its state is
+        //   inconsistent), pgrx converts the panic to ereport(ERROR).  An
+        //   ERROR during an already-in-progress proc_exit triggers a
+        //   **re-entrant** proc_exit, which hits a PostgreSQL assertion in
+        //   pgstat_report_stat → ExceptionalCondition → abort() → SIGABRT,
+        //   crashing the postmaster.
+        //
+        //   By catching each panic independently, we prevent the cascade.
+        //   Leaking a field's memory is acceptable here: proc_exit calls
+        //   _exit(), so the OS reclaims everything.
+
+        fn safe_drop<T>(val: Option<T>) {
+            if let Some(v) = val {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(v)));
+            }
+        }
+
+        safe_drop(self.datafusion_stream.take());
+        safe_drop(self.physical_plan.take());
+        safe_drop(self.current_batch.take());
+        safe_drop(self.logical_plan.take());
+
+        // Drain relations individually so each gets its own catch_unwind.
+        for (_, v) in self.relations.drain() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(v)));
+        }
+
+        // Drop the tokio Runtime last — the stream may reference it.
+        safe_drop(self.runtime.take());
+
+        // Remaining fields (join_clause, output_columns, batch_index,
+        // max_memory, result_slot, parallel_state) are plain data or
+        // raw pointers with no destructors that touch PostgreSQL state.
+    }
+}
+
 impl CustomScanState for JoinScanState {
     fn init_exec_method(&mut self, _cstate: *mut pg_sys::CustomScanState) {
         // No special initialization needed for the plain exec method

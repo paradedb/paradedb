@@ -47,7 +47,7 @@ SET paradedb.enable_join_custom_scan TO on;
 -- =====================================================================
 -- 1. Semi Join Only
 -- =====================================================================
-EXPLAIN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category
 FROM table_a
 WHERE id IN (
@@ -60,8 +60,10 @@ ORDER BY id ASC
 LIMIT 10;
                                                                                                QUERY PLAN                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=10.00..11.00 rows=10 width=40)
-   ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=10 width=40)
+ Limit
+   Output: table_a.id, table_a.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: table_a.id, table_a.category
          Relation Tree: table_a SEMI table_b
          Join Cond: table_a.id = table_b.a_id
          Limit: 10
@@ -75,11 +77,12 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+(17 rows)
 
 -- =====================================================================
 -- 2. Anti Join Only
 -- =====================================================================
+-- This does not trigger an anti join because Postgres cannot prove that group_id is not NULL.
 -- TODO: This query only triggers set_rel_pathlist_hook and not set_join_pathlist_hook, and so does
 -- not render our warning. See https://github.com/paradedb/paradedb/issues/4236 about resolving this.
 SELECT id, category
@@ -106,10 +109,44 @@ LIMIT 10;
  20 | target_category
 (10 rows)
 
+-- This does trigger an anti join because we use NOT EXISTS
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM table_b
+    WHERE table_b.a_id = table_a.id
+    AND table_b.group_id IN ('group_3', 'group_4')
+)
+AND table_a.id @@@ 'category:"target_category"'
+ORDER BY table_a.id ASC
+LIMIT 10;
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: table_a.id, table_a.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: table_a.id, table_a.category
+         Relation Tree: table_a ANTI table_b
+         Join Cond: table_b.a_id = table_a.id
+         Limit: 10
+         Order By: table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_1@0 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
+
 -- =====================================================================
 -- 3. Both Semi and Anti Join
 -- =====================================================================
--- TODO: This query should produce a warning because Anti-Joins are not supported.
+-- TODO: This query should produce a warning because only binary base table joins are supported
 SELECT id, category
 FROM table_a
 WHERE id IN (
@@ -125,7 +162,8 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: only INNER and SEMI JOIN are currently supported (types: ANTI, RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
+WARNING:  JoinScan not used: SEMI JOIN currently supports only binary base-table joins (tables: table_a, table_b)
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
  id  |    category     
 -----+-----------------
   10 | target_category

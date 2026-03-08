@@ -133,15 +133,9 @@ impl ScanInfo {
     /// Returns a unique execution alias by combining the table alias (if any)
     /// with the source index.
     pub fn execution_alias(&self, index: usize) -> String {
-        execution_alias(self.alias.as_deref(), index)
-    }
-}
-
-/// Returns a unique execution alias by combining the table alias (if any)
-/// with the source index.
-pub fn execution_alias(alias: Option<&str>, index: usize) -> String {
-    match alias {
-        Some(alias) => format!("{}_{}", alias, index),
-        None => format!("source_{}", index),
+        match &self.alias {
+            Some(alias) => format!("{}_{}", alias, index),
+            None => format!("source_{}", index),
+        }
     }
 }

@@ -447,38 +447,31 @@ pub struct FilterNode {
 impl RelNode {
     /// Recursively collects all unsupported join types found in the tree.
     pub fn unsupported_join_types(&self) -> Vec<JoinType> {
-        let mut unsupported: Vec<_> = self
-            .join_types()
-            .into_iter()
-            .filter(|t| {
-                !matches!(
-                    t,
-                    JoinType::Inner
-                        | JoinType::Semi
-                        | JoinType::Anti
-                        | JoinType::RightSemi
-                        | JoinType::RightAnti
-                        | JoinType::UniqueOuter
-                        | JoinType::UniqueInner
-                )
-            })
-            .collect();
-        unsupported.sort_by_key(|t| t.to_string());
-        unsupported.dedup_by_key(|t| t.to_string());
-        unsupported
+        let mut all = Vec::new();
+        self.collect_join_types(&mut all);
+        all.retain(|t| {
+            !matches!(
+                t,
+                JoinType::Inner
+                    | JoinType::Semi
+                    | JoinType::Anti
+                    | JoinType::RightSemi
+                    | JoinType::RightAnti
+                    | JoinType::UniqueOuter
+                    | JoinType::UniqueInner
+            )
+        });
+        all.sort_by_key(|t| t.to_string());
+        all.dedup_by_key(|t| t.to_string());
+        all
     }
 
     /// Returns `true` if any join node in the tree has a non-Inner join type
     /// (i.e. Semi, Anti, RightSemi, RightAnti, UniqueOuter, or UniqueInner).
     pub fn has_semi_like_join(&self) -> bool {
-        self.join_types().iter().any(|t| *t != JoinType::Inner)
-    }
-
-    /// Collects all join types present in the tree.
-    fn join_types(&self) -> Vec<JoinType> {
         let mut types = Vec::new();
         self.collect_join_types(&mut types);
-        types
+        types.iter().any(|t| *t != JoinType::Inner)
     }
 
     fn collect_join_types(&self, acc: &mut Vec<JoinType>) {

@@ -317,7 +317,6 @@ impl CustomScan for JoinScan {
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         unsafe {
-            pgrx::info!("entering create_custom_path");
             let args = builder.args();
             let root = args.root;
             let jointype = args.jointype;
@@ -336,8 +335,6 @@ impl CustomScan for JoinScan {
             } else {
                 return Vec::new();
             };
-
-            pgrx::info!("got nodes");
 
             join_keys.extend(inner_keys);
 
@@ -475,19 +472,19 @@ impl CustomScan for JoinScan {
             }));
 
             let unsupported = plan.unsupported_join_types();
-            // if !unsupported.is_empty() {
-            //     if is_interesting {
-            //         Self::add_detailed_planner_warning(
-            //             "JoinScan not used: only INNER and SEMI JOIN are currently supported",
-            //             &aliases,
-            //             unsupported
-            //                 .iter()
-            //                 .map(|t| t.to_string().to_uppercase())
-            //                 .collect::<Vec<_>>(),
-            //         );
-            //     }
-            //     return Vec::new();
-            // }
+            if !unsupported.is_empty() {
+                if is_interesting {
+                    Self::add_detailed_planner_warning(
+                        "JoinScan not used: only INNER and SEMI JOIN are currently supported",
+                        &aliases,
+                        unsupported
+                            .iter()
+                            .map(|t| t.to_string().to_uppercase())
+                            .collect::<Vec<_>>(),
+                    );
+                }
+                return Vec::new();
+            }
 
             let mut join_clause = JoinCSClause::new(plan).with_limit(limit);
 

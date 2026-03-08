@@ -1658,8 +1658,8 @@ FROM numeric_unbounded_agg_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
  GroupAggregate
    Output: category, sum(amount)
    Group Key: numeric_unbounded_agg_test.category
@@ -2142,8 +2142,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM max_scale_test
 WHERE id @@@ paradedb.all();
-                         QUERY PLAN                         
-------------------------------------------------------------
+                           QUERY PLAN                            
+-----------------------------------------------------------------
  Aggregate
    Output: sum(val), avg(val), min(val), max(val)
    ->  Custom Scan (ParadeDB Base Scan) on public.max_scale_test
@@ -2265,8 +2265,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM negative_scale_test
 WHERE id @@@ paradedb.all();
-                           QUERY PLAN                            
------------------------------------------------------------------
+                              QUERY PLAN                              
+----------------------------------------------------------------------
  Aggregate
    Output: sum(val), avg(val), min(val), max(val)
    ->  Custom Scan (ParadeDB Base Scan) on public.negative_scale_test
@@ -3169,8 +3169,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
 FROM numeric_precision_only_test
 WHERE id @@@ paradedb.all();
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Aggregate
    Output: sum(val_small), avg(val_small), min(val_small), max(val_small)
    ->  Custom Scan (ParadeDB Base Scan) on public.numeric_precision_only_test

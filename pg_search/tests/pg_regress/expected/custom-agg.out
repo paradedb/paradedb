@@ -1443,8 +1443,8 @@ FROM logs
 WHERE description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
-                                   QUERY PLAN                                   
---------------------------------------------------------------------------------
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
  Limit  (cost=10.00..10.01 rows=1 width=76)
    ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.01 rows=1 width=76)
          Table: logs
@@ -1474,8 +1474,8 @@ EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::json
 FROM logs
 ORDER BY timestamp DESC
 LIMIT 1;
-                                   QUERY PLAN                                   
---------------------------------------------------------------------------------
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
  Limit  (cost=10.00..10.01 rows=1 width=76)
    ->  Custom Scan (ParadeDB Base Scan) on logs  (cost=10.00..10.01 rows=1 width=76)
          Table: logs

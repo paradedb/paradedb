@@ -447,19 +447,12 @@ pub struct FilterNode {
 impl RelNode {
     /// Recursively collects all unsupported join types found in the tree.
     pub fn unsupported_join_types(&self) -> Vec<JoinType> {
-        let mut unsupported = Vec::new();
-        self.collect_unsupported_join_types(&mut unsupported);
-        unsupported.sort_by_key(|t| t.to_string());
-        unsupported.dedup_by_key(|t| t.to_string());
-        unsupported
-    }
-
-    fn collect_unsupported_join_types(&self, acc: &mut Vec<JoinType>) {
-        match self {
-            RelNode::Scan(_) => {}
-            RelNode::Join(j) => {
-                if !matches!(
-                    j.join_type,
+        let mut unsupported: Vec<_> = self
+            .join_types()
+            .into_iter()
+            .filter(|t| {
+                !matches!(
+                    t,
                     JoinType::Inner
                         | JoinType::Semi
                         | JoinType::Anti
@@ -467,34 +460,36 @@ impl RelNode {
                         | JoinType::RightAnti
                         | JoinType::UniqueOuter
                         | JoinType::UniqueInner
-                ) {
-                    acc.push(j.join_type);
-                }
-                j.left.collect_unsupported_join_types(acc);
-                j.right.collect_unsupported_join_types(acc);
-            }
-            RelNode::Filter(f) => f.input.collect_unsupported_join_types(acc),
-        }
+                )
+            })
+            .collect();
+        unsupported.sort_by_key(|t| t.to_string());
+        unsupported.dedup_by_key(|t| t.to_string());
+        unsupported
     }
 
-    /// Returns `true` if any join node in the tree has a semi-like join type
-    /// (Semi, Anti, RightSemi, RightAnti, UniqueOuter, UniqueInner).
+    /// Returns `true` if any join node in the tree has a non-Inner join type
+    /// (i.e. Semi, Anti, RightSemi, RightAnti, UniqueOuter, or UniqueInner).
     pub fn has_semi_like_join(&self) -> bool {
+        self.join_types().iter().any(|t| *t != JoinType::Inner)
+    }
+
+    /// Collects all join types present in the tree.
+    fn join_types(&self) -> Vec<JoinType> {
+        let mut types = Vec::new();
+        self.collect_join_types(&mut types);
+        types
+    }
+
+    fn collect_join_types(&self, acc: &mut Vec<JoinType>) {
         match self {
-            RelNode::Scan(_) => false,
+            RelNode::Scan(_) => {}
             RelNode::Join(j) => {
-                matches!(
-                    j.join_type,
-                    JoinType::Semi
-                        | JoinType::Anti
-                        | JoinType::RightSemi
-                        | JoinType::RightAnti
-                        | JoinType::UniqueOuter
-                        | JoinType::UniqueInner
-                ) || j.left.has_semi_like_join()
-                    || j.right.has_semi_like_join()
+                acc.push(j.join_type);
+                j.left.collect_join_types(acc);
+                j.right.collect_join_types(acc);
             }
-            RelNode::Filter(f) => f.input.has_semi_like_join(),
+            RelNode::Filter(f) => f.input.collect_join_types(acc),
         }
     }
 

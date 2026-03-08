@@ -57,10 +57,6 @@ pub mod pdb {
     use std::fmt::{Display, Formatter};
     use tantivy::schema::OwnedValue;
 
-    use tantivy::query::FuzzyTermQuery;
-    use tantivy::schema::Field;
-    use tantivy::Term;
-
     #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
     #[serde(rename_all = "snake_case")]
     pub struct FuzzyData {
@@ -120,6 +116,9 @@ pub mod pdb {
     }
     #[test]
     fn fuzzy_prefix_behavior() {
+        use tantivy::query::FuzzyTermQuery;
+        use tantivy::schema::Field;
+        use tantivy::Term;
         let term = Term::from_field_text(Field::from_field_id(0), "hello");
 
         let _query_prefix = FuzzyTermQuery::new_prefix(term.clone(), 1, true);

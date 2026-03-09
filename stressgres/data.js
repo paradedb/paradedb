@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773081828645,
+  "lastUpdate": 1773082412523,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3806,6 +3806,78 @@ window.BENCHMARK_DATA = {
             "value": 59.54804533121657,
             "unit": "median tps",
             "extra": "avg tps: 82.73011273772167, max tps: 294.2316185416527, count: 55027"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cb747cd6cd33408b24ec05516e911e1220ee5ed",
+          "message": "feat(joinscan): Add DISTINCT support to JoinScan (#4305)\n\nCloses #4213\n\n## Why\n\nQueries with `DISTINCT` were rejected by `JoinScan` because PostgreSQL\nsets `limit_tuples = -1.0` when `DISTINCT` is present, causing LIMIT\nextraction to fail. This forced fallback to native PG execution,\nbypassing late materialization and TopK benefits for common patterns\nlike joining a \"One\" side to a \"Many\" side with deduplication.\n\n## How\n\n- Extract `LIMIT` from the parse tree directly when `limit_tuples ==\n-1.0`\n- Validate that all DISTINCT columns are fast fields (same constraint as\nORDER BY)\n- Push DISTINCT into DataFusion as `GROUP BY + min(ctid)` before the\nsort step, using positional `col_N` aliases to handle duplicate column\nnames across tables\n- Expand `required_early` to include ORDER BY columns when DISTINCT is\npresent, fixing a late materialization schema mismatch\n- Bail out early when `hasAggs` is true — `COUNT(*) ... LIMIT N` would\notherwise return `N` instead of the true count\n- Register `min` UDAF in the session context for logical plan\nserialization\n\n## Tests\n\nAdded `join_distinct.sql` with 15 regression tests covering JoinScan\nactivation, deduplication correctness, score columns, 3-table joins,\nfallback cases (non-fast-field, no LIMIT, aggregates), and result parity\nwith native PG execution.\n\n---------\n\nSigned-off-by: Ruchir Raj <ruchirraj24@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-09T11:33:37-07:00",
+          "tree_id": "2a5fb0f42e72292d218e71a1d5cf18dc86e29444",
+          "url": "https://github.com/paradedb/paradedb/commit/6cb747cd6cd33408b24ec05516e911e1220ee5ed"
+        },
+        "date": 1773082406649,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 132.75401883801067,
+            "unit": "median tps",
+            "extra": "avg tps: 132.6098596800606, max tps: 148.61219068049417, count: 54945"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2823.7181858680697,
+            "unit": "median tps",
+            "extra": "avg tps: 2821.544592102474, max tps: 2918.117708296382, count: 54945"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 474.6512682153223,
+            "unit": "median tps",
+            "extra": "avg tps: 475.1543831863053, max tps: 551.2720948132876, count: 54945"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2883.441977724411,
+            "unit": "median tps",
+            "extra": "avg tps: 2879.973253526509, max tps: 2998.633275103352, count: 109890"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 492.17100851971253,
+            "unit": "median tps",
+            "extra": "avg tps: 493.85981695951705, max tps: 634.2230686432425, count: 54945"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 575.4856359142135,
+            "unit": "median tps",
+            "extra": "avg tps: 574.0015716298121, max tps: 657.5007979406614, count: 54945"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1890.5611699574838,
+            "unit": "median tps",
+            "extra": "avg tps: 1882.073941977297, max tps: 1899.3071120597883, count: 54945"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 75.69998258935162,
+            "unit": "median tps",
+            "extra": "avg tps: 90.96611338533067, max tps: 287.9822695076309, count: 54945"
           }
         ]
       }

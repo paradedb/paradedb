@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773093923839,
+  "lastUpdate": 1773093931348,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11268,6 +11268,138 @@ window.BENCHMARK_DATA = {
             "value": 54.234375,
             "unit": "median mem",
             "extra": "avg mem: 53.468196868688246, max mem: 66.73828125, count: 54957"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f96213bf7675fbb81936fb52a339d62918f05761",
+          "message": "refactor: rename Top N to Top K across the codebase (#4320)\n\n## Summary\n- Renames all variations of \"Top N\" to \"Top K\" across the entire\ncodebase\n- Covers all naming conventions: `TopN`→`TopK`, `topn`→`topk`,\n`top_n`→`top_k`, `top-n`→`top-k`, `TOPN`→`TOPK`, `TOP_N`→`TOP_K`, and\nprose forms like \"Top N\"→\"Top K\"\n- Includes file/directory renames (26 files), source code, tests,\ndocumentation, benchmarks, and configuration\n\nCloses #4318",
+          "timestamp": "2026-03-09T17:45:21-04:00",
+          "tree_id": "a39dfafb45db2e7ead96b72742cf9b86bcb3a846",
+          "url": "https://github.com/paradedb/paradedb/commit/f96213bf7675fbb81936fb52a339d62918f05761"
+        },
+        "date": 1773093926121,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.399633087122986, max cpu: 39.384617, count: 54599"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.041956898249055, max mem: 74.07421875, count: 54599"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.611162339406897, max cpu: 9.275363, count: 54599"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.54700499608509, max mem: 37.8046875, count: 54599"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.457361464324567, max cpu: 4.7244096, count: 54599"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.675238657644826, max mem: 72.2734375, count: 54599"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.609976714437463, max cpu: 9.384164, count: 109198"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.00298422218127, max mem: 67.26171875, count: 109198"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.472538055063374, max cpu: 19.6319, count: 54599"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 62.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.03545516229693, max mem: 73.109375, count: 54599"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1785,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1785.528214802469, max block_count: 3144.0, count: 54599"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.544112529533509, max segment_count: 17.0, count: 54599"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.45997568819413, max cpu: 19.6319, count: 54599"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.84678863165992, max mem: 72.9375, count: 54599"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.498218360639768, max cpu: 4.733728, count: 54599"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.95293962858752, max mem: 62.6640625, count: 54599"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.206036398306385, max cpu: 4.624277, count: 54599"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.85843841290591, max mem: 66.3046875, count: 54599"
           }
         ]
       }

@@ -34,6 +34,7 @@ pub mod explain;
 mod explainer;
 mod hook;
 pub mod joinscan;
+pub mod limit_offset;
 pub mod opexpr;
 pub mod orderby;
 pub mod parallel;

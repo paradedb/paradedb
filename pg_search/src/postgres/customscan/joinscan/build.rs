@@ -139,7 +139,7 @@ pub struct ChildProjection {
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::joinscan::planning::LimitOffset;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::info::{FieldInfo, RowEstimate};
@@ -628,7 +628,7 @@ pub struct JoinCSClause {
     /// The root of the relational execution tree.
     pub plan: RelNode,
     /// The LIMIT and OFFSET value from the query, if any.
-    pub limit: Option<LimitOffset>,
+    pub limit_offset: LimitOffset,
     /// Join-level search predicates (Tantivy queries to execute).
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
     /// Heap conditions (PostgreSQL expressions referencing both sides).
@@ -645,7 +645,7 @@ impl JoinCSClause {
     pub fn new(plan: RelNode) -> Self {
         Self {
             plan,
-            limit: None,
+            limit_offset: Default::default(),
             join_level_predicates: Vec::new(),
             multi_table_predicates: Vec::new(),
             order_by: Vec::new(),
@@ -654,8 +654,13 @@ impl JoinCSClause {
         }
     }
 
-    pub fn with_limit(mut self, limit: Option<LimitOffset>) -> Self {
-        self.limit = limit;
+    pub fn with_limit(mut self, limit: Option<u32>) -> Self {
+        self.limit_offset.limit = limit;
+        self
+    }
+
+    pub fn with_offset(mut self, offset: Option<u32>) -> Self {
+        self.limit_offset.offset = offset;
         self
     }
 

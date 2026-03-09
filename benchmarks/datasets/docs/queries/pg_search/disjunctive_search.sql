@@ -21,7 +21,7 @@ ORDER BY
     score DESC                        -- Single Feature Sort (Primary Score)
 LIMIT 10;
 
-SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT
     f.id,
     f.title,
     paradedb.score(f.id) as score

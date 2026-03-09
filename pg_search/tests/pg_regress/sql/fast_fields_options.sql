@@ -1,5 +1,5 @@
 -- Test file to demonstrate how specifying fast:true for non-text/non-json fields
--- doesn't affect the usage of TopK executor or other FastField executors
+-- doesn't affect the usage of Top K executor or other FastField executors
 
 -- Setup
 \i common/common_setup.sql
@@ -103,7 +103,7 @@ WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
 
--- TODO: Won't get TopK due to https://github.com/paradedb/paradedb/issues/2688.
+-- TODO: Won't get Top K due to https://github.com/paradedb/paradedb/issues/2688.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
 FROM data_records

@@ -53,13 +53,13 @@ static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(
 /// When disabled, sorted paths will not be created even if the index has sort_by.
 static ENABLE_MIXED_FAST_FIELD_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// In a TopK query, the limit is multiplied by this factor to determine the chunk size.
+/// In a Top K query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
-/// The scale factor for the chunk size in a TopK query.
+/// The scale factor for the chunk size in a Top K query.
 static TOPK_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
 
-/// The maximum chunk size for a TopK query.
+/// The maximum chunk size for a Top K query.
 static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 
 /// The maximum number of buckets that can be returned by a TermsAggregation
@@ -102,7 +102,7 @@ static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// Validate TopK scan eligibility for LIMIT queries
+/// Validate Top K scan eligibility for LIMIT queries
 static CHECK_TOPK_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// When true, queries with expensive scorer construction (fuzzy, regex, range)
@@ -118,12 +118,12 @@ static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 
 /// Override the scanner batch size when dynamic filters are pushed down.
 /// 0 means disabled (use the scanner's default). When > 0, the scanner's batch
-/// size is capped to this value during filter pushdown so that TopK can tighten
+/// size is capped to this value during filter pushdown so that Top K can tighten
 /// its threshold between batches.
 static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 
-/// Allows the user to enable or disable the SegmentedTopK optimization.
-/// When enabled, TopK queries on deferred (late-materialized) string/bytes columns
+/// Allows the user to enable or disable the Segmented Top K optimization.
+/// When enabled, Top K queries on deferred (late-materialized) string/bytes columns
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -228,8 +228,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.limit_fetch_multiplier",
-        c"Multiplier for the limit in a TopK query",
-        c"The limit is multiplied by this factor to determine the chunk size. A higher value reduces the probability of a re-query for a TopK query but increases query times.",
+        c"Multiplier for the limit in a Top K query",
+        c"The limit is multiplied by this factor to determine the chunk size. A higher value reduces the probability of a re-query for a Top K query but increases query times.",
         &LIMIT_FETCH_MULTIPLIER,
         1.0,
         100.0,
@@ -239,8 +239,8 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.max_topk_chunk_size",
-        c"Maximum chunk size for a TopK query",
-        c"A higher value reduces the probability of a re-query for a TopK query but increases the memory usage",
+        c"Maximum chunk size for a Top K query",
+        c"A higher value reduces the probability of a re-query for a Top K query but increases the memory usage",
         &MAX_TOPK_CHUNK_SIZE,
         1,
         1_000_000,
@@ -250,8 +250,8 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.topk_retry_scale_factor",
-        c"Scale factor for the chunk size in a TopK query",
-        c"The chunk size is multiplied by this factor on subsequent retries. A higher value reduces the probability of a re-query for a TopK query but increases query times.",
+        c"Scale factor for the chunk size in a Top K query",
+        c"The chunk size is multiplied by this factor on subsequent retries. A higher value reduces the probability of a re-query for a Top K query but increases query times.",
         &TOPK_RETRY_SCALE_FACTOR,
         1,
         100,
@@ -332,10 +332,10 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.check_topk_scan",
-        c"Validate TopK scan eligibility for LIMIT queries",
-        c"When enabled, logs a warning if a query with LIMIT cannot use TopK scan. \
+        c"Validate Top K scan eligibility for LIMIT queries",
+        c"When enabled, logs a warning if a query with LIMIT cannot use Top K scan. \
           This helps detect performance issues during development where queries expected \
-          to use TopK optimization fall back to slower execution methods.",
+          to use Top K optimization fall back to slower execution methods.",
         &CHECK_TOPK_SCAN,
         GucContext::Userset,
         GucFlags::default(),
@@ -365,7 +365,7 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_segmented_topk",
-        c"Enable SegmentedTopK optimization for TopK queries on deferred columns",
+        c"Enable Segmented Top K optimization for Top K queries on deferred columns",
         c"When enabled, ORDER BY on a late-materialized string/bytes column with LIMIT \
           uses per-segment ordinal pruning to reduce dictionary decoding. \
           All input is collected before emitting (EmissionType::Final) so only \
@@ -381,7 +381,7 @@ pub fn init() {
         c"paradedb.dynamic_filter_batch_size",
         c"Scanner batch size override for dynamic filter pushdown",
         c"When > 0, caps the scanner batch size during dynamic filter pushdown so that \
-          TopK can tighten its threshold between batches. 0 disables the override.",
+          Top K can tighten its threshold between batches. 0 disables the override.",
         &DYNAMIC_FILTER_BATCH_SIZE,
         0,
         128_000,

@@ -119,7 +119,7 @@ pub enum ExecMethodType {
 impl ExecMethodType {
     /// Returns true if this execution method type can support sorted output via sort_by index.
     /// This is specifically for the sorted index feature (SortPreservingMergeExec).
-    /// TopK has its own separate pathkey handling and is not included here.
+    /// Top K has its own separate pathkey handling and is not included here.
     pub fn supports_sorted_index_merge(&self) -> bool {
         matches!(self, ExecMethodType::FastFieldMixed { .. })
     }

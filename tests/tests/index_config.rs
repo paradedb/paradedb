@@ -953,13 +953,13 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
 
     // Verify sort field and direction
     assert!(
-        explain_output.contains("TopK Order By: sale_date asc"),
+        explain_output.contains("Top K Order By: sale_date asc"),
         "Expected sort field to be sale_date"
     );
 
     // Verify the limit is pushed down
     assert!(
-        explain_output.contains("TopK Limit: 5"),
+        explain_output.contains("Top K Limit: 5"),
         "Expected limit 5 to be pushed down"
     );
 
@@ -1007,7 +1007,7 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     .collect::<Vec<String>>()
     .join("\n");
 
-    // Verify NormalScanExecState is used. We can't use TopK because there the limit occurs _after_
+    // Verify NormalScanExecState is used. We can't use Top K because there the limit occurs _after_
     // the union. And we can't use fast fields, because there are non-fast fields.
     assert!(
         explain_output.contains("NormalScanExecState"),

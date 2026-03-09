@@ -224,7 +224,7 @@ impl Scanner {
     }
 
     /// Fetch the next batch of results, applying visibility checks,
-    /// dynamic `SegmentedThresholds` (for TopK queries), and
+    /// dynamic `SegmentedThresholds` (for Top K queries), and
     /// pre-materialization filters.
     ///
     /// `pre_filters` are applied after visibility checks but *before* column

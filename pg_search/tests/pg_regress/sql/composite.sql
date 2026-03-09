@@ -906,11 +906,11 @@ WHERE id @@@ pdb.parse('description:wireless')
 ORDER BY id;
 
 ------------------------------------------------------------
--- TEST: TopK Scan (ORDER BY with LIMIT)
+-- TEST: Top K Scan (ORDER BY with LIMIT)
 ------------------------------------------------------------
-\echo '=== TEST: TopK Scan ==='
+\echo '=== TEST: Top K Scan ==='
 
--- Basic TopK with EXPLAIN
+-- Basic Top K with EXPLAIN
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test
@@ -918,14 +918,14 @@ WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
 ORDER BY rating DESC, id
 LIMIT 3;
 
--- Execute TopK query
+-- Execute Top K query
 SELECT id, name, rating
 FROM smoke_test
 WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
 ORDER BY rating DESC, id
 LIMIT 3;
 
--- TopK with score ordering
+-- Top K with score ordering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test
@@ -990,7 +990,7 @@ ORDER BY count DESC, category;
 ------------------------------------------------------------
 \echo '=== TEST: pdb.agg() Window Function ==='
 
--- pdb.agg with terms aggregation (requires TopK query)
+-- pdb.agg with terms aggregation (requires Top K query)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, category,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as category_facets
@@ -1005,7 +1005,7 @@ WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 3;
 
--- pdb.agg with avg aggregation (requires TopK query)
+-- pdb.agg with avg aggregation (requires Top K query)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating,
        pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER () as avg_rating
@@ -1173,7 +1173,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics');
 
--- Verify TopK with pdb.agg window function
+-- Verify Top K with pdb.agg window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as facets
@@ -1251,11 +1251,11 @@ SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY
 SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
 
 ------------------------------------------------------------
--- TEST: TopK queries with pdb functions on composite fields
+-- TEST: Top K queries with pdb functions on composite fields
 ------------------------------------------------------------
-\echo '=== TEST: TopK with pdb functions on composite fields ==='
+\echo '=== TEST: Top K with pdb functions on composite fields ==='
 
--- TopK with pdb.term() on composite field, ORDER BY score
+-- Top K with pdb.term() on composite field, ORDER BY score
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('shoes')
@@ -1264,7 +1264,7 @@ SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('shoes')
 ORDER BY score DESC, id LIMIT 3;
 
--- TopK with pdb.match() on composite field, ORDER BY rating (fast field)
+-- Top K with pdb.match() on composite field, ORDER BY rating (fast field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test WHERE description @@@ pdb.match('wireless OR shoes')
@@ -1273,7 +1273,7 @@ SELECT id, name, rating
 FROM smoke_test WHERE description @@@ pdb.match('wireless OR shoes')
 ORDER BY rating DESC, id LIMIT 3;
 
--- TopK with pdb.regex() on composite field
+-- Top K with pdb.regex() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE description @@@ pdb.regex('.*boot.*')
@@ -1282,7 +1282,7 @@ SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE description @@@ pdb.regex('.*boot.*')
 ORDER BY score DESC, id LIMIT 2;
 
--- TopK with multiple composite field conditions
+-- Top K with multiple composite field conditions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')

@@ -154,8 +154,8 @@ ORDER BY rating LIMIT 20;
          Index: partial_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating asc
-            TopK Limit: 20
+            Top K Order By: rating asc
+            Top K Limit: 20
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -223,8 +223,8 @@ ORDER BY rating LIMIT 20;
          Index: partial_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating asc
-            TopK Limit: 20
+            Top K Order By: rating asc
+            Top K Limit: 20
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -257,8 +257,8 @@ ORDER BY rating LIMIT 20;
          Index: partial_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating asc
-            TopK Limit: 20
+            Top K Order By: rating asc
+            Top K Limit: 20
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 

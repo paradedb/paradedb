@@ -38,14 +38,14 @@
 //! necessary rows flow to `TantivyLookupExec` for dictionary decoding.
 //!
 //! **Compound sorts:** Only the primary sort column is used for ordinal
-//! pruning. When the TopK sort has tiebreaker columns (e.g.
+//! pruning. When the Top K sort has tiebreaker columns (e.g.
 //! `ORDER BY val DESC, id ASC LIMIT 25`), all rows tied at the boundary
 //! ordinal are retained — the exec cannot distinguish between them without
-//! the tiebreaker, so it keeps them all for the final TopK to resolve.
+//! the tiebreaker, so it keeps them all for the final Top K to resolve.
 //! This is safe (never drops correct rows) but slightly less aggressive
 //! than theoretically possible when there are many duplicates.
 //! TODO(https://github.com/paradedb/paradedb/issues/4255): rewrite the full
-//! TopK sort expression in terms of term ordinals to handle tiebreakers
+//! Top K sort expression in terms of term ordinals to handle tiebreakers
 //! natively.
 
 use crate::api::HashMap;
@@ -602,7 +602,7 @@ impl SegmentedTopKState {
     /// Translates the threshold arrays from the `RowConverter` back into a DataFusion
     /// `PhysicalExpr` that can be pushed down to the scan layer to filter out rows.
     ///
-    /// This function largely emulates DataFusion's private `TopK` dynamic filter generation logic
+    /// This function largely emulates DataFusion's private `Top K` dynamic filter generation logic
     /// (`build_filter_expression`), with some key adaptations for `SegmentedTopKExec`:
     ///
     /// 1.  **Chained Lexicographical Sorting**: Like upstream, this builds a chained compound expression
@@ -691,7 +691,7 @@ impl SegmentedTopKState {
     /// Compact buffered batches by discarding rows that cannot survive the
     /// current per-segment cutoffs. This bounds memory at O(K * segments)
     /// instead of O(N) for large inputs — analogous to the batch compaction
-    /// step in upstream DataFusion TopK.
+    /// step in upstream DataFusion Top K.
     fn maybe_compact(&mut self) {
         let num_segments = self.segment_heaps.len().max(1);
         if self.row_ordinals.len() <= self.k * num_segments * 4 {

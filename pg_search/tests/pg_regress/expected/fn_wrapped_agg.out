@@ -46,8 +46,8 @@ ORDER BY log_id DESC LIMIT 3;
          Index: fn_wrapped_agg_logs_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: log_id desc
-            TopK Limit: 3
+            Top K Order By: log_id desc
+            Top K Limit: 3
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (12 rows)
@@ -79,8 +79,8 @@ ORDER BY log_id DESC LIMIT 3;
          Index: fn_wrapped_agg_logs_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: log_id desc
-            TopK Limit: 3
+            Top K Order By: log_id desc
+            Top K Limit: 3
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (12 rows)
@@ -169,8 +169,8 @@ SELECT * FROM agg;
                  Index: fn_wrapped_agg_logs_idx
                  Exec Method: TopKScanExecState
                  Scores: false
-                    TopK Order By: log_id desc
-                    TopK Limit: 3
+                    Top K Order By: log_id desc
+                    Top K Limit: 3
                  Full Index Scan: true
                  Tantivy Query: {"with_index":{"query":"all"}}
 (15 rows)
@@ -211,8 +211,8 @@ SELECT log_id, description, category, jsonb_pretty(agg_result) FROM agg;
                  Index: fn_wrapped_agg_logs_idx
                  Exec Method: TopKScanExecState
                  Scores: false
-                    TopK Order By: log_id desc
-                    TopK Limit: 3
+                    Top K Order By: log_id desc
+                    Top K Limit: 3
                  Full Index Scan: true
                  Tantivy Query: {"with_index":{"query":"all"}}
 (15 rows)

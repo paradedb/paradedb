@@ -62,8 +62,8 @@ LIMIT 10;
          Index: documents_bm25
          Exec Method: TopKScanExecState
          Scores: true
-            TopK Order By: pdb.score() desc
-            TopK Limit: 10
+            Top K Order By: pdb.score() desc
+            Top K Limit: 10
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"doc_parents","query_string":"PARENT_GROUP","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"file_title","query_string":"Title","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"doc_title","query_string":"Title","lenient":null,"conjunction_mode":null}}}}]}}]}}
 (11 rows)
 

@@ -124,7 +124,7 @@ SELECT id, content FROM verify_test WHERE content @@@ 'test' LIMIT 5;
          Index: verify_test_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Limit: 5
+            Top K Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (10 rows)
 

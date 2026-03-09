@@ -1,5 +1,5 @@
--- Test TopK + Aggregates + Faceting
--- Phase 1: Basic TopK tests with window aggregate detection
+-- Test Top K + Aggregates + Faceting
+-- Phase 1: Basic Top K tests with window aggregate detection
 CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS products CASCADE;
 -- Setup test data
@@ -65,8 +65,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
@@ -107,8 +107,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop powerful","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (11 rows)
 
@@ -146,8 +146,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"laptop","is_datetime":false}}}}
 (11 rows)
 
@@ -188,8 +188,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"laptop for","slop":null}}}}
 (11 rows)
 
@@ -228,8 +228,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"laptop"},"distance":{"any_order":10},"right":{"term":"powerful"}}}}}
 (11 rows)
 
@@ -267,8 +267,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"laptop"},"distance":{"in_order":10},"right":{"term":"professionals"}}}}}
 (11 rows)
 
@@ -289,7 +289,7 @@ LIMIT 3;
 -- =============================================================================
 -- BASIC TOPK TESTS
 -- =============================================================================
--- Test 1: Basic TopK without window aggregates
+-- Test 1: Basic Top K without window aggregates
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -310,8 +310,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -331,7 +331,7 @@ LIMIT 3;
   3 | ThinkPad X1 | Laptops  |    4.5
 (3 rows)
 
--- Test 2: TopK with COUNT(*) OVER () - Basic window aggregate
+-- Test 2: Top K with COUNT(*) OVER () - Basic window aggregate
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -352,8 +352,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -397,8 +397,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -589,8 +589,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -681,8 +681,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -959,7 +959,7 @@ LIMIT 3;
   3 | ThinkPad X1 |    4.5 |           2
 (3 rows)
 
--- Test 15: TopK with no @@@ operator (should not trigger window function handling)
+-- Test 15: Top K with no @@@ operator (should not trigger window function handling)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -1027,8 +1027,8 @@ LIMIT 2;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 2
+            Top K Order By: rating desc
+            Top K Limit: 2
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -1052,7 +1052,7 @@ LIMIT 2;
   5 | ASUS ROG    | Laptops  | ASUS  |  1899 |    4.7 |    90 |           4 |         540
 (2 rows)
 
--- Test 17: Window aggregate in a subquery (TopK in outer query)
+-- Test 17: Window aggregate in a subquery (Top K in outer query)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM (
     SELECT 
@@ -1083,8 +1083,8 @@ LIMIT 2;
                      Index: products_idx
                      Exec Method: TopKScanExecState
                      Scores: false
-                        TopK Order By: rating desc
-                        TopK Limit: 5
+                        Top K Order By: rating desc
+                        Top K Limit: 5
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (16 rows)
 
@@ -1434,8 +1434,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -1791,8 +1791,8 @@ LIMIT 3;
                            Index: products_idx
                            Exec Method: TopKScanExecState
                            Scores: false
-                              TopK Order By: rating desc
-                              TopK Limit: 5
+                              Top K Order By: rating desc
+                              Top K Limit: 5
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
@@ -2050,8 +2050,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2097,8 +2097,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2266,8 +2266,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 3
+            Top K Order By: rating desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2290,8 +2290,8 @@ LIMIT 3;
   3 | ThinkPad X1 |    4.5 |  1599 |           4 |                     7396 |                     4.6
 (3 rows)
 
--- Test 38: Benchmark query - TopK + COUNT(*) OVER ()
--- Verify this produces TopK execution plan
+-- Test 38: Benchmark query - Top K + COUNT(*) OVER ()
+-- Verify this produces Top K execution plan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, COUNT(*) OVER ()
 FROM products
@@ -2308,8 +2308,8 @@ LIMIT 10;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 10
+            Top K Order By: rating desc
+            Top K Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2326,8 +2326,8 @@ LIMIT 10;
   4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     |     4
 (4 rows)
 
--- Test 39: Benchmark query - TopK + pdb.agg terms (faceting)
--- Verify this produces TopK execution plan with custom aggregate
+-- Test 39: Benchmark query - Top K + pdb.agg terms (faceting)
+-- Verify this produces Top K execution plan with custom aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, pdb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
 FROM products
@@ -2344,8 +2344,8 @@ LIMIT 10;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 10
+            Top K Order By: rating desc
+            Top K Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2362,8 +2362,8 @@ LIMIT 10;
   4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Lenovo", "doc_count": 1}, {"key": "ASUS", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (4 rows)
 
--- Test 40: Benchmark query - TopK + pdb.agg avg
--- Verify this produces TopK execution plan with custom aggregate
+-- Test 40: Benchmark query - Top K + pdb.agg avg
+-- Verify this produces Top K execution plan with custom aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
@@ -2380,8 +2380,8 @@ LIMIT 10;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 10
+            Top K Order By: rating desc
+            Top K Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2398,8 +2398,8 @@ LIMIT 10;
   4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     | {"value": 4.6}
 (4 rows)
 
--- Test 36: TopK with nested aggregations (window function)
--- Verify that nested "aggs" work correctly in TopK/window context
+-- Test 36: Top K with nested aggregations (window function)
+-- Verify that nested "aggs" work correctly in Top K/window context
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name, brand,
        pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating
@@ -2417,8 +2417,8 @@ LIMIT 5;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: rating desc
-            TopK Limit: 5
+            Top K Order By: rating desc
+            Top K Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 

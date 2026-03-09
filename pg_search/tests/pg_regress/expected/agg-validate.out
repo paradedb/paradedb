@@ -135,8 +135,8 @@ ORDER BY id DESC LIMIT 3;
          Index: mock_items_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: id desc
-            TopK Limit: 3
+            Top K Order By: id desc
+            Top K Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 

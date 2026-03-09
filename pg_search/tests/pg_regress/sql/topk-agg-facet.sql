@@ -1,5 +1,5 @@
--- Test TopK + Aggregates + Faceting
--- Phase 1: Basic TopK tests with window aggregate detection
+-- Test Top K + Aggregates + Faceting
+-- Phase 1: Basic Top K tests with window aggregate detection
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -187,7 +187,7 @@ LIMIT 3;
 -- BASIC TOPK TESTS
 -- =============================================================================
 
--- Test 1: Basic TopK without window aggregates
+-- Test 1: Basic Top K without window aggregates
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -209,7 +209,7 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
--- Test 2: TopK with COUNT(*) OVER () - Basic window aggregate
+-- Test 2: Top K with COUNT(*) OVER () - Basic window aggregate
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -521,7 +521,7 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
--- Test 15: TopK with no @@@ operator (should not trigger window function handling)
+-- Test 15: Top K with no @@@ operator (should not trigger window function handling)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -575,7 +575,7 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
 
--- Test 17: Window aggregate in a subquery (TopK in outer query)
+-- Test 17: Window aggregate in a subquery (Top K in outer query)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM (
     SELECT 
@@ -1251,8 +1251,8 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
--- Test 38: Benchmark query - TopK + COUNT(*) OVER ()
--- Verify this produces TopK execution plan
+-- Test 38: Benchmark query - Top K + COUNT(*) OVER ()
+-- Verify this produces Top K execution plan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, COUNT(*) OVER ()
 FROM products
@@ -1266,8 +1266,8 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
--- Test 39: Benchmark query - TopK + pdb.agg terms (faceting)
--- Verify this produces TopK execution plan with custom aggregate
+-- Test 39: Benchmark query - Top K + pdb.agg terms (faceting)
+-- Verify this produces Top K execution plan with custom aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, pdb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
 FROM products
@@ -1281,8 +1281,8 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
--- Test 40: Benchmark query - TopK + pdb.agg avg
--- Verify this produces TopK execution plan with custom aggregate
+-- Test 40: Benchmark query - Top K + pdb.agg avg
+-- Verify this produces Top K execution plan with custom aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
@@ -1296,8 +1296,8 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
--- Test 36: TopK with nested aggregations (window function)
--- Verify that nested "aggs" work correctly in TopK/window context
+-- Test 36: Top K with nested aggregations (window function)
+-- Verify that nested "aggs" work correctly in Top K/window context
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name, brand,
        pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating

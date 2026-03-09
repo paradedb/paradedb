@@ -1,6 +1,6 @@
--- Test TopK scan validation feature
+-- Test Top K scan validation feature
 -- This test validates that paradedb.check_topk_scan correctly warns when
--- queries with LIMIT cannot use TopK scan optimization
+-- queries with LIMIT cannot use Top K scan optimization
 
 \i common/common_setup.sql
 
@@ -39,8 +39,8 @@ WHERE description @@@ 'shoes'
 ORDER BY description  -- Not marked as fast
 LIMIT 5;
 
--- Test 3: Proper TopK - should NOT warn
-\echo 'Test 3: Valid TopK query (no warning expected)'
+-- Test 3: Proper Top K - should NOT warn
+\echo 'Test 3: Valid Top K query (no warning expected)'
 SELECT id, category,rating FROM test_products
 WHERE category @@@ 'electronics'
 ORDER BY rating DESC  -- rating is fast
@@ -74,7 +74,7 @@ WITH (
     key_field='id'
 );
 
-\echo 'Test 5a: ORDER BY with lower() - should use TopK (no warning)'
+\echo 'Test 5a: ORDER BY with lower() - should use Top K (no warning)'
 SELECT id, category FROM test_products
 WHERE category === 'Electronics'
 ORDER BY lower(category) DESC  -- Matches index
@@ -90,7 +90,7 @@ LIMIT 5;
 \echo 'Test 6: No LIMIT (no validation, no warning)'
 SELECT id FROM test_products
 WHERE category === 'Electronics'
-ORDER BY rating DESC;  -- No LIMIT, so TopK not expected
+ORDER BY rating DESC;  -- No LIMIT, so Top K not expected
 
 -- Test 7: EXPLAIN should show warning in logs
 \echo 'Test 7: EXPLAIN with validation warning'

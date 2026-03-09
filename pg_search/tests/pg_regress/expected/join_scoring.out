@@ -53,7 +53,7 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 -- TEST 1: ORDER BY pdb.score() - Single Feature join pattern
 -- =============================================================================
--- This is the canonical "Single Feature" join pattern from the TopK spec.
+-- This is the canonical "Single Feature" join pattern from the Top K spec.
 -- Score propagation through JoinScan is supported - paradedb.score() returns
 -- the BM25 score from the search predicate on the driving side.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -77,7 +77,7 @@ LIMIT 5;
                Order By: pdb.score() desc, p.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, score@1 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1]
-                 :   SortExec: TopK(fetch=5), expr=[score@1 DESC, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: Top K(fetch=5), expr=[score@1 DESC, id@3 ASC NULLS LAST], preserve_partitioning=[false]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, id@5]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
@@ -106,7 +106,7 @@ LIMIT 5;
 -- This test verifies that paradedb.score() works correctly in SELECT
 -- even when ORDER BY is on a different column (not score).
 -- This is an edge case where scores must still be computed for output.
--- It works because TopK executor (used when LIMIT is present) always
+-- It works because Top K executor (used when LIMIT is present) always
 -- computes scores internally for ranking, regardless of ORDER BY.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
@@ -129,7 +129,7 @@ LIMIT 5;
                Order By: p.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, score@1 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1]
-                 :   SortExec: TopK(fetch=5), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: Top K(fetch=5), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, id@5]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
@@ -182,7 +182,7 @@ LIMIT 10;
          Order By: p.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, score@0 as col_4, ctid_2@1 as ctid_2, ctid_1@2 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: Top K(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[score@0, ctid_2@1, ctid_1@3, id@5]
            :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
            :         CooperativeExec
@@ -237,7 +237,7 @@ LIMIT 10;
                Order By: p.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@4 as col_1, NULL as col_2, score@2 as col_3, NULL as col_4, score@0 as col_5, ctid_2@1 as ctid_2, ctid_1@3 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: Top K(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[score@0, ctid_2@1, score@3, ctid_1@4, id@6]
                  :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
                  :         CooperativeExec

@@ -18,11 +18,11 @@
 //! Shared utilities for analyzing sort expressions in `ORDER BY` clauses.
 //!
 //! This module is shared between custom scans (BaseScan, AggregateScan) and the planner hook
-//! to ensure that TopK compatibility validation logic is consistent across the codebase.
+//! to ensure that Top K compatibility validation logic is consistent across the codebase.
 //!
 //! This sharing is required to workaround <https://github.com/paradedb/paradedb/issues/3455>,
 //! ensuring that we only replace window functions with ParadeDB placeholders
-//! when we are certain that the query can be executed as a TopK query.
+//! when we are certain that the query can be executed as a Top K query.
 
 use crate::api::FieldName;
 use crate::index::reader::index::MAX_TOPK_FEATURES;
@@ -47,7 +47,7 @@ pub enum SortExpressionType {
     Raw,
 }
 
-/// Reason why pathkeys cannot be used for TopK execution
+/// Reason why pathkeys cannot be used for Top K execution
 #[derive(Debug, Clone)]
 pub enum UnusableReason {
     /// ORDER BY has too many columns (more than MAX_TOPK_FEATURES)
@@ -308,7 +308,7 @@ where
     PathKeyInfo::UsableAll(pathkey_styles)
 }
 
-/// Check if the query is a valid TopK query compatible with ParadeDB execution.
+/// Check if the query is a valid Top K query compatible with ParadeDB execution.
 ///
 /// Ensures that:
 /// 1. The query has both ORDER BY and LIMIT clauses.
@@ -331,7 +331,7 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
 
     let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
-    // We need to identify the single relation that this TopK query targets
+    // We need to identify the single relation that this Top K query targets
     // Tuple: (varno, relid, schema)
     let mut target_relation_info: Option<(pg_sys::Index, pg_sys::Oid, SearchIndexSchema)> = None;
 

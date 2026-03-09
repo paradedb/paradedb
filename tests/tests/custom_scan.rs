@@ -206,7 +206,7 @@ explain (analyze, format json) select * from paradedb.bm25_search where metadata
     );
     assert_eq!(path.get("Scores"), Some(&Value::Bool(false)));
     assert_eq!(
-        path.get("   TopK Limit"),
+        path.get("   Top K Limit"),
         Some(&Value::Number(Number::from(1)))
     );
 }
@@ -227,7 +227,7 @@ explain (analyze, format json) select pdb.score(id), * from paradedb.bm25_search
     );
     assert_eq!(path.get("Scores"), Some(&Value::Bool(true)));
     assert_eq!(
-        path.get("   TopK Limit"),
+        path.get("   Top K Limit"),
         Some(&Value::Number(Number::from(1)))
     );
 }

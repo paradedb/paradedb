@@ -339,7 +339,7 @@ impl ExecMethod for TopKScanExecState {
             .tokenizers()
             .clone();
 
-        // Run the TopK (and optional aggregate) query.
+        // Run the Top K (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
                 // Create the aggregation collector

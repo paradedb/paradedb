@@ -369,8 +369,8 @@ LIMIT 10;
          Index: score_test_idx
          Exec Method: TopKScanExecState
          Scores: true
-            TopK Order By: title asc, pdb.score() asc, rating desc
-            TopK Limit: 10
+            Top K Order By: title asc, pdb.score() asc, rating desc
+            Top K Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -408,8 +408,8 @@ LIMIT 5;
          Index: score_test_idx
          Exec Method: TopKScanExecState
          Scores: true
-            TopK Order By: title asc, author asc, rating asc, views asc, pdb.score() desc
-            TopK Limit: 5
+            Top K Order By: title asc, author asc, rating asc, views asc, pdb.score() desc
+            Top K Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -482,8 +482,8 @@ LIMIT 10;
          Index: score_test_idx
          Exec Method: TopKScanExecState
          Scores: true
-            TopK Order By: title asc, author asc, pdb.score() desc
-            TopK Limit: 10
+            Top K Order By: title asc, author asc, pdb.score() desc
+            Top K Limit: 10
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}
 (9 rows)
 
@@ -685,8 +685,8 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                                        Index: score_test_idx
                                        Exec Method: TopKScanExecState
                                        Scores: true
-                                          TopK Order By: pdb.score() desc
-                                          TopK Limit: 5
+                                          Top K Order By: pdb.score() desc
+                                          Top K Limit: 5
                                        Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
 (26 rows)
 

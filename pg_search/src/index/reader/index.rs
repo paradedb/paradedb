@@ -289,20 +289,20 @@ impl Iterator for MultiSegmentSearchResults {
     }
 }
 
-/// Defines auxiliary `Collector`s that may be used in parallel/around TopK.
+/// Defines auxiliary `Collector`s that may be used in parallel/around Top K.
 ///
 /// The TopDocs collectors themselves are highly specialized based on field and query types, and so
 /// usually cannot have their types spelled all the way out: they are defined by the method calls
 /// below `search_top_k_in_segments`. This struct defines optional wrappers and neighbors for that
-/// core TopK collector.
+/// core Top K collector.
 pub struct TopKAuxiliaryCollector {
-    /// If aggregations should be computed alongside TopK, the collector to use.
+    /// If aggregations should be computed alongside Top K, the collector to use.
     pub aggregation_collector: DistributedAggregationCollector,
     /// If MVCC filtering should be applied, then the visibility checker to use for that.
     ///
-    /// Note: If enabled, visibility checking is applied to _both_ the TopK and to any
+    /// Note: If enabled, visibility checking is applied to _both_ the Top K and to any
     /// aggregation collector: this is because once you've bothered to filter for MVCC, you might
-    /// as well feed the filtered result to TopK too.
+    /// as well feed the filtered result to Top K too.
     pub vischeck: Option<VisibilityChecker>,
 }
 
@@ -1355,7 +1355,7 @@ impl SearchIndexReader {
     }
 
     /// NOTE: It is very important that this method consumes the input SegmentIds lazily, because
-    /// some callers (the TopK exec method in particular) are producing them lazily by checking
+    /// some callers (the Top K exec method in particular) are producing them lazily by checking
     /// them out of shared mutable state as they go.
     ///
     /// TODO: See https://github.com/paradedb/paradedb/issues/2758 about removing the O(N) behavior

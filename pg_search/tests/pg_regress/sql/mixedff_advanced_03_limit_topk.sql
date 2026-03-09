@@ -1,10 +1,10 @@
--- Test that LIMIT clause uses TopK execution with mixed fast fields
+-- Test that LIMIT clause uses Top K execution with mixed fast fields
 -- This test ensures that when a LIMIT clause is used with mixed fast fields,
--- the execution uses the optimized TopK execution path
+-- the execution uses the optimized Top K execution path
 
 \i common/mixedff_advanced_setup.sql
 
-\echo 'Test: LIMIT clause with TopK execution'
+\echo 'Test: LIMIT clause with Top K execution'
 
 -- Create test table with mixed field types
 DROP TABLE IF EXISTS limit_topk_test;
@@ -43,7 +43,7 @@ WITH (
     boolean_fields = '{"is_available": {"fast": true}}'
 );
 
--- Test basic LIMIT with mixed fields (should use TopK)
+-- Test basic LIMIT with mixed fields (should use Top K)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, rating, price, category
 FROM limit_topk_test

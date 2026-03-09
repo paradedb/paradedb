@@ -32,7 +32,7 @@ WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast 
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM test_table WHERE id @@@ pdb.all() ORDER BY text LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopK scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: test_table)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: test_table)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit
@@ -72,8 +72,8 @@ SELECT * FROM test_table WHERE id @@@ pdb.all() ORDER BY text LIMIT 5;
          Index: idx_test_table
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: text asc
-            TopK Limit: 5
+            Top K Order By: text asc
+            Top K Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -103,8 +103,8 @@ SELECT * FROM test_table WHERE id @@@ pdb.all() ORDER BY text LIMIT 5;
          Index: idx_test_table
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: text asc
-            TopK Limit: 5
+            Top K Order By: text asc
+            Top K Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 

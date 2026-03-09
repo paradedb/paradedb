@@ -35,8 +35,8 @@ LIMIT 5;
          Index: search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: description asc
-            TopK Limit: 5
+            Top K Order By: description asc
+            Top K Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 
@@ -106,8 +106,8 @@ LIMIT 5;
          Index: search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: description asc
-            TopK Limit: 5
+            Top K Order By: description asc
+            Top K Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 

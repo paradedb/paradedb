@@ -99,7 +99,7 @@ USING bm25 (
 ======== EXECUTION METHOD TESTS ========
 \echo 'Tests to identify when TopKScanExecState vs NormalScanExecState is used'
 Tests to identify when TopKScanExecState vs NormalScanExecState is used
--- TODO: Many queries won't get TopK due to https://github.com/paradedb/paradedb/issues/2688
+-- TODO: Many queries won't get Top K due to https://github.com/paradedb/paradedb/issues/2688
 -- Test 1: Simple query with LIMIT (should use TopKScanExecState)
 \echo 'Test 1: Simple query with LIMIT (should use TopKScanExecState)'
 Test 1: Simple query with LIMIT (should use TopKScanExecState)
@@ -117,8 +117,8 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: id asc
-            TopK Limit: 25
+            Top K Order By: id asc
+            Top K Limit: 25
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"notes","query_string":"check","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -137,7 +137,7 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using TopK scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
+WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -165,7 +165,7 @@ WHERE tenant_id = 'tenant-1'
   AND (NOT id @@@ paradedb.exists('removed_at'))
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using TopK scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
+WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -196,8 +196,8 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: id asc
-            TopK Limit: 25
+            Top K Order By: id asc
+            Top K Limit: 25
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (10 rows)
@@ -219,8 +219,8 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: id asc
-            TopK Limit: 25
+            Top K Order By: id asc
+            Top K Limit: 25
          Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}}
 (9 rows)
 
@@ -241,8 +241,8 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: id asc
-            TopK Limit: 25
+            Top K Order By: id asc
+            Top K Limit: 25
          Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 
@@ -257,7 +257,7 @@ WHERE tenant_id = 'tenant-1'
   AND id @@@ paradedb.match('notes', 'check')
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using TopK scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
+WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -288,7 +288,7 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Limit: 25
+            Top K Limit: 25
          Tantivy Query: {"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (8 rows)
 
@@ -314,7 +314,7 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using TopK scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
+WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -339,7 +339,7 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.match('notes', 'check'))
 ORDER BY time_period DESC
 LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using TopK scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
+WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -372,15 +372,15 @@ LIMIT 10000;
          Heap Fetches: 2500
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: state asc, id asc
-            TopK Limit: 10000
+            Top K Order By: state asc, id asc
+            Top K Limit: 10000
             Queries: 1
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"state"}}]}}]}}
 (11 rows)
 
--- Test 12: 4-column ORDER BY uses TopK (issue #3148)
-\echo 'Test 12: 4-column ORDER BY uses TopK'
-Test 12: 4-column ORDER BY uses TopK
+-- Test 12: 4-column ORDER BY uses Top K (issue #3148)
+\echo 'Test 12: 4-column ORDER BY uses Top K'
+Test 12: 4-column ORDER BY uses Top K
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code
 FROM records
@@ -395,15 +395,15 @@ ORDER BY state, flow_type, currency_code, id
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: state asc, flow_type asc, currency_code asc, id asc
-            TopK Limit: 25
+            Top K Order By: state asc, flow_type asc, currency_code asc, id asc
+            Top K Limit: 25
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (10 rows)
 
--- Test 13: 5-column ORDER BY uses TopK (issue #3148)
-\echo 'Test 13: 5-column ORDER BY uses TopK'
-Test 13: 5-column ORDER BY uses TopK
+-- Test 13: 5-column ORDER BY uses Top K (issue #3148)
+\echo 'Test 13: 5-column ORDER BY uses Top K'
+Test 13: 5-column ORDER BY uses Top K
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id
 FROM records
@@ -418,8 +418,8 @@ ORDER BY state, flow_type, currency_code, tenant_id, id
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            TopK Order By: state asc, flow_type asc, currency_code asc, tenant_id asc, id asc
-            TopK Limit: 25
+            Top K Order By: state asc, flow_type asc, currency_code asc, tenant_id asc, id asc
+            Top K Limit: 25
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (10 rows)
@@ -433,7 +433,7 @@ FROM records
 WHERE id @@@ paradedb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
     LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using TopK scan (using Normal instead). Reason: ORDER BY has 6 columns but TopK supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
+WARNING:  Query has LIMIT 25 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.check_topk_scan = false (table: records)
                                  QUERY PLAN                                  
 -----------------------------------------------------------------------------
  Limit

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773094752438,
+  "lastUpdate": 1773095574401,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19410,6 +19410,54 @@ window.BENCHMARK_DATA = {
             "value": 5.341176114840915,
             "unit": "median tps",
             "extra": "avg tps: 5.360050526389797, max tps: 7.1005257861238835, count: 56182"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f96213bf7675fbb81936fb52a339d62918f05761",
+          "message": "refactor: rename Top N to Top K across the codebase (#4320)\n\n## Summary\n- Renames all variations of \"Top N\" to \"Top K\" across the entire\ncodebase\n- Covers all naming conventions: `TopN`→`TopK`, `topn`→`topk`,\n`top_n`→`top_k`, `top-n`→`top-k`, `TOPN`→`TOPK`, `TOP_N`→`TOP_K`, and\nprose forms like \"Top N\"→\"Top K\"\n- Includes file/directory renames (26 files), source code, tests,\ndocumentation, benchmarks, and configuration\n\nCloses #4318",
+          "timestamp": "2026-03-09T17:45:21-04:00",
+          "tree_id": "a39dfafb45db2e7ead96b72742cf9b86bcb3a846",
+          "url": "https://github.com/paradedb/paradedb/commit/f96213bf7675fbb81936fb52a339d62918f05761"
+        },
+        "date": 1773095569088,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1102.208929493176,
+            "unit": "median tps",
+            "extra": "avg tps: 1107.2667188486532, max tps: 1146.8615100930533, count: 56203"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1284.554795953859,
+            "unit": "median tps",
+            "extra": "avg tps: 1274.6717935905806, max tps: 1290.06375682403, count: 56203"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1852.3184735641212,
+            "unit": "median tps",
+            "extra": "avg tps: 1827.669967129923, max tps: 2019.2447333912817, count: 56203"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.354718765048258,
+            "unit": "median tps",
+            "extra": "avg tps: 5.391142499189804, max tps: 7.292614949697292, count: 56203"
           }
         ]
       }

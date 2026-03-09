@@ -601,8 +601,8 @@ ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
                                  Index: products_idx
                                  Exec Method: TopKScanExecState
                                  Scores: false
-                                    Top K Order By: price desc
-                                    Top K Limit: 50
+                                    TopK Order By: price desc
+                                    TopK Limit: 50
                                  Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0},"is_datetime":false}},{"term":{"field":"is_available","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
 (30 rows)
 

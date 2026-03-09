@@ -953,13 +953,13 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
 
     // Verify sort field and direction
     assert!(
-        explain_output.contains("Top K Order By: sale_date asc"),
+        explain_output.contains("TopK Order By: sale_date asc"),
         "Expected sort field to be sale_date"
     );
 
     // Verify the limit is pushed down
     assert!(
-        explain_output.contains("Top K Limit: 5"),
+        explain_output.contains("TopK Limit: 5"),
         "Expected limit 5 to be pushed down"
     );
 

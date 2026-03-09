@@ -96,8 +96,8 @@ ORDER BY timestamp DESC LIMIT 10;
          Index: logs_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: timestamp desc
-            Top K Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -242,8 +242,8 @@ ORDER BY timestamp DESC LIMIT 10;
          Index: logs_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: timestamp desc
-            Top K Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Full Index Scan: true
          Tantivy Query: "all"
 (12 rows)
@@ -284,8 +284,8 @@ ORDER BY timestamp DESC LIMIT 10;
          Index: logs_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: timestamp desc
-            Top K Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Tantivy Query: {"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null,"is_datetime":false}}
 (11 rows)
 
@@ -805,8 +805,8 @@ ORDER BY timestamp DESC LIMIT 10;
          Index: logs_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: timestamp desc
-            Top K Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -845,8 +845,8 @@ ORDER BY timestamp DESC LIMIT 10;
          Index: logs_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: timestamp desc
-            Top K Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -884,8 +884,8 @@ ORDER BY response_time DESC LIMIT 5;
          Index: logs_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: response_time desc
-            Top K Limit: 5
+            TopK Order By: response_time desc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -1345,8 +1345,8 @@ ORDER BY timestamp DESC LIMIT 10;
          Index: logs_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: timestamp desc
-            Top K Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -1452,8 +1452,8 @@ LIMIT 1;
          Segment Count: 1
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: timestamp desc
-            Top K Limit: 1
+            TopK Order By: timestamp desc
+            TopK Limit: 1
          Full Index Scan: true
          Tantivy Query: "all"
 (11 rows)
@@ -1483,8 +1483,8 @@ LIMIT 1;
          Segment Count: 1
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: timestamp desc
-            Top K Limit: 1
+            TopK Order By: timestamp desc
+            TopK Limit: 1
          Full Index Scan: true
          Tantivy Query: "all"
 (11 rows)
@@ -2013,8 +2013,8 @@ ORDER BY id DESC LIMIT 3;
          Index: mvcc_test_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id desc
-            Top K Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2046,8 +2046,8 @@ ORDER BY id DESC LIMIT 3;
          Index: mvcc_test_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id desc
-            Top K Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2079,8 +2079,8 @@ ORDER BY id DESC LIMIT 3;
          Index: mvcc_test_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id desc
-            Top K Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2111,8 +2111,8 @@ ORDER BY id DESC LIMIT 3;
          Index: mvcc_test_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id desc
-            Top K Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2146,8 +2146,8 @@ ORDER BY id DESC LIMIT 3;
          Index: mvcc_test_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id desc
-            Top K Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2256,8 +2256,8 @@ ORDER BY id DESC LIMIT 3;
          Index: mvcc_test_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id desc
-            Top K Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 

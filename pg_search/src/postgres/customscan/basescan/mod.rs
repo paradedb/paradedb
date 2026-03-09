@@ -1174,7 +1174,7 @@ impl CustomScan for BaseScan {
         explainer.add_bool("Scores", state.custom_state().need_scores());
         if let Some(orderby_info) = state.custom_state().orderby_info().as_ref() {
             explainer.add_text(
-                "   Top K Order By",
+                "   TopK Order By",
                 orderby_info
                     .iter()
                     .map(|oi| match oi {
@@ -1206,7 +1206,7 @@ impl CustomScan for BaseScan {
         }
 
         if let Some(limit) = state.custom_state().limit() {
-            explainer.add_unsigned_integer("   Top K Limit", limit as u64, None);
+            explainer.add_unsigned_integer("   TopK Limit", limit as u64, None);
             if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
                     "   Queries",

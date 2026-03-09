@@ -42,8 +42,8 @@ SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
          Index: idxtokenizer_fast
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: t asc, id asc
-            Top K Limit: 5
+            TopK Order By: t asc, id asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -88,8 +88,8 @@ SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
          Index: idxtokenizer_fast
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: t_long asc, id asc
-            Top K Limit: 5
+            TopK Order By: t_long asc, id asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 

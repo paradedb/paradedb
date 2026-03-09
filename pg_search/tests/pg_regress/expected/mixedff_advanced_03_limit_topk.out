@@ -360,8 +360,8 @@ LIMIT 10;
          Index: limit_topk_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 10
+            TopK Order By: rating desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -380,8 +380,8 @@ LIMIT 5;
          Index: limit_topk_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: price asc
-            Top K Limit: 5
+            TopK Order By: price asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -414,8 +414,8 @@ LIMIT 15;
          Index: limit_topk_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: title asc
-            Top K Limit: 15
+            TopK Order By: title asc
+            TopK Limit: 15
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Books OR Electronics","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -517,8 +517,8 @@ LIMIT 8;
          Index: limit_topk_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: price desc
-            Top K Limit: 8
+            TopK Order By: price desc
+            TopK Limit: 8
          Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"included":2.5},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"included":4.5},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Toys OR Clothing","lenient":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 

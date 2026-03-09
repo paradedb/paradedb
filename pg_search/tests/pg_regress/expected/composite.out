@@ -1568,8 +1568,8 @@ LIMIT 3;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc, id asc
-            Top K Limit: 3
+            TopK Order By: rating desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes OR name:Keyboard OR name:Mouse","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -1601,8 +1601,8 @@ LIMIT 2;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: pdb.score() desc, id asc
-            Top K Limit: 2
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:keyboard","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -1770,8 +1770,8 @@ LIMIT 3;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -1804,8 +1804,8 @@ LIMIT 3;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -1838,8 +1838,8 @@ LIMIT 3;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -2149,8 +2149,8 @@ LIMIT 3;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: pdb.score() desc, id asc
-            Top K Limit: 3
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:keyboard","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -2169,8 +2169,8 @@ LIMIT 3;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc, id asc
-            Top K Limit: 3
+            TopK Order By: rating desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes OR name:Keyboard OR name:Mouse","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -2205,8 +2205,8 @@ LIMIT 3;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -2470,8 +2470,8 @@ ORDER BY score DESC, id LIMIT 3;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: pdb.score() desc, id asc
-            Top K Limit: 3
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"shoes","is_datetime":false}}}}
 (9 rows)
 
@@ -2496,8 +2496,8 @@ ORDER BY rating DESC, id LIMIT 3;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc, id asc
-            Top K Limit: 3
+            TopK Order By: rating desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"wireless OR shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -2523,8 +2523,8 @@ ORDER BY score DESC, id LIMIT 2;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: pdb.score() desc, id asc
-            Top K Limit: 2
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"regex":{"field":"description","pattern":".*boot.*"}}}}
 (9 rows)
 
@@ -2549,8 +2549,8 @@ ORDER BY score DESC, id LIMIT 2;
          Index: smoke_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: pdb.score() desc, id asc
-            Top K Limit: 2
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"term":{"field":"name","value":"wireless","is_datetime":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 

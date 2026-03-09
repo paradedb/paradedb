@@ -55,8 +55,8 @@ SELECT id, pdb.score(id) AS score FROM mock_items WHERE description @@@ 'shoes' 
          Index: mock_items_id_description_rating_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: pdb.score() desc
-            Top K Limit: 3
+            TopK Order By: pdb.score() desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 

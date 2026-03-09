@@ -194,8 +194,8 @@ ORDER BY d.id;
                  Index: files_search
                  Exec Method: TopKScanExecState
                  Scores: true
-                    Top K Order By: pdb.score() desc
-                    Top K Limit: 1
+                    TopK Order By: pdb.score() desc
+                    TopK Limit: 1
                  Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
 (20 rows)
 

@@ -32,8 +32,8 @@ LIMIT 10;
          Index: test_bm25
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: description asc
-            Top K Limit: 10
+            TopK Order By: description asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"cloud engineer","is_datetime":false}}}}
 (9 rows)
 

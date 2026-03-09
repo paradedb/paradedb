@@ -24,8 +24,8 @@ LIMIT 5;
          Index: search_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: rating desc
-            Top K Limit: 5
+            TopK Order By: rating desc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
@@ -55,8 +55,8 @@ LIMIT 5;
          Index: search_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: rating asc, id asc
-            Top K Limit: 5
+            TopK Order By: rating asc, id asc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
@@ -86,8 +86,8 @@ LIMIT 5;
          Index: search_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: rating asc, id asc, category asc
-            Top K Limit: 5
+            TopK Order By: rating asc, id asc, category asc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
@@ -117,8 +117,8 @@ LIMIT 5;
          Index: search_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: rating asc, pdb.score() desc
-            Top K Limit: 5
+            TopK Order By: rating asc, pdb.score() desc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
@@ -148,8 +148,8 @@ LIMIT 5;
          Index: search_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: rating asc, pdb.score() asc, id desc
-            Top K Limit: 5
+            TopK Order By: rating asc, pdb.score() asc, id desc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
@@ -179,8 +179,8 @@ LIMIT 5;
          Index: search_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: rating asc, pdb.score() asc, id asc, category desc
-            Top K Limit: 5
+            TopK Order By: rating asc, pdb.score() asc, id asc, category desc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 

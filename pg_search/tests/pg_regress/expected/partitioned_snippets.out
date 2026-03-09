@@ -49,16 +49,16 @@ LIMIT 3;
                Index: logs_2020_id_message_country_idx
                Exec Method: TopKScanExecState
                Scores: false
-                  Top K Order By: id asc
-                  Top K Limit: 3
+                  TopK Order By: id asc
+                  TopK Limit: 3
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
          ->  Custom Scan (ParadeDB Base Scan) on logs_2021 logs_2
                Table: logs_2021
                Index: logs_2021_id_message_country_idx
                Exec Method: TopKScanExecState
                Scores: false
-                  Top K Order By: id asc
-                  Top K Limit: 3
+                  TopK Order By: id asc
+                  TopK Limit: 3
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
 (19 rows)
 
@@ -95,16 +95,16 @@ LIMIT 3;
                            Index: logs_2020_id_message_country_idx
                            Exec Method: TopKScanExecState
                            Scores: false
-                              Top K Order By: id asc
-                              Top K Limit: 3
+                              TopK Order By: id asc
+                              TopK Limit: 3
                            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
                      ->  Custom Scan (ParadeDB Base Scan) on logs_2021 logs_2
                            Table: logs_2021
                            Index: logs_2021_id_message_country_idx
                            Exec Method: TopKScanExecState
                            Scores: false
-                              Top K Order By: id asc
-                              Top K Limit: 3
+                              TopK Order By: id asc
+                              TopK Limit: 3
                            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
 (21 rows)
 
@@ -131,8 +131,8 @@ LIMIT 3;
                Index: logs_2020_id_message_country_idx
                Exec Method: TopKScanExecState
                Scores: false
-                  Top K Order By: id asc
-                  Top K Limit: 3
+                  TopK Order By: id asc
+                  TopK Limit: 3
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
 (10 rows)
 
@@ -165,8 +165,8 @@ LIMIT 2 OFFSET 1;
                Index: logs_2020_id_message_country_idx
                Exec Method: TopKScanExecState
                Scores: false
-                  Top K Order By: id asc
-                  Top K Limit: 3
+                  TopK Order By: id asc
+                  TopK Limit: 3
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
 (10 rows)
 
@@ -198,8 +198,8 @@ LIMIT 0;
                Index: logs_2020_id_message_country_idx
                Exec Method: TopKScanExecState
                Scores: false
-                  Top K Order By: id asc
-                  Top K Limit: 0
+                  TopK Order By: id asc
+                  TopK Limit: 0
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
 (10 rows)
 

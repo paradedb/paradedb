@@ -41,8 +41,8 @@ LIMIT 1;
                Index: large_agg_test_idx
                Exec Method: TopKScanExecState
                Scores: false
-                  Top K Order By: id asc
-                  Top K Limit: 1
+                  TopK Order By: id asc
+                  TopK Limit: 1
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}
 (15 rows)
@@ -149,8 +149,8 @@ LIMIT 1;
          Index: delete_agg_test_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 1
+            TopK Order By: id asc
+            TopK Limit: 1
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (12 rows)

@@ -29,8 +29,8 @@ LIMIT 10;
          Index: pushdown_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"term":{"field":"description","value":"dog","is_datetime":false}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
 (9 rows)
 
@@ -63,8 +63,8 @@ LIMIT 10;
          Index: pushdown_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"('dog'::text = ANY (description))"}]}}]}}
 (9 rows)
 

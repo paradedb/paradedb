@@ -99,8 +99,8 @@ LIMIT 10;
          Index: records_no_fast_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -118,8 +118,8 @@ LIMIT 10;
          Index: records_no_fast_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: category asc
-            Top K Limit: 10
+            TopK Order By: category asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -137,8 +137,8 @@ LIMIT 10;
          Index: records_no_fast_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: price asc
-            Top K Limit: 10
+            TopK Order By: price asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -156,8 +156,8 @@ LIMIT 10;
          Index: records_no_fast_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: in_stock asc
-            Top K Limit: 10
+            TopK Order By: in_stock asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -196,8 +196,8 @@ LIMIT 10;
          Index: records_no_fast_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: created_at asc
-            Top K Limit: 10
+            TopK Order By: created_at asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -253,8 +253,8 @@ LIMIT 10;
          Index: records_with_fast_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: price asc
-            Top K Limit: 10
+            TopK Order By: price asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -272,8 +272,8 @@ LIMIT 10;
          Index: records_with_fast_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: in_stock asc
-            Top K Limit: 10
+            TopK Order By: in_stock asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -311,8 +311,8 @@ LIMIT 10;
          Index: records_with_fast_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: created_at asc
-            Top K Limit: 10
+            TopK Order By: created_at asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 

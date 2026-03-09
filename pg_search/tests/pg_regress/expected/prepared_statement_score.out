@@ -36,8 +36,8 @@ EXECUTE search_desc('keyboard', 0);
          Index: search_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: pdb.score() desc
-            Top K Limit: 5
+            TopK Order By: pdb.score() desc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -90,8 +90,8 @@ EXECUTE search_desc('keyboard', 0);
                Index: search_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 5
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 5
                Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
@@ -130,8 +130,8 @@ EXECUTE search_generic('keyboard', 0);
                Index: search_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 5
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 5
                Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
@@ -178,8 +178,8 @@ EXECUTE search_simple('keyboard');
          Index: search_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: pdb.score() desc
-            Top K Limit: 5
+            TopK Order By: pdb.score() desc
+            TopK Limit: 5
          Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}}
 (9 rows)
 
@@ -216,8 +216,8 @@ EXECUTE search_pdb('keyboard', 0);
                Index: search_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 5
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 5
                Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
@@ -255,8 +255,8 @@ EXECUTE test_filter('shoes', 0);
                Index: search_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 10
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 10
                Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
@@ -281,8 +281,8 @@ EXECUTE test_filter('shoes', 1);
                Index: search_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 10
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 10
                Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
@@ -304,8 +304,8 @@ EXECUTE test_filter('keyboard', 0);
                Index: search_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 10
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 10
                Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
@@ -343,8 +343,8 @@ EXECUTE test_complex('shoes', 3, 0);
                Index: search_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 10
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 10
                Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
 (11 rows)
 
@@ -368,8 +368,8 @@ EXECUTE test_complex('shoes', 3, 1);
                Index: search_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 10
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 10
                Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
 (11 rows)
 
@@ -391,8 +391,8 @@ EXECUTE test_complex('shoes', 2, 0);
                Index: search_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 10
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 10
                Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
 (11 rows)
 

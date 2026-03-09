@@ -117,8 +117,8 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 25
+            TopK Order By: id asc
+            TopK Limit: 25
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"notes","query_string":"check","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -196,8 +196,8 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 25
+            TopK Order By: id asc
+            TopK Limit: 25
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (10 rows)
@@ -219,8 +219,8 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 25
+            TopK Order By: id asc
+            TopK Limit: 25
          Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}}
 (9 rows)
 
@@ -241,8 +241,8 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 25
+            TopK Order By: id asc
+            TopK Limit: 25
          Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 
@@ -288,7 +288,7 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Limit: 25
+            TopK Limit: 25
          Tantivy Query: {"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (8 rows)
 
@@ -372,8 +372,8 @@ LIMIT 10000;
          Heap Fetches: 2500
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: state asc, id asc
-            Top K Limit: 10000
+            TopK Order By: state asc, id asc
+            TopK Limit: 10000
             Queries: 1
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"state"}}]}}]}}
 (11 rows)
@@ -395,8 +395,8 @@ ORDER BY state, flow_type, currency_code, id
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: state asc, flow_type asc, currency_code asc, id asc
-            Top K Limit: 25
+            TopK Order By: state asc, flow_type asc, currency_code asc, id asc
+            TopK Limit: 25
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (10 rows)
@@ -418,8 +418,8 @@ ORDER BY state, flow_type, currency_code, tenant_id, id
          Index: records_search_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: state asc, flow_type asc, currency_code asc, tenant_id asc, id asc
-            Top K Limit: 25
+            TopK Order By: state asc, flow_type asc, currency_code asc, tenant_id asc, id asc
+            TopK Limit: 25
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (10 rows)

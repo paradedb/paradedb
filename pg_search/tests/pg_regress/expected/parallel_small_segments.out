@@ -54,8 +54,8 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
          Index: items_bm25_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -77,8 +77,8 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                Index: items_bm25_idx
                Exec Method: TopKScanExecState
                Scores: false
-                  Top K Order By: id asc
-                  Top K Limit: 10
+                  TopK Order By: id asc
+                  TopK Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
@@ -100,8 +100,8 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                Index: items_bm25_idx
                Exec Method: TopKScanExecState
                Scores: false
-                  Top K Order By: id asc
-                  Top K Limit: 10
+                  TopK Order By: id asc
+                  TopK Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
@@ -123,8 +123,8 @@ LIMIT 10;
          Index: items_bm25_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: pdb.score() desc
-            Top K Limit: 10
+            TopK Order By: pdb.score() desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -185,8 +185,8 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                Index: items_bm25_idx
                Exec Method: TopKScanExecState
                Scores: false
-                  Top K Order By: id asc
-                  Top K Limit: 10
+                  TopK Order By: id asc
+                  TopK Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
@@ -211,8 +211,8 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
          Index: items_bm25_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id asc
-            Top K Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 

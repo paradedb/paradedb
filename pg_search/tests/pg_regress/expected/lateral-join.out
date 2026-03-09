@@ -134,8 +134,8 @@ LIMIT 5;
                Index: articles_bm25_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 5
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 5
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
          ->  Limit
                ->  Sort
@@ -366,8 +366,8 @@ LIMIT 10;
                Index: articles_bm25_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 10
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"machine learning","lenient":null,"conjunction_mode":null}}}}
          ->  Aggregate
                ->  Seq Scan on comments c
@@ -424,8 +424,8 @@ LIMIT 5;
                Index: articles_bm25_idx
                Exec Method: TopKScanExecState
                Scores: false
-                  Top K Order By: created_at desc
-                  Top K Limit: 5
+                  TopK Order By: created_at desc
+                  TopK Limit: 5
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"cloud","lenient":null,"conjunction_mode":null}}}}
          ->  Aggregate
                ->  Seq Scan on comments c
@@ -486,8 +486,8 @@ LIMIT 3;
                      Index: articles_bm25_idx
                      Exec Method: TopKScanExecState
                      Scores: true
-                        Top K Order By: pdb.score() desc
-                        Top K Limit: 3
+                        TopK Order By: pdb.score() desc
+                        TopK Limit: 3
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database security","lenient":null,"conjunction_mode":null}}}}
                ->  Aggregate
                      ->  Seq Scan on comments c
@@ -553,8 +553,8 @@ LIMIT 5;
                Index: articles_bm25_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 5
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 5
                Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"machine learning","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(author_id = ANY ('{1,2}'::integer[]))"}]}}]}}
          ->  Aggregate
                ->  Seq Scan on comments c
@@ -615,8 +615,8 @@ LIMIT 5;
                Index: articles_bm25_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 5
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 5
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"encryption","lenient":null,"conjunction_mode":null}}}}
          ->  Aggregate
                Filter: (count(*) > 0)
@@ -676,8 +676,8 @@ LIMIT 5;
                Index: articles_bm25_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 5
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 5
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          ->  Aggregate
                ->  Seq Scan on comments c
@@ -742,8 +742,8 @@ LIMIT 5;
                Index: articles_bm25_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 5
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 5
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
          ->  Materialize
                ->  Nested Loop
@@ -829,8 +829,8 @@ LIMIT 3;
                Index: articles_bm25_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 3
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 3
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
          ->  Materialize
                ->  Nested Loop Left Join
@@ -909,8 +909,8 @@ LIMIT 3;
                Index: articles_bm25_idx
                Exec Method: TopKScanExecState
                Scores: true
-                  Top K Order By: pdb.score() desc
-                  Top K Limit: 3
+                  TopK Order By: pdb.score() desc
+                  TopK Limit: 3
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
          ->  Limit
                ->  Sort

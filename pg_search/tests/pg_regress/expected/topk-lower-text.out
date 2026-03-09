@@ -25,8 +25,8 @@ LIMIT 5;
          Segment Count: 1
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: description desc
-            Top K Limit: 5
+            TopK Order By: description desc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes","is_datetime":false}}}}
 (10 rows)
 

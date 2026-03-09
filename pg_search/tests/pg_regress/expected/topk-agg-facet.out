@@ -65,8 +65,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (11 rows)
 
@@ -107,8 +107,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"laptop powerful","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (11 rows)
 
@@ -146,8 +146,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"laptop","is_datetime":false}}}}
 (11 rows)
 
@@ -188,8 +188,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"laptop for","slop":null}}}}
 (11 rows)
 
@@ -228,8 +228,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"laptop"},"distance":{"any_order":10},"right":{"term":"powerful"}}}}}
 (11 rows)
 
@@ -267,8 +267,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"proximity":{"field":"description","left":{"term":"laptop"},"distance":{"in_order":10},"right":{"term":"professionals"}}}}}
 (11 rows)
 
@@ -310,8 +310,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -352,8 +352,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -397,8 +397,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -589,8 +589,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -681,8 +681,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -1027,8 +1027,8 @@ LIMIT 2;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 2
+            TopK Order By: rating desc
+            TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -1083,8 +1083,8 @@ LIMIT 2;
                      Index: products_idx
                      Exec Method: TopKScanExecState
                      Scores: false
-                        Top K Order By: rating desc
-                        Top K Limit: 5
+                        TopK Order By: rating desc
+                        TopK Limit: 5
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (16 rows)
 
@@ -1434,8 +1434,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -1791,8 +1791,8 @@ LIMIT 3;
                            Index: products_idx
                            Exec Method: TopKScanExecState
                            Scores: false
-                              Top K Order By: rating desc
-                              Top K Limit: 5
+                              TopK Order By: rating desc
+                              TopK Limit: 5
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
@@ -2050,8 +2050,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2097,8 +2097,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2266,8 +2266,8 @@ LIMIT 3;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 3
+            TopK Order By: rating desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2308,8 +2308,8 @@ LIMIT 10;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 10
+            TopK Order By: rating desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2344,8 +2344,8 @@ LIMIT 10;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 10
+            TopK Order By: rating desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2380,8 +2380,8 @@ LIMIT 10;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 10
+            TopK Order By: rating desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2417,8 +2417,8 @@ LIMIT 5;
          Index: products_idx
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating desc
-            Top K Limit: 5
+            TopK Order By: rating desc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 

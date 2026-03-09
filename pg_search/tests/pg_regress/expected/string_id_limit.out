@@ -57,8 +57,8 @@ LIMIT 2;
          Index: comments_search
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: id desc
-            Top K Limit: 2
+            TopK Order By: id desc
+            TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"term":{"field":"customer_id","value":"customer_1","is_datetime":false}}}}
 (9 rows)
 

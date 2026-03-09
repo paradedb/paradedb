@@ -84,8 +84,8 @@ LIMIT 1;
          Index: test_items_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: id asc
-            Top K Limit: 1
+            TopK Order By: id asc
+            TopK Limit: 1
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
 (11 rows)
 
@@ -150,8 +150,8 @@ LIMIT 1;
          Index: test_items_idx
          Exec Method: TopKScanExecState
          Scores: true
-            Top K Order By: id asc
-            Top K Limit: 1
+            TopK Order By: id asc
+            TopK Limit: 1
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
 (11 rows)
 

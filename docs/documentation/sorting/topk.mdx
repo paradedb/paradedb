@@ -53,8 +53,8 @@ LIMIT 5;
          Segment Count: 1
          Exec Method: TopKScanExecState
          Scores: false
-            Top K Order By: rating asc
-            Top K Limit: 5
+            TopK Order By: rating asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (10 rows)
 ```

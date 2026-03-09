@@ -22,7 +22,7 @@ WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast 
          Group Key: text
          ->  Sort
                Sort Key: text
-               ->  Custom Scan (ParadeDB Scan) on test_table
+               ->  Custom Scan (ParadeDB Base Scan) on test_table
                      Table: test_table
                      Index: idx_test_table
                      Exec Method: NormalScanExecState
@@ -38,7 +38,7 @@ WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). R
  Limit
    ->  Sort
          Sort Key: text
-         ->  Custom Scan (ParadeDB Scan) on test_table
+         ->  Custom Scan (ParadeDB Base Scan) on test_table
                Table: test_table
                Index: idx_test_table
                Exec Method: NormalScanExecState
@@ -67,7 +67,7 @@ SELECT * FROM test_table WHERE id @@@ pdb.all() ORDER BY text LIMIT 5;
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on test_table
+   ->  Custom Scan (ParadeDB Base Scan) on test_table
          Table: test_table
          Index: idx_test_table
          Exec Method: TopNScanExecState
@@ -98,7 +98,7 @@ SELECT * FROM test_table WHERE id @@@ pdb.all() ORDER BY text LIMIT 5;
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on test_table
+   ->  Custom Scan (ParadeDB Base Scan) on test_table
          Table: test_table
          Index: idx_test_table
          Exec Method: TopNScanExecState

@@ -27,7 +27,7 @@ LIMIT 10;
                                                           QUERY PLAN                                                           
 -------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on test
+   ->  Custom Scan (ParadeDB Base Scan) on test
          Table: test
          Index: test_bm25
          Exec Method: TopNScanExecState

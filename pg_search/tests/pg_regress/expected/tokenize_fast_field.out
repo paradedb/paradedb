@@ -29,7 +29,7 @@ LIMIT 5;
 ------------------------------------------------------------------------
  Limit
    Output: id, description
-   ->  Custom Scan (ParadeDB Scan) on public.mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on public.mock_items
          Output: id, description
          Table: mock_items
          Index: search_idx
@@ -100,7 +100,7 @@ LIMIT 5;
 ------------------------------------------------------------------------
  Limit
    Output: id, description, (lower(description))
-   ->  Custom Scan (ParadeDB Scan) on public.mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on public.mock_items
          Output: id, description, lower(description)
          Table: mock_items
          Index: search_idx

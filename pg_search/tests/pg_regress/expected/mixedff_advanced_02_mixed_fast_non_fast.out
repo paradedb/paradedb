@@ -319,7 +319,7 @@ ORDER BY fileId, page_number;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: fileid, page_number
-   ->  Custom Scan (ParadeDB Scan) on pages
+   ->  Custom Scan (ParadeDB Base Scan) on pages
          Table: pages
          Index: pages_search
          Exec Method: MixedFastFieldExecState
@@ -349,7 +349,7 @@ ORDER BY id;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on pages
+   ->  Custom Scan (ParadeDB Base Scan) on pages
          Table: pages
          Index: pages_search
          Exec Method: NormalScanExecState

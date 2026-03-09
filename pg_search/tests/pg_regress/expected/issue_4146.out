@@ -495,7 +495,7 @@ WARNING:  JoinScan not used: query must have a LIMIT clause
                                        Output: f.id, f."documentId", f.content, f.title, f.parents, f."sizeInBytes", f."createdAt", f.fill0, f.fill1, f.fill2, f.fill3, f.fill4, f.fill5, f.fill6, f.fill7, f.fill8, f.fill9, f.fill10, f.fill11, f.fill12, f.fill13, f.fill14, f.fill15, f.fill16, f.fill17, f.fill18, f.fill19, f.fill20, f.fill21, f.fill22, f.fill23, f.fill24, f.fill25, f.fill26, f.fill27, f.fill28
                                  ->  Hash
                                        Output: d.id, d.title, d.parents
-                                       ->  Custom Scan (ParadeDB Scan) on public.documents d
+                                       ->  Custom Scan (ParadeDB Base Scan) on public.documents d
                                              Output: d.id, d.title, d.parents
                                              Table: documents
                                              Index: documents_index

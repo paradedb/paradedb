@@ -7,7 +7,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE (i * 2) = 2 AND id @@@ pdb.all();
                                                                        QUERY PLAN                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on ints
+ Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState
@@ -35,7 +35,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE add_two_numbers(i, j) = 5 AND id @@@ pdb.all();
                                                                        QUERY PLAN                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on ints
+ Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState
@@ -60,7 +60,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE i * 2 = 4 AND i + j = 5 AND id @@@ pdb.all();
                                                                                                 QUERY PLAN                                                                                                 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on ints
+ Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState

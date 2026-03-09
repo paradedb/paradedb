@@ -33,6 +33,6 @@ fn custom_scan_on_key_field(mut conn: PgConnection) {
     let plan = plan.pointer("/0/Plan").unwrap();
     pretty_assertions::assert_eq!(
         plan.get("Custom Plan Provider"),
-        Some(&Value::String(String::from("ParadeDB Scan")))
+        Some(&Value::String(String::from("ParadeDB Base Scan")))
     );
 }

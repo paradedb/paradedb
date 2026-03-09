@@ -64,7 +64,7 @@ WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column (tabl
          Sort Key: rating, id
          ->  HashAggregate
                Group Key: id
-               ->  Custom Scan (ParadeDB Scan) on products
+               ->  Custom Scan (ParadeDB Base Scan) on products
                      Table: products
                      Index: products_idx
                      Exec Method: MixedFastFieldExecState

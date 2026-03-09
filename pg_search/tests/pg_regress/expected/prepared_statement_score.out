@@ -31,7 +31,7 @@ EXECUTE search_desc('keyboard', 0);
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState
@@ -85,7 +85,7 @@ EXECUTE search_desc('keyboard', 0);
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
-         ->  Custom Scan (ParadeDB Scan) on mock_items
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
                Table: mock_items
                Index: search_idx
                Exec Method: TopNScanExecState
@@ -125,7 +125,7 @@ EXECUTE search_generic('keyboard', 0);
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
-         ->  Custom Scan (ParadeDB Scan) on mock_items
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
                Table: mock_items
                Index: search_idx
                Exec Method: TopNScanExecState
@@ -173,7 +173,7 @@ EXECUTE search_simple('keyboard');
                                                                                                      QUERY PLAN                                                                                                      
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState
@@ -211,7 +211,7 @@ EXECUTE search_pdb('keyboard', 0);
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
-         ->  Custom Scan (ParadeDB Scan) on mock_items
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
                Table: mock_items
                Index: search_idx
                Exec Method: TopNScanExecState
@@ -250,7 +250,7 @@ EXECUTE test_filter('shoes', 0);
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
-         ->  Custom Scan (ParadeDB Scan) on mock_items
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
                Table: mock_items
                Index: search_idx
                Exec Method: TopNScanExecState
@@ -276,7 +276,7 @@ EXECUTE test_filter('shoes', 1);
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
-         ->  Custom Scan (ParadeDB Scan) on mock_items
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
                Table: mock_items
                Index: search_idx
                Exec Method: TopNScanExecState
@@ -299,7 +299,7 @@ EXECUTE test_filter('keyboard', 0);
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
-         ->  Custom Scan (ParadeDB Scan) on mock_items
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
                Table: mock_items
                Index: search_idx
                Exec Method: TopNScanExecState
@@ -338,7 +338,7 @@ EXECUTE test_complex('shoes', 3, 0);
  Limit
    ->  Result
          One-Time Filter: ($3 = 0)
-         ->  Custom Scan (ParadeDB Scan) on mock_items
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
                Table: mock_items
                Index: search_idx
                Exec Method: TopNScanExecState
@@ -363,7 +363,7 @@ EXECUTE test_complex('shoes', 3, 1);
  Limit
    ->  Result
          One-Time Filter: ($3 = 0)
-         ->  Custom Scan (ParadeDB Scan) on mock_items
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
                Table: mock_items
                Index: search_idx
                Exec Method: TopNScanExecState
@@ -386,7 +386,7 @@ EXECUTE test_complex('shoes', 2, 0);
  Limit
    ->  Result
          One-Time Filter: ($3 = 0)
-         ->  Custom Scan (ParadeDB Scan) on mock_items
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
                Table: mock_items
                Index: search_idx
                Exec Method: TopNScanExecState

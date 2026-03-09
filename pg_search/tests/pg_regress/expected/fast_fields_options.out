@@ -76,7 +76,7 @@ WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: title
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState
@@ -94,7 +94,7 @@ LIMIT 10;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_no_fast_idx
          Exec Method: TopNScanExecState
@@ -113,7 +113,7 @@ LIMIT 10;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_no_fast_idx
          Exec Method: TopNScanExecState
@@ -132,7 +132,7 @@ LIMIT 10;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_no_fast_idx
          Exec Method: TopNScanExecState
@@ -151,7 +151,7 @@ LIMIT 10;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_no_fast_idx
          Exec Method: TopNScanExecState
@@ -174,7 +174,7 @@ WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: valid_period
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState
@@ -191,7 +191,7 @@ LIMIT 10;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_no_fast_idx
          Exec Method: TopNScanExecState
@@ -211,7 +211,7 @@ ORDER BY id;
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_no_fast_idx
          Exec Method: NormalScanExecState
@@ -248,7 +248,7 @@ LIMIT 10;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_with_fast_idx
          Exec Method: TopNScanExecState
@@ -267,7 +267,7 @@ LIMIT 10;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_with_fast_idx
          Exec Method: TopNScanExecState
@@ -289,7 +289,7 @@ WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: valid_period
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_with_fast_idx
                Exec Method: NormalScanExecState
@@ -306,7 +306,7 @@ LIMIT 10;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_with_fast_idx
          Exec Method: TopNScanExecState
@@ -326,7 +326,7 @@ ORDER BY id;
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_with_fast_idx
          Exec Method: NormalScanExecState
@@ -366,7 +366,7 @@ WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: price
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_with_fast_idx
                Exec Method: NormalScanExecState
@@ -386,7 +386,7 @@ WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: in_stock
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_with_fast_idx
                Exec Method: NormalScanExecState
@@ -406,7 +406,7 @@ WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: valid_period
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_with_fast_idx
                Exec Method: NormalScanExecState
@@ -426,7 +426,7 @@ WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). 
  Limit
    ->  Sort
          Sort Key: created_at
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_with_fast_idx
                Exec Method: NormalScanExecState
@@ -444,7 +444,7 @@ ORDER BY id;
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on data_records
+   ->  Custom Scan (ParadeDB Base Scan) on data_records
          Table: data_records
          Index: records_with_fast_idx
          Exec Method: NormalScanExecState

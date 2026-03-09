@@ -534,7 +534,7 @@ ORDER BY level, name;
    Sort Key: category_tree.level, category_tree.name
    CTE category_tree
      ->  Recursive Union
-           ->  Custom Scan (ParadeDB Scan) on category
+           ->  Custom Scan (ParadeDB Base Scan) on category
                  Table: category
                  Index: category_idx
                  Exec Method: MixedFastFieldExecState
@@ -606,7 +606,7 @@ ORDER BY level, name;
                  Hash Cond: (ct.id = c.parent_id)
                  ->  WorkTable Scan on category_tree ct
                  ->  Hash
-                       ->  Custom Scan (ParadeDB Scan) on category c
+                       ->  Custom Scan (ParadeDB Base Scan) on category c
                              Table: category
                              Index: category_idx
                              Exec Method: MixedFastFieldExecState

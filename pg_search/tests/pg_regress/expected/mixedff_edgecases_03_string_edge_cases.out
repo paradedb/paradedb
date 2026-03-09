@@ -143,7 +143,7 @@ ORDER BY id;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on mixed_numeric_string_test
+   ->  Custom Scan (ParadeDB Base Scan) on mixed_numeric_string_test
          Table: mixed_numeric_string_test
          Index: mixed_string_edge_search
          Exec Method: MixedFastFieldExecState

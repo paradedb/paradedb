@@ -51,7 +51,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
                               QUERY PLAN                               
 -----------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: mock_items_id_description_rating_category_metadata_idx
          Exec Method: NormalScanExecState
@@ -90,7 +90,7 @@ WARNING:  Aggregate Scan not used: first argument of COALESCE must resolve to a 
                               QUERY PLAN                               
 -----------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: mock_items_id_description_rating_category_metadata_idx
          Exec Method: NormalScanExecState

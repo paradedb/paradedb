@@ -1,7 +1,7 @@
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'shoes'::pdb.fuzzy(2);
                                                                                                            QUERY PLAN                                                                                                           
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
@@ -12,7 +12,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'shoes'::pdb.fuzzy(2);
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
@@ -23,7 +23,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2);
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
@@ -34,7 +34,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.fuzzy(2);
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
@@ -45,7 +45,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('shoes')::pdb.fuzzy(2);
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState

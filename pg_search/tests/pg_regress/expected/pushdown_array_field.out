@@ -24,7 +24,7 @@ LIMIT 10;
                                                                             QUERY PLAN                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on pushdown
          Table: pushdown
          Index: pushdown_idx
          Exec Method: TopNScanExecState
@@ -58,7 +58,7 @@ LIMIT 10;
                                                                                                           QUERY PLAN                                                                                                          
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on pushdown
          Table: pushdown
          Index: pushdown_idx
          Exec Method: TopNScanExecState

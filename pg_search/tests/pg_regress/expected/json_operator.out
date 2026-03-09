@@ -39,7 +39,7 @@ ORDER BY id LIMIT 5;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState
@@ -69,7 +69,7 @@ ORDER BY id LIMIT 5;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState
@@ -95,7 +95,7 @@ ORDER BY id LIMIT 5;
                                                                                                                                            QUERY PLAN                                                                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState
@@ -123,7 +123,7 @@ ORDER BY id LIMIT 5;
                                                                                                          QUERY PLAN                                                                                                         
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState
@@ -151,7 +151,7 @@ ORDER BY id LIMIT 5;
                                                                                                                               QUERY PLAN                                                                                                                              
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState
@@ -179,7 +179,7 @@ ORDER BY id LIMIT 5;
                                                                                                                           QUERY PLAN                                                                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState
@@ -209,7 +209,7 @@ ORDER BY id LIMIT 5;
                                                                                                                 QUERY PLAN                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState
@@ -238,7 +238,7 @@ ORDER BY id LIMIT 5;
                                                                                                                                       QUERY PLAN                                                                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState
@@ -259,7 +259,7 @@ ORDER BY id LIMIT 5;
                                                                                                              QUERY PLAN                                                                                                              
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
          Exec Method: TopNScanExecState

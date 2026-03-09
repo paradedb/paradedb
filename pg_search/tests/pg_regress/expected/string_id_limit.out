@@ -52,7 +52,7 @@ LIMIT 2;
                                                         QUERY PLAN                                                         
 ---------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on comments
+   ->  Custom Scan (ParadeDB Base Scan) on comments
          Table: comments
          Index: comments_search
          Exec Method: TopNScanExecState
@@ -83,7 +83,7 @@ ORDER BY id DESC;
 ---------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id DESC
-   ->  Custom Scan (ParadeDB Scan) on comments
+   ->  Custom Scan (ParadeDB Base Scan) on comments
          Table: comments
          Index: comments_search
          Exec Method: NormalScanExecState

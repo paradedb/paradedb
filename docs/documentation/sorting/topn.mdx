@@ -47,7 +47,7 @@ LIMIT 5;
                                                                                                    QUERY PLAN
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=10.00..10.02 rows=3 width=552)
-   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.02 rows=3 width=552)
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items  (cost=10.00..10.02 rows=3 width=552)
          Table: mock_items
          Index: search_idx
          Segment Count: 1

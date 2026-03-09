@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773096363980,
+  "lastUpdate": 1773097145904,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36874,6 +36874,54 @@ window.BENCHMARK_DATA = {
             "value": 526.2410041204378,
             "unit": "median tps",
             "extra": "avg tps: 480.66648423826194, max tps: 659.5453445272952, count: 107880"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f96213bf7675fbb81936fb52a339d62918f05761",
+          "message": "refactor: rename Top N to Top K across the codebase (#4320)\n\n## Summary\n- Renames all variations of \"Top N\" to \"Top K\" across the entire\ncodebase\n- Covers all naming conventions: `TopN`→`TopK`, `topn`→`topk`,\n`top_n`→`top_k`, `top-n`→`top-k`, `TOPN`→`TOPK`, `TOP_N`→`TOP_K`, and\nprose forms like \"Top N\"→\"Top K\"\n- Includes file/directory renames (26 files), source code, tests,\ndocumentation, benchmarks, and configuration\n\nCloses #4318",
+          "timestamp": "2026-03-09T17:45:21-04:00",
+          "tree_id": "a39dfafb45db2e7ead96b72742cf9b86bcb3a846",
+          "url": "https://github.com/paradedb/paradedb/commit/f96213bf7675fbb81936fb52a339d62918f05761"
+        },
+        "date": 1773097140609,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 581.0496534620629,
+            "unit": "median tps",
+            "extra": "avg tps: 583.6872337652561, max tps: 684.3433906316611, count: 53923"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 653.0521944177992,
+            "unit": "median tps",
+            "extra": "avg tps: 656.8248409425797, max tps: 835.1802041385173, count: 53923"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 90.99210674748761,
+            "unit": "median tps",
+            "extra": "avg tps: 91.08206814775039, max tps: 93.38912347532029, count: 53923"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 552.104802222342,
+            "unit": "median tps",
+            "extra": "avg tps: 505.21562469766036, max tps: 713.4928271801626, count: 107846"
           }
         ]
       }

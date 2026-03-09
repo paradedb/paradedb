@@ -617,7 +617,7 @@ async fn generated_joinscan(database: Db) {
         } else {
             format!("{}.id, {}.name", used_tables[0], used_tables[0])
         };
-        
+
         if include_distinct {
             for table in &used_tables[1..] {
                 let col = format!("{}.id", table);

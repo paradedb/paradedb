@@ -1220,7 +1220,7 @@ pub(super) unsafe fn extract_orderby(
                 // The Var is in the output but doesn't belong to any BM25 source
                 // (e.g. products.id when products has no BM25 predicate).
                 // Emit it as a plain field — it's a projected output column.
-                if output_rtis.contains(&varno) {
+                if !sources.iter().any(|s| s.contains_rti(varno)) && output_rtis.contains(&varno) {
                     result.push(OrderByInfo {
                         feature: OrderByFeature::Var {
                             rti: varno,

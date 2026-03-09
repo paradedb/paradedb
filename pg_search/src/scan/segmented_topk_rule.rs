@@ -60,7 +60,7 @@ pub struct SegmentedTopKRule;
 
 impl PhysicalOptimizerRule for SegmentedTopKRule {
     fn name(&self) -> &str {
-        "Segmented Top K"
+        "SegmentedTopK"
     }
 
     fn schema_check(&self) -> bool {

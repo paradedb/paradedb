@@ -122,7 +122,7 @@ static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 /// its threshold between batches.
 static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 
-/// Allows the user to enable or disable the Segmented Top K optimization.
+/// Allows the user to enable or disable the SegmentedTopK optimization.
 /// When enabled, Top K queries on deferred (late-materialized) string/bytes columns
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -365,7 +365,7 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_segmented_topk",
-        c"Enable Segmented Top K optimization for Top K queries on deferred columns",
+        c"Enable SegmentedTopK optimization for Top K queries on deferred columns",
         c"When enabled, ORDER BY on a late-materialized string/bytes column with LIMIT \
           uses per-segment ordinal pruning to reduce dictionary decoding. \
           All input is collected before emitting (EmissionType::Final) so only \

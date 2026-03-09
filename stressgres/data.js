@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772748268860,
+  "lastUpdate": 1773079418555,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3734,6 +3734,78 @@ window.BENCHMARK_DATA = {
             "value": 48.54102301139063,
             "unit": "median tps",
             "extra": "avg tps: 65.52609769230287, max tps: 408.5971287471166, count: 54654"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64751481+y0g38h-kum4r@users.noreply.github.com",
+            "name": "y0g38h-kum4r",
+            "username": "y0g38h-kum4r"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e50b799f190c57abbb93ad3fc55f8233f22eab6c",
+          "message": "fix: replace ParadeDb Scan with ParadeDb Base Scan (#4313)\n\n# Ticket(s) Closed\n\n- Closes #4295\n\n## What\n\nReplaces instances of \"ParadeDb Scan\" with \"ParadeDb Base Scan\"\n\n## Why\n\nParadeDb now supports \"ParadeDb Aggregate Scan\" and \"ParadeDb Join Scan\"\nas well. To prevent misassociation of \"ParadeDb Scan\" with these two\nscans, replaced with \"ParadeDb Base Scan\".\n\n## How\n\nFound out instances of \"ParadeDb Scan\" (case insensitive) and then\nreplaced the same with \"ParadeDb Base Scan\".\nFixed the query plans' separators in .out files due to extra characters.\nManually verified each line change. \n \n## Tests",
+          "timestamp": "2026-03-09T13:42:52-04:00",
+          "tree_id": "053e734bed4be387b698ae3fc361b76092b67cea",
+          "url": "https://github.com/paradedb/paradedb/commit/e50b799f190c57abbb93ad3fc55f8233f22eab6c"
+        },
+        "date": 1773079413255,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 130.12195594952382,
+            "unit": "median tps",
+            "extra": "avg tps: 130.3305762569735, max tps: 152.04685983349955, count: 55027"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2924.9657015857138,
+            "unit": "median tps",
+            "extra": "avg tps: 2913.3270517144424, max tps: 2940.1031882419284, count: 55027"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 449.2677742791851,
+            "unit": "median tps",
+            "extra": "avg tps: 452.77178154953873, max tps: 544.8722115094291, count: 55027"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2901.7091580952983,
+            "unit": "median tps",
+            "extra": "avg tps: 2950.124724806066, max tps: 3058.450272039417, count: 110054"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 492.4618759761838,
+            "unit": "median tps",
+            "extra": "avg tps: 495.17470767289643, max tps: 644.8551990547627, count: 55027"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 540.8815286208543,
+            "unit": "median tps",
+            "extra": "avg tps: 541.3815183062883, max tps: 622.9458806370947, count: 55027"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1965.0800661294875,
+            "unit": "median tps",
+            "extra": "avg tps: 1952.218839665184, max tps: 1974.2567776897313, count: 55027"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 59.54804533121657,
+            "unit": "median tps",
+            "extra": "avg tps: 82.73011273772167, max tps: 294.2316185416527, count: 55027"
           }
         ]
       }

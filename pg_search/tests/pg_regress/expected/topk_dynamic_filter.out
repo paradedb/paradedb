@@ -5,7 +5,7 @@
 --   1) HashJoin dynamic filter: after building the hash table, HashJoinExec pushes
 --      min/max bounds of join keys to the probe side, pruning rows that can't match.
 --   2) Top K dynamic filter: after processing initial batches, SortExec pushes
---      the K-th threshold to leaf scans, pruning rows that can't make the Top K.
+--      the K-th threshold to leaf scans, pruning rows that can't make the top K.
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 CREATE EXTENSION IF NOT EXISTS pg_search;

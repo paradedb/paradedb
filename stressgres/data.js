@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773083220602,
+  "lastUpdate": 1773084030353,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18714,6 +18714,54 @@ window.BENCHMARK_DATA = {
             "value": 5.135401648090029,
             "unit": "median tps",
             "extra": "avg tps: 5.18239791971738, max tps: 7.784683501314606, count: 55937"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cb747cd6cd33408b24ec05516e911e1220ee5ed",
+          "message": "feat(joinscan): Add DISTINCT support to JoinScan (#4305)\n\nCloses #4213\n\n## Why\n\nQueries with `DISTINCT` were rejected by `JoinScan` because PostgreSQL\nsets `limit_tuples = -1.0` when `DISTINCT` is present, causing LIMIT\nextraction to fail. This forced fallback to native PG execution,\nbypassing late materialization and TopK benefits for common patterns\nlike joining a \"One\" side to a \"Many\" side with deduplication.\n\n## How\n\n- Extract `LIMIT` from the parse tree directly when `limit_tuples ==\n-1.0`\n- Validate that all DISTINCT columns are fast fields (same constraint as\nORDER BY)\n- Push DISTINCT into DataFusion as `GROUP BY + min(ctid)` before the\nsort step, using positional `col_N` aliases to handle duplicate column\nnames across tables\n- Expand `required_early` to include ORDER BY columns when DISTINCT is\npresent, fixing a late materialization schema mismatch\n- Bail out early when `hasAggs` is true — `COUNT(*) ... LIMIT N` would\notherwise return `N` instead of the true count\n- Register `min` UDAF in the session context for logical plan\nserialization\n\n## Tests\n\nAdded `join_distinct.sql` with 15 regression tests covering JoinScan\nactivation, deduplication correctness, score columns, 3-table joins,\nfallback cases (non-fast-field, no LIMIT, aggregates), and result parity\nwith native PG execution.\n\n---------\n\nSigned-off-by: Ruchir Raj <ruchirraj24@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-09T11:33:37-07:00",
+          "tree_id": "2a5fb0f42e72292d218e71a1d5cf18dc86e29444",
+          "url": "https://github.com/paradedb/paradedb/commit/6cb747cd6cd33408b24ec05516e911e1220ee5ed"
+        },
+        "date": 1773084025025,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1105.8505666140666,
+            "unit": "median tps",
+            "extra": "avg tps: 1106.4748836710555, max tps: 1147.1267312328991, count: 56178"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1214.4444713238831,
+            "unit": "median tps",
+            "extra": "avg tps: 1207.9325524082437, max tps: 1236.7877910312127, count: 56178"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1099.6105357109745,
+            "unit": "median tps",
+            "extra": "avg tps: 1011.0837044804601, max tps: 1523.5902013692826, count: 56178"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.509284644965922,
+            "unit": "median tps",
+            "extra": "avg tps: 5.529567856399797, max tps: 6.6647139277015635, count: 56178"
           }
         ]
       }

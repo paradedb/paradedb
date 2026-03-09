@@ -193,18 +193,7 @@ impl PreFilter {
             let schema_type = schema.field(ff_index).data_type();
 
             // Cast numeric fast fields to match the expected DataFusion schema type
-            if !matches!(
-                schema_type,
-                datafusion::arrow::datatypes::DataType::Utf8
-                    | datafusion::arrow::datatypes::DataType::LargeUtf8
-                    | datafusion::arrow::datatypes::DataType::Utf8View
-                    | datafusion::arrow::datatypes::DataType::Binary
-                    | datafusion::arrow::datatypes::DataType::LargeBinary
-                    | datafusion::arrow::datatypes::DataType::BinaryView
-                    | datafusion::arrow::datatypes::DataType::Dictionary(_, _)
-                    | datafusion::arrow::datatypes::DataType::Union(_, _)
-            ) && array.data_type() != schema_type
-            {
+            if !is_string_like_type(schema_type) && array.data_type() != schema_type {
                 array = cast(&array, schema_type).map_err(|e| {
                     format!(
                         "Failed to cast Tantivy fast field from {:?} to DataFusion schema type {:?}: {}",
@@ -270,7 +259,20 @@ pub fn collect_filters(expr: &Arc<dyn PhysicalExpr>, schema: &SchemaRef, out: &m
         });
     }
 }
-
+/// Helper to centrally identify string, bytes, dictionary, and deferred string columns.
+fn is_string_like_type(data_type: &datafusion::arrow::datatypes::DataType) -> bool {
+    matches!(
+        data_type,
+        datafusion::arrow::datatypes::DataType::Utf8
+            | datafusion::arrow::datatypes::DataType::LargeUtf8
+            | datafusion::arrow::datatypes::DataType::Utf8View
+            | datafusion::arrow::datatypes::DataType::Binary
+            | datafusion::arrow::datatypes::DataType::LargeBinary
+            | datafusion::arrow::datatypes::DataType::BinaryView
+            | datafusion::arrow::datatypes::DataType::Dictionary(_, _)
+            | datafusion::arrow::datatypes::DataType::Union(_, _)
+    )
+}
 /// Validates that an expression only contains nodes we can evaluate during pre-filtering.
 ///
 /// NOTE: When this function returns `TreeNodeRecursion::Stop`, it correctly halts *all*
@@ -327,15 +329,7 @@ fn is_supported(
                     if let Ok(idx) = schema.index_of(col.name()) {
                         let data_type = schema.field(idx).data_type();
 
-                        if matches!(
-                            data_type,
-                            datafusion::arrow::datatypes::DataType::Utf8
-                                | datafusion::arrow::datatypes::DataType::LargeUtf8
-                                | datafusion::arrow::datatypes::DataType::Utf8View
-                                | datafusion::arrow::datatypes::DataType::Binary
-                                | datafusion::arrow::datatypes::DataType::LargeBinary
-                                | datafusion::arrow::datatypes::DataType::BinaryView
-                        ) {
+                        if is_string_like_type(data_type) {
                             is_numeric = false;
                             return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
                         }
@@ -434,15 +428,15 @@ fn try_rewrite_in_list(
             | ScalarValue::LargeBinary(Some(b))
             | ScalarValue::BinaryView(Some(b)) => b.as_slice(),
 
-            // If a NULL is inside the IN list, evaluating against it yields NULL.
-            // We safely replace the whole expression with a NULL boolean.
+            // Push None to preserve 3VL semantics when a NULL is in the IN list
             ScalarValue::Utf8(None)
             | ScalarValue::LargeUtf8(None)
             | ScalarValue::Utf8View(None)
             | ScalarValue::Binary(None)
             | ScalarValue::LargeBinary(None)
             | ScalarValue::BinaryView(None) => {
-                return Ok(Some(Arc::new(Literal::new(ScalarValue::Boolean(None)))))
+                ordinals.push(None);
+                continue;
             }
 
             _ => return Ok(None), // Early abort if non-string literal is found
@@ -454,7 +448,7 @@ fn try_rewrite_in_list(
                 datafusion::error::DataFusionError::Execution(format!("Tantivy dict error: {}", e))
             })?
             .unwrap_or(NULL_TERM_ORDINAL);
-        ordinals.push(target_ord);
+        ordinals.push(Some(target_ord));
     }
 
     // Convert the raw vector directly into an Arrow array

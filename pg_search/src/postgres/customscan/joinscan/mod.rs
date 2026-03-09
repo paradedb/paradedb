@@ -520,7 +520,6 @@ impl CustomScan for JoinScan {
                 .with_limit(limit_offset.limit)
                 .with_offset(limit_offset.offset)
                 .with_distinct(has_distinct);
-            join_clause.assign_source_indices();
 
             // Determine ordering side index
             let ordering_idx = join_clause.ordering_side_index();
@@ -593,7 +592,6 @@ impl CustomScan for JoinScan {
                         return Vec::new();
                     }
                 };
-            join_clause.assign_source_indices();
 
             let current_sources_after_cond = join_clause.plan.sources();
 

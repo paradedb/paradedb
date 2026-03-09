@@ -739,7 +739,7 @@ pub struct JoinCSClause {
 
 impl JoinCSClause {
     pub fn new(plan: RelNode) -> Self {
-        Self {
+        let mut clause = Self {
             plan,
             limit_offset: Default::default(),
             join_level_predicates: Vec::new(),
@@ -747,7 +747,11 @@ impl JoinCSClause {
             order_by: Vec::new(),
             output_projection: None,
             has_distinct: false,
+        };
+        for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
+            source.source_idx = i;
         }
+        clause
     }
 
     pub fn with_limit(mut self, limit: Option<u32>) -> Self {
@@ -758,13 +762,6 @@ impl JoinCSClause {
     pub fn with_offset(mut self, offset: Option<u32>) -> Self {
         self.limit_offset.offset = offset;
         self
-    }
-
-    /// Assign stable source indices based on `plan.sources()` order.
-    pub fn assign_source_indices(&mut self) {
-        for (i, source) in self.plan.sources_mut().into_iter().enumerate() {
-            source.source_idx = i;
-        }
     }
 
     pub fn with_order_by(mut self, order_by: Vec<OrderByInfo>) -> Self {

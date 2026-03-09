@@ -83,6 +83,7 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
+use crate::postgres::customscan::limit_offset::extract_const_i64;
 use pgrx::{direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
@@ -393,14 +394,13 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
     if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
         return None;
     }
+    let parse = *(*root).parse;
     // non-Const LIMIT is not a thing we can handle here
-    let limit_const = nodecast!(Const, T_Const, (*(*root).parse).limitCount)?;
-    let limit =
-        i64::from_datum((*limit_const).constvalue, (*limit_const).constisnull).map(|v| v as f64)?;
+    let limit = extract_const_i64(parse.limitCount).map(|v| v as f64)?;
 
-    let offset = if (*(*root).parse).limitOffset.is_null() {
+    let offset = if parse.limitOffset.is_null() {
         0.0
-    } else if let Some(offset_const) = nodecast!(Const, T_Const, (*(*root).parse).limitOffset) {
+    } else if let Some(offset_const) = nodecast!(Const, T_Const, parse.limitOffset) {
         i64::from_datum((*offset_const).constvalue, (*offset_const).constisnull)
             .map(|v| v as f64)?
     } else {
@@ -409,7 +409,7 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
     };
 
     let mut found_limit_safe_srf = false;
-    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*(*root).parse).targetList);
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
     for te in target_list.iter_ptr() {
         if !(*te).expr.is_null() && pg_sys::expression_returns_set((*te).expr.cast()) {
             // It's a set-returning function, is it one we approve of?

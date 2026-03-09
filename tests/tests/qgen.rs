@@ -533,7 +533,8 @@ async fn generated_subquery(database: Db) {
 /// - 2 or 3 table joins
 /// - BM25 predicates on outer table only, or on both outer and inner tables
 /// - Optional HeapConditions (cross-relation predicates like a.price > b.price)
-/// - Score-based ordering vs regular column ordering
+/// - Optional DISTINCT keyword (deduplication of result rows)
+/// - Score-based ordering vs regular column ordering (currently skipped, see prop_assume!)
 ///
 /// This verifies that JoinScan produces the same results as PostgreSQL's
 /// native join implementation across all these variations.
@@ -577,6 +578,8 @@ async fn generated_joinscan(database: Db) {
         // HeapCondition (cross-relation predicate)
         include_heap_condition in proptest::bool::ANY,
         heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], numeric_columns.to_vec()),
+        // Optional DISTINCT keyword
+        include_distinct in proptest::bool::ANY,
         // Result limit
         limit in 1..=50usize,
     )| {
@@ -604,7 +607,7 @@ async fn generated_joinscan(database: Db) {
         // Select columns from the first table
         // When HeapCondition is used, include the referenced columns in target list
         // (JoinScan requires columns to be projected to evaluate HeapConditions)
-        let target_list = if include_heap_condition {
+        let mut target_cols = if include_heap_condition {
             format!(
                 "{}.id, {}.name, {}.{}, {}.{}",
                 used_tables[0], used_tables[0],
@@ -614,7 +617,18 @@ async fn generated_joinscan(database: Db) {
         } else {
             format!("{}.id, {}.name", used_tables[0], used_tables[0])
         };
-        let from = format!("SELECT {target_list} {join_clause}");
+
+        if include_distinct {
+            for table in &used_tables[1..] {
+                let col = format!("{}.id", table);
+                if !target_cols.contains(&col) {
+                    target_cols = format!("{target_cols}, {col}");
+                }
+            }
+        }
+
+        let distinct_kw = if include_distinct { "DISTINCT " } else { "" };
+        let from = format!("SELECT {distinct_kw}{target_cols} {join_clause}");
 
         // Build WHERE clause parts for BM25 query
         let mut bm25_where_parts = vec![outer_bm25.to_sql("@@@")];

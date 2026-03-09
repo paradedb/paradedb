@@ -68,7 +68,7 @@ LIMIT 10;
          Order By: table_a.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_1@0 as ctid_1]
-           :   SortExec: Top K(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
            :       CooperativeExec
            :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}

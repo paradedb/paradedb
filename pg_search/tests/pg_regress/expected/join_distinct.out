@@ -123,7 +123,7 @@ ORDER BY p.name
                Order By: p.name asc, s.name asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, ctid_2@3 as ctid_2, ctid_1@2 as ctid_1]
-                 :   SortExec: Top K(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_1, ctid_2]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, name@2, ctid_1@3, name@5]
                  :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, name@2 as name]
@@ -239,7 +239,7 @@ ORDER BY paradedb.score(p.id) DESC, p.name
                Order By: pdb.score() desc, p.name asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, ctid_2@3 as ctid_2, ctid_1@2 as ctid_1]
-                 :   SortExec: Top K(fetch=10), expr=[col_2@1 DESC, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=10), expr=[col_2@1 DESC, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[name@3 as col_1, score@1 as col_2], aggr=[ctid_1, ctid_2]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, name@5]
                  :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
@@ -314,7 +314,7 @@ ORDER BY p.name
                Order By: p.name asc, s.name asc, c.name asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_2@5 as ctid_2, ctid_4@4 as ctid_4, ctid_1@3 as ctid_1]
-                 :   SortExec: Top K(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[name@5 as col_1, name@1 as col_2, name@3 as col_3], aggr=[ctid_1, ctid_4, ctid_2]
                  :       ProjectionExec: expr=[ctid_2@2 as ctid_2, name@3 as name, ctid_4@0 as ctid_4, name@1 as name, ctid_1@4 as ctid_1, name@5 as name]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_4@0, name@2, ctid_2@3, name@4, ctid_1@5, name@7]
@@ -420,7 +420,7 @@ ORDER BY s.name
                Order By: s.name asc, p.name asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, ctid_2@3 as ctid_2, ctid_1@2 as ctid_1]
-                 :   SortExec: Top K(fetch=10), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_1, ctid_2]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, name@2, ctid_1@3, name@5]
                  :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, name@2 as name]
@@ -456,7 +456,7 @@ ORDER BY p.name
          Order By: p.name asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-           :   SortExec: Top K(fetch=10), expr=[name@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=10), expr=[name@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[name]
            :       SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, name@4]
@@ -689,7 +689,7 @@ LIMIT 10;
                Order By: pdb.score() desc, p.id asc, p.name asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_2@4 as ctid_2, ctid_1@3 as ctid_1]
-                 :   SortExec: Top K(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[id@3 as col_1, name@4 as col_2, score@1 as col_3], aggr=[ctid_1, ctid_2]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, score@2, ctid_1@3, id@5, name@6]
                  :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
@@ -830,7 +830,7 @@ ORDER BY p.name
                Order By: p.name asc, s.name asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, ctid_2@3 as ctid_2, ctid_1@2 as ctid_1]
-                 :   SortExec: Top K(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_1, ctid_2]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, name@2, ctid_1@3, name@5]
                  :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, name@2 as name]

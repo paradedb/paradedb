@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Physical optimizer rule that injects `SegmentedTopKExec` below
-//! `TantivyLookupExec` when a `SortExec(Top K)` sorts by a deferred
+//! `TantivyLookupExec` when a `SortExec(TopK)` sorts by a deferred
 //! (late-materialized) string/bytes column.
 //!
 //! # Plan Transformation
@@ -80,7 +80,7 @@ impl PhysicalOptimizerRule for SegmentedTopKRule {
 }
 
 /// Recursively rewrite the plan tree, injecting `SegmentedTopKExec` below
-/// `TantivyLookupExec` when a `SortExec(Top K)` sorts by a deferred column.
+/// `TantivyLookupExec` when a `SortExec(TopK)` sorts by a deferred column.
 fn rewrite_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
     // First, recursively rewrite all children.
     let children = plan.children();
@@ -105,7 +105,7 @@ fn rewrite_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> 
     Ok(plan)
 }
 
-/// If `plan` is a `SortExec(Top K)` sorting by at least one deferred column, inject
+/// If `plan` is a `SortExec(TopK)` sorting by at least one deferred column, inject
 /// `SegmentedTopKExec` below the `TantivyLookupExec` in its subtree.
 fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
     let Some(sort_exec) = plan.as_any().downcast_ref::<SortExec>() else {

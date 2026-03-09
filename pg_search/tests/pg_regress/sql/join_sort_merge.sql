@@ -58,7 +58,7 @@ LIMIT 10;
 -- =============================================================================
 -- TEST 2: OFFSET + LIMIT on sorted join keys
 -- PostgreSQL's limit_tuples includes the offset (5+10=15), so JoinScan passes
--- fetch=15 to DataFusion. The EXPLAIN should show SortExec: Top K(fetch=15)
+-- fetch=15 to DataFusion. The EXPLAIN should show SortExec: TopK(fetch=15)
 -- wrapping StripOrderingExec. PostgreSQL's outer Limit applies the offset.
 -- =============================================================================
 
@@ -173,7 +173,7 @@ LIMIT 10;
 
 -- =============================================================================
 -- TEST 5: Top K dynamic filter pushdown through SortMergeJoin
--- ORDER BY differs from join key => SortExec(Top K) stays in the plan.
+-- ORDER BY differs from join key => SortExec(TopK) stays in the plan.
 -- Multiple segments ensure the scan produces multiple batches so Top K can
 -- tighten its threshold between batches and the pre-filter actually prunes.
 -- =============================================================================

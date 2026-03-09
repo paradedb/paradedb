@@ -290,7 +290,7 @@ fn check_ordering(
 ///
 /// Some DataFusion operators (e.g. `SortMergeJoinExec`) use the default
 /// `gather_filters_for_pushdown` which marks all parent filters as unsupported.
-/// This blocks `DynamicFilterPhysicalExpr` (from `SortExec(Top K)`) from reaching
+/// This blocks `DynamicFilterPhysicalExpr` (from `SortExec(TopK)`) from reaching
 /// scan nodes below those operators.
 ///
 /// This wrapper overrides two methods to allow filters through:

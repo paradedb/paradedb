@@ -17,7 +17,7 @@
 
 //! Pre-materialization dynamic filter support.
 //!
-//! Dynamic filters allow parent operators (e.g. `SortExec(Top K)`) to push evolving
+//! Dynamic filters allow parent operators (e.g. `SortExec(TopK)`) to push evolving
 //! thresholds into scan nodes so that rows failing the threshold are pruned *before*
 //! column materialization — at the term-ordinal level for strings and direct
 //! fast-field comparisons for numerics. This is critical for `ORDER BY … LIMIT`
@@ -27,7 +27,7 @@
 //! # Data Flow
 //!
 //! ```text
-//! SortExec(Top K)
+//! SortExec(TopK)
 //!   creates DynamicFilterPhysicalExpr ("val < current_threshold")
 //!        │
 //!        │  FilterPushdown pass

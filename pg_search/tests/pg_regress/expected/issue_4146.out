@@ -484,7 +484,7 @@ LIMIT 50;
                Order By: d.title asc, d.id asc, d.parents asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_1@5 as ctid_1, ctid_4@4 as ctid_4, ctid_2@3 as ctid_2]
-                 :   SortExec: Top K(fetch=50), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=50), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[id@1 as col_1, title@2 as col_2, parents@3 as col_3], aggr=[ctid_2, ctid_4, ctid_1]
                  :       ProjectionExec: expr=[ctid_1@1 as ctid_1, id@2 as id, title@3 as title, parents@4 as parents, ctid_4@0 as ctid_4, ctid_2@5 as ctid_2]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@1, id@5)], projection=[ctid_4@0, ctid_1@2, id@3, title@4, parents@5, ctid_2@6]

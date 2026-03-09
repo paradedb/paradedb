@@ -77,7 +77,7 @@ LIMIT 5;
                Order By: pdb.score() desc, p.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, score@1 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1]
-                 :   SortExec: Top K(fetch=5), expr=[score@1 DESC, id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=5), expr=[score@1 DESC, id@3 ASC NULLS LAST], preserve_partitioning=[false]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, id@5]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
@@ -129,7 +129,7 @@ LIMIT 5;
                Order By: p.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, score@1 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1]
-                 :   SortExec: Top K(fetch=5), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=5), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, id@5]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
@@ -182,7 +182,7 @@ LIMIT 10;
          Order By: p.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, score@0 as col_4, ctid_2@1 as ctid_2, ctid_1@2 as ctid_1]
-           :   SortExec: Top K(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[score@0, ctid_2@1, ctid_1@3, id@5]
            :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
            :         CooperativeExec
@@ -237,7 +237,7 @@ LIMIT 10;
                Order By: p.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@4 as col_1, NULL as col_2, score@2 as col_3, NULL as col_4, score@0 as col_5, ctid_2@1 as ctid_2, ctid_1@3 as ctid_1]
-                 :   SortExec: Top K(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[score@0, ctid_2@1, score@3, ctid_1@4, id@6]
                  :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
                  :         CooperativeExec

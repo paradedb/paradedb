@@ -1,5 +1,5 @@
 -- Test for Top K dynamic filter pushdown through DataFusion
--- This test verifies that SortExec(Top K) propagates a DynamicFilterPhysicalExpr
+-- This test verifies that SortExec(TopK) propagates a DynamicFilterPhysicalExpr
 -- down to PgSearchScan, enabling row pruning at the scan level for ORDER BY ... LIMIT queries.
 -- Pruning occurs from two sources:
 --   1) HashJoin dynamic filter: after building the hash table, HashJoinExec pushes

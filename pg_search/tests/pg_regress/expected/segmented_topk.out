@@ -67,7 +67,7 @@ LIMIT 3;
          Order By: f.title asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
-           :   SortExec: Top K(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
            :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4]
@@ -116,7 +116,7 @@ LIMIT 3;
          Order By: f.title desc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
-           :   SortExec: Top K(fetch=3), expr=[title@2 DESC], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=3), expr=[title@2 DESC], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
            :       SegmentedTopKExec: expr=[title@2 DESC], k=3
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4]
@@ -163,7 +163,7 @@ LIMIT 3;
          Order By: f.title asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
-           :   SortExec: Top K(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 005], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
+           :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 005], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=50, rows_output=3, segments_seen=1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=90, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=56% (50/90)]
@@ -278,7 +278,7 @@ LIMIT 3;
          Order By: f.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
-           :   SortExec: Top K(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
            :         CooperativeExec
@@ -346,7 +346,7 @@ LIMIT 3;
          Order By: f.title asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
-           :   SortExec: Top K(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4]
            :         ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
@@ -431,7 +431,7 @@ LIMIT 5;
          Order By: f.title asc, f.id desc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
-           :   SortExec: Top K(fetch=5), expr=[title@2 ASC NULLS LAST, id@3 DESC], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, id@3 DESC], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
            :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@3 DESC], k=5
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4, id@5]
@@ -500,7 +500,7 @@ LIMIT 5;
          Order By: f.title asc, f.content desc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, content@3 as col_3, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
-           :   SortExec: Top K(fetch=5), expr=[title@2 ASC NULLS LAST, content@3 DESC], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, content@3 DESC], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title, content]
            :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, content@3 DESC], k=5
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4, content@5]
@@ -567,7 +567,7 @@ LIMIT 5;
          Order By: f.title asc, d.category desc, f.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@4 as col_1, title@3 as col_2, category@1 as col_3, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1]
-           :   SortExec: Top K(fetch=5), expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=5), expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
            :       SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], k=5
            :         TantivyLookupExec: decode=[category]

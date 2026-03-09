@@ -82,7 +82,7 @@ LIMIT 10;
 -- =============================================================================
 -- TEST 2: OFFSET + LIMIT on sorted join keys
 -- PostgreSQL's limit_tuples includes the offset (5+10=15), so JoinScan passes
--- fetch=15 to DataFusion. The EXPLAIN should show SortExec: Top K(fetch=15)
+-- fetch=15 to DataFusion. The EXPLAIN should show SortExec: TopK(fetch=15)
 -- wrapping StripOrderingExec. PostgreSQL's outer Limit applies the offset.
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE)
@@ -299,7 +299,7 @@ LIMIT 10;
 
 -- =============================================================================
 -- TEST 5: Top K dynamic filter pushdown through SortMergeJoin
--- ORDER BY differs from join key => SortExec(Top K) stays in the plan.
+-- ORDER BY differs from join key => SortExec(TopK) stays in the plan.
 -- Multiple segments ensure the scan produces multiple batches so Top K can
 -- tighten its threshold between batches and the pre-filter actually prunes.
 -- =============================================================================
@@ -339,7 +339,7 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10
-           :     SortExec: Top K(fetch=10), expr=[val@2 ASC NULLS LAST], preserve_partitioning=[true]
+           :     SortExec: TopK(fetch=10), expr=[val@2 ASC NULLS LAST], preserve_partitioning=[true]
            :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, val@4 as val]
            :         TantivyLookupExec: decode=[val]
            :           SegmentedTopKExec: expr=[val@4 ASC NULLS LAST], k=10
@@ -375,7 +375,7 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10, metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :     SortExec: Top K(fetch=10), expr=[val@2 ASC NULLS LAST], preserve_partitioning=[true], filter=[val@2 < val 10005], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=15]
+           :     SortExec: TopK(fetch=10), expr=[val@2 ASC NULLS LAST], preserve_partitioning=[true], filter=[val@2 < val 10005], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=15]
            :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, val@4 as val], metrics=[output_rows=20, output_bytes=640.0 B, output_batches=2]
            :         TantivyLookupExec: decode=[val], metrics=[output_rows=20, output_bytes=960.0 B, output_batches=2]
            :           SegmentedTopKExec: expr=[val@4 ASC NULLS LAST], k=10, metrics=[rows_input=20.00 K, rows_output=20, segments_seen=2]
@@ -468,7 +468,7 @@ LIMIT 25;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [val@3 DESC, id@2 ASC NULLS LAST], fetch=25
-           :     SortExec: Top K(fetch=25), expr=[val@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[true]
+           :     SortExec: TopK(fetch=25), expr=[val@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[true]
            :       ProjectionExec: expr=[ctid_2@3 as ctid_2, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
            :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_2@3 as ctid_2]
            :           TantivyLookupExec: decode=[val]
@@ -502,7 +502,7 @@ LIMIT 25;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :   SortPreservingMergeExec: [val@3 DESC, id@2 ASC NULLS LAST], fetch=25, metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
-           :     SortExec: Top K(fetch=25), expr=[val@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[true], filter=[val@3 IS NULL OR val@3 > val 9986 OR val@3 = val 9986 AND id@2 < 9986], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1, row_replacements=35]
+           :     SortExec: TopK(fetch=25), expr=[val@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[true], filter=[val@3 IS NULL OR val@3 > val 9986 OR val@3 = val 9986 AND id@2 < 9986], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1, row_replacements=35]
            :       ProjectionExec: expr=[ctid_2@3 as ctid_2, ctid_1@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=60, output_bytes=2.4 KB, output_batches=4]
            :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_2@3 as ctid_2], metrics=[output_rows=60, output_bytes=2.4 KB, output_batches=4]
            :           TantivyLookupExec: decode=[val], metrics=[output_rows=60, output_bytes=2.8 KB, output_batches=4]
@@ -579,7 +579,7 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [val@3 ASC NULLS LAST], fetch=10
-           :     SortExec: Top K(fetch=10), expr=[val@3 ASC NULLS LAST], preserve_partitioning=[true]
+           :     SortExec: TopK(fetch=10), expr=[val@3 ASC NULLS LAST], preserve_partitioning=[true]
            :       ProjectionExec: expr=[ctid_2@3 as ctid_2, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
            :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_2@3 as ctid_2]
            :           TantivyLookupExec: decode=[val]
@@ -689,7 +689,7 @@ LIMIT 15;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [id@2 DESC], fetch=15
-           :     SortExec: Top K(fetch=15), expr=[id@2 DESC], preserve_partitioning=[true]
+           :     SortExec: TopK(fetch=15), expr=[id@2 DESC], preserve_partitioning=[true]
            :       ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
            :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, ctid_2@2 as ctid_2]
            :           SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]

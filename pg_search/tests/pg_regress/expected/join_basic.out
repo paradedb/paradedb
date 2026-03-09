@@ -106,7 +106,7 @@ LIMIT 10;
          Order By: p.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-           :   SortExec: Top K(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
@@ -152,7 +152,7 @@ LIMIT 5;
          Order By: p.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-           :   SortExec: Top K(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_2@3]
            :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
@@ -195,7 +195,7 @@ LIMIT 5;
          Order By: p.supplier_id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, id@1 as col_4, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1]
-           :   SortExec: Top K(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
@@ -338,7 +338,7 @@ LIMIT 3;
          Order By: p.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-           :   SortExec: Top K(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_2@3]
            :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
@@ -383,7 +383,7 @@ LIMIT 3;
                Order By: p.price desc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: Top K(fetch=3), expr=[price@2 DESC], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=3), expr=[price@2 DESC], preserve_partitioning=[false]
                  :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, price@1 as price]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_1@0, price@2, ctid_2@3]
                  :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
@@ -505,7 +505,7 @@ LIMIT 5;
                Order By: m.ID asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, ID@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: Top K(fetch=5), expr=[ID@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   SortExec: TopK(fetch=5), expr=[ID@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, ID@1 as ID]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(JoinKey@1, id@1)], projection=[ctid_1@0, ID@2, ctid_2@3]
                  :         ProjectionExec: expr=[ctid@0 as ctid_1, JoinKey@1 as JoinKey, ID@2 as ID]

@@ -3,15 +3,15 @@
 # Setting target-cpu enables SIMD auto-vectorization (AVX2 on x86, NEON on ARM)
 # in key dependencies like tantivy, arrow, datafusion, and bitpacking.
 #
-# x86_64:  x86-64-v3 (Intel Haswell 2013+ / AMD Excavator 2015+)
-# aarch64: cortex-a76 (AWS Graviton 2+ / Ampere Altra)
-# macOS:   apple-m1 (Apple Silicon)
+# x86_64:  x86-64-v3 — Intel Haswell / AMD Excavator, 2013+ CPUs
+# aarch64: neoverse-n1 (ARMv8.2-A + RCpc) — AWS Graviton 2 / Ampere Altra, 2020+ CPUs
+# macOS:   apple-m1 — Apple Silicon, 2020+ Macs
 
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-Ctarget-cpu=x86-64-v3"]
 
 [target.aarch64-unknown-linux-gnu]
-rustflags = ["-Ctarget-cpu=cortex-a76"]
+rustflags = ["-Ctarget-cpu=neoverse-n1"]
 
 # macOS requires -undefined,dynamic_lookup for pgrx (PostgreSQL symbols resolved at runtime)
 [target.aarch64-apple-darwin]

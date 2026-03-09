@@ -789,14 +789,22 @@ async fn generated_numeric_pushdown(database: Db) {
 }
 
 ///
-/// Property test for JoinScan SEMI joins using EXISTS subqueries.
+/// Property test for JoinScan SEMI and ANTI joins.
+///
+/// Fuzzes between:
+/// - SEMI join via `IN (SELECT ...)` subquery
+/// - ANTI join via `NOT EXISTS (SELECT ... WHERE correlated)` with `IS NOT NULL`
+///
+/// PostgreSQL only triggers an anti join plan with `NOT EXISTS`, not `NOT IN`
+/// (due to NULL semantics). An `IS NOT NULL` condition on the join column is
+/// also required for the anti join optimization.
 ///
 /// This complements `generated_joinscan` (INNER joins) and verifies both:
 /// - `paradedb.enable_join_custom_scan = false`: no ParadeDB Join Scan is used
-/// - `paradedb.enable_join_custom_scan = true`: ParadeDB Join Scan is used and
+/// - `paradedb.enable_join_custom_scan = true`: ParadeDB Join Scan is used
 #[rstest]
 #[tokio::test]
-async fn generated_joinscan_semi(database: Db) {
+async fn generated_joinscan_semi_like(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || {
             block_on(async {
@@ -822,6 +830,7 @@ async fn generated_joinscan_semi(database: Db) {
     proptest!(|(
         semi_join in arb_semi_joins(all_tables.clone(), join_key_columns.clone()),
         inner_term in proptest::sample::select(search_terms.clone()),
+        is_anti_join in proptest::bool::ANY,
         limit in 1..=50usize,
     )| {
         // For now, JoinScan SEMI requires the left side to be the largest source.
@@ -831,18 +840,31 @@ async fn generated_joinscan_semi(database: Db) {
         let inner = semi_join.inner_table();
         let join_col = semi_join.join_column();
 
-        let pg_where = format!(
-            "TRUE AND {outer}.{join_col} IN (\
-                SELECT {inner}.{join_col} FROM {inner} \
-                WHERE {inner}.name = '{inner_term}'\
-            )"
-        );
-        let bm25_where = format!(
-            "{outer}.id @@@ pdb.all() AND {outer}.{join_col} IN (\
-                SELECT {inner}.{join_col} FROM {inner} \
-                WHERE {inner}.name @@@ '{inner_term}'\
-            )"
-        );
+        // Build the subquery clause parameterized by operator.
+        // SEMI: IN (SELECT ...), ANTI: IS NOT NULL AND NOT EXISTS (SELECT 1 ... WHERE correlated)
+        // PostgreSQL only uses an anti join plan with NOT EXISTS (not NOT IN) and
+        // requires IS NOT NULL on the join column.
+        let subquery_clause = |op: &str| {
+            if is_anti_join {
+                format!(
+                    "{outer}.{join_col} IS NOT NULL AND NOT EXISTS (\
+                        SELECT 1 FROM {inner} \
+                        WHERE {inner}.{join_col} = {outer}.{join_col} \
+                        AND {inner}.name {op} '{inner_term}'\
+                    )"
+                )
+            } else {
+                format!(
+                    "{outer}.{join_col} IN (\
+                        SELECT {inner}.{join_col} FROM {inner} \
+                        WHERE {inner}.name {op} '{inner_term}'\
+                    )"
+                )
+            }
+        };
+
+        let pg_where = format!("TRUE AND {}", subquery_clause(" = "));
+        let bm25_where = format!("{outer}.id @@@ pdb.all() AND {}", subquery_clause("@@@"));
 
         let pg_query = format!(
             "SELECT {outer}.id, {outer}.name \

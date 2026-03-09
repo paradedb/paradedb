@@ -503,7 +503,7 @@ impl CustomScan for JoinScan {
             if !unsupported.is_empty() {
                 if is_interesting {
                     Self::add_detailed_planner_warning(
-                        "JoinScan not used: only INNER and SEMI JOIN are currently supported",
+                        "JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported",
                         &aliases,
                         unsupported
                             .iter()

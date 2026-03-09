@@ -471,7 +471,10 @@ impl RelNode {
         match self {
             RelNode::Scan(_) => {}
             RelNode::Join(j) => {
-                if !matches!(j.join_type, JoinType::Inner | JoinType::Semi) {
+                if !matches!(
+                    j.join_type,
+                    JoinType::Inner | JoinType::Semi | JoinType::Anti
+                ) {
                     acc.push(j.join_type);
                 }
                 j.left.collect_unsupported_join_types(acc);

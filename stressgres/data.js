@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773082412523,
+  "lastUpdate": 1773082419720,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10860,6 +10860,138 @@ window.BENCHMARK_DATA = {
             "value": 54.60546875,
             "unit": "median mem",
             "extra": "avg mem: 54.27810062276246, max mem: 67.25390625, count: 55027"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cb747cd6cd33408b24ec05516e911e1220ee5ed",
+          "message": "feat(joinscan): Add DISTINCT support to JoinScan (#4305)\n\nCloses #4213\n\n## Why\n\nQueries with `DISTINCT` were rejected by `JoinScan` because PostgreSQL\nsets `limit_tuples = -1.0` when `DISTINCT` is present, causing LIMIT\nextraction to fail. This forced fallback to native PG execution,\nbypassing late materialization and TopK benefits for common patterns\nlike joining a \"One\" side to a \"Many\" side with deduplication.\n\n## How\n\n- Extract `LIMIT` from the parse tree directly when `limit_tuples ==\n-1.0`\n- Validate that all DISTINCT columns are fast fields (same constraint as\nORDER BY)\n- Push DISTINCT into DataFusion as `GROUP BY + min(ctid)` before the\nsort step, using positional `col_N` aliases to handle duplicate column\nnames across tables\n- Expand `required_early` to include ORDER BY columns when DISTINCT is\npresent, fixing a late materialization schema mismatch\n- Bail out early when `hasAggs` is true — `COUNT(*) ... LIMIT N` would\notherwise return `N` instead of the true count\n- Register `min` UDAF in the session context for logical plan\nserialization\n\n## Tests\n\nAdded `join_distinct.sql` with 15 regression tests covering JoinScan\nactivation, deduplication correctness, score columns, 3-table joins,\nfallback cases (non-fast-field, no LIMIT, aggregates), and result parity\nwith native PG execution.\n\n---------\n\nSigned-off-by: Ruchir Raj <ruchirraj24@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-09T11:33:37-07:00",
+          "tree_id": "2a5fb0f42e72292d218e71a1d5cf18dc86e29444",
+          "url": "https://github.com/paradedb/paradedb/commit/6cb747cd6cd33408b24ec05516e911e1220ee5ed"
+        },
+        "date": 1773082414254,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.525860723702134, max cpu: 24.072216, count: 54945"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 62.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.35820685742561, max mem: 73.33203125, count: 54945"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.662163072492522, max cpu: 9.29332, count: 54945"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.60035177222677, max mem: 37.453125, count: 54945"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.49864917085217, max cpu: 4.743083, count: 54945"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.012295107607606, max mem: 71.47265625, count: 54945"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.675196122522677, max cpu: 9.430255, count: 109890"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 58.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.807482695763944, max mem: 69.8125, count: 109890"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.563421089526291, max cpu: 18.972332, count: 54945"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 61.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 61.38349628037128, max mem: 72.453125, count: 54945"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1694,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1696.080717080717, max block_count: 3018.0, count: 54945"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.058840658840658, max segment_count: 22.0, count: 54945"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.250478878962821, max cpu: 14.215202, count: 54945"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 61.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 61.14118948493949, max mem: 72.19921875, count: 54945"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.565382664894323, max cpu: 4.7477746, count: 54945"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 58.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.99057921557922, max mem: 68.83984375, count: 54945"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9186882632202797, max cpu: 4.6966734, count: 54945"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 53.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.01990136443261, max mem: 65.8359375, count: 54945"
           }
         ]
       }

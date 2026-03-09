@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773093881623,
+  "lastUpdate": 1773093923839,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3950,6 +3950,78 @@ window.BENCHMARK_DATA = {
             "value": 64.35540648666658,
             "unit": "median tps",
             "extra": "avg tps: 78.57285705576219, max tps: 215.92628292404703, count: 54957"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f96213bf7675fbb81936fb52a339d62918f05761",
+          "message": "refactor: rename Top N to Top K across the codebase (#4320)\n\n## Summary\n- Renames all variations of \"Top N\" to \"Top K\" across the entire\ncodebase\n- Covers all naming conventions: `TopN`→`TopK`, `topn`→`topk`,\n`top_n`→`top_k`, `top-n`→`top-k`, `TOPN`→`TOPK`, `TOP_N`→`TOP_K`, and\nprose forms like \"Top N\"→\"Top K\"\n- Includes file/directory renames (26 files), source code, tests,\ndocumentation, benchmarks, and configuration\n\nCloses #4318",
+          "timestamp": "2026-03-09T17:45:21-04:00",
+          "tree_id": "a39dfafb45db2e7ead96b72742cf9b86bcb3a846",
+          "url": "https://github.com/paradedb/paradedb/commit/f96213bf7675fbb81936fb52a339d62918f05761"
+        },
+        "date": 1773093917948,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 131.9902697418199,
+            "unit": "median tps",
+            "extra": "avg tps: 132.4735079830035, max tps: 147.87946285830634, count: 54599"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2945.31263660592,
+            "unit": "median tps",
+            "extra": "avg tps: 2934.5795463985887, max tps: 2959.4790495969805, count: 54599"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 458.1467898694896,
+            "unit": "median tps",
+            "extra": "avg tps: 461.41145193090284, max tps: 528.8544818513461, count: 54599"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2988.7946468234168,
+            "unit": "median tps",
+            "extra": "avg tps: 2981.499529538458, max tps: 3011.656173373859, count: 109198"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 519.2540597848248,
+            "unit": "median tps",
+            "extra": "avg tps: 520.3841591539139, max tps: 624.572105371783, count: 54599"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 523.282657044958,
+            "unit": "median tps",
+            "extra": "avg tps: 524.4176013607437, max tps: 639.0318630758295, count: 54599"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2018.2896444508194,
+            "unit": "median tps",
+            "extra": "avg tps: 2001.0642630608652, max tps: 2028.1268142940403, count: 54599"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 43.8212680558974,
+            "unit": "median tps",
+            "extra": "avg tps: 98.94708483252047, max tps: 284.71023473504727, count: 54599"
           }
         ]
       }

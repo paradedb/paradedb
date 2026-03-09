@@ -242,10 +242,6 @@ fn build_relnode_df<'a>(
         }
     }
 
-    fn source_for_rti_in_subtree(node: &RelNode, rti: pg_sys::Index) -> Option<&JoinSource> {
-        node.sources().into_iter().find(|s| s.contains_rti(rti))
-    }
-
     let f = async move {
         match node {
             RelNode::Scan(source) => {
@@ -291,25 +287,14 @@ fn build_relnode_df<'a>(
                     // Resolve key sides against the CURRENT join node first.
                     // This avoids binding to the wrong source when the same base table
                     // appears multiple times in the overall plan.
-                    let (left_source, left_attno, right_source, right_attno) = if let (
-                        Some(left_source),
-                        Some(right_source),
-                    ) = (
-                        source_for_rti_in_subtree(&join.left, jk.outer_rti),
-                        source_for_rti_in_subtree(&join.right, jk.inner_rti),
-                    ) {
-                        (left_source, jk.outer_attno, right_source, jk.inner_attno)
-                    } else if let (Some(left_source), Some(right_source)) = (
-                        source_for_rti_in_subtree(&join.left, jk.inner_rti),
-                        source_for_rti_in_subtree(&join.right, jk.outer_rti),
-                    ) {
-                        (left_source, jk.inner_attno, right_source, jk.outer_attno)
-                    } else {
-                        return Err(DataFusionError::Internal(format!(
-                            "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",
-                            jk.outer_rti, jk.inner_rti
-                        )));
-                    };
+                    let (left_source, left_attno, right_source, right_attno) = node
+                        .resolve_join_key_to_current_sides(jk)
+                        .ok_or_else(|| {
+                            DataFusionError::Internal(format!(
+                                "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",
+                                jk.outer_rti, jk.inner_rti
+                            ))
+                        })?;
 
                     let left_idx =
                         source_index_in_plan(&plan_sources, left_source).ok_or_else(|| {

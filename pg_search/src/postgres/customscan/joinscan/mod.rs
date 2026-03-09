@@ -781,7 +781,7 @@ impl CustomScan for JoinScan {
                     let attno = (*var).varattno;
                     let source_idx = private_data
                         .join_clause
-                        .source_idx(root as usize, rti, attno)
+                        .source_idx(root.into(), rti, attno)
                         .unwrap_or_else(|| {
                             panic!(
                                 "Failed to resolve output Var to source_idx (rti={}, attno={})",
@@ -905,47 +905,59 @@ impl CustomScan for JoinScan {
         let mut base_relations = Vec::new();
         join_clause.collect_base_relations(&mut base_relations);
 
-        let join_keys = join_clause.plan.join_keys();
-        let plan_sources = join_clause.plan.sources();
+        fn collect_join_cond_strings(node: &RelNode, acc: &mut Vec<String>) {
+            match node {
+                RelNode::Scan(_) => {}
+                RelNode::Filter(filter) => collect_join_cond_strings(&filter.input, acc),
+                RelNode::Join(join) => {
+                    for jk in &join.equi_keys {
+                        let (left_source, left_attno, right_source, right_attno) = node
+                            .resolve_join_key_to_current_sides(jk)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",
+                                    jk.outer_rti, jk.inner_rti
+                                )
+                            });
 
-        if !join_keys.is_empty() {
-            let resolve_key_side = |rti: pg_sys::Index, attno: pg_sys::AttrNumber| {
-                plan_sources
-                    .iter()
-                    .enumerate()
-                    .find(|(_, s)| s.contains_rti(rti) && s.column_name(attno).is_some())
-                    .or_else(|| {
-                        plan_sources
-                            .iter()
-                            .enumerate()
-                            .find(|(_, s)| s.contains_rti(rti))
-                    })
-                    .map(|(i, s)| {
-                        (
-                            Some(s.scan_info.heaprelid),
-                            ColumnAlias::new(s.scan_info.alias.as_deref()).execution(i),
-                        )
-                    })
-            };
+                        let (outer_source, outer_attno, inner_source, inner_attno) =
+                            if join.left.contains_rti(jk.outer_rti)
+                                && join.right.contains_rti(jk.inner_rti)
+                            {
+                                (left_source, left_attno, right_source, right_attno)
+                            } else {
+                                (right_source, right_attno, left_source, left_attno)
+                            };
 
-            let keys_str: Vec<_> = join_keys
-                .iter()
-                .map(|k| {
-                    let (outer_relid, outer_alias_name) =
-                        resolve_key_side(k.outer_rti, k.outer_attno)
-                            .expect("Outer source not found");
+                        let outer_alias = ColumnAlias::new(outer_source.scan_info.alias.as_deref())
+                            .execution(outer_source.source_idx);
+                        let inner_alias = ColumnAlias::new(inner_source.scan_info.alias.as_deref())
+                            .execution(inner_source.source_idx);
 
-                    let (inner_relid, inner_alias_name) =
-                        resolve_key_side(k.inner_rti, k.inner_attno)
-                            .expect("Inner source not found");
+                        acc.push(format!(
+                            "{} = {}",
+                            get_attname_safe(
+                                Some(outer_source.scan_info.heaprelid),
+                                outer_attno,
+                                &outer_alias
+                            ),
+                            get_attname_safe(
+                                Some(inner_source.scan_info.heaprelid),
+                                inner_attno,
+                                &inner_alias
+                            )
+                        ));
+                    }
 
-                    format!(
-                        "{} = {}",
-                        get_attname_safe(outer_relid, k.outer_attno, &outer_alias_name),
-                        get_attname_safe(inner_relid, k.inner_attno, &inner_alias_name)
-                    )
-                })
-                .collect();
+                    collect_join_cond_strings(&join.left, acc);
+                    collect_join_cond_strings(&join.right, acc);
+                }
+            }
+        }
+
+        let mut keys_str = Vec::new();
+        collect_join_cond_strings(&join_clause.plan, &mut keys_str);
+        if !keys_str.is_empty() {
             explainer.add_text("Join Cond", keys_str.join(", "));
         }
 

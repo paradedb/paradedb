@@ -205,9 +205,7 @@ unsafe fn collect_join_sources_base_rel(
     let rte = pg_sys::rt_fetch(rti, rtable);
     let relid = get_plain_relation_relid(rte)?;
 
-    let mut side_info = JoinSourceCandidate::new(rti)
-        .with_planner_root_id(root as usize)
-        .with_heaprelid(relid);
+    let mut side_info = JoinSourceCandidate::new(root.into(), rti).with_heaprelid(relid);
 
     if !(*rte).eref.is_null() {
         let eref = (*rte).eref;

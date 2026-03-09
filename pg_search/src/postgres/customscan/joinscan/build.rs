@@ -97,6 +97,21 @@ impl TryFrom<&str> for CtidColumn {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PlannerRootId(usize);
+
+impl From<usize> for PlannerRootId {
+    fn from(value: usize) -> Self {
+        Self(value)
+    }
+}
+
+impl From<*mut pg_sys::PlannerInfo> for PlannerRootId {
+    fn from(value: *mut pg_sys::PlannerInfo) -> Self {
+        Self(value as usize)
+    }
+}
+
 /// Represents the join type for serialization.
 ///
 /// Note: Currently only Inner join is supported, but other variants are
@@ -212,9 +227,9 @@ use crate::scan::info::{FieldInfo, RowEstimate};
 ///
 /// This represents a relation before all required JoinScan invariants are verified.
 /// Optional fields are progressively filled as planning discovers index metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinSourceCandidate {
-    pub planner_root_id: Option<usize>,
+    pub planner_root_id: PlannerRootId,
     pub heap_rti: pg_sys::Index,
     pub heaprelid: Option<pg_sys::Oid>,
     pub indexrelid: Option<pg_sys::Oid>,
@@ -230,16 +245,22 @@ pub struct JoinSourceCandidate {
 }
 
 impl JoinSourceCandidate {
-    pub fn new(heap_rti: pg_sys::Index) -> Self {
+    pub fn new(planner_root_id: PlannerRootId, heap_rti: pg_sys::Index) -> Self {
         Self {
+            planner_root_id,
             heap_rti,
-            ..Default::default()
+            heaprelid: None,
+            indexrelid: None,
+            query: None,
+            has_search_predicate: false,
+            alias: None,
+            score_needed: false,
+            fields: Vec::new(),
+            sort_order: None,
+            estimate: None,
+            segment_count: None,
+            estimated_rows_per_worker: None,
         }
-    }
-
-    pub fn with_planner_root_id(mut self, planner_root_id: usize) -> Self {
-        self.planner_root_id = Some(planner_root_id);
-        self
     }
 
     pub fn with_heaprelid(mut self, oid: pg_sys::Oid) -> Self {
@@ -336,7 +357,7 @@ pub struct JoinSource {
     #[serde(default)]
     pub source_idx: usize,
     /// Identity of the PlannerInfo root this source originated from.
-    pub planner_root_id: Option<usize>,
+    pub planner_root_id: Option<PlannerRootId>,
     pub scan_info: ScanInfo,
 }
 
@@ -411,12 +432,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
     fn try_from(candidate: JoinSourceCandidate) -> Result<Self, Self::Error> {
         Ok(JoinSource {
             source_idx: 0,
-            planner_root_id: Some(candidate.planner_root_id.ok_or_else(|| {
-                anyhow!(
-                    "cannot build JoinSource for RTI {}: planner_root_id is missing",
-                    candidate.heap_rti
-                )
-            })?),
+            planner_root_id: Some(candidate.planner_root_id),
             scan_info: ScanInfo {
                 heap_rti: candidate.heap_rti,
                 heaprelid: candidate.heaprelid.ok_or_else(|| {
@@ -571,6 +587,38 @@ impl RelNode {
             RelNode::Scan(s) => s.scan_info.heap_rti == rti,
             RelNode::Join(j) => j.left.contains_rti(rti) || j.right.contains_rti(rti),
             RelNode::Filter(f) => f.input.contains_rti(rti),
+        }
+    }
+
+    pub fn source_for_rti_in_subtree(&self, rti: pg_sys::Index) -> Option<&JoinSource> {
+        self.sources().into_iter().find(|s| s.contains_rti(rti))
+    }
+
+    pub fn resolve_join_key_to_current_sides(
+        &self,
+        key: &JoinKeyPair,
+    ) -> Option<(
+        &JoinSource,
+        pg_sys::AttrNumber,
+        &JoinSource,
+        pg_sys::AttrNumber,
+    )> {
+        let RelNode::Join(join) = self else {
+            return None;
+        };
+
+        if let (Some(left_source), Some(right_source)) = (
+            join.left.source_for_rti_in_subtree(key.outer_rti),
+            join.right.source_for_rti_in_subtree(key.inner_rti),
+        ) {
+            Some((left_source, key.outer_attno, right_source, key.inner_attno))
+        } else if let (Some(left_source), Some(right_source)) = (
+            join.left.source_for_rti_in_subtree(key.inner_rti),
+            join.right.source_for_rti_in_subtree(key.outer_rti),
+        ) {
+            Some((left_source, key.inner_attno, right_source, key.outer_attno))
+        } else {
+            None
         }
     }
 
@@ -876,7 +924,7 @@ impl JoinCSClause {
     /// Resolve an output Var to a unique source index using output-visible sources.
     pub fn source_idx(
         &self,
-        planner_root_id: usize,
+        planner_root_id: PlannerRootId,
         rti: pg_sys::Index,
         attno: pg_sys::AttrNumber,
     ) -> Option<usize> {
@@ -890,6 +938,34 @@ impl JoinCSClause {
                     && s.has_attno(attno)
             })
             .map(|s| s.source_idx);
+
+        let first = matches.next()?;
+        if matches.next().is_none() {
+            Some(first)
+        } else {
+            None
+        }
+    }
+
+    pub fn source_for_var(
+        &self,
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<&JoinSource> {
+        let mut root_ids = self
+            .plan
+            .sources()
+            .into_iter()
+            .filter(|s| s.contains_rti(rti))
+            .filter_map(|s| s.planner_root_id);
+        let planner_root_id = root_ids.next()?;
+        if !root_ids.all(|id| id == planner_root_id) {
+            return None;
+        }
+
+        let mut matches = self.plan.sources().into_iter().filter(|s| {
+            s.planner_root_id == Some(planner_root_id) && s.contains_rti(rti) && s.has_attno(attno)
+        });
 
         let first = matches.next()?;
         if matches.next().is_none() {

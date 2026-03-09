@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773090673780,
+  "lastUpdate": 1773091480609,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13138,6 +13138,42 @@ window.BENCHMARK_DATA = {
             "value": 5.473971647830881,
             "unit": "median tps",
             "extra": "avg tps: 4.906258486507657, max tps: 6.102128006533808, count: 57810"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eab673821185f7adaac007bbedbad6d0894f14f5",
+          "message": "feat: Allow anti joins (#4314)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdd support + testing for queries with a single anti join (and no other\njoins).\n\n## Why\n\n## How\n\n## Tests\n\nUpdated proptests to add coverage for anti joins",
+          "timestamp": "2026-03-09T13:51:05-07:00",
+          "tree_id": "9b3f87f2a7181e4d91694c3d2416f510db33ebd6",
+          "url": "https://github.com/paradedb/paradedb/commit/eab673821185f7adaac007bbedbad6d0894f14f5"
+        },
+        "date": 1773091475345,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.649990715452921,
+            "unit": "median tps",
+            "extra": "avg tps: 6.481930996897599, max tps: 9.817389157466422, count: 57914"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.223525804970027,
+            "unit": "median tps",
+            "extra": "avg tps: 4.6977371026309, max tps: 5.875280315008388, count: 57914"
           }
         ]
       }

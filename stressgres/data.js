@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773091480609,
+  "lastUpdate": 1773091487433,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16412,6 +16412,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.01892406158105, max segment_count: 129.0, count: 57810"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eab673821185f7adaac007bbedbad6d0894f14f5",
+          "message": "feat: Allow anti joins (#4314)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdd support + testing for queries with a single anti join (and no other\njoins).\n\n## Why\n\n## How\n\n## Tests\n\nUpdated proptests to add coverage for anti joins",
+          "timestamp": "2026-03-09T13:51:05-07:00",
+          "tree_id": "9b3f87f2a7181e4d91694c3d2416f510db33ebd6",
+          "url": "https://github.com/paradedb/paradedb/commit/eab673821185f7adaac007bbedbad6d0894f14f5"
+        },
+        "date": 1773091482250,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.25492053243358, max cpu: 42.814667, count: 57914"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.6717681605484, max mem: 234.25, count: 57914"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.498398757073872, max cpu: 33.333336, count: 57914"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 175.18418453709378, max mem: 175.69921875, count: 57914"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34499,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33574.50808094761, max block_count: 36061.0, count: 57914"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.15039541388956, max segment_count: 127.0, count: 57914"
           }
         ]
       }

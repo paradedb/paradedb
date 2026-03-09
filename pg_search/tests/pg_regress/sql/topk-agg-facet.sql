@@ -184,7 +184,7 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- =============================================================================
--- BASIC TOPK TESTS
+-- BASIC TOP K TESTS
 -- =============================================================================
 
 -- Test 1: Basic Top K without window aggregates

@@ -287,7 +287,7 @@ LIMIT 3;
 (1 row)
 
 -- =============================================================================
--- BASIC TOPK TESTS
+-- BASIC TOP K TESTS
 -- =============================================================================
 -- Test 1: Basic Top K without window aggregates
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

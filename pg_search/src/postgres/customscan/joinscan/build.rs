@@ -229,7 +229,7 @@ use crate::scan::info::{FieldInfo, RowEstimate};
 /// Optional fields are progressively filled as planning discovers index metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinSourceCandidate {
-    pub planner_root_id: PlannerRootId,
+    pub root_id: PlannerRootId,
     pub heap_rti: pg_sys::Index,
     pub heaprelid: Option<pg_sys::Oid>,
     pub indexrelid: Option<pg_sys::Oid>,
@@ -245,9 +245,9 @@ pub struct JoinSourceCandidate {
 }
 
 impl JoinSourceCandidate {
-    pub fn new(planner_root_id: PlannerRootId, heap_rti: pg_sys::Index) -> Self {
+    pub fn new(root_id: PlannerRootId, heap_rti: pg_sys::Index) -> Self {
         Self {
-            planner_root_id,
+            root_id,
             heap_rti,
             heaprelid: None,
             indexrelid: None,
@@ -357,7 +357,7 @@ pub struct JoinSource {
     #[serde(default)]
     pub source_idx: usize,
     /// Identity of the PlannerInfo root this source originated from.
-    pub planner_root_id: Option<PlannerRootId>,
+    pub root_id: Option<PlannerRootId>,
     pub scan_info: ScanInfo,
 }
 
@@ -432,7 +432,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
     fn try_from(candidate: JoinSourceCandidate) -> Result<Self, Self::Error> {
         Ok(JoinSource {
             source_idx: 0,
-            planner_root_id: Some(candidate.planner_root_id),
+            root_id: Some(candidate.root_id),
             scan_info: ScanInfo {
                 heap_rti: candidate.heap_rti,
                 heaprelid: candidate.heaprelid.ok_or_else(|| {
@@ -760,7 +760,7 @@ impl Default for RelNode {
     fn default() -> Self {
         RelNode::Scan(Box::new(JoinSource {
             source_idx: 0,
-            planner_root_id: None,
+            root_id: None,
             scan_info: ScanInfo::default(),
         }))
     }
@@ -924,7 +924,7 @@ impl JoinCSClause {
     /// Resolve an output Var to a unique source index using output-visible sources.
     pub fn source_idx(
         &self,
-        planner_root_id: PlannerRootId,
+        root_id: PlannerRootId,
         rti: pg_sys::Index,
         attno: pg_sys::AttrNumber,
     ) -> Option<usize> {
@@ -932,11 +932,7 @@ impl JoinCSClause {
             .plan
             .output_sources()
             .into_iter()
-            .filter(|s| {
-                s.planner_root_id == Some(planner_root_id)
-                    && s.contains_rti(rti)
-                    && s.has_attno(attno)
-            })
+            .filter(|s| s.root_id == Some(root_id) && s.contains_rti(rti) && s.has_attno(attno))
             .map(|s| s.source_idx);
 
         let first = matches.next()?;
@@ -957,15 +953,16 @@ impl JoinCSClause {
             .sources()
             .into_iter()
             .filter(|s| s.contains_rti(rti))
-            .filter_map(|s| s.planner_root_id);
-        let planner_root_id = root_ids.next()?;
-        if !root_ids.all(|id| id == planner_root_id) {
+            .filter_map(|s| s.root_id);
+        let root_id = root_ids.next()?;
+        if !root_ids.all(|id| id == root_id) {
             return None;
         }
 
-        let mut matches = self.plan.sources().into_iter().filter(|s| {
-            s.planner_root_id == Some(planner_root_id) && s.contains_rti(rti) && s.has_attno(attno)
-        });
+        let mut matches =
+            self.plan.sources().into_iter().filter(|s| {
+                s.root_id == Some(root_id) && s.contains_rti(rti) && s.has_attno(attno)
+            });
 
         let first = matches.next()?;
         if matches.next().is_none() {

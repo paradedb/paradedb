@@ -231,7 +231,7 @@ fn build_relnode_df<'a>(
     partitioning_rti: pg_sys::Index,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
-    ctid_map: &'a crate::api::HashMap<usize, Expr>,
+    ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     fn source_index_in_plan(plan_sources: &[&JoinSource], target: &JoinSource) -> Option<usize> {
         let idx = target.source_idx;
@@ -453,7 +453,7 @@ fn build_clause_df<'a>(
         for (i, _) in plan_sources.iter().enumerate() {
             let ctid_name = CtidColumn::new(i).to_string();
             let expr = col(&ctid_name);
-            ctid_map.insert(i, expr);
+            ctid_map.insert(i as pg_sys::Index, expr);
         }
 
         let mut df = build_relnode_df(

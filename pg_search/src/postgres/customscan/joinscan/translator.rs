@@ -59,7 +59,7 @@ impl<'a> PredicateTranslator<'a> {
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
-        ctid_map: &HashMap<usize, Expr>,
+        ctid_map: &HashMap<pg_sys::Index, Expr>,
         predicates: &[JoinLevelSearchPredicate],
     ) -> Option<Expr> {
         match expr {
@@ -68,7 +68,7 @@ impl<'a> PredicateTranslator<'a> {
                 predicate_idx,
             } => {
                 let predicate = predicates.get(*predicate_idx)?;
-                let col = ctid_map.get(source_idx)?;
+                let col = ctid_map.get(&(*source_idx as pg_sys::Index))?;
                 // Create a SearchPredicateUDF that carries the search query.
                 // This will be pushed down to PgSearchTableProvider via filter pushdown.
                 let udf = SearchPredicateUDF::new(

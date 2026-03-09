@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773093096620,
+  "lastUpdate": 1773093874245,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36214,6 +36214,54 @@ window.BENCHMARK_DATA = {
             "value": 558.5370930869773,
             "unit": "median tps",
             "extra": "avg tps: 508.3917664892185, max tps: 747.0147320020324, count: 107830"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eab673821185f7adaac007bbedbad6d0894f14f5",
+          "message": "feat: Allow anti joins (#4314)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdd support + testing for queries with a single anti join (and no other\njoins).\n\n## Why\n\n## How\n\n## Tests\n\nUpdated proptests to add coverage for anti joins",
+          "timestamp": "2026-03-09T13:51:05-07:00",
+          "tree_id": "9b3f87f2a7181e4d91694c3d2416f510db33ebd6",
+          "url": "https://github.com/paradedb/paradedb/commit/eab673821185f7adaac007bbedbad6d0894f14f5"
+        },
+        "date": 1773093868494,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 581.3958182050628,
+            "unit": "median tps",
+            "extra": "avg tps: 582.4982073337798, max tps: 733.1528905106167, count: 53940"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 638.0743177970162,
+            "unit": "median tps",
+            "extra": "avg tps: 638.8593293678113, max tps: 810.9247512175781, count: 53940"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 93.82451533488836,
+            "unit": "median tps",
+            "extra": "avg tps: 93.88159523910346, max tps: 98.42579229045462, count: 53940"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 526.2410041204378,
+            "unit": "median tps",
+            "extra": "avg tps: 480.66648423826194, max tps: 659.5453445272952, count: 107880"
           }
         ]
       }

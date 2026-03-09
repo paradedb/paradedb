@@ -139,6 +139,7 @@ pub struct ChildProjection {
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::joinscan::planning::LimitOffset;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::info::{FieldInfo, RowEstimate};
@@ -246,9 +247,7 @@ impl JoinSourceCandidate {
         let expr_context = ExprContextGuard::new();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
-            self.query
-                .clone()
-                .unwrap_or(crate::query::SearchQueryInput::All),
+            self.query.clone().unwrap_or(SearchQueryInput::All),
             false,
             MvccSatisfies::LargestSegment,
             NonNull::new(expr_context.as_ptr()),
@@ -350,9 +349,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
-                query: candidate
-                    .query
-                    .unwrap_or(crate::query::SearchQueryInput::All),
+                query: candidate.query.unwrap_or(SearchQueryInput::All),
                 has_search_predicate: candidate.has_search_predicate,
                 alias: candidate.alias,
                 score_needed: candidate.score_needed,
@@ -630,8 +627,8 @@ impl Default for RelNode {
 pub struct JoinCSClause {
     /// The root of the relational execution tree.
     pub plan: RelNode,
-    /// The LIMIT value from the query, if any.
-    pub limit: Option<usize>,
+    /// The LIMIT and OFFSET value from the query, if any.
+    pub limit: Option<LimitOffset>,
     /// Join-level search predicates (Tantivy queries to execute).
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
     /// Heap conditions (PostgreSQL expressions referencing both sides).
@@ -657,7 +654,7 @@ impl JoinCSClause {
         }
     }
 
-    pub fn with_limit(mut self, limit: Option<usize>) -> Self {
+    pub fn with_limit(mut self, limit: Option<LimitOffset>) -> Self {
         self.limit = limit;
         self
     }

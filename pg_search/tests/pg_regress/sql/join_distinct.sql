@@ -440,6 +440,76 @@ ORDER BY
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 17: DISTINCT with LIMIT + OFFSET
+-- =============================================================================
+-- Verify that OFFSET correctly skips rows AFTER deduplication and sorting.
+-- 'wireless' matches 5 distinct (p.name, s.name) pairs ordered by p.name:
+--   1. Headphones    | TechCorp
+--   2. Keyboard      | TechCorp
+--   3. Mouse Pad     | GlobalSupply
+--   4. Wireless Charger | TechCorp
+--   5. Wireless Mouse   | TechCorp
+-- LIMIT 3 OFFSET 0 should return rows 1-3.
+-- LIMIT 3 OFFSET 2 should return rows 3-5.
+
+-- Baseline: OFFSET 0 (same as no OFFSET)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 0;
+-- Expected: Headphones, Keyboard, Mouse Pad
+
+-- Mid-page: OFFSET 2 should skip the first 2 rows
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 2;
+-- Expected: Mouse Pad, Wireless Charger, Wireless Mouse
+
+-- Last page: OFFSET 4 should return only 1 row (past the end of 5 rows)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 4;
+-- Expected: Wireless Mouse (only 1 row since 5 - 4 = 1)
+
+-- OFFSET beyond result set should return empty
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 10;
+-- Expected: 0 rows
+
+-- Correctness: compare JoinScan vs native PG for OFFSET 2
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 2;
+-- Expected: same as JoinScan result above
+SET paradedb.enable_join_custom_scan = on;
+
+-- Verify EXPLAIN shows Offset in the custom scan output
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 2;
+-- Expected: Offset: 2 appears in the Custom Scan (ParadeDB Join Scan) node
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

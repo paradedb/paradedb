@@ -47,6 +47,7 @@ use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 
 use pgrx::{pg_sys, FromDatum, PgList};
+use serde::{Deserialize, Serialize};
 
 /// Check if an expression uses paradedb.score() for any relation in the JoinSource.
 pub(super) unsafe fn expr_uses_scores_from_source(
@@ -101,17 +102,34 @@ pub(super) unsafe fn expr_uses_scores_from_source(
     data.found
 }
 
+/// Store Limit and Offset values
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct LimitOffset {
+    pub limit: usize,
+    pub offset: usize,
+}
+
 /// Extract the LIMIT value from the query root.
 /// Returns `None` if no LIMIT is present, signalling that JoinScan cannot be used.
-pub unsafe fn extract_limit(root: *mut pg_sys::PlannerInfo) -> Option<usize> {
-    if (*root).limit_tuples > -1.0 {
-        return Some((*root).limit_tuples as usize);
-    }
-
+pub unsafe fn extract_limit(root: *mut pg_sys::PlannerInfo) -> Option<LimitOffset> {
     let parse = (*root).parse;
-    let limit_count = (*parse).limitCount;
-    let const_node = nodecast!(Const, T_Const, limit_count)?;
-    u32::from_datum((*const_node).constvalue, (*const_node).constisnull).map(|v| v as usize)
+
+    let extract_const = |node: *mut pg_sys::Node| -> Option<usize> {
+        let const_node = nodecast!(Const, T_Const, node)?;
+        u32::from_datum((*const_node).constvalue, (*const_node).constisnull).map(|v| v as usize)
+    };
+
+    let offset = extract_const((*parse).limitOffset).unwrap_or(0);
+
+    let limit = if (*root).limit_tuples > -1.0 {
+        // limit_tuples = limit + offset, so subtract to get true limit
+        let combined = (*root).limit_tuples as usize;
+        Some(combined - offset)
+    } else {
+        extract_const((*parse).limitCount)
+    }?;
+
+    Some(LimitOffset { limit, offset })
 }
 
 pub(super) struct JoinConditions {
@@ -1170,7 +1188,7 @@ pub(super) unsafe fn extract_orderby(
 
             // Check if ordering by score
             let mut score_found = false;
-            for (_, source) in sources.iter().enumerate() {
+            for source in sources.iter() {
                 if is_score_func_recursive(check_expr.cast(), source) {
                     if !output_rtis.contains(&source.scan_info.heap_rti) {
                         continue;

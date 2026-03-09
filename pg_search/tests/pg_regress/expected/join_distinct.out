@@ -723,6 +723,126 @@ LIMIT 10;
 (2 rows)
 
 -- =============================================================================
+-- TEST 17: DISTINCT with LIMIT + OFFSET
+-- =============================================================================
+-- Verify that OFFSET correctly skips rows AFTER deduplication and sorting.
+-- 'wireless' matches 5 distinct (p.name, s.name) pairs ordered by p.name:
+--   1. Headphones    | TechCorp
+--   2. Keyboard      | TechCorp
+--   3. Mouse Pad     | GlobalSupply
+--   4. Wireless Charger | TechCorp
+--   5. Wireless Mouse   | TechCorp
+-- LIMIT 3 OFFSET 0 should return rows 1-3.
+-- LIMIT 3 OFFSET 2 should return rows 3-5.
+-- Baseline: OFFSET 0 (same as no OFFSET)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 0;
+    name    | supplier_name 
+------------+---------------
+ Headphones | TechCorp
+ Keyboard   | TechCorp
+ Mouse Pad  | GlobalSupply
+(3 rows)
+
+-- Expected: Headphones, Keyboard, Mouse Pad
+-- Mid-page: OFFSET 2 should skip the first 2 rows
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 2;
+       name       | supplier_name 
+------------------+---------------
+ Mouse Pad        | GlobalSupply
+ Wireless Charger | TechCorp
+ Wireless Mouse   | TechCorp
+(3 rows)
+
+-- Expected: Mouse Pad, Wireless Charger, Wireless Mouse
+-- Last page: OFFSET 4 should return only 1 row (past the end of 5 rows)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 4;
+      name      | supplier_name 
+----------------+---------------
+ Wireless Mouse | TechCorp
+(1 row)
+
+-- Expected: Wireless Mouse (only 1 row since 5 - 4 = 1)
+-- OFFSET beyond result set should return empty
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 10;
+ name | supplier_name 
+------+---------------
+(0 rows)
+
+-- Expected: 0 rows
+-- Correctness: compare JoinScan vs native PG for OFFSET 2
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 2;
+       name       | supplier_name 
+------------------+---------------
+ Mouse Pad        | GlobalSupply
+ Wireless Charger | TechCorp
+ Wireless Mouse   | TechCorp
+(3 rows)
+
+-- Expected: same as JoinScan result above
+SET paradedb.enable_join_custom_scan = on;
+-- Verify EXPLAIN shows Offset in the custom scan output
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name
+    LIMIT 3 OFFSET 2;
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.name, s.name
+   ->  Unique
+         Output: p.name, s.name
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.name, s.name
+               Relation Tree: s INNER p
+               Join Cond: p.supplier_id = s.id
+               Limit: 3
+               Offset: 2
+               Distinct: true
+               Order By: p.name asc, s.name asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, ctid_2@3 as ctid_2, ctid_1@2 as ctid_1]
+                 :   SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_1, ctid_2]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, name@2, ctid_1@3, name@5]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, name@2 as name]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, query="all"
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
+
+-- Expected: Offset: 2 appears in the Custom Scan (ParadeDB Join Scan) node
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS dist_products CASCADE;

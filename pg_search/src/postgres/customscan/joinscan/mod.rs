@@ -175,7 +175,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::{
-    distinct_columns_are_fast_fields, extract_limit,
+    distinct_columns_are_fast_fields, extract_limit, LimitOffset,
 };
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
@@ -642,7 +642,7 @@ impl CustomScan for JoinScan {
             // Cost estimation is deferred to DataFusion integration.
             let startup_cost = crate::DEFAULT_STARTUP_COST;
             let total_cost = startup_cost + 1.0;
-            let mut result_rows = limit.map(|l| l as f64).unwrap_or(1000.0);
+            let mut result_rows = limit.map(|l| l.limit as f64).unwrap_or(1000.0);
 
             // Calculate parallel workers based on the largest source, which we will partition.
             let (segment_count, row_estimate) = {
@@ -663,7 +663,7 @@ impl CustomScan for JoinScan {
                 // We pass `contains_correlated_param = false` for now (TODO: check this).
                 compute_nworkers(
                     declares_sorted_output,
-                    limit.map(|l| l as f64),
+                    limit.map(|l| l.limit as f64),
                     row_estimate,
                     segment_count,
                     false,
@@ -934,8 +934,11 @@ impl CustomScan for JoinScan {
             explainer.add_text("Join Predicate", format_join_level_expr(expr, join_clause));
         }
 
-        if let Some(limit) = join_clause.limit {
+        if let Some(LimitOffset { limit, offset }) = join_clause.limit {
             explainer.add_text("Limit", limit.to_string());
+            if offset > 0 {
+                explainer.add_text("Offset", offset.to_string());
+            }
         }
 
         if join_clause.has_distinct {

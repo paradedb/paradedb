@@ -67,6 +67,7 @@ use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource, Rel
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
+use crate::postgres::customscan::joinscan::planning::LimitOffset;
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
@@ -572,8 +573,8 @@ fn build_clause_df<'a>(
         }
 
         // 6. Apply Limit
-        if let Some(limit) = join_clause.limit {
-            df = df.limit(0, Some(limit))?;
+        if let Some(LimitOffset { limit, offset }) = join_clause.limit {
+            df = df.limit(0, Some(limit + offset))?;
         }
 
         // 7. Apply Output Projection

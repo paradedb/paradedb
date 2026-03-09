@@ -1324,7 +1324,7 @@ WHERE description @@@ 'error';
 (1 row)
 
 -- Test 45: Range histogram with Top K (window function)
--- Get response time distribution alongside top K results
+-- Get response time distribution alongside Top K results
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *,
        pdb.agg('{"range": {"field": "response_time", "ranges": [

@@ -71,24 +71,24 @@ impl<'a> RelationAlias<'a> {
 /// materialized back to PostgreSQL tuples after query execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CtidColumn {
-    source_idx: usize,
+    plan_position: usize,
 }
 
 impl CtidColumn {
     const PREFIX: &'static str = "ctid_";
 
-    pub fn new(source_idx: usize) -> Self {
-        Self { source_idx }
+    pub fn new(plan_position: usize) -> Self {
+        Self { plan_position }
     }
 
-    pub fn source_idx(self) -> usize {
-        self.source_idx
+    pub fn plan_position(self) -> usize {
+        self.plan_position
     }
 }
 
 impl fmt::Display for CtidColumn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}", Self::PREFIX, self.source_idx)
+        write!(f, "{}{}", Self::PREFIX, self.plan_position)
     }
 }
 
@@ -96,12 +96,12 @@ impl TryFrom<&str> for CtidColumn {
     type Error = ();
 
     fn try_from(col_name: &str) -> Result<Self, Self::Error> {
-        let source_idx = col_name
+        let plan_position = col_name
             .strip_prefix(Self::PREFIX)
             .ok_or(())?
             .parse::<usize>()
             .map_err(|_| ())?;
-        Ok(Self::new(source_idx))
+        Ok(Self::new(plan_position))
     }
 }
 
@@ -393,9 +393,9 @@ impl JoinSourceCandidate {
 /// Represents the validated source of data for a join side used during execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinSource {
-    /// Stable source index in `RelNode::sources()` order.
+    /// Stable plan position in `RelNode::sources()` order.
     #[serde(default)]
-    pub source_idx: usize,
+    pub plan_position: usize,
     /// Identity of the PlannerInfo root this source originated from.
     pub root_id: Option<PlannerRootId>,
     pub scan_info: ScanInfo,
@@ -471,7 +471,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
 
     fn try_from(candidate: JoinSourceCandidate) -> Result<Self, Self::Error> {
         Ok(JoinSource {
-            source_idx: 0,
+            plan_position: 0,
             root_id: Some(candidate.root_id),
             scan_info: ScanInfo {
                 heap_rti: candidate.heap_rti,
@@ -529,8 +529,8 @@ pub struct MultiTablePredicateInfo {
 pub enum JoinLevelExpr {
     /// Leaf: single-table predicate, check if ctid is in the Tantivy result set.
     SingleTablePredicate {
-        /// Index of the source (in the order yielded by `RelNode::sources()`) this predicate references.
-        source_idx: usize,
+        /// Plan position of the source (in the order yielded by `RelNode::sources()`) this predicate references.
+        plan_position: usize,
         /// Index into the `join_level_predicates` vector.
         predicate_idx: usize,
     },
@@ -773,7 +773,7 @@ impl RelNode {
 impl Default for RelNode {
     fn default() -> Self {
         RelNode::Scan(Box::new(JoinSource {
-            source_idx: 0,
+            plan_position: 0,
             root_id: None,
             scan_info: ScanInfo::default(),
         }))
@@ -811,7 +811,7 @@ impl JoinCSClause {
             has_distinct: false,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
-            source.source_idx = i;
+            source.plan_position = i;
         }
         clause
     }
@@ -936,7 +936,7 @@ impl JoinCSClause {
     }
 
     /// Resolve an output Var to a unique source index using output-visible sources.
-    pub fn source_idx(
+    pub fn plan_position(
         &self,
         root_id: PlannerRootId,
         rti: pg_sys::Index,
@@ -947,7 +947,7 @@ impl JoinCSClause {
             .output_sources()
             .into_iter()
             .filter(|s| s.root_id == Some(root_id) && s.contains_rti(rti) && s.has_attno(attno))
-            .map(|s| s.source_idx);
+            .map(|s| s.plan_position);
 
         let first = matches.next()?;
         if matches.next().is_none() {

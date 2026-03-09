@@ -233,31 +233,15 @@ fn build_relnode_df<'a>(
     translated_exprs: &'a [Expr],
     ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
-    fn source_index_in_plan(plan_sources: &[&JoinSource], target: &JoinSource) -> Option<usize> {
-        let idx = target.source_idx;
-        if idx < plan_sources.len() {
-            Some(idx)
-        } else {
-            None
-        }
-    }
-
     let f = async move {
         match node {
             RelNode::Scan(source) => {
                 let is_parallel = source.scan_info.heap_rti == partitioning_rti;
-                let plan_sources = join_clause.plan.sources();
-                let source_idx = source_index_in_plan(&plan_sources, source).ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "Invalid source_idx {} for plan with {} sources",
-                        source.source_idx,
-                        plan_sources.len()
-                    ))
-                })?;
+                let plan_position = source.plan_position;
                 let mut df =
-                    build_source_df(ctx, source, source_idx, join_clause, is_parallel).await?;
+                    build_source_df(ctx, source, plan_position, join_clause, is_parallel).await?;
                 let alias =
-                    RelationAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
+                    RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 df = df.alias(&alias)?;
                 Ok(df)
             }
@@ -282,7 +266,6 @@ fn build_relnode_df<'a>(
                 .await?;
 
                 let mut on: Vec<Expr> = Vec::new();
-                let plan_sources = join_clause.plan.sources();
                 for jk in &join.equi_keys {
                     // Resolve key sides against the CURRENT join node first.
                     // This avoids binding to the wrong source when the same base table
@@ -296,14 +279,8 @@ fn build_relnode_df<'a>(
                             ))
                         })?;
 
-                    let left_idx =
-                        source_index_in_plan(&plan_sources, left_source).ok_or_else(|| {
-                            DataFusionError::Internal("Left join source not found in plan".into())
-                        })?;
-                    let right_idx =
-                        source_index_in_plan(&plan_sources, right_source).ok_or_else(|| {
-                            DataFusionError::Internal("Right join source not found in plan".into())
-                        })?;
+                    let left_idx = left_source.plan_position;
+                    let right_idx = right_source.plan_position;
 
                     let left_alias = RelationAlias::new(left_source.scan_info.alias.as_deref())
                         .execution(left_idx);
@@ -666,13 +643,13 @@ fn build_projection_expr(
 fn build_source_df<'a>(
     ctx: &'a SessionContext,
     source: &'a JoinSource,
-    source_idx: usize,
+    plan_position: usize,
     join_clause: &'a JoinCSClause,
     is_parallel: bool,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = source.scan_info.clone();
-        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
+        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
         let fields: Vec<WhichFastField> = source
             .scan_info
             .fields
@@ -739,7 +716,7 @@ fn build_source_df<'a>(
             // the field list order doesn't match the DataFrame schema field order.
             let expr = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
-                    make_col(alias.as_str(), name).alias(CtidColumn::new(source_idx).to_string())
+                    make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
                 }
                 // Normalize score fast-field column name so all score references resolve
                 // through `<execution_alias>.score`.

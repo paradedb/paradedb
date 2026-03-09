@@ -779,18 +779,18 @@ impl CustomScan for JoinScan {
                     let var = (*te).expr as *mut pg_sys::Var;
                     let rti = (*var).varno as pg_sys::Index;
                     let attno = (*var).varattno;
-                    let source_idx = private_data
+                    let plan_position = private_data
                         .join_clause
-                        .source_idx(root.into(), rti, attno)
+                        .plan_position(root.into(), rti, attno)
                         .unwrap_or_else(|| {
                             panic!(
-                                "Failed to resolve output Var to source_idx (rti={}, attno={})",
+                                "Failed to resolve output Var to plan_position (rti={}, attno={})",
                                 rti, attno
                             )
                         });
                     // Determine if this column comes from outer or inner relation
                     output_columns.push(privdat::OutputColumnInfo {
-                        source_idx,
+                        plan_position,
                         rti,
                         original_attno: attno,
                         is_score: false,
@@ -798,19 +798,19 @@ impl CustomScan for JoinScan {
                 } else {
                     let mut is_score = false;
                     let mut rti = 0;
-                    let mut source_idx = 0usize;
+                    let mut plan_position = 0usize;
                     for source in private_data.join_clause.plan.sources() {
                         if expr_uses_scores_from_source((*te).expr.cast(), source) {
                             // This expression contains paradedb.score()
                             is_score = true;
                             rti = get_score_func_rti((*te).expr.cast()).unwrap_or(0);
-                            source_idx = source.source_idx;
+                            plan_position = source.plan_position;
                             break;
                         }
                     }
                     // Non-Var, non-score expression - mark as null (attno = 0)
                     output_columns.push(privdat::OutputColumnInfo {
-                        source_idx,
+                        plan_position,
                         rti,
                         original_attno: 0,
                         is_score,
@@ -931,10 +931,10 @@ impl CustomScan for JoinScan {
 
                         let outer_alias =
                             RelationAlias::new(outer_source.scan_info.alias.as_deref())
-                                .execution(outer_source.source_idx);
+                                .execution(outer_source.plan_position);
                         let inner_alias =
                             RelationAlias::new(inner_source.scan_info.alias.as_deref())
-                                .execution(inner_source.source_idx);
+                                .execution(inner_source.plan_position);
 
                         acc.push(format!(
                             "{} = {}",
@@ -1086,7 +1086,7 @@ impl CustomScan for JoinScan {
                 let snapshot = state.csstate.ss.ps.state.as_ref().unwrap().es_snapshot;
 
                 let plan_sources = join_clause.plan.sources();
-                for (source_idx, source) in plan_sources.iter().enumerate() {
+                for (plan_position, source) in plan_sources.iter().enumerate() {
                     let heaprelid = source.scan_info.heaprelid;
                     let heaprel = PgSearchRelation::open(heaprelid);
                     let visibility_checker =
@@ -1094,7 +1094,7 @@ impl CustomScan for JoinScan {
                     let fetch_slot =
                         pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
                     state.custom_state_mut().relations.insert(
-                        source_idx,
+                        plan_position,
                         scan_state::RelationState {
                             _heaprel: heaprel,
                             visibility_checker,
@@ -1153,9 +1153,9 @@ impl CustomScan for JoinScan {
                 let schema = plan.schema();
                 for (i, field) in schema.fields().iter().enumerate() {
                     if let Ok(ctid_col) = CtidColumn::try_from(field.name().as_str()) {
-                        let source_idx = ctid_col.source_idx();
+                        let plan_position = ctid_col.plan_position();
                         if let Some(rel_state) =
-                            state.custom_state_mut().relations.get_mut(&source_idx)
+                            state.custom_state_mut().relations.get_mut(&plan_position)
                         {
                             rel_state.ctid_col_idx = Some(i);
                         }
@@ -1233,11 +1233,14 @@ impl JoinScan {
 
         // Fetch tuples for all RTIs referenced in the output columns
         for col_info in &output_columns {
-            if col_info.rti != 0 && !fetched_sources.contains(&col_info.source_idx) {
+            if col_info.rti != 0 && !fetched_sources.contains(&col_info.plan_position) {
                 // Get the CTID for this RTI from the DataFusion result batch
                 let ctid = {
                     let batch = state.custom_state().current_batch.as_ref()?;
-                    let rel_state = state.custom_state().relations.get(&col_info.source_idx)?;
+                    let rel_state = state
+                        .custom_state()
+                        .relations
+                        .get(&col_info.plan_position)?;
                     let ctid_col = batch.column(rel_state.ctid_col_idx?);
                     ctid_col
                         .as_any()
@@ -1249,7 +1252,7 @@ impl JoinScan {
                 let rel_state = state
                     .custom_state_mut()
                     .relations
-                    .get_mut(&col_info.source_idx)?;
+                    .get_mut(&col_info.plan_position)?;
                 if !rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)
@@ -1258,7 +1261,7 @@ impl JoinScan {
                 }
                 // Make sure slots have all attributes deformed
                 pg_sys::slot_getallattrs(rel_state.fetch_slot);
-                fetched_sources.insert(col_info.source_idx);
+                fetched_sources.insert(col_info.plan_position);
             }
         }
         // Get the result tuple descriptor from the result slot
@@ -1303,7 +1306,10 @@ impl JoinScan {
                 continue;
             }
             // Determine which slot to read from based on RTI
-            let rel_state = state.custom_state().relations.get(&col_info.source_idx)?;
+            let rel_state = state
+                .custom_state()
+                .relations
+                .get(&col_info.plan_position)?;
             let source_slot = rel_state.fetch_slot;
             let original_attno = col_info.original_attno;
             // Get the attribute value from the source slot using the original attribute number

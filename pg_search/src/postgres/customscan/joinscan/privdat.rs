@@ -27,10 +27,10 @@ pub const SCORE_COL_NAME: &str = "score";
 /// Describes which relation a column comes from and its original attribute number.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OutputColumnInfo {
-    /// Index of the source in `join_clause.plan.sources()`.
+    /// Plan position of the source in `join_clause.plan.sources()`.
     /// This is stable for the built plan and avoids RTI collisions across subquery roots.
     #[serde(default)]
-    pub source_idx: usize,
+    pub plan_position: usize,
     /// The range table index of the source base relation.
     #[serde(default)]
     pub rti: pg_sys::Index,

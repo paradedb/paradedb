@@ -65,14 +65,14 @@ pub(super) fn get_attname_safe(
 pub(super) fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) -> String {
     match expr {
         JoinLevelExpr::SingleTablePredicate {
-            source_idx,
+            plan_position,
             predicate_idx,
         } => {
             let all_sources = join_clause.plan.sources();
-            let label = if let Some(source) = all_sources.get(*source_idx) {
-                RelationAlias::new(source.scan_info.alias.as_deref()).execution(*source_idx)
+            let label = if let Some(source) = all_sources.get(*plan_position) {
+                RelationAlias::new(source.scan_info.alias.as_deref()).execution(*plan_position)
             } else {
-                format!("source_{}", source_idx)
+                format!("source_{}", plan_position)
             };
             if let Some(pred) = join_clause.join_level_predicates.get(*predicate_idx) {
                 format!("{}:{}", label, pred.query.explain_format())

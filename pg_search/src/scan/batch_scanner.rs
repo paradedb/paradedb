@@ -277,7 +277,7 @@ impl Scanner {
             (before, before - ids.len())
         };
 
-        // Apply segmented top-K ordinal thresholds before pre-filters and visibility.
+        // Apply segmented Top K ordinal thresholds before pre-filters and visibility.
         if let Some(threshold_expr) = self
             .segmented_thresholds
             .as_ref()

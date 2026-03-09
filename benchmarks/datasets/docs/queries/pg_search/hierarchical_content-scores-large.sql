@@ -11,7 +11,7 @@ WHERE
 ORDER BY score DESC
 LIMIT 1000;
 
--- CTE to execute a smaller join before Top-K and then fetch the rest of the content after Top-K.
+-- CTE to execute a smaller join before Top K and then fetch the rest of the content after Top K.
 WITH topk AS (
   SELECT
     documents.id AS doc_id,

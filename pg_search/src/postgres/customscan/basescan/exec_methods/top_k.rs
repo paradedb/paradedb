@@ -132,7 +132,7 @@ impl TopKScanExecState {
     ///    one segment and adding it to the Collector before attempting to claim another. This
     ///    allows all of the workers to load balance the work of searching the segments.
     ///    b. Nth execution: eagerly emits all segments which were previously collected. This is
-    ///    necessary to allow for re-scans (when a Top-K result later proves not to be visible)
+    ///    necessary to allow for re-scans (when a Top K result later proves not to be visible)
     ///    to consistently revisit the same segments.
     fn segments_to_query<'s>(
         &'s self,
@@ -311,7 +311,7 @@ impl ExecMethod for TopKScanExecState {
             return false;
         }
 
-        // We track the total number of queries executed by Top-K (for any of the above reasons).
+        // We track the total number of queries executed by Top K (for any of the above reasons).
         state.increment_query_count();
 
         // Calculate the limit for this query, and what the offset will be for the next query.

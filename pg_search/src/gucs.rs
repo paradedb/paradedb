@@ -369,7 +369,7 @@ pub fn init() {
         c"When enabled, ORDER BY on a late-materialized string/bytes column with LIMIT \
           uses per-segment ordinal pruning to reduce dictionary decoding. \
           All input is collected before emitting (EmissionType::Final) so only \
-          the exact top-K rows per segment are sent to dictionary decoding. \
+          the exact Top K rows per segment are sent to dictionary decoding. \
           Per-segment thresholds are published progressively to the scanner \
           for early row pruning during collection.",
         &ENABLE_SEGMENTED_TOPK,

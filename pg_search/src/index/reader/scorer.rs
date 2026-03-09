@@ -160,7 +160,7 @@ impl Iterator for ScorerIter {
         // NOTE: We do not implement size_hint for `ScorerIter`, because the implementation of
         // `Scorer::size_hint` can take a lot longer to execute than is usually expected from
         // `Iterator::size_hint`. We also never consume a `ScorerIter` in a way that requires an
-        // accurate size: when consuming for top-k, we consume a precise amount, and in all other
+        // accurate size: when consuming for Top K, we consume a precise amount, and in all other
         // cases the iterator is consumed as streaming.
         (0, None)
     }

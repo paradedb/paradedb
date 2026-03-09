@@ -232,10 +232,10 @@ LIMIT 10;
 -- TEST 6: Top K dynamic filter does not prune NULLs
 -- Top K emits "col IS NULL OR col < threshold". Rows with NULL in the ORDER BY
 -- column must survive the pre-filter (nulls_pass=true) and be returned when
--- they belong in the top-K. Without nulls_pass, the pre-filter would
+-- they belong in the Top K. Without nulls_pass, the pre-filter would
 -- incorrectly discard NULLs.
 --
--- Uses DESC NULLS FIRST so NULLs sort first and belong in the top-K result.
+-- Uses DESC NULLS FIRST so NULLs sort first and belong in the Top K result.
 -- NULLs are placed at high IDs so they land in a later scan batch (after Top K
 -- has already tightened its threshold from earlier batches). This ensures the
 -- pre-filter is active when it encounters NULL values.

@@ -87,7 +87,7 @@ type TopKWithAggregate<T> = (
     Option<IntermediateAggregationResults>,
 );
 
-/// A known-size iterator of results for Top-K.
+/// A known-size iterator of results for Top K.
 pub struct TopKSearchResults {
     results_original_len: usize,
     results: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
@@ -1279,7 +1279,7 @@ impl SearchIndexReader {
             let fruits = self.collect_segments(segment_ids, &top_docs_collector, weight.as_ref());
             let top_docs = top_docs_collector
                 .merge_fruits(fruits)
-                .expect("should be able to merge top-k in segments");
+                .expect("should be able to merge Top K in segments");
             return (top_docs, None);
         };
 
@@ -1292,13 +1292,13 @@ impl SearchIndexReader {
             let fruits = self.collect_segments(segment_ids, &collector, weight.as_ref());
             let (top_docs, aggregation_results) = collector
                 .merge_fruits(fruits)
-                .expect("should be able to merge top-k in segment");
+                .expect("should be able to merge Top K in segment");
             (top_docs, Some(aggregation_results))
         } else {
             let fruits = self.collect_segments(segment_ids, &compound_collector, weight.as_ref());
             let (top_docs, aggregation_results) = compound_collector
                 .merge_fruits(fruits)
-                .expect("should be able to merge top-k in segment");
+                .expect("should be able to merge Top K in segment");
             (top_docs, Some(aggregation_results))
         }
     }

@@ -22,7 +22,7 @@
 //! column materialization — at the term-ordinal level for strings and direct
 //! fast-field comparisons for numerics. This is critical for `ORDER BY … LIMIT`
 //! queries over joins: without it, the scan must materialize every row even though
-//! only the top-K are needed.
+//! only the Top K are needed.
 //!
 //! # Data Flow
 //!

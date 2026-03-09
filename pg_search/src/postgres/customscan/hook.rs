@@ -348,7 +348,7 @@ static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
 ///
 /// 2. **Enables Top K Integration**: Our custom scan can detect the placeholder
 ///    functions in the target list and handle them during `Top K` execution,
-///    combining window aggregates with top-K result collection in a single pass.
+///    combining window aggregates with Top K result collection in a single pass.
 ///
 /// 3. **Simpler Integration**: The replacement happens once, early, and the rest
 ///    of the planning process sees our placeholder functions as regular function

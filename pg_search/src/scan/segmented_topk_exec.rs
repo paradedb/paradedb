@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Per-segment Top-K pruning using term ordinals.
+//! Per-segment Top K pruning using term ordinals.
 //!
 //! `SegmentedTopKExec` sits between `TantivyLookupExec` and its child in the
 //! physical plan. It operates on the 3-way deferred `UnionArray` columns emitted
@@ -77,7 +77,7 @@ use tantivy::{DocId, SegmentOrdinal};
 /// and read by the scanner for early row pruning.
 ///
 /// As the exec builds up its per-segment heaps, it publishes the "worst"
-/// ordinal still in the top-K for each segment. The scanner can then skip
+/// ordinal still in the Top K for each segment. The scanner can then skip
 /// rows whose ordinal cannot beat that threshold, avoiding ctid lookups,
 /// visibility checks, and dictionary materialisation.
 ///
@@ -113,9 +113,9 @@ pub struct DeferredSortColumn {
 
 pub struct SegmentedTopKExec {
     input: Arc<dyn ExecutionPlan>,
-    /// The sort expressions defining the top-k order.
+    /// The sort expressions defining the Top K order.
     sort_exprs: LexOrdering,
-    /// The deferred string/bytes columns that are part of the top-k order.
+    /// The deferred string/bytes columns that are part of the Top K order.
     deferred_columns: Vec<DeferredSortColumn>,
     /// FFHelper for Tantivy fast field access (shared with TantivyLookupExec).
     ffhelper: Arc<FFHelper>,

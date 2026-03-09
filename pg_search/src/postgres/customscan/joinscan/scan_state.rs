@@ -253,7 +253,7 @@ fn build_relnode_df<'a>(
                     let source_plan_idx = plan_sources
                         .iter()
                         .position(|s| s.scan_info.heap_rti == source.scan_info.heap_rti)
-                        .unwrap_or(0);
+                        .unwrap();
                     // Count non-partitioning sources that appear before this one.
                     let np_pos = plan_sources
                         .iter()

@@ -202,6 +202,34 @@ pub struct JoinKeyPair {
     pub typbyval: bool,
 }
 
+impl JoinKeyPair {
+    pub fn resolve_against<'a>(
+        &self,
+        left: &'a RelNode,
+        right: &'a RelNode,
+    ) -> Option<(JoinKeySide<'a>, JoinKeySide<'a>)> {
+        if let (Some(left_source), Some(right_source)) = (
+            left.source_for_rti_in_subtree(self.outer_rti),
+            right.source_for_rti_in_subtree(self.inner_rti),
+        ) {
+            Some((
+                (left_source, self.outer_attno),
+                (right_source, self.inner_attno),
+            ))
+        } else if let (Some(left_source), Some(right_source)) = (
+            left.source_for_rti_in_subtree(self.inner_rti),
+            right.source_for_rti_in_subtree(self.outer_rti),
+        ) {
+            Some((
+                (left_source, self.inner_attno),
+                (right_source, self.outer_attno),
+            ))
+        } else {
+            None
+        }
+    }
+}
+
 /// A join-level search predicate - a search query that applies to a specific relation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinLevelSearchPredicate {
@@ -561,6 +589,8 @@ pub struct FilterNode {
     pub predicate: JoinLevelExpr,
 }
 
+type JoinKeySide<'a> = (&'a JoinSource, pg_sys::AttrNumber);
+
 // TODO: Implement `datafusion::common::tree_node::TreeNode` for `RelNode`.
 // This trait will likely be implemented in a future patch to enable functional, boilerplate-free
 // tree rewrites (using `.transform_up()` and `.transform_down()`). This is specifically
@@ -604,34 +634,6 @@ impl RelNode {
 
     pub fn source_for_rti_in_subtree(&self, rti: pg_sys::Index) -> Option<&JoinSource> {
         self.sources().into_iter().find(|s| s.contains_rti(rti))
-    }
-
-    pub fn resolve_join_key_to_current_sides(
-        &self,
-        key: &JoinKeyPair,
-    ) -> Option<(
-        &JoinSource,
-        pg_sys::AttrNumber,
-        &JoinSource,
-        pg_sys::AttrNumber,
-    )> {
-        let RelNode::Join(join) = self else {
-            return None;
-        };
-
-        if let (Some(left_source), Some(right_source)) = (
-            join.left.source_for_rti_in_subtree(key.outer_rti),
-            join.right.source_for_rti_in_subtree(key.inner_rti),
-        ) {
-            Some((left_source, key.outer_attno, right_source, key.inner_attno))
-        } else if let (Some(left_source), Some(right_source)) = (
-            join.left.source_for_rti_in_subtree(key.inner_rti),
-            join.right.source_for_rti_in_subtree(key.outer_rti),
-        ) {
-            Some((left_source, key.inner_attno, right_source, key.outer_attno))
-        } else {
-            None
-        }
     }
 
     /// Recursively collects all base join sources from this tree.

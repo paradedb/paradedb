@@ -287,8 +287,8 @@ fn build_relnode_df<'a>(
                     // Resolve key sides against the CURRENT join node first.
                     // This avoids binding to the wrong source when the same base table
                     // appears multiple times in the overall plan.
-                    let (left_source, left_attno, right_source, right_attno) = node
-                        .resolve_join_key_to_current_sides(jk)
+                    let ((left_source, left_attno), (right_source, right_attno)) = jk
+                        .resolve_against(&join.left, &join.right)
                         .ok_or_else(|| {
                             DataFusionError::Internal(format!(
                                 "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",

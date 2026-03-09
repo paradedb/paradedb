@@ -911,8 +911,8 @@ impl CustomScan for JoinScan {
                 RelNode::Filter(filter) => collect_join_cond_strings(&filter.input, acc),
                 RelNode::Join(join) => {
                     for jk in &join.equi_keys {
-                        let (left_source, left_attno, right_source, right_attno) = node
-                            .resolve_join_key_to_current_sides(jk)
+                        let ((left_source, left_attno), (right_source, right_attno)) = jk
+                            .resolve_against(&join.left, &join.right)
                             .unwrap_or_else(|| {
                                 panic!(
                                     "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",

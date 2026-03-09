@@ -35,10 +35,10 @@ ORDER BY id LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
          Index: numeric_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"numeric_col","value":"1","is_datetime":false}}]}}
 (9 rows)
 
@@ -71,10 +71,10 @@ ORDER BY id LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
          Index: numeric_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"numeric_col","lower_bound":{"excluded":"1"},"upper_bound":null,"is_datetime":false}}]}}
 (9 rows)
 
@@ -107,10 +107,10 @@ ORDER BY id LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
          Index: numeric_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"((numeric_col)::integer > 1)"}]}}]}}
 (10 rows)

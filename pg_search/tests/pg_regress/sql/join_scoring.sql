@@ -65,7 +65,7 @@ SET paradedb.enable_join_custom_scan = on;
 -- TEST 1: ORDER BY pdb.score() - Single Feature join pattern
 -- =============================================================================
 
--- This is the canonical "Single Feature" join pattern from the TopN spec.
+-- This is the canonical "Single Feature" join pattern from the Top K spec.
 -- Score propagation through JoinScan is supported - paradedb.score() returns
 -- the BM25 score from the search predicate on the driving side.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -90,7 +90,7 @@ LIMIT 5;
 -- This test verifies that paradedb.score() works correctly in SELECT
 -- even when ORDER BY is on a different column (not score).
 -- This is an edge case where scores must still be computed for output.
--- It works because TopN executor (used when LIMIT is present) always
+-- It works because Top K executor (used when LIMIT is present) always
 -- computes scores internally for ranking, regardless of ORDER BY.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score

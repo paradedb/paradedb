@@ -111,7 +111,7 @@
                         "pages": [
                           "documentation/sorting/score",
                           "documentation/sorting/boost",
-                          "documentation/sorting/topn"
+                          "documentation/sorting/topk"
                         ]
                       },
                       "documentation/filtering",

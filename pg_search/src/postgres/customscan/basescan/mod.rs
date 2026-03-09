@@ -33,7 +33,7 @@ use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, MAX_TOPN_FEATURES};
+use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
@@ -320,7 +320,7 @@ impl BaseScan {
 /// Used to determine if we should create a custom path even without @@@ operator.
 ///
 /// Also validates that pdb.agg() is not present - if it is, that means the planner hook
-/// didn't replace it (e.g., not a TopN query), and we should reject it.
+/// didn't replace it (e.g., not a Top K query), and we should reject it.
 unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
     if root.is_null() || (*root).parse.is_null() {
         return false;
@@ -350,9 +350,9 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
                         return true;
                     } else if func_oid == paradedb_agg_func_oid {
                         // pdb.agg() should have been replaced by planner hook
-                        // If it's still here, it means it wasn't a valid TopN query
+                        // If it's still here, it means it wasn't a valid Top K query
                         pgrx::error!(
-                            "pdb.agg() can only be used as a window function in TopN queries \
+                            "pdb.agg() can only be used as a window function in Top K queries \
                              (queries with ORDER BY and LIMIT). For GROUP BY aggregates, use standard \
                              SQL aggregates like COUNT(*), SUM(), etc. \
                              Hint: Try using '@@@ pdb.all()' with ORDER BY and LIMIT, \
@@ -608,7 +608,7 @@ impl CustomScan for BaseScan {
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
-            let topn_pathkey_info = pullup_topn_pathkeys(rti, &schema, root);
+            let topk_pathkey_info = pullup_topk_pathkeys(rti, &schema, root);
 
             #[cfg(feature = "pg15")]
             let baserels = (*builder.args().root).all_baserels;
@@ -653,7 +653,7 @@ impl CustomScan for BaseScan {
             // Save the count of referenced columns for decision-making
             custom_private.set_referenced_columns_count(referenced_columns.len());
 
-            let is_maybe_topn = limit.is_some() && topn_pathkey_info.is_usable();
+            let is_maybe_topk = limit.is_some() && topk_pathkey_info.is_usable();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
             // not just those in the target list. To avoid execution-time surprises, the "planned"
@@ -702,8 +702,8 @@ impl CustomScan for BaseScan {
             custom_private.set_segment_count(segment_count);
 
             // Determine whether we might be able to sort.
-            if is_maybe_topn && topn_pathkey_info.pathkeys().is_some() {
-                custom_private.set_maybe_orderby_info(topn_pathkey_info.pathkeys());
+            if is_maybe_topk && topk_pathkey_info.pathkeys().is_some() {
+                custom_private.set_maybe_orderby_info(topk_pathkey_info.pathkeys());
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
@@ -746,7 +746,7 @@ impl CustomScan for BaseScan {
 
             let exec_method_types = choose_exec_method(
                 &custom_private,
-                &topn_pathkey_info,
+                &topk_pathkey_info,
                 limit_is_explicit,
                 table.name(),
                 sort_by_pathkey.is_some(),
@@ -780,7 +780,7 @@ impl CustomScan for BaseScan {
                 // we must use this path if we need to do const projections for scores or snippets
                 path_builder = path_builder.set_force_path(
                     maybe_needs_const_projections
-                        || matches!(method, ExecMethodType::TopN { .. })
+                        || matches!(method, ExecMethodType::TopK { .. })
                         || quals.contains_all(),
                 );
 
@@ -841,10 +841,10 @@ impl CustomScan for BaseScan {
                 // indicate that we'll be doing projection ourselves
                 path_builder = path_builder.set_flag(Flags::Projection);
 
-                // If TopN, add pathkeys to builder
+                // If Top K, add pathkeys to builder
                 if matches!(
                     method,
-                    ExecMethodType::TopN {
+                    ExecMethodType::TopK {
                         orderby_info: Some(..),
                         ..
                     }
@@ -1174,7 +1174,7 @@ impl CustomScan for BaseScan {
         explainer.add_bool("Scores", state.custom_state().need_scores());
         if let Some(orderby_info) = state.custom_state().orderby_info().as_ref() {
             explainer.add_text(
-                "   TopN Order By",
+                "   TopK Order By",
                 orderby_info
                     .iter()
                     .map(|oi| match oi {
@@ -1206,7 +1206,7 @@ impl CustomScan for BaseScan {
         }
 
         if let Some(limit) = state.custom_state().limit() {
-            explainer.add_unsigned_integer("   TopN Limit", limit as u64, None);
+            explainer.add_unsigned_integer("   TopK Limit", limit as u64, None);
             if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
                     "   Queries",
@@ -1527,55 +1527,55 @@ unsafe fn is_minmax_implicit_limit(root: *mut pg_sys::PlannerInfo) -> bool {
 }
 
 ///
-/// Validates whether a query that should use TopN scan is actually using it.
+/// Validates whether a query that should use Top K scan is actually using it.
 ///
-/// When `paradedb.check_topn_scan` is enabled, this function checks if a query with LIMIT
-/// that uses ParadeDB's search operators is using the TopN execution method. If TopN was
+/// When `paradedb.check_topk_scan` is enabled, this function checks if a query with LIMIT
+/// that uses ParadeDB's search operators is using the Top K execution method. If Top K was
 /// expected but not chosen, it logs a warning with diagnostic information to help developers
 /// identify performance issues.
 ///
 /// # Performance Note
 /// This function has minimal overhead as it returns early when the GUC is disabled.
-fn validate_topn_expectation(
+fn validate_topk_expectation(
     privdata: &PrivateData,
-    topn_pathkey_info: &PathKeyInfo,
+    topk_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
     chosen_method: &ExecMethodType,
     table_name: &str,
 ) {
     // Fast path: if validation is disabled, return immediately
-    if !crate::gucs::check_topn_scan() {
+    if !crate::gucs::check_topk_scan() {
         return;
     }
 
-    // Check if this query should be using TopN
+    // Check if this query should be using Top K
     let has_limit = privdata.limit().is_some();
     let has_search_query = privdata.query().is_some();
     let no_group_by = privdata.window_aggregates().is_empty();
 
-    // TopN is expected when we have: explicit LIMIT + search query + no GROUP BY
-    let should_use_topn = has_limit && limit_is_explicit && has_search_query && no_group_by;
+    // Top K is expected when we have: explicit LIMIT + search query + no GROUP BY
+    let should_use_topk = has_limit && limit_is_explicit && has_search_query && no_group_by;
 
-    // Check if we actually got TopN
-    let is_using_topn = matches!(chosen_method, ExecMethodType::TopN { .. });
+    // Check if we actually got Top K
+    let is_using_topk = matches!(chosen_method, ExecMethodType::TopK { .. });
 
-    // If TopN is not expected or we're already using TopN, nothing to warn about
-    if !should_use_topn || is_using_topn {
+    // If Top K is not expected or we're already using Top K, nothing to warn about
+    if !should_use_topk || is_using_topk {
         return;
     }
 
-    // At this point: should_use_topn is true AND we're not using TopN - emit warning
+    // At this point: should_use_topk is true AND we're not using Top K - emit warning
     let limit = privdata.limit().unwrap();
     let method_name = match chosen_method {
         ExecMethodType::Normal => "Normal",
         ExecMethodType::FastFieldMixed { .. } => "FastFieldMixed",
-        ExecMethodType::TopN { .. } => "TopN",
+        ExecMethodType::TopK { .. } => "TopK",
     };
 
-    let (reason, remedies) = match topn_pathkey_info {
+    let (reason, remedies) = match topk_pathkey_info {
         PathKeyInfo::Unusable(UnusableReason::TooManyColumns { count, max }) => (
             format!(
-                "ORDER BY has {} columns but TopN supports maximum {}",
+                "ORDER BY has {} columns but Top K supports maximum {}",
                 count, max
             ),
             format!("Reduce ORDER BY columns to {} or fewer", max),
@@ -1609,8 +1609,8 @@ fn validate_topn_expectation(
                 .to_string(),
         ),
         PathKeyInfo::None => (
-            // This case should normally use TopN with no ordering
-            "unknown reason (no pathkeys but should still use TopN)".to_string(),
+            // This case should normally use Top K with no ordering
+            "unknown reason (no pathkeys but should still use Top K)".to_string(),
             "This is unexpected - please report this issue".to_string(),
         ),
         PathKeyInfo::UsableAll(_) => (
@@ -1621,11 +1621,11 @@ fn validate_topn_expectation(
 
     BaseScan::add_planner_warning(
         format!(
-            "Query has LIMIT {} but is not using TopN scan (using {} instead). \
+            "Query has LIMIT {} but is not using Top K scan (using {} instead). \
              Reason: {}. \
              This may cause poor performance on large datasets. \
              Remedies: {}. \
-             To disable this warning: SET paradedb.check_topn_scan = false",
+             To disable this warning: SET paradedb.check_topk_scan = false",
             limit, method_name, reason, remedies
         ),
         table_name,
@@ -1649,44 +1649,44 @@ fn validate_topn_expectation(
 ///
 fn choose_exec_method(
     privdata: &PrivateData,
-    topn_pathkey_info: &PathKeyInfo,
+    topk_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
     table_name: &str,
     has_sort_by_pathkey: bool,
 ) -> Vec<ExecMethodType> {
-    // See if we can use TopN.
+    // See if we can use Top K.
     if let Some(limit) = privdata.limit() {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
-            // having a valid limit and sort direction means we can do a TopN query
-            // and TopN can do snippets
-            let method = ExecMethodType::TopN {
+            // having a valid limit and sort direction means we can do a Top K query
+            // and Top K can do snippets
+            let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: Some(orderby_info.clone()),
                 window_aggregates: privdata.window_aggregates().clone(),
             };
-            validate_topn_expectation(
+            validate_topk_expectation(
                 privdata,
-                topn_pathkey_info,
+                topk_pathkey_info,
                 limit_is_explicit,
                 &method,
                 table_name,
             );
             return vec![method];
         }
-        if matches!(topn_pathkey_info, PathKeyInfo::None) {
-            // we have a limit but no pathkeys at all. we can still go through our "top n"
+        if matches!(topk_pathkey_info, PathKeyInfo::None) {
+            // we have a limit but no pathkeys at all. we can still go through our "top k"
             // machinery, but getting "limit" (essentially) random docs, which is what the user
             // asked for
-            let method = ExecMethodType::TopN {
+            let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: None,
                 window_aggregates: privdata.window_aggregates().clone(),
             };
-            validate_topn_expectation(
+            validate_topk_expectation(
                 privdata,
-                topn_pathkey_info,
+                topk_pathkey_info,
                 limit_is_explicit,
                 &method,
                 table_name,
@@ -1728,9 +1728,9 @@ fn choose_exec_method(
         }
 
         // Validate expectations for the first method (Unsorted)
-        validate_topn_expectation(
+        validate_topk_expectation(
             privdata,
-            topn_pathkey_info,
+            topk_pathkey_info,
             limit_is_explicit,
             &methods[0],
             table_name,
@@ -1741,9 +1741,9 @@ fn choose_exec_method(
 
     // Else, fall back to normal execution
     let method = ExecMethodType::Normal;
-    validate_topn_expectation(
+    validate_topk_expectation(
         privdata,
-        topn_pathkey_info,
+        topk_pathkey_info,
         limit_is_explicit,
         &method,
         table_name,
@@ -1763,13 +1763,13 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
         ExecMethodType::Normal => builder
             .custom_state()
             .assign_exec_method(NormalScanExecState::default(), Some(ExecMethodType::Normal)),
-        ExecMethodType::TopN {
+        ExecMethodType::TopK {
             heaprelid,
             limit,
             orderby_info,
             window_aggregates: _,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
+            exec_methods::top_k::TopKScanExecState::new(heaprelid, limit, orderby_info),
             None,
         ),
 
@@ -2086,14 +2086,14 @@ unsafe fn replace_window_agg_with_const(
 }
 
 /// Determine whether there are any pathkeys at all, and whether we might be able to push down
-/// ordering in TopN.
+/// ordering in Top K.
 ///
 /// If between 1 and 3 pathkeys are declared, and are indexed as fast, then return
-/// `UsableAll(Vec<OrderByStyles>)` for them for use in TopN.
+/// `UsableAll(Vec<OrderByStyles>)` for them for use in Top K.
 ///
-/// This function must be kept in sync with `validate_topn_compatibility` in `hook.rs` to ensure
+/// This function must be kept in sync with `validate_topk_compatibility` in `hook.rs` to ensure
 /// that queries validated during the planner hook phase can be executed by the custom scan.
-unsafe fn pullup_topn_pathkeys(
+unsafe fn pullup_topk_pathkeys(
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
@@ -2105,20 +2105,20 @@ unsafe fn pullup_topn_pathkeys(
         |search_field| search_field.is_raw_sortable(),
         |search_field| search_field.is_lower_sortable(),
     ) {
-        PathKeyInfo::UsableAll(styles) if styles.len() <= MAX_TOPN_FEATURES => {
-            // TopN is the base scan's only executor which supports sorting, and supports up to
-            // MAX_TOPN_FEATURES order-by clauses.
+        PathKeyInfo::UsableAll(styles) if styles.len() <= MAX_TOPK_FEATURES => {
+            // Top K is the base scan's only executor which supports sorting, and supports up to
+            // MAX_TOPK_FEATURES order-by clauses.
             PathKeyInfo::UsableAll(styles)
         }
         PathKeyInfo::UsableAll(ref styles) => {
             // Too many pathkeys were extracted.
             PathKeyInfo::Unusable(UnusableReason::TooManyColumns {
                 count: styles.len(),
-                max: MAX_TOPN_FEATURES,
+                max: MAX_TOPK_FEATURES,
             })
         }
         PathKeyInfo::UsablePrefix(ref prefix) => {
-            // TopN cannot execute for a prefix of pathkeys, because it eliminates results before
+            // Top K cannot execute for a prefix of pathkeys, because it eliminates results before
             // the suffix of the pathkey comes into play.
             PathKeyInfo::Unusable(UnusableReason::PrefixOnly {
                 matched: prefix.len(),
@@ -2345,9 +2345,9 @@ unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64) {
 /// 1. The parse tree contains a LEFT JOIN node
 /// 2. That LEFT JOIN's right side is marked as LATERAL in the range table
 ///
-/// This enables TopN optimization because LEFT JOIN semantics guarantee all
+/// This enables Top K optimization because LEFT JOIN semantics guarantee all
 /// left-side rows are preserved. If WHERE/ORDER BY/LIMIT only reference the
-/// left table, we can safely apply TopN to the left scan before the join.
+/// left table, we can safely apply Top K to the left scan before the join.
 unsafe fn is_left_join_lateral(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
@@ -2469,8 +2469,8 @@ unsafe fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query
 
 /// Verify WHERE clause only references the left table (current relation)
 ///
-/// This method is used to check whether we can safely push down a LEFT LATERAL JOIN as TopN.
-/// Because TopN eliminates rows _before_ the JOIN is actually executed, the WHERE clause (and
+/// This method is used to check whether we can safely push down a LEFT LATERAL JOIN as Top K.
+/// Because Top K eliminates rows _before_ the JOIN is actually executed, the WHERE clause (and
 /// join condition) may only reference the left hand side of the join to avoid eliminating rows via the
 /// limit which would be filtered by conditions on the right hand side.
 unsafe fn where_clause_only_references_left(

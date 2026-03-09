@@ -51,7 +51,7 @@ pub struct PrivateData {
     // Stores the entire simplified Boolean expression to preserve OR structures like (TRUE OR name:"Rowling")
     join_predicates: Option<SearchQueryInput>,
     ambulkdelete_epoch: u32,
-    // Window aggregates to compute during TopN execution
+    // Window aggregates to compute during Top K execution
     window_aggregates: Vec<WindowAggregateInfo>,
     // Whether this path was chosen as a sorted path (declares pathkeys for index's sort_by field).
     // When true, the execution should use the sorted merge path for segment scanning.

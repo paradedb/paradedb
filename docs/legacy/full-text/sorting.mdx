@@ -78,7 +78,7 @@ LIMIT 5;
          Scores: false
             Sort Field: rating
             Sort Direction: desc
-            Top N Limit: 5
+            TopK Limit: 5
          Tantivy Query: {"WithIndex":{"query":{"ParseWithField":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 ```
@@ -120,7 +120,7 @@ LIMIT 5;
          Scores: false
             Sort Field: category
             Sort Direction: desc
-            Top N Limit: 5
+            TopK Limit: 5
          Tantivy Query: {"ParseWithField":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}
 (9 rows)
 ```
@@ -166,11 +166,11 @@ You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the
                Index: sales_index
                Segment Count: 1
                Heap Fetches: 0
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: true
                   Sort Field: pdb.score()
                   Sort Direction: asc
-                  Top N Limit: 10
+                  TopK Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
  Planning Time: 1.488 ms
  Execution Time: 1.651 ms

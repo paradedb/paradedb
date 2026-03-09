@@ -1,4 +1,4 @@
--- Test for SegmentedTopKExec: per-segment Top-K pruning using term ordinals.
+-- Test for SegmentedTopKExec: per-segment Top K pruning using term ordinals.
 -- Verifies that SegmentedTopKExec is injected below TantivyLookupExec for
 -- ORDER BY <deferred_string_column> LIMIT K queries, and that results are correct.
 SET max_parallel_workers_per_gather = 0;

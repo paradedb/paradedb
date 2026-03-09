@@ -23,7 +23,7 @@ CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING bm25 (
 
 SELECT * FROM paradedb.schema('idxtokenizer_fast') ORDER BY name;
 
--- Top N over literal
+-- Top K over literal
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
@@ -33,7 +33,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER BY t LIMIT 5;
 SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER BY t LIMIT 5;
 
--- Top N over literal normalized
+-- Top K over literal normalized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;

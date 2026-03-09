@@ -86,7 +86,7 @@ impl ToWarningContexts for Vec<String> {
 /// Add a warning to be emitted at the end of the planning phase.
 ///
 /// # Arguments
-/// * `category` - The category of the warning (e.g., Join, TopN)
+/// * `category` - The category of the warning (e.g., Join, Top K)
 /// * `message` - The generic warning message (e.g., "JoinScan not used: query must have a LIMIT clause")
 /// * `contexts` - Contexts (e.g., table aliases) to associate with this warning.
 ///   Supported types:
@@ -104,7 +104,7 @@ pub fn add_planner_warning<S1: Into<String>, S2: Into<String>, C: ToWarningConte
 /// Add a detailed warning to be emitted at the end of the planning phase.
 ///
 /// # Arguments
-/// * `category` - The category of the warning (e.g., Join, TopN)
+/// * `category` - The category of the warning (e.g., Join, Top K)
 /// * `message` - The generic warning message (e.g., "JoinScan not used: query must have a LIMIT clause")
 /// * `contexts` - Contexts (e.g., table aliases) to associate with this warning.
 /// * `details` - Additional details (e.g. types) to union for this warning.

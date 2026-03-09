@@ -9,7 +9,7 @@ CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (lower(description)::pdb.literal), rating)
 WITH (key_field='id');
 
--- This gets a TopN scan
+-- This gets a Top K scan
 EXPLAIN SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
@@ -20,7 +20,7 @@ WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
 LIMIT 5;
 
--- No TopN scan
+-- No Top K scan
 EXPLAIN SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY description DESC

@@ -30,7 +30,7 @@
 //! The core strategy is **late materialization**:
 //! 1. Execute the search and join using ONLY the index (fast fields).
 //! 2. Apply sorting and limits on the joined index data.
-//! 3. Only access the PostgreSQL heap (materialize) for the final result rows (top N).
+//! 3. Only access the PostgreSQL heap (materialize) for the final result rows (Top K).
 //!
 //! This strategy requires that all data needed for the join, filter, and sort phases
 //! resides in fast fields, and that the result set size is small enough (via LIMIT)

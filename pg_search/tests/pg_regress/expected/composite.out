@@ -1549,11 +1549,11 @@ ORDER BY id;
 (1 row)
 
 ------------------------------------------------------------
--- TEST: TopN Scan (ORDER BY with LIMIT)
+-- TEST: Top K Scan (ORDER BY with LIMIT)
 ------------------------------------------------------------
-\echo '=== TEST: TopN Scan ==='
-=== TEST: TopN Scan ===
--- Basic TopN with EXPLAIN
+\echo '=== TEST: Top K Scan ==='
+=== TEST: Top K Scan ===
+-- Basic Top K with EXPLAIN
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test
@@ -1566,14 +1566,14 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: rating desc, id asc
-            TopN Limit: 3
+            TopK Order By: rating desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes OR name:Keyboard OR name:Mouse","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
--- Execute TopN query
+-- Execute Top K query
 SELECT id, name, rating
 FROM smoke_test
 WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
@@ -1586,7 +1586,7 @@ LIMIT 3;
   2 | Wireless Keyboard |    4.2
 (3 rows)
 
--- TopN with score ordering
+-- Top K with score ordering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test
@@ -1599,10 +1599,10 @@ LIMIT 2;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 2
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:keyboard","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -1754,7 +1754,7 @@ ORDER BY count DESC, category;
 ------------------------------------------------------------
 \echo '=== TEST: pdb.agg() Window Function ==='
 === TEST: pdb.agg() Window Function ===
--- pdb.agg with terms aggregation (requires TopN query)
+-- pdb.agg with terms aggregation (requires Top K query)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, category,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as category_facets
@@ -1768,10 +1768,10 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -1788,7 +1788,7 @@ LIMIT 3;
   3 | Gaming Mouse      | Electronics | {"buckets": [{"key": "Electronics", "doc_count": 3}, {"key": "Footwear", "doc_count": 2}, {"key": "Sports", "doc_count": 2}, {"key": "Kitchen", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (3 rows)
 
--- pdb.agg with avg aggregation (requires TopN query)
+-- pdb.agg with avg aggregation (requires Top K query)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating,
        pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER () as avg_rating
@@ -1802,10 +1802,10 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -1836,10 +1836,10 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -2134,7 +2134,7 @@ WHERE id @@@ pdb.parse('name:Shoes');
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes","lenient":null,"conjunction_mode":null}}}}
 (6 rows)
 
--- TopNScanExecState - search with ORDER BY score DESC and LIMIT
+-- TopKScanExecState - search with ORDER BY score DESC and LIMIT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test
@@ -2147,14 +2147,14 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 3
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:keyboard","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
--- TopNScanExecState - search with ORDER BY fast field and LIMIT
+-- TopKScanExecState - search with ORDER BY fast field and LIMIT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test
@@ -2167,10 +2167,10 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: rating desc, id asc
-            TopN Limit: 3
+            TopK Order By: rating desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes OR name:Keyboard OR name:Mouse","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -2189,7 +2189,7 @@ WHERE id @@@ pdb.parse('category:Electronics');
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
--- Verify TopN with pdb.agg window function
+-- Verify Top K with pdb.agg window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as facets
@@ -2203,10 +2203,10 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -2453,11 +2453,11 @@ SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY
 (2 rows)
 
 ------------------------------------------------------------
--- TEST: TopN queries with pdb functions on composite fields
+-- TEST: Top K queries with pdb functions on composite fields
 ------------------------------------------------------------
-\echo '=== TEST: TopN with pdb functions on composite fields ==='
-=== TEST: TopN with pdb functions on composite fields ===
--- TopN with pdb.term() on composite field, ORDER BY score
+\echo '=== TEST: Top K with pdb functions on composite fields ==='
+=== TEST: Top K with pdb functions on composite fields ===
+-- Top K with pdb.term() on composite field, ORDER BY score
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('shoes')
@@ -2468,10 +2468,10 @@ ORDER BY score DESC, id LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 3
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"shoes","is_datetime":false}}}}
 (9 rows)
 
@@ -2483,7 +2483,7 @@ ORDER BY score DESC, id LIMIT 3;
   1 | Running Shoes | 1.7917595
 (1 row)
 
--- TopN with pdb.match() on composite field, ORDER BY rating (fast field)
+-- Top K with pdb.match() on composite field, ORDER BY rating (fast field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test WHERE description @@@ pdb.match('wireless OR shoes')
@@ -2494,10 +2494,10 @@ ORDER BY rating DESC, id LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: rating desc, id asc
-            TopN Limit: 3
+            TopK Order By: rating desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"wireless OR shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -2510,7 +2510,7 @@ ORDER BY rating DESC, id LIMIT 3;
   2 | Wireless Keyboard |    4.2
 (2 rows)
 
--- TopN with pdb.regex() on composite field
+-- Top K with pdb.regex() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE description @@@ pdb.regex('.*boot.*')
@@ -2521,10 +2521,10 @@ ORDER BY score DESC, id LIMIT 2;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 2
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"regex":{"field":"description","pattern":".*boot.*"}}}}
 (9 rows)
 
@@ -2536,7 +2536,7 @@ ORDER BY score DESC, id LIMIT 2;
   6 | Hiking Boots |     1
 (1 row)
 
--- TopN with multiple composite field conditions
+-- Top K with multiple composite field conditions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')
@@ -2547,10 +2547,10 @@ ORDER BY score DESC, id LIMIT 2;
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 2
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"term":{"field":"name","value":"wireless","is_datetime":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 

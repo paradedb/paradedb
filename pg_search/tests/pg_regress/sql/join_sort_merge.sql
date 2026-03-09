@@ -1,5 +1,5 @@
 -- Test for the JoinScan Custom Scan planning
--- SortMergeJoin mechanics, sorting by join keys, TopK dynamic filters.
+-- SortMergeJoin mechanics, sorting by join keys, Top K dynamic filters.
 
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
@@ -172,9 +172,9 @@ ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
 
 -- =============================================================================
--- TEST 5: TopK dynamic filter pushdown through SortMergeJoin
+-- TEST 5: Top K dynamic filter pushdown through SortMergeJoin
 -- ORDER BY differs from join key => SortExec(TopK) stays in the plan.
--- Multiple segments ensure the scan produces multiple batches so TopK can
+-- Multiple segments ensure the scan produces multiple batches so Top K can
 -- tighten its threshold between batches and the pre-filter actually prunes.
 -- =============================================================================
 
@@ -208,7 +208,7 @@ WHERE t1.val @@@ 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
 
--- Cap the scanner batch size so TopK can tighten its threshold between batches.
+-- Cap the scanner batch size so Top K can tighten its threshold between batches.
 SET paradedb.dynamic_filter_batch_size = 8192;
 
 -- EXPLAIN ANALYZE: rows_pruned should be > 0 with multiple segments
@@ -229,14 +229,14 @@ ORDER BY t1.val ASC
 LIMIT 10;
 
 -- =============================================================================
--- TEST 6: TopK dynamic filter does not prune NULLs
--- TopK emits "col IS NULL OR col < threshold". Rows with NULL in the ORDER BY
+-- TEST 6: Top K dynamic filter does not prune NULLs
+-- Top K emits "col IS NULL OR col < threshold". Rows with NULL in the ORDER BY
 -- column must survive the pre-filter (nulls_pass=true) and be returned when
--- they belong in the top-K. Without nulls_pass, the pre-filter would
+-- they belong in the Top K. Without nulls_pass, the pre-filter would
 -- incorrectly discard NULLs.
 --
--- Uses DESC NULLS FIRST so NULLs sort first and belong in the top-K result.
--- NULLs are placed at high IDs so they land in a later scan batch (after TopK
+-- Uses DESC NULLS FIRST so NULLs sort first and belong in the Top K result.
+-- NULLs are placed at high IDs so they land in a later scan batch (after Top K
 -- has already tightened its threshold from earlier batches). This ensures the
 -- pre-filter is active when it encounters NULL values.
 -- =============================================================================
@@ -255,7 +255,7 @@ WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t
 
 -- 20K rows. Most have non-NULL val, but the last 10 (ids 19991-20000) are NULL.
 -- With mutable_segment_rows=10000 the NULLs land in segment 2's later batch,
--- which is processed after TopK has updated its threshold.
+-- which is processed after Top K has updated its threshold.
 INSERT INTO null_val_t1
   SELECT i,
          CASE WHEN i > 19990 THEN NULL ELSE 'val ' || i END

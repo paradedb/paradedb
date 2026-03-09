@@ -65,7 +65,7 @@ SET paradedb.min_rows_per_worker = 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 
--- Test 4: TopN query with ORDER BY score and LIMIT
+-- Test 4: Top K query with ORDER BY score and LIMIT
 -- With high threshold, parallel should be disabled for 10000 rows
 SET paradedb.min_rows_per_worker = 300000;
 

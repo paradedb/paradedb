@@ -20,7 +20,7 @@ use std::cell::RefCell;
 use crate::api::{HashMap, MvccVisibility, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{
-    SearchIndexReader, TopNAuxiliaryCollector, TopNSearchResults, MAX_TOPN_FEATURES,
+    SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
 };
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::AggregateType;
@@ -51,7 +51,7 @@ struct PreparedAggregations {
     mvcc_enabled: bool,
 }
 
-pub struct TopNScanExecState {
+pub struct TopKScanExecState {
     // required
     limit: usize,
     orderby_info: Option<Vec<OrderByInfo>>,
@@ -61,7 +61,7 @@ pub struct TopNScanExecState {
     search_reader: Option<SearchIndexReader>,
 
     // state tracking
-    search_results: TopNSearchResults,
+    search_results: TopKSearchResults,
     nresults: usize,
     did_query: bool,
     exhausted: bool,
@@ -75,14 +75,14 @@ pub struct TopNScanExecState {
     window_aggregates: Vec<WindowAggregateInfo>,
 }
 
-impl TopNScanExecState {
+impl TopKScanExecState {
     pub fn new(
         heaprelid: pg_sys::Oid,
         limit: usize,
         orderby_info: Option<Vec<OrderByInfo>>,
     ) -> Self {
-        if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPN_FEATURES) {
-            panic!("Cannot sort by more than {MAX_TOPN_FEATURES} features.");
+        if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPK_FEATURES) {
+            panic!("Cannot sort by more than {MAX_TOPK_FEATURES} features.");
         }
 
         // the scale_factor to multiply the limit that the query asked for by
@@ -109,7 +109,7 @@ impl TopNScanExecState {
             orderby_info,
             search_query_input: None,
             search_reader: None,
-            search_results: TopNSearchResults::empty(),
+            search_results: TopKSearchResults::empty(),
             nresults: 0,
             did_query: false,
             exhausted: false,
@@ -132,7 +132,7 @@ impl TopNScanExecState {
     ///    one segment and adding it to the Collector before attempting to claim another. This
     ///    allows all of the workers to load balance the work of searching the segments.
     ///    b. Nth execution: eagerly emits all segments which were previously collected. This is
-    ///    necessary to allow for re-scans (when a Top-N result later proves not to be visible)
+    ///    necessary to allow for re-scans (when a Top K result later proves not to be visible)
     ///    to consistently revisit the same segments.
     fn segments_to_query<'s>(
         &'s self,
@@ -286,7 +286,7 @@ impl TopNScanExecState {
     }
 }
 
-impl ExecMethod for TopNScanExecState {
+impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
     fn init(&mut self, state: &mut BaseScanState, _cstate: *mut pg_sys::CustomScanState) {
         // Call the default init behavior first
@@ -311,7 +311,7 @@ impl ExecMethod for TopNScanExecState {
             return false;
         }
 
-        // We track the total number of queries executed by Top-N (for any of the above reasons).
+        // We track the total number of queries executed by Top K (for any of the above reasons).
         state.increment_query_count();
 
         // Calculate the limit for this query, and what the offset will be for the next query.
@@ -339,7 +339,7 @@ impl ExecMethod for TopNScanExecState {
             .tokenizers()
             .clone();
 
-        // Run the TopN (and optional aggregate) query.
+        // Run the Top K (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
                 // Create the aggregation collector
@@ -361,7 +361,7 @@ impl ExecMethod for TopNScanExecState {
                     None
                 };
 
-                TopNAuxiliaryCollector {
+                TopKAuxiliaryCollector {
                     aggregation_collector,
                     vischeck,
                 }
@@ -369,7 +369,7 @@ impl ExecMethod for TopNScanExecState {
             self.search_reader
                 .as_ref()
                 .unwrap()
-                .search_top_n_in_segments(
+                .search_top_k_in_segments(
                     self.segments_to_query(
                         state.search_reader.as_ref().unwrap(),
                         state.parallel_state,
@@ -383,7 +383,7 @@ impl ExecMethod for TopNScanExecState {
             self.search_reader
                 .as_ref()
                 .unwrap()
-                .search_top_n_unordered_in_segments(
+                .search_top_k_unordered_in_segments(
                     self.segments_to_query(
                         state.search_reader.as_ref().unwrap(),
                         state.parallel_state,
@@ -469,14 +469,14 @@ impl ExecMethod for TopNScanExecState {
             // set the chunk size to the scaling factor times the limit
             // on subsequent retries, multiply the chunk size by the scale factor
             // but do not exceed the max chunk size
-            self.chunk_size = (self.chunk_size * crate::gucs::topn_retry_scale_factor() as usize)
+            self.chunk_size = (self.chunk_size * crate::gucs::topk_retry_scale_factor() as usize)
                 .max(
                     (self.limit as f64
                         * self.scale_factor
-                        * crate::gucs::topn_retry_scale_factor() as f64)
+                        * crate::gucs::topk_retry_scale_factor() as f64)
                         as usize,
                 )
-                .min(crate::gucs::max_topn_chunk_size() as usize);
+                .min(crate::gucs::max_topk_chunk_size() as usize);
 
             // Then try querying again, and continue looping if we got more results.
             if !self.query(state) {
@@ -492,10 +492,10 @@ impl ExecMethod for TopNScanExecState {
         self.exhausted = false;
         self.search_query_input = Some(state.search_query_input().clone());
         self.search_reader = state.search_reader.clone();
-        self.search_results = TopNSearchResults::empty();
+        self.search_results = TopKSearchResults::empty();
 
         // Get window aggregates from state if available
-        if let ExecMethodType::TopN {
+        if let ExecMethodType::TopK {
             window_aggregates, ..
         } = &state.exec_method_type
         {

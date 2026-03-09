@@ -224,7 +224,7 @@ impl Scanner {
     }
 
     /// Fetch the next batch of results, applying visibility checks,
-    /// dynamic `SegmentedThresholds` (for TopK queries), and
+    /// dynamic `SegmentedThresholds` (for Top K queries), and
     /// pre-materialization filters.
     ///
     /// `pre_filters` are applied after visibility checks but *before* column
@@ -277,7 +277,7 @@ impl Scanner {
             (before, before - ids.len())
         };
 
-        // Apply segmented top-K ordinal thresholds before pre-filters and visibility.
+        // Apply segmented Top K ordinal thresholds before pre-filters and visibility.
         if let Some(threshold_expr) = self
             .segmented_thresholds
             .as_ref()

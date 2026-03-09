@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773085590669,
+  "lastUpdate": 1773090666563,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3878,6 +3878,78 @@ window.BENCHMARK_DATA = {
             "value": 75.69998258935162,
             "unit": "median tps",
             "extra": "avg tps: 90.96611338533067, max tps: 287.9822695076309, count: 54945"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eab673821185f7adaac007bbedbad6d0894f14f5",
+          "message": "feat: Allow anti joins (#4314)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdd support + testing for queries with a single anti join (and no other\njoins).\n\n## Why\n\n## How\n\n## Tests\n\nUpdated proptests to add coverage for anti joins",
+          "timestamp": "2026-03-09T13:51:05-07:00",
+          "tree_id": "9b3f87f2a7181e4d91694c3d2416f510db33ebd6",
+          "url": "https://github.com/paradedb/paradedb/commit/eab673821185f7adaac007bbedbad6d0894f14f5"
+        },
+        "date": 1773090661368,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 136.26305698172283,
+            "unit": "median tps",
+            "extra": "avg tps: 136.2915925937041, max tps: 149.7117637752852, count: 54957"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2904.1681195569445,
+            "unit": "median tps",
+            "extra": "avg tps: 2896.414280310574, max tps: 3008.377840004402, count: 54957"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 528.086378938951,
+            "unit": "median tps",
+            "extra": "avg tps: 522.2747964383016, max tps: 539.5585366819402, count: 54957"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2928.5211602608965,
+            "unit": "median tps",
+            "extra": "avg tps: 2925.7593606971222, max tps: 2964.6725928856113, count: 109914"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 582.242714443518,
+            "unit": "median tps",
+            "extra": "avg tps: 578.1830856811023, max tps: 695.3434209691763, count: 54957"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 513.7769561471406,
+            "unit": "median tps",
+            "extra": "avg tps: 513.7822705769441, max tps: 665.575264096039, count: 54957"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1992.3303986582773,
+            "unit": "median tps",
+            "extra": "avg tps: 1983.771466054531, max tps: 1999.9312409860593, count: 54957"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 64.35540648666658,
+            "unit": "median tps",
+            "extra": "avg tps: 78.57285705576219, max tps: 215.92628292404703, count: 54957"
           }
         ]
       }

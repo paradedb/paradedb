@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773084030353,
+  "lastUpdate": 1773084037348,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24166,6 +24166,108 @@ window.BENCHMARK_DATA = {
             "value": 162.44921875,
             "unit": "median mem",
             "extra": "avg mem: 181.3486363565261, max mem: 220.78125, count: 55937"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cb747cd6cd33408b24ec05516e911e1220ee5ed",
+          "message": "feat(joinscan): Add DISTINCT support to JoinScan (#4305)\n\nCloses #4213\n\n## Why\n\nQueries with `DISTINCT` were rejected by `JoinScan` because PostgreSQL\nsets `limit_tuples = -1.0` when `DISTINCT` is present, causing LIMIT\nextraction to fail. This forced fallback to native PG execution,\nbypassing late materialization and TopK benefits for common patterns\nlike joining a \"One\" side to a \"Many\" side with deduplication.\n\n## How\n\n- Extract `LIMIT` from the parse tree directly when `limit_tuples ==\n-1.0`\n- Validate that all DISTINCT columns are fast fields (same constraint as\nORDER BY)\n- Push DISTINCT into DataFusion as `GROUP BY + min(ctid)` before the\nsort step, using positional `col_N` aliases to handle duplicate column\nnames across tables\n- Expand `required_early` to include ORDER BY columns when DISTINCT is\npresent, fixing a late materialization schema mismatch\n- Bail out early when `hasAggs` is true — `COUNT(*) ... LIMIT N` would\notherwise return `N` instead of the true count\n- Register `min` UDAF in the session context for logical plan\nserialization\n\n## Tests\n\nAdded `join_distinct.sql` with 15 regression tests covering JoinScan\nactivation, deduplication correctness, score columns, 3-table joins,\nfallback cases (non-fast-field, no LIMIT, aggregates), and result parity\nwith native PG execution.\n\n---------\n\nSigned-off-by: Ruchir Raj <ruchirraj24@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-09T11:33:37-07:00",
+          "tree_id": "2a5fb0f42e72292d218e71a1d5cf18dc86e29444",
+          "url": "https://github.com/paradedb/paradedb/commit/6cb747cd6cd33408b24ec05516e911e1220ee5ed"
+        },
+        "date": 1773084032545,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.059311474242586065, max background_merging: 2.0, count: 56178"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.705964851867719, max cpu: 9.795918, count: 56178"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 25.943047517489052, max mem: 25.94921875, count: 56178"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.022794308374236, max cpu: 27.934044, count: 56178"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 186.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 180.19933167231835, max mem: 186.33984375, count: 56178"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 54481,
+            "unit": "median block_count",
+            "extra": "avg block_count: 54327.48209263413, max block_count: 54481.0, count: 56178"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 44,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.59398696998825, max segment_count: 57.0, count: 56178"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.58868659814533, max cpu: 23.460411, count: 56178"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 139.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 128.70288086806667, max mem: 157.046875, count: 56178"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.148444574857243, max cpu: 32.621357, count: 56178"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 195.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 193.8528727882801, max mem: 226.08203125, count: 56178"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.83369539997216, max cpu: 33.333336, count: 56178"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 180.46320971398947, max mem: 220.9609375, count: 56178"
           }
         ]
       }

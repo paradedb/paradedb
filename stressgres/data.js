@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773079418555,
+  "lastUpdate": 1773079425510,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10656,6 +10656,138 @@ window.BENCHMARK_DATA = {
             "value": 53.3515625,
             "unit": "median mem",
             "extra": "avg mem: 52.606287465807625, max mem: 64.37109375, count: 54654"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "64751481+y0g38h-kum4r@users.noreply.github.com",
+            "name": "y0g38h-kum4r",
+            "username": "y0g38h-kum4r"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e50b799f190c57abbb93ad3fc55f8233f22eab6c",
+          "message": "fix: replace ParadeDb Scan with ParadeDb Base Scan (#4313)\n\n# Ticket(s) Closed\n\n- Closes #4295\n\n## What\n\nReplaces instances of \"ParadeDb Scan\" with \"ParadeDb Base Scan\"\n\n## Why\n\nParadeDb now supports \"ParadeDb Aggregate Scan\" and \"ParadeDb Join Scan\"\nas well. To prevent misassociation of \"ParadeDb Scan\" with these two\nscans, replaced with \"ParadeDb Base Scan\".\n\n## How\n\nFound out instances of \"ParadeDb Scan\" (case insensitive) and then\nreplaced the same with \"ParadeDb Base Scan\".\nFixed the query plans' separators in .out files due to extra characters.\nManually verified each line change. \n \n## Tests",
+          "timestamp": "2026-03-09T13:42:52-04:00",
+          "tree_id": "053e734bed4be387b698ae3fc361b76092b67cea",
+          "url": "https://github.com/paradedb/paradedb/commit/e50b799f190c57abbb93ad3fc55f8233f22eab6c"
+        },
+        "date": 1773079420280,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.587144581485486, max cpu: 24.120604, count: 55027"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.268903433200975, max mem: 74.859375, count: 55027"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.604301329539454, max cpu: 9.338522, count: 55027"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 34.87575857647155, max mem: 36.16796875, count: 55027"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.561492124131575, max cpu: 9.329447, count: 55027"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.04823413392516, max mem: 73.109375, count: 55027"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.684150110654687, max cpu: 9.284333, count: 110054"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.198350532749835, max mem: 60.515625, count: 110054"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.511571245912164, max cpu: 18.953604, count: 55027"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 62.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.38444564713686, max mem: 73.984375, count: 55027"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1801,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1804.4351136714704, max block_count: 3204.0, count: 55027"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 19,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 18.727097606629474, max segment_count: 35.0, count: 55027"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.275955208397702, max cpu: 18.879055, count: 55027"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.201880724462534, max mem: 73.796875, count: 55027"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.471960038093393, max cpu: 4.743083, count: 55027"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 58.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.3130000386174, max mem: 69.7421875, count: 55027"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.853492150174589, max cpu: 9.248554, count: 55027"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.27810062276246, max mem: 67.25390625, count: 55027"
           }
         ]
       }

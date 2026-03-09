@@ -30,7 +30,7 @@ if [ "${PG_TUNE_ENABLED:-true}" = "false" ]; then
 fi
 
 # Skip auto-tuning in Kubernetes environments to avoid conflicts with resource limits
-if [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
+if [ -n "${KUBERNETES_SERVICE_HOST:-}" ] && [ "${PG_TUNE_ENABLED:-}" != "true" ]; then
   echo "ParadeDB auto-tune: Kubernetes environment detected. Disabling auto-tuning."
   exit 0
 fi
@@ -40,20 +40,20 @@ if [ ! -d "$PGDATA" ]; then
   exit 0
 fi
 
-if [ -f /sys/fs/cgroup/memory.max ] && [ "$(cat /sys/fs/cgroup/memory.max)" != "max" ]; then
-  TOTAL_RAM_BYTES=$(cat /sys/fs/cgroup/memory.max)
-elif [ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
-  TOTAL_RAM_BYTES=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
-else
-  TOTAL_RAM_BYTES=$(grep MemTotal /proc/meminfo | awk '{print $2 * 1024}')
-fi
+# To handle large numbers that appear in scientific notation (8.3e+09), which Bash math cannot process but awk can.
 
-TOTAL_RAM_MB=$((TOTAL_RAM_BYTES / 1024 / 1024))
+if [ -f /sys/fs/cgroup/memory.max ] && [ "$(cat /sys/fs/cgroup/memory.max)" != "max" ]; then
+  TOTAL_RAM_MB=$(awk "BEGIN {printf \"%.0f\", $(cat /sys/fs/cgroup/memory.max) / 1024 / 1024}")
+elif [ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+  TOTAL_RAM_MB=$(awk "BEGIN {printf \"%.0f\", $(cat /sys/fs/cgroup/memory/memory.limit_in_bytes) / 1024 / 1024}")
+else
+  TOTAL_RAM_MB=$(grep MemTotal /proc/meminfo | awk '{printf "%.0f", $2 / 1024}')
+fi
 
 # Safety floor: Do not auto-tune on very small instances (< 512MB)
 # to prevent misconfiguration issues.
 
-if [ "$TOTAL_RAM_MB" -lt 512 ]; then
+if [ -z "$TOTAL_RAM_MB" ] || [ "$TOTAL_RAM_MB" -lt 512 ]; then
   echo "ParadeDB auto-tune: System RAM ($TOTAL_RAM_MB MB) is too low. Skipping."
   exit 0
 fi

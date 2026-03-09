@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773091487433,
+  "lastUpdate": 1773092303440,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19062,6 +19062,54 @@ window.BENCHMARK_DATA = {
             "value": 5.509284644965922,
             "unit": "median tps",
             "extra": "avg tps: 5.529567856399797, max tps: 6.6647139277015635, count: 56178"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eab673821185f7adaac007bbedbad6d0894f14f5",
+          "message": "feat: Allow anti joins (#4314)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdd support + testing for queries with a single anti join (and no other\njoins).\n\n## Why\n\n## How\n\n## Tests\n\nUpdated proptests to add coverage for anti joins",
+          "timestamp": "2026-03-09T13:51:05-07:00",
+          "tree_id": "9b3f87f2a7181e4d91694c3d2416f510db33ebd6",
+          "url": "https://github.com/paradedb/paradedb/commit/eab673821185f7adaac007bbedbad6d0894f14f5"
+        },
+        "date": 1773092297593,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1151.8290789272833,
+            "unit": "median tps",
+            "extra": "avg tps: 1150.15544996772, max tps: 1195.8163182191752, count: 56182"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1279.6933802721805,
+            "unit": "median tps",
+            "extra": "avg tps: 1286.381818351994, max tps: 1318.3677219079939, count: 56182"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1079.100118557721,
+            "unit": "median tps",
+            "extra": "avg tps: 992.7094275489268, max tps: 1523.22985127846, count: 56182"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.341176114840915,
+            "unit": "median tps",
+            "extra": "avg tps: 5.360050526389797, max tps: 7.1005257861238835, count: 56182"
           }
         ]
       }

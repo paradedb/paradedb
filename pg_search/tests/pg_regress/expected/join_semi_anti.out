@@ -80,7 +80,7 @@ LIMIT 10;
 (17 rows)
 
 -- =====================================================================
--- 2. Anti Join Only
+-- 2a. Anti Join (No Pushdown)
 -- =====================================================================
 -- This does not trigger an anti join because Postgres cannot prove that group_id is not NULL.
 -- TODO: This query only triggers set_rel_pathlist_hook and not set_join_pathlist_hook, and so does
@@ -109,6 +109,9 @@ LIMIT 10;
  20 | target_category
 (10 rows)
 
+-- =====================================================================
+-- 2b. Anti Join (Pushdown)
+-- =====================================================================
 -- This does trigger an anti join because we use NOT EXISTS
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category
@@ -132,7 +135,7 @@ LIMIT 10;
          Join Cond: table_b_1.a_id = table_a_0.id
          Limit: 10
          Order By: table_a.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
@@ -162,7 +165,7 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                                QUERY PLAN
+                                                                                                QUERY PLAN                                                                                                 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: table_a.id, table_a.category
@@ -172,7 +175,7 @@ LIMIT 10;
          Join Cond: table_a_0.id = table_b_2.a_id, table_a_0.id = table_b_1.a_id
          Limit: 10
          Order By: table_a.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]

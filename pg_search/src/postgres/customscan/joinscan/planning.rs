@@ -23,9 +23,7 @@
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
 
-use super::build::{
-    ColumnAlias, JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode,
-};
+use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode};
 use super::predicate::{find_base_info_recursive, is_column_fast_field};
 use super::privdat::{OutputColumnInfo, PrivateData};
 

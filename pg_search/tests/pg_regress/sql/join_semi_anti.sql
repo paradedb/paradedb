@@ -69,7 +69,7 @@ ORDER BY id ASC
 LIMIT 10;
 
 -- =====================================================================
--- 2. Anti Join Only
+-- 2a. Anti Join (No Pushdown)
 -- =====================================================================
 -- This does not trigger an anti join because Postgres cannot prove that group_id is not NULL.
 -- TODO: This query only triggers set_rel_pathlist_hook and not set_join_pathlist_hook, and so does
@@ -85,6 +85,9 @@ AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
 
+-- =====================================================================
+-- 2b. Anti Join (Pushdown)
+-- =====================================================================
 -- This does trigger an anti join because we use NOT EXISTS
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category

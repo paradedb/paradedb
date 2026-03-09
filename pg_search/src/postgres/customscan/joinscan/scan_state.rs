@@ -559,7 +559,9 @@ fn build_clause_df<'a>(
                                 .ordering_side_index()
                                 .map(|idx| {
                                     let source = &plan_sources[idx];
-                                    make_col(&source.execution_alias(idx), SCORE_COL_NAME)
+                                    let alias = ColumnAlias::new(source.scan_info.alias.as_deref())
+                                        .execution(idx);
+                                    make_col(&alias, SCORE_COL_NAME)
                                 })
                                 .unwrap_or_else(|| col("unknown_score"))
                         }
@@ -577,7 +579,9 @@ fn build_clause_df<'a>(
                                 .find_map(|(i, source)| {
                                     let mapped = source.map_var(*rti, *attno)?;
                                     let field = source.column_name(mapped)?;
-                                    Some(make_col(&source.execution_alias(i), &field))
+                                    let alias = ColumnAlias::new(source.scan_info.alias.as_deref())
+                                        .execution(i);
+                                    Some(make_col(&alias, &field))
                                 })
                                 .unwrap_or_else(|| col("unknown_col"))
                         }

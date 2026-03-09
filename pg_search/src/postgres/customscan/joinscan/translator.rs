@@ -21,7 +21,7 @@ use pgrx::{pg_sys, PgList};
 
 use crate::api::HashMap;
 use crate::postgres::customscan::joinscan::build::{
-    ColumnAlias, JoinLevelExpr, JoinLevelSearchPredicate, JoinSource,
+    JoinLevelExpr, JoinLevelSearchPredicate, JoinSource, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
 use crate::postgres::customscan::opexpr::lookup_operator;
@@ -332,7 +332,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             .enumerate()
             .find(|(_, s)| s.contains_rti(rti))?;
 
-        let alias = ColumnAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
+        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
 
         // 3. Resolve column name
         if is_score {

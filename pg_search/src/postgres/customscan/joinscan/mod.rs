@@ -149,7 +149,7 @@ mod privdat;
 mod scan_state;
 mod translator;
 
-use self::build::{ColumnAlias, CtidColumn, JoinCSClause, RelNode};
+use self::build::{CtidColumn, JoinCSClause, RelNode, RelationAlias};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::memory::PanicOnOOMMemoryPool;
 use self::planning::{
@@ -347,7 +347,7 @@ impl CustomScan for JoinScan {
             let aliases: Vec<String> = all_sources
                 .iter()
                 .map(|s| {
-                    ColumnAlias::new(s.scan_info.alias.as_deref())
+                    RelationAlias::new(s.scan_info.alias.as_deref())
                         .warning_context(s.scan_info.heaprelid)
                 })
                 .collect();
@@ -929,10 +929,12 @@ impl CustomScan for JoinScan {
                                 (right_source, right_attno, left_source, left_attno)
                             };
 
-                        let outer_alias = ColumnAlias::new(outer_source.scan_info.alias.as_deref())
-                            .execution(outer_source.source_idx);
-                        let inner_alias = ColumnAlias::new(inner_source.scan_info.alias.as_deref())
-                            .execution(inner_source.source_idx);
+                        let outer_alias =
+                            RelationAlias::new(outer_source.scan_info.alias.as_deref())
+                                .execution(outer_source.source_idx);
+                        let inner_alias =
+                            RelationAlias::new(inner_source.scan_info.alias.as_deref())
+                                .execution(inner_source.source_idx);
 
                         acc.push(format!(
                             "{} = {}",

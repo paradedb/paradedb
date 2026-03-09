@@ -64,7 +64,7 @@ use pgrx::pg_sys;
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::build::{
-    ColumnAlias, CtidColumn, JoinCSClause, JoinSource, RelNode,
+    CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -257,7 +257,7 @@ fn build_relnode_df<'a>(
                 let mut df =
                     build_source_df(ctx, source, source_idx, join_clause, is_parallel).await?;
                 let alias =
-                    ColumnAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
+                    RelationAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
                 df = df.alias(&alias)?;
                 Ok(df)
             }
@@ -305,9 +305,9 @@ fn build_relnode_df<'a>(
                             DataFusionError::Internal("Right join source not found in plan".into())
                         })?;
 
-                    let left_alias = ColumnAlias::new(left_source.scan_info.alias.as_deref())
+                    let left_alias = RelationAlias::new(left_source.scan_info.alias.as_deref())
                         .execution(left_idx);
-                    let right_alias = ColumnAlias::new(right_source.scan_info.alias.as_deref())
+                    let right_alias = RelationAlias::new(right_source.scan_info.alias.as_deref())
                         .execution(right_idx);
 
                     let left_col_name = left_source
@@ -544,8 +544,9 @@ fn build_clause_df<'a>(
                                 .ordering_side_index()
                                 .map(|idx| {
                                     let source = &plan_sources[idx];
-                                    let alias = ColumnAlias::new(source.scan_info.alias.as_deref())
-                                        .execution(idx);
+                                    let alias =
+                                        RelationAlias::new(source.scan_info.alias.as_deref())
+                                            .execution(idx);
                                     make_col(&alias, SCORE_COL_NAME)
                                 })
                                 .unwrap_or_else(|| col("unknown_score"))
@@ -564,8 +565,9 @@ fn build_clause_df<'a>(
                                 .find_map(|(i, source)| {
                                     let mapped = source.map_var(*rti, *attno)?;
                                     let field = source.column_name(mapped)?;
-                                    let alias = ColumnAlias::new(source.scan_info.alias.as_deref())
-                                        .execution(i);
+                                    let alias =
+                                        RelationAlias::new(source.scan_info.alias.as_deref())
+                                            .execution(i);
                                     Some(make_col(&alias, &field))
                                 })
                                 .unwrap_or_else(|| col("unknown_col"))
@@ -635,7 +637,7 @@ fn build_projection_expr(
 ) -> Expr {
     let plan_sources = join_clause.plan.sources();
     for (i, source) in plan_sources.iter().enumerate() {
-        let alias = ColumnAlias::new(source.scan_info.alias.as_deref()).execution(i);
+        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(i);
 
         if proj.is_score {
             if let Some(attno) = source.map_var(proj.rti, 0) {
@@ -670,7 +672,7 @@ fn build_source_df<'a>(
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = source.scan_info.clone();
-        let alias = ColumnAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
+        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(source_idx);
         let fields: Vec<WhichFastField> = source
             .scan_info
             .fields

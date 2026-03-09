@@ -33,12 +33,16 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ptr::NonNull;
 
+/// DataFusion-facing relation alias helper.
+///
+/// JoinScan may reference the same PostgreSQL relation multiple times in one
+/// DataFusion plan, so we centralize execution-time alias generation here.
 #[derive(Debug, Clone, Copy)]
-pub struct ColumnAlias<'a> {
+pub struct RelationAlias<'a> {
     name: Option<&'a str>,
 }
 
-impl<'a> ColumnAlias<'a> {
+impl<'a> RelationAlias<'a> {
     pub fn new(name: Option<&'a str>) -> Self {
         Self { name }
     }
@@ -61,6 +65,10 @@ impl<'a> ColumnAlias<'a> {
     }
 }
 
+/// DataFusion-facing synthetic CTID column name helper.
+///
+/// JoinScan exposes per-source CTID columns into DataFusion so rows can be
+/// materialized back to PostgreSQL tuples after query execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CtidColumn {
     source_idx: usize,
@@ -97,6 +105,10 @@ impl TryFrom<&str> for CtidColumn {
     }
 }
 
+/// DataFusion/planning identity for the PostgreSQL planner root that produced a source.
+///
+/// We carry this through JoinScan planning so repeated RTIs from different
+/// subquery roots can be disambiguated before building the DataFusion plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PlannerRootId(usize);
 

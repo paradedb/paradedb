@@ -21,7 +21,7 @@
 //! in PostgreSQL's EXPLAIN output, including expression tree formatting
 //! and column name resolution.
 
-use super::build::{ColumnAlias, JoinCSClause, JoinLevelExpr};
+use super::build::{JoinCSClause, JoinLevelExpr, RelationAlias};
 
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::deparse::node_to_string_fallback;
@@ -70,7 +70,7 @@ pub(super) fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSC
         } => {
             let all_sources = join_clause.plan.sources();
             let label = if let Some(source) = all_sources.get(*source_idx) {
-                ColumnAlias::new(source.scan_info.alias.as_deref()).execution(*source_idx)
+                RelationAlias::new(source.scan_info.alias.as_deref()).execution(*source_idx)
             } else {
                 format!("source_{}", source_idx)
             };

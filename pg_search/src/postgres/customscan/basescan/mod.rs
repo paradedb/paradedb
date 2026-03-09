@@ -1569,7 +1569,7 @@ fn validate_topk_expectation(
     let method_name = match chosen_method {
         ExecMethodType::Normal => "Normal",
         ExecMethodType::FastFieldMixed { .. } => "FastFieldMixed",
-        ExecMethodType::TopK { .. } => "Top K",
+        ExecMethodType::TopK { .. } => "TopK",
     };
 
     let (reason, remedies) = match topk_pathkey_info {

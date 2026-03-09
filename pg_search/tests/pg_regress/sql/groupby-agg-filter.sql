@@ -246,7 +246,7 @@ SELECT
     COUNT(*) AS total,
     COUNT(*) FILTER (WHERE description IS NULL) AS null_descriptions,
     COUNT(*) FILTER (WHERE description @@@ 'laptop') AS laptop_count,
-    COUNT(*) FILTER (WHERE description IS NOT NULL AND description @@@ 'laptop') AS laptop_kot_null
+    COUNT(*) FILTER (WHERE description IS NOT NULL AND description @@@ 'laptop') AS laptop_not_null
 FROM filter_agg_test;
 
 -- Test 5.4: Unsupported aggregate functions (should fall back)

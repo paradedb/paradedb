@@ -45,6 +45,8 @@ use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
+use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, PgList};
 
 /// Check if an expression uses paradedb.score() for any relation in the JoinSource.
@@ -904,53 +906,63 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
 ) -> bool {
     let parse = (*root).parse;
     if (*parse).distinctClause.is_null() {
-        return true; // No DISTINCT
+        return true;
     }
 
     let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
     let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
+    // Check whether a single DISTINCT expression is resolvable as a fast field.
+    let expr_is_fast_field = |expr: *mut pg_sys::Node| -> bool {
+        if let Some(var) = nodecast!(Var, T_Var, expr) {
+            // Plain column reference — must be a fast field in its source index.
+            let varno = (*var).varno as pg_sys::Index;
+            sources.iter().any(|source| {
+                source.contains_rti(varno)
+                    && is_column_fast_field(
+                        source.scan_info.heaprelid,
+                        source.scan_info.indexrelid,
+                        (*var).varattno,
+                    )
+            })
+        } else if get_score_func_rti(expr.cast()).is_some() {
+            // Score functions are handled separately — always allowed in DISTINCT.
+            true
+        } else {
+            // Non-Var expression (e.g. lower(name)) — check if it matches an indexed
+            // expression so we can emit it directly from the index.
+            // TODO(#3303): ORDER BY on indexed expressions is not yet supported in
+            // JoinScan, so in practice this path requires the ORDER BY to use a
+            // different column. Full support will come with #3303.
+            sources.iter().any(|source| {
+                let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+                let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+                    return false;
+                };
+                find_matching_fast_field(
+                    expr,
+                    &index_rel.index_expressions(),
+                    schema,
+                    source.scan_info.heap_rti,
+                )
+                .is_some()
+            })
+        }
+    };
+
     for clause_ptr in distinct_list.iter_ptr() {
         let tle_ref = (*clause_ptr).tleSortGroupRef;
+        let te = target_list
+            .iter_ptr()
+            .find(|te| (**te).ressortgroupref == tle_ref);
 
-        // Find the TargetEntry matching this SortGroupClause
-        let mut found_te = false;
-        for te_ptr in target_list.iter_ptr() {
-            if (*te_ptr).ressortgroupref != tle_ref {
-                continue;
-            }
-            found_te = true;
-
-            let expr = (*te_ptr).expr as *mut pg_sys::Node;
-
-            // Extract Var from the expression
-            if let Some(var) = nodecast!(Var, T_Var, expr) {
-                let varno = (*var).varno as pg_sys::Index;
-                let varattno = (*var).varattno;
-
-                let mut found_source = false;
-                for source in sources {
-                    if source.contains_rti(varno) {
-                        if !is_column_fast_field(
-                            source.scan_info.heaprelid,
-                            source.scan_info.indexrelid,
-                            varattno,
-                        ) {
-                            return false;
-                        }
-                        found_source = true;
-                        break;
-                    }
-                }
-                if !found_source {
+        match te {
+            None => return false, // SortGroupClause references a TargetEntry we can't find
+            Some(te) => {
+                if !expr_is_fast_field((*te).expr as *mut pg_sys::Node) {
                     return false;
                 }
             }
-            // Non-Var expressions (functions, constants) don't need fast field checks
-            break;
-        }
-        if !found_te {
-            return false; // SortGroupClause references a TargetEntry we can't find
         }
     }
 

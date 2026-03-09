@@ -1,8 +1,8 @@
 # Order is important. The last matching pattern has the most precedence
 
-/.cargo/                                                       @philippemnoel @rebasedming
+/.cargo/                                                       @philippemnoel @rebasedming @stuhood
 /.github/                                                      @philippemnoel @rebasedming @stuhood
-/benchmarks/                                                   @philippemnoel @rebasedming
+/benchmarks/                                                   @philippemnoel @rebasedming @stuhood
 /docker/                                                       @philippemnoel @rebasedming
 /docs/                                                         @philippemnoel @rebasedming @stuhood
 /pg_search/                                                    @philippemnoel @rebasedming @stuhood @mdashti

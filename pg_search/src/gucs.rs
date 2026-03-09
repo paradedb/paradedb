@@ -53,14 +53,14 @@ static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(
 /// When disabled, sorted paths will not be created even if the index has sort_by.
 static ENABLE_MIXED_FAST_FIELD_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// In a TopN query, the limit is multiplied by this factor to determine the chunk size.
+/// In a TopK query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
-/// The scale factor for the chunk size in a TopN query.
-static TOPN_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
+/// The scale factor for the chunk size in a TopK query.
+static TOPK_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
 
-/// The maximum chunk size for a TopN query.
-static MAX_TOPN_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
+/// The maximum chunk size for a TopK query.
+static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
@@ -102,8 +102,8 @@ static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// Validate TopN scan eligibility for LIMIT queries
-static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// Validate TopK scan eligibility for LIMIT queries
+static CHECK_TOPK_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// When true, queries with expensive scorer construction (fuzzy, regex, range)
 /// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
@@ -228,8 +228,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.limit_fetch_multiplier",
-        c"Multiplier for the limit in a TopN query",
-        c"The limit is multiplied by this factor to determine the chunk size. A higher value reduces the probability of a re-query for a TopN query but increases query times.",
+        c"Multiplier for the limit in a TopK query",
+        c"The limit is multiplied by this factor to determine the chunk size. A higher value reduces the probability of a re-query for a TopK query but increases query times.",
         &LIMIT_FETCH_MULTIPLIER,
         1.0,
         100.0,
@@ -238,10 +238,10 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.max_topn_chunk_size",
-        c"Maximum chunk size for a TopN query",
-        c"A higher value reduces the probability of a re-query for a TopN query but increases the memory usage",
-        &MAX_TOPN_CHUNK_SIZE,
+        c"paradedb.max_topk_chunk_size",
+        c"Maximum chunk size for a TopK query",
+        c"A higher value reduces the probability of a re-query for a TopK query but increases the memory usage",
+        &MAX_TOPK_CHUNK_SIZE,
         1,
         1_000_000,
         GucContext::Userset,
@@ -249,10 +249,10 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.topn_retry_scale_factor",
-        c"Scale factor for the chunk size in a TopN query",
-        c"The chunk size is multiplied by this factor on subsequent retries. A higher value reduces the probability of a re-query for a TopN query but increases query times.",
-        &TOPN_RETRY_SCALE_FACTOR,
+        c"paradedb.topk_retry_scale_factor",
+        c"Scale factor for the chunk size in a TopK query",
+        c"The chunk size is multiplied by this factor on subsequent retries. A higher value reduces the probability of a re-query for a TopK query but increases query times.",
+        &TOPK_RETRY_SCALE_FACTOR,
         1,
         100,
         GucContext::Userset,
@@ -331,12 +331,12 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.check_topn_scan",
-        c"Validate TopN scan eligibility for LIMIT queries",
-        c"When enabled, logs a warning if a query with LIMIT cannot use TopN scan. \
+        c"paradedb.check_topk_scan",
+        c"Validate TopK scan eligibility for LIMIT queries",
+        c"When enabled, logs a warning if a query with LIMIT cannot use TopK scan. \
           This helps detect performance issues during development where queries expected \
-          to use TopN optimization fall back to slower execution methods.",
-        &CHECK_TOPN_SCAN,
+          to use TopK optimization fall back to slower execution methods.",
+        &CHECK_TOPK_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -440,8 +440,8 @@ pub fn per_tuple_cost() -> f64 {
     PER_TUPLE_COST.get()
 }
 
-pub fn max_topn_chunk_size() -> i32 {
-    MAX_TOPN_CHUNK_SIZE.get()
+pub fn max_topk_chunk_size() -> i32 {
+    MAX_TOPK_CHUNK_SIZE.get()
 }
 
 pub fn global_target_segment_count() -> i32 {
@@ -519,8 +519,8 @@ pub fn max_window_aggregate_response_bytes() -> usize {
     MAX_WINDOW_AGGREGATE_RESPONSE_BYTES.get() as usize
 }
 
-pub fn topn_retry_scale_factor() -> i32 {
-    TOPN_RETRY_SCALE_FACTOR.get()
+pub fn topk_retry_scale_factor() -> i32 {
+    TOPK_RETRY_SCALE_FACTOR.get()
 }
 
 pub fn global_mutable_segment_rows() -> Option<usize> {
@@ -536,8 +536,8 @@ pub fn explain_recursive_estimates() -> bool {
     EXPLAIN_RECURSIVE_ESTIMATES.get()
 }
 
-pub fn check_topn_scan() -> bool {
-    CHECK_TOPN_SCAN.get()
+pub fn check_topk_scan() -> bool {
+    CHECK_TOPK_SCAN.get()
 }
 
 pub fn enable_heuristic_selectivity() -> bool {

@@ -1,5 +1,5 @@
--- Test TopN + Aggregates + Faceting
--- Phase 1: Basic TopN tests with window aggregate detection
+-- Test TopK + Aggregates + Faceting
+-- Phase 1: Basic TopK tests with window aggregate detection
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -184,10 +184,10 @@ ORDER BY rating DESC
 LIMIT 3;
 
 -- =============================================================================
--- BASIC TOPN TESTS
+-- BASIC TOPK TESTS
 -- =============================================================================
 
--- Test 1: Basic TopN without window aggregates
+-- Test 1: Basic TopK without window aggregates
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -209,7 +209,7 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
--- Test 2: TopN with COUNT(*) OVER () - Basic window aggregate
+-- Test 2: TopK with COUNT(*) OVER () - Basic window aggregate
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -521,7 +521,7 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
--- Test 15: TopN with no @@@ operator (should not trigger window function handling)
+-- Test 15: TopK with no @@@ operator (should not trigger window function handling)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -575,7 +575,7 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
 
--- Test 17: Window aggregate in a subquery (TopN in outer query)
+-- Test 17: Window aggregate in a subquery (TopK in outer query)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM (
     SELECT 
@@ -1165,7 +1165,7 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
--- Test 34: Query without ORDER BY and LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
+-- Test 34: Query without ORDER BY and LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_K=true)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -1183,7 +1183,7 @@ SELECT
 FROM products
 WHERE description @@@ 'laptop';
 
--- Test 35: Query with ORDER BY but no LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
+-- Test 35: Query with ORDER BY but no LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_K=true)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -1203,7 +1203,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC;
 
--- Test 36: Query with LIMIT but no ORDER BY (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
+-- Test 36: Query with LIMIT but no ORDER BY (should NOT use custom scan - ONLY_ALLOW_TOP_K=true)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     id,
@@ -1251,8 +1251,8 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
 
--- Test 38: Benchmark query - TopN + COUNT(*) OVER ()
--- Verify this produces TopN execution plan
+-- Test 38: Benchmark query - TopK + COUNT(*) OVER ()
+-- Verify this produces TopK execution plan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, COUNT(*) OVER ()
 FROM products
@@ -1266,8 +1266,8 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
--- Test 39: Benchmark query - TopN + pdb.agg terms (faceting)
--- Verify this produces TopN execution plan with custom aggregate
+-- Test 39: Benchmark query - TopK + pdb.agg terms (faceting)
+-- Verify this produces TopK execution plan with custom aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, pdb.agg('{"terms": {"field": "brand"}}'::jsonb) OVER ()
 FROM products
@@ -1281,8 +1281,8 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
--- Test 40: Benchmark query - TopN + pdb.agg avg
--- Verify this produces TopN execution plan with custom aggregate
+-- Test 40: Benchmark query - TopK + pdb.agg avg
+-- Verify this produces TopK execution plan with custom aggregate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
@@ -1296,8 +1296,8 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
 
--- Test 36: TopN with nested aggregations (window function)
--- Verify that nested "aggs" work correctly in TopN/window context
+-- Test 36: TopK with nested aggregations (window function)
+-- Verify that nested "aggs" work correctly in TopK/window context
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name, brand,
        pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating

@@ -47,10 +47,10 @@ LIMIT 100;
                Output: test_pages_scale.id, test_pages_scale.content
                Table: test_pages_scale
                Index: test_pages_scale_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 100
+                  TopK Order By: id asc
+                  TopK Limit: 100
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '>='::text, $1)"}}}]}}
 (18 rows)
 
@@ -194,10 +194,10 @@ LIMIT 100;
                Output: test_pages_scale.id, test_pages_scale.content
                Table: test_pages_scale
                Index: test_pages_scale_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id desc
-                  TopN Limit: 100
+                  TopK Order By: id desc
+                  TopK Limit: 100
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('id'::paradedb.fieldname, '>='::text, $1)"}}}]}}
 (18 rows)
 

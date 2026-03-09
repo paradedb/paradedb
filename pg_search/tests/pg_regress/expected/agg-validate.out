@@ -133,10 +133,10 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, rating, created_at, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mock_items
          Index: mock_items_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id desc
-            TopN Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 

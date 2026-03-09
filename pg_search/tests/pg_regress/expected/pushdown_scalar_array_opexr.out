@@ -77,10 +77,10 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"term_set":{"terms":[{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440000","is_datetime":false},{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440001","is_datetime":false}]}}
 (9 rows)
 
@@ -95,10 +95,10 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"term_set":{"terms":[{"field":"text_col","value":"Alice","is_datetime":false},{"field":"text_col","value":"Bob","is_datetime":false}]}}
 (9 rows)
 
@@ -113,10 +113,10 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"term_set":{"terms":[{"field":"int_col","value":0,"is_datetime":false},{"field":"int_col","value":1,"is_datetime":false}]}}
 (9 rows)
 
@@ -131,10 +131,10 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"term_set":{"terms":[{"field":"date_col","value":"2023-01-01T00:00:00Z","is_datetime":true},{"field":"date_col","value":"2023-01-02T00:00:00Z","is_datetime":true}]}}
 (9 rows)
 
@@ -149,10 +149,10 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"term_set":{"terms":[{"field":"ts_col","value":"2023-01-01T00:00:00Z","is_datetime":true},{"field":"ts_col","value":"2023-01-02T00:00:00Z","is_datetime":true}]}}
 (9 rows)
 
@@ -171,10 +171,10 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
          Index: scalar_array_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"term_set":{"terms":[{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440000","is_datetime":false},{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440001","is_datetime":false}]}},{"term_set":{"terms":[{"field":"text_col","value":"Alice","is_datetime":false},{"field":"text_col","value":"Bob","is_datetime":false}]}}]}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_col","query_string":"Alice","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"int_col","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 

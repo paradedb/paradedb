@@ -5,7 +5,7 @@ canonical: https://docs.paradedb.com/documentation/indexing/columnar
 ---
 
 By default, all non-text and non-JSON fields are indexed using ParadeDB's columnar format.
-This enables fast [filtering pushdown](documentation/filtering#filter-pushdown), [Top N ordering](/documentation/sorting/topn), and
+This enables fast [filtering pushdown](documentation/filtering#filter-pushdown), [Top K ordering](/documentation/sorting/topk), and
 [aggregates](/documentation/aggregates/overview) over these fields. For example, in the following index definition, `rating` and `id` are columnar indexed
 because they are integers, whereas `description` is not because it is text.
 

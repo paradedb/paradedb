@@ -125,7 +125,7 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Top N"
+title = "Top K"
 on_connect = """
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
@@ -177,7 +177,7 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Top N"
+title = "Top K"
 sql = """
 SELECT * FROM test WHERE message @@@ 'wine' OR message @@@ 'beer' ORDER BY old_message LIMIT 5;
 """

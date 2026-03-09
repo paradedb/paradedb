@@ -1,5 +1,5 @@
--- LEFT JOIN LATERAL TopN optimization tests
--- Tests the ability to use TopN executor for LEFT JOIN LATERAL queries
+-- LEFT JOIN LATERAL TopK optimization tests
+-- Tests the ability to use TopK executor for LEFT JOIN LATERAL queries
 -- where the left side drives the query execution
 
 -- Load the pg_search extension
@@ -117,9 +117,9 @@ CREATE INDEX comments_bm25_idx ON comments USING bm25 (id, content) WITH (key_fi
 CREATE INDEX authors_bm25_idx ON authors USING bm25 (id, name, bio, expertise) WITH (key_field = 'id');
 
 -- =============================================================================
--- TEST 1: Basic LEFT JOIN LATERAL with TopN optimization (should use TopN)
+-- TEST 1: Basic LEFT JOIN LATERAL with TopK optimization (should use TopK)
 -- =============================================================================
--- Test that a simple LEFT JOIN LATERAL with LIMIT uses TopN executor
+-- Test that a simple LEFT JOIN LATERAL with LIMIT uses TopK executor
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
@@ -161,9 +161,9 @@ ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
 -- =============================================================================
--- TEST 2: LEFT JOIN LATERAL without LIMIT (should NOT use TopN)
+-- TEST 2: LEFT JOIN LATERAL without LIMIT (should NOT use TopK)
 -- =============================================================================
--- EXPLAIN to verify Normal scan (not TopN) due to missing LIMIT
+-- EXPLAIN to verify Normal scan (not TopK) due to missing LIMIT
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
@@ -200,7 +200,7 @@ ORDER BY paradedb.score(a.id) DESC;
 -- =============================================================================
 -- TEST 3: LEFT JOIN LATERAL with WHERE clause referencing both tables
 -- =============================================================================
--- This should NOT use TopN because WHERE references the right table
+-- This should NOT use TopK because WHERE references the right table
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
@@ -237,7 +237,7 @@ LIMIT 5;
 -- =============================================================================
 -- TEST 4: Regular LEFT JOIN (not LATERAL) with LIMIT
 -- =============================================================================
--- This should NOT use TopN optimization (not a LATERAL join)
+-- This should NOT use TopK optimization (not a LATERAL join)
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
@@ -264,7 +264,7 @@ LIMIT 5;
 -- =============================================================================
 -- TEST 5: LEFT JOIN LATERAL with multiple aggregations
 -- =============================================================================
--- Complex LATERAL subquery with aggregations, should still use TopN if conditions met
+-- Complex LATERAL subquery with aggregations, should still use TopK if conditions met
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
@@ -306,7 +306,7 @@ LIMIT 10;
 -- =============================================================================
 -- TEST 6: LEFT JOIN LATERAL with ORDER BY on indexed fast field (not score)
 -- =============================================================================
--- Should use TopN with ORDER BY on an indexed field marked as fast
+-- Should use TopK with ORDER BY on an indexed field marked as fast
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
@@ -388,7 +388,7 @@ LIMIT 3;
 -- =============================================================================
 -- TEST 8: LEFT JOIN LATERAL with complex WHERE clause (only left table)
 -- =============================================================================
--- Complex WHERE but still only references left table - should use TopN
+-- Complex WHERE but still only references left table - should use TopK
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,
@@ -468,7 +468,7 @@ ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
 
 -- =============================================================================
--- TEST 10: Verify TopN with score() in SELECT list
+-- TEST 10: Verify TopK with score() in SELECT list
 -- =============================================================================
 -- Ensure score projection works correctly with LEFT JOIN LATERAL
 -- EXPLAIN to verify execution plan
@@ -507,7 +507,7 @@ LIMIT 5;
 -- =============================================================================
 -- TEST 11: Nested JOIN with LATERAL (exercises nested join detection)
 -- =============================================================================
--- With the relaxed logic, this now uses TopN optimization because:
+-- With the relaxed logic, this now uses TopK optimization because:
 -- 1. There's a LEFT JOIN in the query
 -- 2. There are LATERAL references (even if not to 'articles')
 -- 3. WHERE/ORDER BY only reference the left table ('articles')
@@ -558,8 +558,8 @@ LIMIT 5;
 -- =============================================================================
 -- TEST 12: Deep nested joins with multiple LATERAL references
 -- =============================================================================
--- With the relaxed logic, this uses TopN optimization even though the LATERAL
--- subquery doesn't directly reference 'articles'. TopN applies when:
+-- With the relaxed logic, this uses TopK optimization even though the LATERAL
+-- subquery doesn't directly reference 'articles'. TopK applies when:
 -- 1. There's any LEFT JOIN + LATERAL in the query
 -- 2. WHERE/ORDER BY only reference the left table
 EXPLAIN (COSTS OFF)
@@ -621,7 +621,7 @@ LIMIT 3;
 -- =============================================================================
 -- TEST 13: LEFT JOIN LATERAL with paradedb.snippet function
 -- =============================================================================
--- Demonstrates TopN optimization with snippet generation for matched content
+-- Demonstrates TopK optimization with snippet generation for matched content
 EXPLAIN (COSTS OFF)
 SELECT 
     a.id,

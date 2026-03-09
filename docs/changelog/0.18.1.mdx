@@ -11,7 +11,7 @@ noindex: true
 ## Stability Improvements 💪
 
 - Fixed an error where, with `paradedb.enable_aggregate_custom_scan` turned on, ordering by an aggregate would error
-- Fixed an error where Top N queries would error if there were null values
+- Fixed an error where Top K queries would error if there were null values
 - Fixed an issue where custom scans would fail if they contained a subquery
 
 The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.18.1).

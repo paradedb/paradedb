@@ -13,7 +13,7 @@ noindex: true
 ### Columnar Storage for Literal Normalized Fields
 
 The [literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized) tokenizer now gets indexed
-as columnar by default (in addition to the inverted index). This means that literal normalized fields can take part in [aggregate](/documentation/aggregates/overview) and [Top N](documentation/sorting/topn)
+as columnar by default (in addition to the inverted index). This means that literal normalized fields can take part in [aggregate](/documentation/aggregates/overview) and [Top K](documentation/sorting/topk)
 queries without the need for a separate [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer.
 
 For example, if we use the literal normalized tokenizer on the `description` field:
@@ -24,7 +24,7 @@ USING bm25 (id, (description::pdb.literal_normalized))
 WITH (key_field = 'id');
 ```
 
-We can `ORDER BY` `description` and get a fast Top N query:
+We can `ORDER BY` `description` and get a fast Top K query:
 
 ```sql
 SELECT * FROM mock_items

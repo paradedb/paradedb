@@ -18,10 +18,10 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on test
          Table: test
          Index: test_bm25
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc
-            TopN Limit: 10
+            TopK Order By: pdb.score() desc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"content","value":"Beijing","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}]}},"field_filters":[{"heap_filter":"jsonb_path_exists(extra, '$.\"type\"'::jsonpath, '{}'::jsonb, false)"}]}}]}}
 (9 rows)
 

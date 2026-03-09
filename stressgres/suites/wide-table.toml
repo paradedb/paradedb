@@ -231,7 +231,7 @@ SELECT update_random_data(10);
 
 [[jobs]]
 refresh_ms = 500
-title = "Top N"
+title = "Top K"
 sql = """
 SELECT COUNT(*) FROM (
     SELECT

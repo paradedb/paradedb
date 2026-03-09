@@ -190,9 +190,9 @@ MockItem.objects.filter(
 (3 rows)
 ```
 
-## Top N
+## Top K
 
-ParadeDB is highly optimized for quickly returning the [Top N](/documentation/sorting/topn) results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
+ParadeDB is highly optimized for quickly returning the [Top K](/documentation/sorting/topk) results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
 
 <CodeGroup>
 ```sql SQL
@@ -224,7 +224,7 @@ MockItem.objects.filter(
 
 ## Facets
 
-[Faceted queries](/documentation/aggregates/facets) allow a single query to return both the Top N results and an aggregate value,
+[Faceted queries](/documentation/aggregates/facets) allow a single query to return both the Top K results and an aggregate value,
 which is more CPU-efficient than issuing two separate queries.
 
 For example, the following query returns the top 3 results as well as the total number of results matched.

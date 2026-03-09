@@ -30,6 +30,21 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"min": {"field": "rating"}}'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.min(field="rating")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -60,6 +75,21 @@ MockItem.objects.filter(
 ).aggregate(min_rating=Min('rating'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.min(MockItem.rating))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 By default, `MIN` ignores null values. Use `COALESCE` to include them in the final result:
@@ -80,6 +110,21 @@ MockItem.objects.filter(
 ).aggregate(min_rating=Min(Coalesce('rating', Value(0))))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.min(func.coalesce(MockItem.rating, 0)))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Max
@@ -98,6 +143,21 @@ from paradedb import Agg, All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(agg=Agg('{"max": {"field": "rating"}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.max(field="rating")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -128,6 +188,21 @@ MockItem.objects.filter(
 ).aggregate(max_rating=Max('rating'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.max(MockItem.rating))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 By default, `MAX` ignores null values. Use `COALESCE` to include them in the final result:
@@ -146,6 +221,21 @@ from paradedb import All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(max_rating=Max(Coalesce('rating', Value(0))))
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.max(func.coalesce(MockItem.rating, 0)))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

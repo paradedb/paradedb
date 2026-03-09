@@ -26,6 +26,21 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -64,6 +79,21 @@ from paradedb import MoreLikeThis
 MockItem.objects.filter(
     MoreLikeThis(product_id=3, fields=['description'])
 ).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, fields=["description"]))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -113,6 +143,26 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(
+        search.more_like_this(
+            MockItem.id,
+            document={"description": "Sleek running shoes", "category": "footwear"},
+        )
+    )
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Configuration Options
@@ -141,6 +191,21 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, min_term_frequency=2))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ### Document Frequency
@@ -163,6 +228,21 @@ from paradedb import MoreLikeThis
 MockItem.objects.filter(
     MoreLikeThis(product_id=3, min_doc_freq=3)
 ).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, min_doc_frequency=3))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -191,6 +271,21 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, max_query_terms=10))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ### Term Length
@@ -214,6 +309,21 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, min_word_length=5))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ### Custom Stopwords
@@ -234,6 +344,21 @@ from paradedb import MoreLikeThis
 MockItem.objects.filter(
     MoreLikeThis(product_id=3, stopwords=['the', 'a'])
 ).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.more_like_this(MockItem.id, document_id=3, stopwords=["the", "a"]))
+    .order_by(MockItem.id)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

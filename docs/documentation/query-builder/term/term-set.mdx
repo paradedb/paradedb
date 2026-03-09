@@ -31,6 +31,20 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(or_(search.term(MockItem.description, "shoes"), search.term(MockItem.description, "keyboard")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 `pdb.term_set` is equivalent to `OR`ing together multiple `pdb.term` queries.

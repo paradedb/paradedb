@@ -489,7 +489,7 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
    ->  Sort
          Output: category, rating, price
          Sort Key: products.category, products.rating
-         ->  Custom Scan (ParadeDB Scan) on public.products
+         ->  Custom Scan (ParadeDB Base Scan) on public.products
                Output: category, rating, price
                Table: products
                Index: products_idx

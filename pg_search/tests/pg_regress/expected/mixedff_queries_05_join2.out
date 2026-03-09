@@ -213,7 +213,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop
-         ->  Custom Scan (ParadeDB Scan) on users
+         ->  Custom Scan (ParadeDB Base Scan) on users
                Table: users
                Index: idxusers
                Exec Method: NormalScanExecState
@@ -237,7 +237,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop
-         ->  Custom Scan (ParadeDB Scan) on users
+         ->  Custom Scan (ParadeDB Base Scan) on users
                Table: users
                Index: idxusers
                Exec Method: MixedFastFieldExecState

@@ -135,7 +135,7 @@ fn citus_distributed_tables_with_subquery_limit(mut conn: PgConnection) {
 
     // Check for ParadeDB Custom Scan (BaseScan)
     assert!(
-        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        plan_str.contains("ParadeDB Base Scan") || plan_str.contains("Custom Scan"),
         "EXPLAIN plan should contain ParadeDB Custom Scan, but got: {}",
         plan_str
     );
@@ -183,9 +183,9 @@ fn citus_distributed_tables_with_subquery_limit(mut conn: PgConnection) {
         serde_json::to_string_pretty(&plan).unwrap()
     );
 
-    // Verify both ParadeDB scans (on products and reviews) and Citus distributed execution
+    // Verify both ParadeDB Base Scans (on products and reviews) and Citus distributed execution
     assert!(
-        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        plan_str.contains("ParadeDB Base Scan") || plan_str.contains("Custom Scan"),
         "EXPLAIN plan should contain ParadeDB Custom Scan for search operators, but got: {}",
         plan_str
     );
@@ -350,7 +350,7 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
         ]
     );
 
-    // Verify EXPLAIN plan shows ParadeDB scan on sharded BM25 index
+    // Verify EXPLAIN plan shows ParadeDB Base Scan on sharded BM25 index
     let (plan,): (Value,) = r#"
         EXPLAIN (VERBOSE, FORMAT JSON)
         SELECT id, title FROM articles
@@ -366,7 +366,7 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
 
     let plan_str = format!("{:?}", plan);
     assert!(
-        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        plan_str.contains("ParadeDB Base Scan") || plan_str.contains("Custom Scan"),
         "EXPLAIN plan should contain ParadeDB Custom Scan for sharded BM25 index"
     );
     assert!(
@@ -428,7 +428,7 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
 
     let plan_str = format!("{:?}", plan);
     assert!(
-        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        plan_str.contains("ParadeDB Base Scan") || plan_str.contains("Custom Scan"),
         "EXPLAIN plan should contain ParadeDB Custom Scan for BM25 search in JOIN"
     );
     assert!(
@@ -530,7 +530,7 @@ fn citus_catalog_queries_compatibility(mut conn: PgConnection) {
 
     let plan_str = format!("{:?}", plan);
     assert!(
-        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        plan_str.contains("ParadeDB Base Scan") || plan_str.contains("Custom Scan"),
         "EXPLAIN plan should contain ParadeDB Custom Scan"
     );
     assert!(

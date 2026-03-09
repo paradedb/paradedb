@@ -72,7 +72,7 @@ LIMIT 5;
                                                                               QUERY PLAN
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=10.00..34.03 rows=5 width=36)
-   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..34.03 rows=5 width=36)
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items  (cost=10.00..34.03 rows=5 width=36)
          Table: mock_items
          Index: search_idx
          Scores: false
@@ -114,7 +114,7 @@ LIMIT 5;
                                                            QUERY PLAN
 ---------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=10.00..34.05 rows=5 width=584)
-   ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..34.05 rows=5 width=584)
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items  (cost=10.00..34.05 rows=5 width=584)
          Table: mock_items
          Index: search_idx
          Scores: false
@@ -147,7 +147,7 @@ ORDER BY score, sale_date, amount
 LIMIT 10;
 ```
 
-You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the query. The query plan will show a `Custom Scan` with our ParadeDB scan provider, followed by an appropriate sort operation based on your PostgreSQL version:
+You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the query. The query plan will show a `Custom Scan` with our ParadeDB Base Scan provider, followed by an appropriate sort operation based on your PostgreSQL version:
 
 - In PostgreSQL 16+: Often uses an `Incremental Sort` node which can take advantage of the already-sorted first column
 - In older PostgreSQL: Uses a regular `Sort` node, but still benefits from our optimized ordering
@@ -161,7 +161,7 @@ You can verify if partial ORDER BY pushdown occurred by running `EXPLAIN` on the
          Sort Key: (pdb.score(id)), sale_date, amount
          Presorted Key: (pdb.score(id))
          Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
-         ->  Custom Scan (ParadeDB Scan) on sales  (cost=0.00..0.03 rows=10 width=44) (actual time=1.055..1.055 rows=0 loops=1)
+         ->  Custom Scan (ParadeDB Base Scan) on sales  (cost=0.00..0.03 rows=10 width=44) (actual time=1.055..1.055 rows=0 loops=1)
                Table: sales
                Index: sales_index
                Segment Count: 1

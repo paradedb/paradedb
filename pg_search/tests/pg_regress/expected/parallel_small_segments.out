@@ -48,7 +48,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 ----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name
-   ->  Custom Scan (ParadeDB Scan) on public.items
+   ->  Custom Scan (ParadeDB Base Scan) on public.items
          Output: id, name
          Table: items
          Index: items_bm25_idx
@@ -71,7 +71,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
    ->  Gather Merge
          Output: id, name
          Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.items
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.items
                Output: id, name
                Table: items
                Index: items_bm25_idx
@@ -94,7 +94,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
    ->  Gather Merge
          Output: id, name
          Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.items
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.items
                Output: id, name
                Table: items
                Index: items_bm25_idx
@@ -117,7 +117,7 @@ LIMIT 10;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, (paradedb.score(id))
-   ->  Custom Scan (ParadeDB Scan) on public.items
+   ->  Custom Scan (ParadeDB Base Scan) on public.items
          Output: id, name, paradedb.score(id)
          Table: items
          Index: items_bm25_idx
@@ -179,7 +179,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
    ->  Gather Merge
          Output: id, name
          Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.items
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.items
                Output: id, name
                Table: items
                Index: items_bm25_idx
@@ -205,7 +205,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 ----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name
-   ->  Custom Scan (ParadeDB Scan) on public.items
+   ->  Custom Scan (ParadeDB Base Scan) on public.items
          Output: id, name
          Table: items
          Index: items_bm25_idx

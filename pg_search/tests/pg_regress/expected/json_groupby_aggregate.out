@@ -191,7 +191,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
    ->  Sort
          Output: ((metadata ->> 'category'::text)), metadata
          Sort Key: ((json_test_aggregates.metadata ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
                Output: (metadata ->> 'category'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
@@ -231,7 +231,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
    ->  Sort
          Output: ((metadata ->> 'brand'::text)), metadata
          Sort Key: ((json_test_aggregates.metadata ->> 'brand'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
                Output: (metadata ->> 'brand'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
@@ -275,7 +275,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
    ->  Sort
          Output: ((metadata ->> 'category'::text)), metadata
          Sort Key: ((json_test_aggregates.metadata ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
                Output: (metadata ->> 'category'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
@@ -320,7 +320,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
    ->  Sort
          Output: ((metadata ->> 'brand'::text)), metadata
          Sort Key: ((json_test_aggregates.metadata ->> 'brand'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
                Output: (metadata ->> 'brand'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
@@ -815,7 +815,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
    ->  Sort
          Output: (((document -> 'source'::text) ->> 'system'::text)), (((document -> 'metrics'::text) ->> 'category'::text)), document
          Sort Key: (((json_test_complex.document -> 'source'::text) ->> 'system'::text)), (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_complex
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_complex
                Output: ((document -> 'source'::text) ->> 'system'::text), ((document -> 'metrics'::text) ->> 'category'::text), document
                Table: json_test_complex
                Index: idx_json_complex
@@ -864,7 +864,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
    ->  Sort
          Output: (((document -> 'metrics'::text) ->> 'category'::text)), document
          Sort Key: (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_complex
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_complex
                Output: ((document -> 'metrics'::text) ->> 'category'::text), document
                Table: json_test_complex
                Index: idx_json_complex
@@ -1165,7 +1165,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
    ->  Sort
          Output: ((user_profile ->> 'department'::text)), ((order_details ->> 'category'::text)), order_details
          Sort Key: ((json_test_multi_subfields.user_profile ->> 'department'::text)), ((json_test_multi_subfields.order_details ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_multi_subfields
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_multi_subfields
                Output: (user_profile ->> 'department'::text), (order_details ->> 'category'::text), order_details
                Table: json_test_multi_subfields
                Index: idx_json_multi_subfields
@@ -1220,7 +1220,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
    ->  Sort
          Output: ((user_profile ->> 'department'::text)), ((user_profile ->> 'location'::text)), ((order_details ->> 'product'::text)), ((order_details ->> 'category'::text)), order_details
          Sort Key: ((json_test_multi_subfields.user_profile ->> 'department'::text)), ((json_test_multi_subfields.user_profile ->> 'location'::text)), ((json_test_multi_subfields.order_details ->> 'product'::text)), ((json_test_multi_subfields.order_details ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_multi_subfields
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_multi_subfields
                Output: (user_profile ->> 'department'::text), (user_profile ->> 'location'::text), (order_details ->> 'product'::text), (order_details ->> 'category'::text), order_details
                Table: json_test_multi_subfields
                Index: idx_json_multi_subfields

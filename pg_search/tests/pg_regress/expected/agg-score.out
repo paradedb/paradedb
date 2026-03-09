@@ -30,7 +30,7 @@ SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
          Workers Planned: 1
          ->  Partial Aggregate
                Output: PARTIAL max((paradedb.score(id)))
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
                      Output: paradedb.score(id), paradedb.score(id)
                      Table: mock_items
                      Index: search_idx
@@ -57,7 +57,7 @@ SELECT min(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
          Workers Planned: 1
          ->  Partial Aggregate
                Output: PARTIAL min((paradedb.score(id)))
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
                      Output: paradedb.score(id), paradedb.score(id)
                      Table: mock_items
                      Index: search_idx
@@ -84,7 +84,7 @@ SELECT avg(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
          Workers Planned: 1
          ->  Partial Aggregate
                Output: PARTIAL avg((paradedb.score(id)))
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
                      Output: paradedb.score(id), paradedb.score(id)
                      Table: mock_items
                      Index: search_idx
@@ -112,7 +112,7 @@ SELECT count(*) FROM mock_items WHERE description @@@ 'keyboard' AND paradedb.sc
          Workers Planned: 1
          ->  Partial Aggregate
                Output: PARTIAL count(*)
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
                      Table: mock_items
                      Index: search_idx
                      Exec Method: NormalScanExecState
@@ -138,7 +138,7 @@ SELECT sum(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
          Workers Planned: 1
          ->  Partial Aggregate
                Output: PARTIAL sum((paradedb.score(id)))
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
                      Output: paradedb.score(id), paradedb.score(id)
                      Table: mock_items
                      Index: search_idx
@@ -162,7 +162,7 @@ SELECT max(paradedb.score(id)) FROM mock_items WHERE description @@@ 'keyboard';
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: max((paradedb.score(id)))
-   ->  Custom Scan (ParadeDB Scan) on public.mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on public.mock_items
          Output: paradedb.score(id), paradedb.score(id)
          Table: mock_items
          Index: search_idx
@@ -192,7 +192,7 @@ FROM mock_items WHERE description @@@ 'keyboard';
          Workers Planned: 1
          ->  Partial Aggregate
                Output: PARTIAL min((paradedb.score(id))), PARTIAL max((paradedb.score(id))), PARTIAL avg((paradedb.score(id)))
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.mock_items
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.mock_items
                      Output: paradedb.score(id), paradedb.score(id), paradedb.score(id), paradedb.score(id), paradedb.score(id), paradedb.score(id)
                      Table: mock_items
                      Index: search_idx

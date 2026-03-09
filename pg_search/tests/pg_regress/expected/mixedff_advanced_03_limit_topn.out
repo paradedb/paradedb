@@ -355,7 +355,7 @@ LIMIT 10;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on limit_topn_test
+   ->  Custom Scan (ParadeDB Base Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
          Exec Method: TopNScanExecState
@@ -375,7 +375,7 @@ LIMIT 5;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on limit_topn_test
+   ->  Custom Scan (ParadeDB Base Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
          Exec Method: TopNScanExecState
@@ -409,7 +409,7 @@ LIMIT 15;
                                                                                QUERY PLAN                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on limit_topn_test
+   ->  Custom Scan (ParadeDB Base Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
          Exec Method: TopNScanExecState
@@ -512,7 +512,7 @@ LIMIT 8;
                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on limit_topn_test
+   ->  Custom Scan (ParadeDB Base Scan) on limit_topn_test
          Table: limit_topn_test
          Index: limit_topn_idx
          Exec Method: TopNScanExecState

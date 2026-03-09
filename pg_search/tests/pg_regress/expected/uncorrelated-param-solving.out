@@ -62,7 +62,7 @@ LIMIT 100;
      ->  Index Scan using items_pkey on public.items items_3
            Output: items_3.created_at
            Index Cond: (items_3.id = '4'::text)
-   ->  Custom Scan (ParadeDB Scan) on public.items
+   ->  Custom Scan (ParadeDB Base Scan) on public.items
          Output: items.id, items.status, items.created_at
          Table: items
          Index: items_idx

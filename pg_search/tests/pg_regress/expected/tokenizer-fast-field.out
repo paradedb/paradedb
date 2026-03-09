@@ -37,7 +37,7 @@ SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on tokenizer_fast
+   ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
          Table: tokenizer_fast
          Index: idxtokenizer_fast
          Exec Method: TopNScanExecState
@@ -83,7 +83,7 @@ SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on tokenizer_fast
+   ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
          Table: tokenizer_fast
          Index: idxtokenizer_fast
          Exec Method: TopNScanExecState
@@ -156,7 +156,7 @@ WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). R
  Limit
    ->  Sort
          Sort Key: ((metadata ->> 'key'::text)), id
-         ->  Custom Scan (ParadeDB Scan) on tokenizer_fast
+         ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
                Table: tokenizer_fast
                Index: idxtokenizer_fast
                Exec Method: NormalScanExecState

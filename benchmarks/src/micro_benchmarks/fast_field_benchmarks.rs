@@ -141,7 +141,7 @@ pub fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
 pub fn detect_exec_method(plan: &Value) -> String {
     // Check if this is using the CustomScan with ParadeDB
     let plan_str = plan.to_string();
-    let uses_custom_scan = plan_str.contains("ParadeDB Scan");
+    let uses_custom_scan = plan_str.contains("ParadeDB Base Scan");
 
     // If the custom scan method is explicitly mentioned, extract it
     if plan_str.contains("Exec Method") {

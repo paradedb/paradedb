@@ -435,7 +435,7 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
 }
 
 impl CustomScan for BaseScan {
-    const NAME: &'static CStr = c"ParadeDB Scan";
+    const NAME: &'static CStr = c"ParadeDB Base Scan";
 
     type Args = RelPathlistHookArgs;
     type State = BaseScanState;

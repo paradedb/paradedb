@@ -35,7 +35,7 @@ ORDER BY score DESC;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on partial_test
+   ->  Custom Scan (ParadeDB Base Scan) on partial_test
          Table: partial_test
          Index: partial_test_idx
          Exec Method: NormalScanExecState
@@ -67,7 +67,7 @@ ORDER BY score DESC;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on partial_test
+   ->  Custom Scan (ParadeDB Base Scan) on partial_test
          Table: partial_test
          Index: partial_test_idx
          Exec Method: NormalScanExecState
@@ -99,7 +99,7 @@ ORDER BY rating DESC;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC
-   ->  Custom Scan (ParadeDB Scan) on partial_test
+   ->  Custom Scan (ParadeDB Base Scan) on partial_test
          Table: partial_test
          Index: partial_test_idx
          Exec Method: NormalScanExecState
@@ -149,7 +149,7 @@ ORDER BY rating LIMIT 20;
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on test_partial_index
+   ->  Custom Scan (ParadeDB Base Scan) on test_partial_index
          Table: test_partial_index
          Index: partial_idx
          Exec Method: TopNScanExecState
@@ -218,7 +218,7 @@ ORDER BY rating LIMIT 20;
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on test_partial_index
+   ->  Custom Scan (ParadeDB Base Scan) on test_partial_index
          Table: test_partial_index
          Index: partial_idx
          Exec Method: TopNScanExecState
@@ -252,7 +252,7 @@ ORDER BY rating LIMIT 20;
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on test_partial_index
+   ->  Custom Scan (ParadeDB Base Scan) on test_partial_index
          Table: test_partial_index
          Index: partial_idx
          Exec Method: TopNScanExecState

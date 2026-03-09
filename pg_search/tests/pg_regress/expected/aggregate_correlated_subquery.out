@@ -107,7 +107,7 @@ ORDER BY d.id;
  Sort
    Output: d.id, d.title, ((SubPlan 1))
    Sort Key: d.id
-   ->  Custom Scan (ParadeDB Scan) on public.documents d
+   ->  Custom Scan (ParadeDB Base Scan) on public.documents d
          Output: d.id, d.title, (SubPlan 1)
          Table: documents
          Index: documents_search
@@ -202,7 +202,7 @@ ORDER BY d.id;
  Sort
    Output: d.id, d.title, ((SubPlan 1))
    Sort Key: d.id
-   ->  Custom Scan (ParadeDB Scan) on public.documents d
+   ->  Custom Scan (ParadeDB Base Scan) on public.documents d
          Output: d.id, d.title, (SubPlan 1)
          Table: documents
          Index: documents_search

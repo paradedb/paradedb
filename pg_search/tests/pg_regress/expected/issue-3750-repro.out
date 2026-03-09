@@ -65,7 +65,7 @@ WHERE name &&& 'assist wireless';
          Workers Planned: 3
          ->  Partial Aggregate
                Output: PARTIAL count(*)
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.places
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.places
                      Table: places
                      Index: places_parade_idx
                      Exec Method: NormalScanExecState
@@ -98,7 +98,7 @@ WHERE name &&& 'assist wireless' AND country_code = 'us';
          Workers Planned: 3
          ->  Partial Aggregate
                Output: PARTIAL count(*)
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.places
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.places
                      Table: places
                      Index: places_parade_idx
                      Exec Method: NormalScanExecState
@@ -161,7 +161,7 @@ WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all
          Workers Planned: 3
          ->  Partial Aggregate
                Output: PARTIAL count(*)
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.places
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.places
                      Table: places
                      Index: places_parade_idx
                      Exec Method: NormalScanExecState

@@ -125,7 +125,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 ---------------------------------------------------------------------------------------
  Aggregate
    Output: sum(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
@@ -154,7 +154,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 ----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: sum(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
@@ -182,7 +182,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 -----------------------------------------------------------------------------------
  Aggregate
    Output: sum(((data ->> 'stock'::text))::integer)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
          Output: data
          Table: json_agg_test
          Index: idx_json_agg
@@ -213,7 +213,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 ---------------------------------------------------------------------------------------
  Aggregate
    Output: avg(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
@@ -242,7 +242,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 -------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: avg(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
@@ -270,7 +270,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 -------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: avg(((data ->> 'stock'::text))::integer)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
          Output: data
          Table: json_agg_test
          Index: idx_json_agg
@@ -303,7 +303,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 ------------------------------------------------------------------------------------------------------
  Aggregate
    Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
@@ -336,7 +336,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 ----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
@@ -368,7 +368,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 ---------------------------------------------------------------------------------------
  Aggregate
    Output: min((metadata ->> 'brand'::text)), max((metadata ->> 'brand'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg
@@ -408,7 +408,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: count(*), sum(((metadata ->> 'price'::text))::numeric), avg(((metadata ->> 'price'::text))::numeric), min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric), min((metadata ->> 'brand'::text)), max((metadata ->> 'brand'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.json_agg_test
          Output: metadata
          Table: json_agg_test
          Index: idx_json_agg

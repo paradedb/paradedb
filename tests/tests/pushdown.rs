@@ -796,7 +796,7 @@ mod pushdown_is_bool_operator {
 
     /// Test for issue #2433: Pushdown `bool_field IS true|false`
     /// Verifies that the SQL IS operator for boolean fields is properly
-    /// pushed down to the ParadeDB scan operator.
+    /// pushed down to the ParadeDB Base Scan operator.
     #[rstest]
     fn test_bool_is_operator_pushdown(mut conn: PgConnection) {
         r#"
@@ -825,7 +825,7 @@ mod pushdown_is_bool_operator {
     /// This test checks the behavior of complex expressions (not just simple field references)
     /// with IS TRUE/FALSE operators.
     ///
-    /// Note: Currently, complex expressions won't be pushed down to the ParadeDB scan operator.
+    /// Note: Currently, complex expressions won't be pushed down to the ParadeDB Base Scan operator.
     /// PostgreSQL will handle the evaluation of these expressions after the scan.
     /// We're marking this test as ignored until we implement full support for complex expressions.
     #[rstest]

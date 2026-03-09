@@ -139,6 +139,7 @@ pub struct ChildProjection {
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::info::{FieldInfo, RowEstimate};
@@ -246,9 +247,7 @@ impl JoinSourceCandidate {
         let expr_context = ExprContextGuard::new();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
-            self.query
-                .clone()
-                .unwrap_or(crate::query::SearchQueryInput::All),
+            self.query.clone().unwrap_or(SearchQueryInput::All),
             false,
             MvccSatisfies::LargestSegment,
             NonNull::new(expr_context.as_ptr()),
@@ -350,9 +349,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
-                query: candidate
-                    .query
-                    .unwrap_or(crate::query::SearchQueryInput::All),
+                query: candidate.query.unwrap_or(SearchQueryInput::All),
                 has_search_predicate: candidate.has_search_predicate,
                 alias: candidate.alias,
                 score_needed: candidate.score_needed,
@@ -630,8 +627,8 @@ impl Default for RelNode {
 pub struct JoinCSClause {
     /// The root of the relational execution tree.
     pub plan: RelNode,
-    /// The LIMIT value from the query, if any.
-    pub limit: Option<usize>,
+    /// The LIMIT and OFFSET value from the query, if any.
+    pub limit_offset: LimitOffset,
     /// Join-level search predicates (Tantivy queries to execute).
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
     /// Heap conditions (PostgreSQL expressions referencing both sides).
@@ -640,27 +637,40 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
+    /// Whether the join has DISTINCT specified.
+    pub has_distinct: bool,
 }
 
 impl JoinCSClause {
     pub fn new(plan: RelNode) -> Self {
         Self {
             plan,
-            limit: None,
+            limit_offset: Default::default(),
             join_level_predicates: Vec::new(),
             multi_table_predicates: Vec::new(),
             order_by: Vec::new(),
             output_projection: None,
+            has_distinct: false,
         }
     }
 
-    pub fn with_limit(mut self, limit: Option<usize>) -> Self {
-        self.limit = limit;
+    pub fn with_limit(mut self, limit: Option<u32>) -> Self {
+        self.limit_offset.limit = limit;
+        self
+    }
+
+    pub fn with_offset(mut self, offset: Option<u32>) -> Self {
+        self.limit_offset.offset = offset;
         self
     }
 
     pub fn with_order_by(mut self, order_by: Vec<OrderByInfo>) -> Self {
         self.order_by = order_by;
+        self
+    }
+
+    pub fn with_distinct(mut self, has_distinct: bool) -> Self {
+        self.has_distinct = has_distinct;
         self
     }
 

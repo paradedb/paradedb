@@ -46,8 +46,10 @@ LIMIT 5 OFFSET 6;
          Tantivy Query: {"with_index":{"query":"all"}}
            Applies to Aggregates: COUNT(*)
            Group By: rating
+           Limit: 5
+           Offset: 6
            Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
-(7 rows)
+(9 rows)
 
 -- Ordering on a non grouping column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

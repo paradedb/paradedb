@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773083214158,
+  "lastUpdate": 1773083220602,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16112,6 +16112,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.28524709302326, max segment_count: 127.0, count: 57792"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cb747cd6cd33408b24ec05516e911e1220ee5ed",
+          "message": "feat(joinscan): Add DISTINCT support to JoinScan (#4305)\n\nCloses #4213\n\n## Why\n\nQueries with `DISTINCT` were rejected by `JoinScan` because PostgreSQL\nsets `limit_tuples = -1.0` when `DISTINCT` is present, causing LIMIT\nextraction to fail. This forced fallback to native PG execution,\nbypassing late materialization and TopK benefits for common patterns\nlike joining a \"One\" side to a \"Many\" side with deduplication.\n\n## How\n\n- Extract `LIMIT` from the parse tree directly when `limit_tuples ==\n-1.0`\n- Validate that all DISTINCT columns are fast fields (same constraint as\nORDER BY)\n- Push DISTINCT into DataFusion as `GROUP BY + min(ctid)` before the\nsort step, using positional `col_N` aliases to handle duplicate column\nnames across tables\n- Expand `required_early` to include ORDER BY columns when DISTINCT is\npresent, fixing a late materialization schema mismatch\n- Bail out early when `hasAggs` is true — `COUNT(*) ... LIMIT N` would\notherwise return `N` instead of the true count\n- Register `min` UDAF in the session context for logical plan\nserialization\n\n## Tests\n\nAdded `join_distinct.sql` with 15 regression tests covering JoinScan\nactivation, deduplication correctness, score columns, 3-table joins,\nfallback cases (non-fast-field, no LIMIT, aggregates), and result parity\nwith native PG execution.\n\n---------\n\nSigned-off-by: Ruchir Raj <ruchirraj24@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-09T11:33:37-07:00",
+          "tree_id": "2a5fb0f42e72292d218e71a1d5cf18dc86e29444",
+          "url": "https://github.com/paradedb/paradedb/commit/6cb747cd6cd33408b24ec05516e911e1220ee5ed"
+        },
+        "date": 1773083215849,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.172944509298418, max cpu: 42.772278, count: 57810"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 232.73435972906935, max mem: 234.296875, count: 57810"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.43140053014635, max cpu: 33.267326, count: 57810"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.19645349528628, max mem: 175.85546875, count: 57810"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34456,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33507.76993599723, max block_count: 36146.0, count: 57810"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.01892406158105, max segment_count: 129.0, count: 57810"
           }
         ]
       }

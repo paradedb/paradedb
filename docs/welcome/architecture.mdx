@@ -90,7 +90,7 @@ For queries that need to read large amounts of data like [Top K](/documentation/
 in parallel. To see if a query was parallelized, run `EXPLAIN ANALYZE`:
 
 ```sql
--- "Top K" queries may be parallelized
+-- Top K queries may be parallelized
 EXPLAIN ANALYZE SELECT * FROM mock_items
 WHERE description ||| 'running shoes'
 ORDER BY rating LIMIT 5;

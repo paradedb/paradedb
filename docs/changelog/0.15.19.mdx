@@ -7,7 +7,7 @@ noindex: true
 
 - Fixed an issue where the custom scan would throw an error instead of gracefully falling back to an index scan when boolean predicates were used
 - Fixed an issue where joins with the `@@@` operator could exclude results from the output
-- Fixed an issue where "Top K" queries could enter an endless loop if enough documents in a segment had been deleted
+- Fixed an issue where Top K queries could enter an endless loop if enough documents in a segment had been deleted
 - Fixed an issue where the custom scan would solve an incorrect boolean condition if there were parentheses involved in the query
 - Fixed an issue where `max_parallel_workers_per_gather` setting was not being respected by parallel scans
 

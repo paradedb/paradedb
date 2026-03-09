@@ -711,7 +711,7 @@ impl SearchIndexReader {
         )
     }
 
-    /// Search the Tantivy index for the "Top K" matching documents in specific segments.
+    /// Search the Tantivy index for the Top K matching documents in specific segments.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.

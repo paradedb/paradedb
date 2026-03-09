@@ -27,7 +27,7 @@ WHERE d.parents @@@ 'Factures'
 ORDER BY d.id, f.id, p.id;
 
 -- this should return two rows
--- it's exercising "Top K" being a parameterized plan in the subselect
+-- it's exercising Top K being a parameterized plan in the subselect
 EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
        (
            SELECT f.title

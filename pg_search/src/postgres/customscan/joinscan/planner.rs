@@ -166,6 +166,7 @@ impl SortMergeJoinEnforcer {
                         null_equality,
                     )?;
 
+                    // TODO: See https://github.com/apache/datafusion/pull/20455
                     let exec = Arc::new(FilterPassthroughExec::new(Arc::new(exec)))
                         as Arc<dyn ExecutionPlan>;
 

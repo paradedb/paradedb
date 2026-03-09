@@ -75,7 +75,7 @@ LIMIT 3;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: segments=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
@@ -107,8 +107,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.region @@@ 'wireless'
 ORDER BY p.id
 LIMIT 3;
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -123,7 +123,7 @@ LIMIT 3;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
@@ -153,8 +153,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.region @@@ 'wireless'
 ORDER BY p.id
 LIMIT 3;
-                                                                                                                                                                     QUERY PLAN                                                                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Relation Tree: s INNER p
@@ -164,10 +164,10 @@ LIMIT 3;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 14], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1, row_replacements=3]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4], metrics=[output_rows=6, output_bytes=192.0 KB, output_batches=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=6, build_mem_used=89, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4], metrics=[output_rows=6, output_bytes=192.0 KB, output_batches=1, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=6, build_mem_used=20, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
            :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id], metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=0, rows_scanned=1]
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id], metrics=[output_rows=6, output_bytes=160.0 B, output_batches=1]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=24, rows_scanned=30]
@@ -199,7 +199,7 @@ LIMIT 2;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: segments=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
@@ -288,7 +288,7 @@ LIMIT 5;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"global","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"global","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
@@ -327,8 +327,8 @@ WHERE p.supplier_id IN (
 )
 ORDER BY p.id ASC
 LIMIT 3;
-                                                                                                 QUERY PLAN                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price
    ->  Custom Scan (ParadeDB Join Scan)
@@ -343,7 +343,7 @@ LIMIT 3;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
@@ -477,8 +477,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Relation Tree: d INNER f
@@ -490,7 +490,7 @@ LIMIT 3;
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 007], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=70, rows_output=3, segments_seen=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=70, output_bytes=128.9 KB, output_batches=1, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, build_mem_used=424, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=70, output_bytes=128.9 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, build_mem_used=424, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
            :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id], metrics=[output_rows=7, output_bytes=232.0 B, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
@@ -526,8 +526,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Relation Tree: d INNER f
@@ -539,7 +539,7 @@ LIMIT 3;
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 041], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=10, rows_output=3, segments_seen=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=10, output_bytes=128.1 KB, output_batches=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, build_mem_used=105, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=10, output_bytes=128.1 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, build_mem_used=105, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
            :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id], metrics=[output_rows=1, output_bytes=32.0 B, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"intro","lenient":null,"conjunction_mode":null}}}}

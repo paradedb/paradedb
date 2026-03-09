@@ -469,8 +469,8 @@ WHERE
 ORDER BY
     d.title ASC
 LIMIT 50;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.title, d.parents
    ->  Unique
@@ -494,7 +494,7 @@ LIMIT 50;
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_0@0, id@1, title@2, parents@3, ctid_2@4, id@6]
                  :             ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, title@2 as title, parents@3 as parents]
                  :               CooperativeExec
-                 :                 PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
+                 :                 PgSearchScan: segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
                  :             ProjectionExec: expr=[ctid@0 as ctid_2, documentId@1 as documentId, id@2 as id]
                  :               CooperativeExec
                  :                 PgSearchScan: segments=1, dynamic_filters=2, query="all"

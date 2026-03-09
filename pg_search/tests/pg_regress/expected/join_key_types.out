@@ -385,7 +385,7 @@ LIMIT 10;
                  :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR novel","lenient":null,"conjunction_mode":null}}}}
                  :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (21 rows)
 
 -- Should return only rows with non-NULL category_id that match the search
@@ -467,7 +467,7 @@ LIMIT 10;
                  :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                  :         ProjectionExec: expr=[ctid@0 as ctid_0, order_id@1 as order_id, line_num@2 as line_num]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (21 rows)
 
 SELECT od.product_name, oi.quantity, oi.notes
@@ -544,7 +544,7 @@ LIMIT 10;
                  :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                  :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (21 rows)
 
 SELECT o.description, c.name

@@ -99,6 +99,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
         // Use try_init() because parallel workers may call _PG_init() multiple times
         let _ = env_logger::try_init();
     }
+    std::env::set_var("RUST_BACKTRACE", "1");
 
     if cfg!(not(any(feature = "pg17", feature = "pg18")))
         && !pg_sys::process_shared_preload_libraries_in_progress

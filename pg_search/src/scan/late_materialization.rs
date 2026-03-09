@@ -345,6 +345,7 @@ impl OptimizerRule for LateMaterializationRule {
                             join.join_type,
                             join.join_constraint,
                             join.null_equality,
+                            join.null_aware,
                         )?;
                         return Ok(Transformed::yes(LogicalPlan::Join(new_join)));
                     }

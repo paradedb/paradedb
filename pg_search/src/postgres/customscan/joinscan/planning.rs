@@ -1217,6 +1217,20 @@ pub(super) unsafe fn extract_orderby(
                         break;
                     }
                 }
+                // The Var is in the output but doesn't belong to any BM25 source
+                // (e.g. products.id when products has no BM25 predicate).
+                // Emit it as a plain field — it's a projected output column.
+                if output_rtis.contains(&varno) {
+                    result.push(OrderByInfo {
+                        feature: OrderByFeature::Var {
+                            rti: varno,
+                            attno: varattno,
+                            name: None,
+                        },
+                        direction,
+                    });
+                    pathkey_resolved = true;
+                }
             }
             if pathkey_resolved {
                 break;

@@ -165,7 +165,7 @@ LIMIT 3;
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 005], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
-           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=50, rows_output=3, segments_seen=1]
+           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=50, rows_output=3, segments_flushed=1, segments_seen=1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=90, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=56% (50/90)]
            :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
            :             CooperativeExec

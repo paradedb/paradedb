@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773181481203,
+  "lastUpdate": 1773181488652,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17912,6 +17912,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.19140469558297, max segment_count: 128.0, count: 57799"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2fee78f2dca0836179001f4bb3b6a4d55b7cb31e",
+          "message": "feat: Support semi and anti join in the same query (#4315)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAllows for a query to be pushed down if it contains both a semi and anti\njoin:\n\n```sql\nSELECT id, category\nFROM table_a\nWHERE id IN (\n    SELECT a_id\n    FROM table_b\n    WHERE group_id IN ('group_1')\n)\nAND id NOT IN (\n    SELECT a_id\n    FROM table_b\n    WHERE group_id IN ('group_3', 'group_4')\n)\nAND id @@@ 'category:\"target_category\"'\nORDER BY id ASC\nLIMIT 10;\n```\n\nThe main thing is that subqueries can reference the same relation, so we\nneed to build DataFusion plans without ambiguous bindings.\n\nJoin sources now carry two identities:\n\n1. `root_id`, which tracks which PostgreSQL planner root a source came\nfrom. i.e. a subquery can have a different root than the rest of the\nquery\n2. `plan_position`, which gives each source a stable position within the\nflattened join plan (before we were relying on `rti`, which is only\nunique within a single planner root.\n\nAdditionally, columns are suffixed with `plan_position` to disambiguate\nthem across relations.\n\n## Why\n\n## How\n\n## Tests\n\nUpdated regression tests and added prop testing.",
+          "timestamp": "2026-03-10T14:51:08-07:00",
+          "tree_id": "9c1cdc7cfab8249e160221289d6d3cb888cf0b02",
+          "url": "https://github.com/paradedb/paradedb/commit/2fee78f2dca0836179001f4bb3b6a4d55b7cb31e"
+        },
+        "date": 1773181483187,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.294091554548487, max cpu: 42.857143, count: 57577"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.75453848759054, max mem: 234.37109375, count: 57577"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.426815609908218, max cpu: 33.23442, count: 57577"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 174.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.9077418880369, max mem: 175.58984375, count: 57577"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34078,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33350.101273077795, max block_count: 35807.0, count: 57577"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.009639265679, max segment_count: 128.0, count: 57577"
           }
         ]
       }

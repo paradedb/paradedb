@@ -90,7 +90,7 @@ use arrow_schema::SchemaRef;
 use datafusion::arrow::array::UInt64Array;
 use datafusion::arrow::array::{Array, ArrayRef, BooleanArray};
 use datafusion::arrow::compute::cast;
-use datafusion::arrow::datatypes::{Field, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode};
 use datafusion::common::ScalarValue;
@@ -259,18 +259,19 @@ pub fn collect_filters(expr: &Arc<dyn PhysicalExpr>, schema: &SchemaRef, out: &m
         });
     }
 }
+
 /// Helper to centrally identify string, bytes, dictionary, and deferred string columns.
-fn is_string_like_type(data_type: &datafusion::arrow::datatypes::DataType) -> bool {
+fn is_string_like_type(data_type: &DataType) -> bool {
     matches!(
         data_type,
-        datafusion::arrow::datatypes::DataType::Utf8
-            | datafusion::arrow::datatypes::DataType::LargeUtf8
-            | datafusion::arrow::datatypes::DataType::Utf8View
-            | datafusion::arrow::datatypes::DataType::Binary
-            | datafusion::arrow::datatypes::DataType::LargeBinary
-            | datafusion::arrow::datatypes::DataType::BinaryView
-            | datafusion::arrow::datatypes::DataType::Dictionary(_, _)
-            | datafusion::arrow::datatypes::DataType::Union(_, _)
+        DataType::Utf8
+            | DataType::LargeUtf8
+            | DataType::Utf8View
+            | DataType::Binary
+            | DataType::LargeBinary
+            | DataType::BinaryView
+            | DataType::Dictionary(_, _)
+            | DataType::Union(_, _)
     )
 }
 /// Validates that an expression only contains nodes we can evaluate during pre-filtering.
@@ -350,7 +351,7 @@ fn is_supported(
             required_columns.extend(lookup_columns);
 
             // We tell DataFusion's main traversal loop to skip visiting
-            // the children of this HashTableLookupExpr , as the child is likely
+            // the children of this HashTableLookupExpr, as the child is likely
             // an internal DataFusion hashing node that isn't on our allowlist.
             return Ok(datafusion::common::tree_node::TreeNodeRecursion::Jump);
         } else {

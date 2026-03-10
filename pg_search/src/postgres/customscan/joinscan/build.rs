@@ -47,6 +47,14 @@ impl<'a> RelationAlias<'a> {
         Self { name }
     }
 
+    /// For EXPLAIN output, don't suffix the relation to make it more readable
+    pub fn display(&self, index: usize) -> String {
+        self.name
+            .map(ToString::to_string)
+            .unwrap_or_else(|| format!("source_{}", index))
+    }
+
+    /// For DataFusion execution, suffix the relation to make it unique
     pub fn execution(&self, index: usize) -> String {
         match self.name {
             Some(alias) => format!("{alias}_{index}"),
@@ -463,6 +471,10 @@ impl JoinSource {
     /// Recursively collect all base relations in this source.
     pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
         acc.push(self.scan_info.clone());
+    }
+
+    pub fn execution_alias(&self) -> String {
+        RelationAlias::new(self.scan_info.alias.as_deref()).execution(self.plan_position)
     }
 }
 

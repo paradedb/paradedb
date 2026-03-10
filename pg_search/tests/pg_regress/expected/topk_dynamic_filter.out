@@ -66,7 +66,7 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
+         Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
          DataFusion Physical Plan:
@@ -114,7 +114,7 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
+         Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
          DataFusion Physical Plan:
@@ -158,7 +158,7 @@ LIMIT 3;
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
+         Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
          DataFusion Physical Plan:
@@ -190,7 +190,7 @@ LIMIT 2;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
+         Join Cond: p.supplier_id = s.id
          Limit: 2
          Order By: p.id desc
          DataFusion Physical Plan:
@@ -234,7 +234,7 @@ LIMIT 2;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
+         Join Cond: p.supplier_id = s.id
          Limit: 2
          Order By: p.price asc
          DataFusion Physical Plan:
@@ -279,7 +279,7 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
+         Join Cond: p.supplier_id = s.id
          Limit: 5
          Order By: p.id asc
          DataFusion Physical Plan:
@@ -334,7 +334,7 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
+         Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
          DataFusion Physical Plan:
@@ -482,7 +482,7 @@ LIMIT 3;
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Relation Tree: d INNER f
-         Join Cond: f_1.document_id = d_0.id
+         Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
          DataFusion Physical Plan:
@@ -531,7 +531,7 @@ LIMIT 3;
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Relation Tree: d INNER f
-         Join Cond: f_1.document_id = d_0.id
+         Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
          DataFusion Physical Plan:

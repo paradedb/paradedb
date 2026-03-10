@@ -21,8 +21,9 @@
 //! in PostgreSQL's EXPLAIN output, including expression tree formatting
 //! and column name resolution.
 
-use super::build::{JoinCSClause, JoinLevelExpr, RelationAlias};
+use super::build::{JoinCSClause, JoinLevelExpr};
 
+use crate::customscan::joinscan::RelationAlias;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::deparse::node_to_string_fallback;
 use pgrx::pg_sys;
@@ -68,12 +69,16 @@ pub(super) fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSC
             plan_position,
             predicate_idx,
         } => {
-            let all_sources = join_clause.plan.sources();
-            let label = if let Some(source) = all_sources.get(*plan_position) {
-                RelationAlias::new(source.scan_info.alias.as_deref()).execution(*plan_position)
-            } else {
-                format!("source_{}", plan_position)
-            };
+            let label = join_clause
+                .plan
+                .sources()
+                .iter()
+                .find(|source| source.plan_position == *plan_position)
+                .map(|source| {
+                    RelationAlias::new(source.scan_info.alias.as_deref())
+                        .display(source.plan_position)
+                })
+                .unwrap_or_else(|| RelationAlias::new(None).display(*plan_position));
             if let Some(pred) = join_clause.join_level_predicates.get(*predicate_idx) {
                 format!("{}:{}", label, pred.query.explain_format())
             } else {

@@ -53,7 +53,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: o.id, o.description, c.name
          Relation Tree: c INNER o
-         Join Cond: o_1.customer_code = c_0.customer_code
+         Join Cond: o.customer_code = c.customer_code
          Limit: 10
          Order By: o.id asc
          DataFusion Physical Plan: 
@@ -134,7 +134,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id, i.product_name, w.name
          Relation Tree: w INNER i
-         Join Cond: i_1.region_id = w_0.region_id, i_1.warehouse_code = w_0.warehouse_code
+         Join Cond: i.region_id = w.region_id, i.warehouse_code = w.warehouse_code
          Limit: 10
          Order By: i.id asc
          DataFusion Physical Plan: 
@@ -209,7 +209,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id, i.name, t.type_name
          Relation Tree: t INNER i
-         Join Cond: i_1.type_id = t_0.type_id
+         Join Cond: i.type_id = t.type_id
          Limit: 10
          Order By: i.id asc
          DataFusion Physical Plan: 
@@ -296,7 +296,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: d.title, d.id, a.name
                Relation Tree: a INNER d
-               Join Cond: d_1.author_code = a_0.author_code
+               Join Cond: d.author_code = a.author_code
                Limit: 10
                Order By: d.id asc
                DataFusion Physical Plan: 
@@ -372,7 +372,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: i.name, i.id, c.name
                Relation Tree: c INNER i
-               Join Cond: i_1.category_id = c_0.id
+               Join Cond: i.category_id = c.id
                Limit: 10
                Order By: i.id asc
                DataFusion Physical Plan: 
@@ -454,7 +454,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: od.product_name, od.order_id, od.line_num, oi.quantity, oi.notes
                Relation Tree: oi INNER od
-               Join Cond: od_1.order_id = oi_0.order_id, od_1.line_num = oi_0.line_num
+               Join Cond: od.order_id = oi.order_id, od.line_num = oi.line_num
                Limit: 10
                Order By: od.order_id asc, od.line_num asc
                DataFusion Physical Plan: 
@@ -531,7 +531,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: o.description, o.id, c.name
                Relation Tree: c INNER o
-               Join Cond: o_1.customer_id = c_0.id
+               Join Cond: o.customer_id = c.id
                Limit: 10
                Order By: o.id asc
                DataFusion Physical Plan: 
@@ -608,7 +608,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: t.description, t.amount, t.id, a.holder_name
                Relation Tree: a INNER t
-               Join Cond: t_1.account_num = a_0.account_num
+               Join Cond: t.account_num = a.account_num
                Limit: 10
                Order By: t.id asc
                DataFusion Physical Plan: 

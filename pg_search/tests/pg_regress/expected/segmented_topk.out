@@ -62,7 +62,7 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
          Relation Tree: d INNER f
-         Join Cond: f_1.document_id = d_0.id
+         Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
          DataFusion Physical Plan:
@@ -111,7 +111,7 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
          Relation Tree: d INNER f
-         Join Cond: f_1.document_id = d_0.id
+         Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title desc
          DataFusion Physical Plan:
@@ -158,7 +158,7 @@ LIMIT 3;
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Relation Tree: d INNER f
-         Join Cond: f_1.document_id = d_0.id
+         Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
          DataFusion Physical Plan:
@@ -273,7 +273,7 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
          Relation Tree: d INNER f
-         Join Cond: f_1.document_id = d_0.id
+         Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.id asc
          DataFusion Physical Plan:
@@ -341,7 +341,7 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
          Relation Tree: d INNER f
-         Join Cond: f_1.document_id = d_0.id
+         Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
          DataFusion Physical Plan:
@@ -426,7 +426,7 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
          Relation Tree: d INNER f
-         Join Cond: f_1.document_id = d_0.id
+         Join Cond: f.document_id = d.id
          Limit: 5
          Order By: f.title asc, f.id desc
          DataFusion Physical Plan:
@@ -495,7 +495,7 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title, f.content
          Relation Tree: d INNER f
-         Join Cond: f_1.document_id = d_0.id
+         Join Cond: f.document_id = d.id
          Limit: 5
          Order By: f.title asc, f.content desc
          DataFusion Physical Plan:
@@ -562,7 +562,7 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title, d.category
          Relation Tree: d INNER f
-         Join Cond: f_1.document_id = d_0.id
+         Join Cond: f.document_id = d.id
          Limit: 5
          Order By: f.title asc, d.category desc, f.id asc
          DataFusion Physical Plan:

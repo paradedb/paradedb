@@ -931,10 +931,10 @@ impl CustomScan for JoinScan {
 
                         let outer_alias =
                             RelationAlias::new(outer_source.scan_info.alias.as_deref())
-                                .execution(outer_source.plan_position);
+                                .display(outer_source.plan_position);
                         let inner_alias =
                             RelationAlias::new(inner_source.scan_info.alias.as_deref())
-                                .execution(inner_source.plan_position);
+                                .display(inner_source.plan_position);
 
                         acc.push(format!(
                             "{} = {}",

@@ -478,7 +478,7 @@ LIMIT 50;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: d.id, d.title, d.parents
                Relation Tree: d INNER (p INNER f)
-               Join Cond: d_0.id = f_2.documentId, f_2.id = p_1.fileId
+               Join Cond: d.id = f.documentId, f.id = p.fileId
                Limit: 50
                Distinct: true
                Order By: d.title asc, d.id asc, d.parents asc

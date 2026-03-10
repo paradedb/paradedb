@@ -74,15 +74,15 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                     QUERY PLAN                                                                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                   QUERY PLAN                                                                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
-         Join Predicate: (p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR s_0:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -120,15 +120,15 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'monitor OR webcam' OR s.description @@@ 'display OR premium')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                              QUERY PLAN                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                            QUERY PLAN                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
-         Join Predicate: (p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"monitor OR webcam","lenient":null,"conjunction_mode":null}}}} OR s_0:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display OR premium","lenient":null,"conjunction_mode":null}}}})
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"monitor OR webcam","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display OR premium","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -168,15 +168,15 @@ WHERE p.price > 100
   AND (p.description @@@ 'laptop OR keyboard' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                           QUERY PLAN                                                                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
-         Join Predicate: (p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}} OR s_0:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -216,15 +216,15 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR p.description @@@ 'monitor' OR s.description @@@ 'professional')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
-         Join Predicate: (p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"monitor","lenient":null,"conjunction_mode":null}}}} OR s_0:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}})
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"monitor","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -264,15 +264,15 @@ WHERE p.stock >= 25
   AND (p.description @@@ 'laptop OR monitor OR headphones' OR s.description @@@ 'audio OR display')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                    QUERY PLAN                                                                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
-         Join Predicate: (p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR monitor OR headphones","lenient":null,"conjunction_mode":null}}}} OR s_0:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio OR display","lenient":null,"conjunction_mode":null}}}})
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR monitor OR headphones","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio OR display","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -323,8 +323,8 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
-         Join Predicate: (p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}} OR s_0:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -365,15 +365,15 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.description @@@ 'professional' AND NOT p.description @@@ 'wireless'))
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
-         Join Predicate: (p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s_0:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}} AND p_1:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}} AND p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -421,7 +421,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
+         Join Cond: p.supplier_id = s.id
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -468,8 +468,8 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
-         Join Predicate: ((p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} AND s_0:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}) OR (p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} AND s_0:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}))
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: ((p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} AND s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}) OR (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} AND s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}))
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -508,15 +508,15 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (NOT p.description @@@ 'wireless' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                           QUERY PLAN                                                                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
-         Join Predicate: (p_1:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}} OR s_0:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 

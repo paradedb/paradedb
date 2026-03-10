@@ -65,7 +65,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: table_a.id, table_a.category
          Relation Tree: table_a SEMI table_b
-         Join Cond: table_a_0.id = table_b_1.a_id
+         Join Cond: table_a.id = table_b.a_id
          Limit: 10
          Order By: table_a.id asc
          DataFusion Physical Plan: 
@@ -132,7 +132,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: table_a.id, table_a.category
          Relation Tree: table_a ANTI table_b
-         Join Cond: table_b_1.a_id = table_a_0.id
+         Join Cond: table_b.a_id = table_a.id
          Limit: 10
          Order By: table_a.id asc
          DataFusion Physical Plan: 
@@ -172,7 +172,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: table_a.id, table_a.category
          Relation Tree: (table_a ANTI table_b) SEMI table_b
-         Join Cond: table_a_0.id = table_b_2.a_id, table_a_0.id = table_b_1.a_id
+         Join Cond: table_a.id = table_b.a_id, table_a.id = table_b.a_id
          Limit: 10
          Order By: table_a.id asc
          DataFusion Physical Plan: 

@@ -117,7 +117,7 @@ ORDER BY p.name
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.name, s.name
                Relation Tree: s INNER p
-               Join Cond: p_1.supplier_id = s_0.id
+               Join Cond: p.supplier_id = s.id
                Limit: 10
                Distinct: true
                Order By: p.name asc, s.name asc
@@ -232,7 +232,7 @@ ORDER BY paradedb.score(p.id) DESC, p.name
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.name, (paradedb.score(p.id))
                Relation Tree: s INNER p
-               Join Cond: p_1.supplier_id = s_0.id
+               Join Cond: p.supplier_id = s.id
                Limit: 10
                Distinct: true
                Order By: pdb.score() desc, p.name asc
@@ -306,7 +306,7 @@ ORDER BY p.name
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.name, s.name, c.name
                Relation Tree: s INNER (c INNER p)
-               Join Cond: p_2.supplier_id = s_0.id, p_2.category_id = c_1.id
+               Join Cond: p.supplier_id = s.id, p.category_id = c.id
                Limit: 10
                Distinct: true
                Order By: p.name asc, s.name asc, c.name asc
@@ -412,7 +412,7 @@ ORDER BY s.name
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.name, s.name
                Relation Tree: s INNER p
-               Join Cond: p_1.supplier_id = s_0.id
+               Join Cond: p.supplier_id = s.id
                Limit: 10
                Distinct: true
                Order By: s.name asc, p.name asc
@@ -448,7 +448,7 @@ ORDER BY p.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
+         Join Cond: p.supplier_id = s.id
          Limit: 10
          Order By: p.name asc
          DataFusion Physical Plan: 
@@ -670,8 +670,8 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
-                                                                                                                                                 QUERY PLAN                                                                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                               QUERY PLAN                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, (paradedb.score(p.id))
    ->  Unique
@@ -679,8 +679,8 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.id, p.name, (paradedb.score(p.id))
                Relation Tree: s INNER p
-               Join Cond: p_1.supplier_id = s_0.id
-               Join Predicate: (p_1:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}} OR s_0:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}})
+               Join Cond: p.supplier_id = s.id
+               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}})
                Limit: 10
                Distinct: true
                Order By: pdb.score() desc, p.id asc, p.name asc
@@ -819,7 +819,7 @@ ORDER BY p.name
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.name, s.name
                Relation Tree: s INNER p
-               Join Cond: p_1.supplier_id = s_0.id
+               Join Cond: p.supplier_id = s.id
                Limit: 3
                Offset: 2
                Distinct: true

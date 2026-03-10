@@ -43,7 +43,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: t1.val, t1.id, t2.val
                Relation Tree: t2 INNER t1
-               Join Cond: t1_1.id = t2_0.t1_id
+               Join Cond: t1.id = t2.t1_id
                Limit: 10
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
@@ -101,7 +101,7 @@ OFFSET 5 LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: t1.val, t1.id, t2.val
                Relation Tree: t2 INNER t1
-               Join Cond: t1_1.id = t2_0.t1_id
+               Join Cond: t1.id = t2.t1_id
                Limit: 10
                Offset: 5
                Order By: t1.id asc nulls first
@@ -173,7 +173,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: t1.val, t1.id, t2.val
                Relation Tree: t2 INNER t1
-               Join Cond: t1_1.id = t2_0.t1_id
+               Join Cond: t1.id = t2.t1_id
                Limit: 10
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
@@ -256,7 +256,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: t1.val, t1.id, t2.val, t3.val
                Relation Tree: t1 INNER (t2 INNER t3)
-               Join Cond: t1_0.id = t2_1.t1_id, t2_1.t1_id = t3_2.t1_id
+               Join Cond: t1.id = t2.t1_id, t2.t1_id = t3.t1_id
                Limit: 10
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
@@ -333,7 +333,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: t1.val, t2.val
          Relation Tree: t2 INNER t1
-         Join Cond: t1_1.id = t2_0.t1_id
+         Join Cond: t1.id = t2.t1_id
          Limit: 10
          Order By: t1.val asc
          DataFusion Physical Plan: 
@@ -369,7 +369,7 @@ LIMIT 10;
  Limit (actual rows=10.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
          Relation Tree: t2 INNER t1
-         Join Cond: t1_1.id = t2_0.t1_id
+         Join Cond: t1.id = t2.t1_id
          Limit: 10
          Order By: t1.val asc
          DataFusion Physical Plan: 
@@ -462,7 +462,7 @@ LIMIT 25;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: t1.id, t1.val
          Relation Tree: t2 INNER t1
-         Join Cond: t1_1.id = t2_0.t1_id
+         Join Cond: t1.id = t2.t1_id
          Limit: 25
          Order By: t1.val desc, t1.id asc
          DataFusion Physical Plan: 
@@ -496,7 +496,7 @@ LIMIT 25;
  Limit (actual rows=25.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)
          Relation Tree: t2 INNER t1
-         Join Cond: t1_1.id = t2_0.t1_id
+         Join Cond: t1.id = t2.t1_id
          Limit: 25
          Order By: t1.val desc, t1.id asc
          DataFusion Physical Plan: 
@@ -573,7 +573,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: t1.id, t1.val
          Relation Tree: t2 INNER t1
-         Join Cond: t1_1.id = t2_0.t1_id
+         Join Cond: t1.id = t2.t1_id
          Limit: 10
          Order By: t1.val asc
          DataFusion Physical Plan: 
@@ -683,7 +683,7 @@ LIMIT 15;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: t1.id, t1.val
          Relation Tree: t2 INNER t1
-         Join Cond: t1_1.id = t2_0.t1_id
+         Join Cond: t1.id = t2.t1_id
          Limit: 15
          Order By: t1.id desc
          DataFusion Physical Plan: 

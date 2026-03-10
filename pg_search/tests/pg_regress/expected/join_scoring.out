@@ -72,7 +72,7 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.id, p.name, (paradedb.score(p.id)), s.name
                Relation Tree: s INNER p
-               Join Cond: p_1.supplier_id = s_0.id
+               Join Cond: p.supplier_id = s.id
                Limit: 5
                Order By: pdb.score() desc, p.id asc
                DataFusion Physical Plan: 
@@ -124,7 +124,7 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.id, p.name, (paradedb.score(p.id)), s.name
                Relation Tree: s INNER p
-               Join Cond: p_1.supplier_id = s_0.id
+               Join Cond: p.supplier_id = s.id
                Limit: 5
                Order By: p.id asc
                DataFusion Physical Plan: 
@@ -177,7 +177,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name, (paradedb.score(s.id))
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
+         Join Cond: p.supplier_id = s.id
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -232,7 +232,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.id, p.name, (paradedb.score(p.id)), s.name, (paradedb.score(s.id))
                Relation Tree: s INNER p
-               Join Cond: p_1.supplier_id = s_0.id
+               Join Cond: p.supplier_id = s.id
                Limit: 10
                Order By: p.id asc
                DataFusion Physical Plan: 

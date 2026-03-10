@@ -100,7 +100,7 @@ WARNING:  JoinScan not used: join key columns must be fast fields (table: c)
                ->  Custom Scan (ParadeDB Join Scan)
                      Output: p.id, p.name, p.category_id, s.name
                      Relation Tree: s INNER p
-                     Join Cond: p_1.supplier_id = s_0.id
+                     Join Cond: p.supplier_id = s.id
                      Limit: 5
                      Order By: p.id asc
                      DataFusion Physical Plan: 
@@ -189,15 +189,15 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                     QUERY PLAN                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                   QUERY PLAN                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Relation Tree: s INNER p
-         Join Cond: p_1.supplier_id = s_0.id
-         Join Predicate: (p_1:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s_0:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -297,7 +297,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.name, p.id, s.name, c.name
                Relation Tree: s INNER (c INNER p)
-               Join Cond: p_2.supplier_id = s_0.id, p_2.category_id = c_1.id
+               Join Cond: p.supplier_id = s.id, p.category_id = c.id
                Limit: 10
                Order By: p.id asc
                DataFusion Physical Plan: 
@@ -349,7 +349,7 @@ LIMIT 10;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.name, p.id, s.name, c.name
                Relation Tree: s INNER (p INNER c)
-               Join Cond: p_1.supplier_id = s_0.id, p_1.category_id = c_2.id
+               Join Cond: p.supplier_id = s.id, p.category_id = c.id
                Limit: 10
                Order By: p.id asc
                DataFusion Physical Plan: 
@@ -399,7 +399,7 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.name, (paradedb.score(p.id))
          Relation Tree: s INNER (c INNER p)
-         Join Cond: p_2.supplier_id = s_0.id, p_2.category_id = c_1.id
+         Join Cond: p.supplier_id = s.id, p.category_id = c.id
          Limit: 5
          Order By: pdb.score() desc
          DataFusion Physical Plan: 
@@ -448,7 +448,7 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: s.name, (paradedb.score(s.id))
          Relation Tree: s INNER (p INNER c)
-         Join Cond: p_1.supplier_id = s_0.id, p_1.category_id = c_2.id
+         Join Cond: p.supplier_id = s.id, p.category_id = c.id
          Limit: 5
          Order By: pdb.score() desc
          DataFusion Physical Plan: 
@@ -523,7 +523,7 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: l1.name, l1.id, l2.name, l3.name, l4.name
                Relation Tree: (l4 INNER l3) INNER (l1 INNER l2)
-               Join Cond: l2_3.l3_id = l3_1.id, l3_1.l4_id = l4_0.id, l1_2.l2_id = l2_3.id
+               Join Cond: l2.l3_id = l3.id, l3.l4_id = l4.id, l1.l2_id = l2.id
                Limit: 5
                Order By: l1.id asc
                DataFusion Physical Plan: 
@@ -582,7 +582,7 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: l1.name, l1.id, l4.name
                Relation Tree: (l4 INNER l3) INNER (l2 INNER l1)
-               Join Cond: l2_2.l3_id = l3_1.id, l3_1.l4_id = l4_0.id, l1_3.l2_id = l2_2.id
+               Join Cond: l2.l3_id = l3.id, l3.l4_id = l4.id, l1.l2_id = l2.id
                Limit: 5
                Order By: l1.id asc
                DataFusion Physical Plan: 
@@ -638,7 +638,7 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: l1.name, l1.id, l4.name
                Relation Tree: (l3 INNER l4) INNER (l2 INNER l1)
-               Join Cond: l2_2.l3_id = l3_0.id, l3_0.l4_id = l4_1.id, l1_3.l2_id = l2_2.id
+               Join Cond: l2.l3_id = l3.id, l3.l4_id = l4.id, l1.l2_id = l2.id
                Limit: 5
                Order By: l1.id asc
                DataFusion Physical Plan: 

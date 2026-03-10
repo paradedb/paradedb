@@ -57,7 +57,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: lo.id, lo.description, ls.name
          Relation Tree: ls INNER lo
-         Join Cond: lo_1.supplier_id = ls_0.id
+         Join Cond: lo.supplier_id = ls.id
          Limit: 10
          Order By: lo.id asc
          DataFusion Physical Plan: 
@@ -334,7 +334,7 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: tp.id, tp.description, tr.name
          Relation Tree: tr INNER tp
-         Join Cond: tp_1.ref_id = tr_0.id
+         Join Cond: tp.ref_id = tr.id
          Limit: 10
          Order By: tp.id asc
          DataFusion Physical Plan: 
@@ -405,7 +405,7 @@ LIMIT 20;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: hp.id, hp.description, hc.name
          Relation Tree: hc INNER hp
-         Join Cond: hp_1.category_id = hc_0.id
+         Join Cond: hp.category_id = hc.id
          Limit: 20
          Order By: hp.id asc
          DataFusion Physical Plan: 

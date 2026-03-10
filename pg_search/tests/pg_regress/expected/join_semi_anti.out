@@ -61,7 +61,7 @@ WHERE id IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                               QUERY PLAN
+                                                                                               QUERY PLAN                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: table_a.id, table_a.category
@@ -71,7 +71,7 @@ LIMIT 10;
          Join Cond: table_a.id = table_b.a_id
          Limit: 10
          Order By: table_a.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
@@ -98,7 +98,7 @@ WHERE id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
- id |    category
+ id |    category     
 ----+-----------------
   2 | target_category
   4 | target_category
@@ -128,7 +128,7 @@ WHERE NOT EXISTS (
 AND table_a.id @@@ 'category:"target_category"'
 ORDER BY table_a.id ASC
 LIMIT 10;
-                                                                                               QUERY PLAN
+                                                                                               QUERY PLAN                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: table_a.id, table_a.category
@@ -138,7 +138,7 @@ LIMIT 10;
          Join Cond: table_b.a_id = table_a.id
          Limit: 10
          Order By: table_a.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
@@ -168,7 +168,7 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                                QUERY PLAN
+                                                                                                QUERY PLAN                                                                                                 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: table_a.id, table_a.category
@@ -178,7 +178,7 @@ LIMIT 10;
          Join Cond: table_a.id = table_b.a_id, table_a.id = table_b.a_id
          Limit: 10
          Order By: table_a.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
@@ -207,7 +207,7 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
- id  |    category
+ id  |    category     
 -----+-----------------
   10 | target_category
   20 | target_category
@@ -238,7 +238,7 @@ ORDER BY id ASC
 LIMIT 10;
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
 WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields) (tables: table_a, table_b)
-                                                    QUERY PLAN
+                                                    QUERY PLAN                                                    
 ------------------------------------------------------------------------------------------------------------------
  Limit
    Output: table_a.id, table_a.category
@@ -252,7 +252,7 @@ WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all
                      Output: table_a.id, table_a.category
                      Table: table_a
                      Index: table_a_idx
-                     Exec Method: MixedFastFieldExecState
+                     Exec Method: ColumnarExecState
                      Fast Fields: category, id
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}

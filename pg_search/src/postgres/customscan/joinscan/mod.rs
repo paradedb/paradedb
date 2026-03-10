@@ -788,7 +788,6 @@ impl CustomScan for JoinScan {
                                 rti, attno
                             )
                         });
-                    // Determine if this column comes from outer or inner relation
                     output_columns.push(privdat::OutputColumnInfo {
                         plan_position,
                         rti,

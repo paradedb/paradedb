@@ -402,7 +402,6 @@ impl JoinSourceCandidate {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinSource {
     /// Stable plan position in `RelNode::sources()` order.
-    #[serde(default)]
     pub plan_position: usize,
     /// Identity of the PlannerInfo root this source originated from.
     pub root_id: Option<PlannerRootId>,

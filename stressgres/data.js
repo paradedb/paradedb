@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773101859632,
+  "lastUpdate": 1773102670174,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13618,6 +13618,42 @@ window.BENCHMARK_DATA = {
             "value": 5.35480730139201,
             "unit": "median tps",
             "extra": "avg tps: 4.819553432016808, max tps: 6.020175368501699, count: 57790"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "966f0a18a351e07aa0176c495f1405731110ba5d",
+          "message": "perf: Set minimum supported CPU era for SIMD auto-vectorization (#4254)\n\n## Summary\n\n- Configure per-target-triple `-Ctarget-cpu` flags in\n`.cargo/config.toml` to enable SIMD auto-vectorization: `x86-64-v3`\n(AVX2/FMA — Haswell 2013+), `cortex-a76` (Graviton 2+), `apple-m1`\n(Apple Silicon)\n- Add `rustflags: \"\"` to all publish and benchmark CI workflows so the\n`RUSTFLAGS` env var from `setup-rust-toolchain` doesn't override the\nconfig.toml target-cpu flags\n\nCloses #3862",
+          "timestamp": "2026-03-09T19:55:23-04:00",
+          "tree_id": "3325c4dd0bea803764849647757ff71cc66591c2",
+          "url": "https://github.com/paradedb/paradedb/commit/966f0a18a351e07aa0176c495f1405731110ba5d"
+        },
+        "date": 1773102664623,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.635150288920321,
+            "unit": "median tps",
+            "extra": "avg tps: 6.519777965146089, max tps: 9.878380335427497, count: 57964"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.4111358954082185,
+            "unit": "median tps",
+            "extra": "avg tps: 4.8581469493624105, max tps: 6.065688250947805, count: 57964"
           }
         ]
       }

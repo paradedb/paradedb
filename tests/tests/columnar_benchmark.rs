@@ -53,7 +53,7 @@ async fn benchmark_columnar_test(mut conn: PgConnection) -> Result<()> {
 /// Validate that the different execution methods return the same results
 /// and enforce that we're actually using the intended execution methods
 #[rstest]
-async fn validate_columnars_correctness(mut conn: PgConnection) -> Result<()> {
+async fn validate_columnar_correctness(mut conn: PgConnection) -> Result<()> {
     // Set up the benchmark database
     setup_benchmark_database(
         &mut conn,

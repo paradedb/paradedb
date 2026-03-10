@@ -147,7 +147,7 @@ fn complex_aggregation_setup() -> &'static str {
 
 #[ignore]
 #[rstest]
-fn test_complex_aggregation_with_columnars(mut conn: PgConnection) {
+fn test_complex_aggregation_with_columnar(mut conn: PgConnection) {
     complex_aggregation_setup().execute(&mut conn);
 
     // Force disable regular index scans to ensure BM25 index is used
@@ -370,7 +370,7 @@ fn is_sorted_asc<T: Ord>(values: &[T]) -> bool {
 #[case::desc_serial("DESC", "DESC", false)]
 #[case::asc_serial("ASC", "ASC", false)]
 #[case::parallel_desc("DESC", "DESC", true)]
-fn columnars_sorted_scan(
+fn columnar_sorted_scan(
     mut conn: PgConnection,
     #[case] sort_by_dir: &str,
     #[case] order_by_dir: &str,
@@ -498,7 +498,7 @@ fn columnars_sorted_scan(
 /// When enable_columnar_exec is false, queries with ORDER BY should
 /// still produce correctly sorted results (PostgreSQL will handle sorting).
 #[rstest]
-fn columnars_disabled_still_works(mut conn: PgConnection) {
+fn columnar_disabled_still_works(mut conn: PgConnection) {
     "SET max_parallel_workers TO 0;".execute(&mut conn);
     "SET paradedb.enable_columnar_exec TO false;".execute(&mut conn);
 

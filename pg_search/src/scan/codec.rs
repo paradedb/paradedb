@@ -151,12 +151,17 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         // participant (leader and workers) opens the same frozen set of segments, preventing
         // DocAddress mismatches caused by per-worker snapshot divergence.
         if let Some(np_idx) = provider.non_partitioning_index() {
-            let ids = self
-                .non_partitioning_segment_ids
-                .get(np_idx)
-                .cloned()
-                .expect("missing canonical segment IDs for non-partitioning source");
-            provider.set_canonical_segment_ids(ids);
+            // non_partitioning_segment_ids is empty only in codecs constructed without
+            // parallel state (e.g. EXPLAIN paths). In that case, skip injection.
+            // When IDs are present (actual parallel scan), they must exist for np_idx.
+            if !self.non_partitioning_segment_ids.is_empty() {
+                let ids = self
+                    .non_partitioning_segment_ids
+                    .get(np_idx)
+                    .cloned()
+                    .expect("missing canonical segment IDs for non-partitioning source");
+                provider.set_canonical_segment_ids(ids);
+            }
         }
         provider.set_expr_context(self.expr_context);
         Ok(Arc::new(provider))

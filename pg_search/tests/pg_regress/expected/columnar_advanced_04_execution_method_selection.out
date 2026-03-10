@@ -1,6 +1,6 @@
 -- Test proper execution method selection for columnar storage
 -- This test verifies that the ColumnarExecState is chosen when appropriate
--- and that NormalScanExecState is not used when columnar storage are available
+-- and that NormalScanExecState is not used when columnar storage is available
 \i common/columnar_advanced_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans

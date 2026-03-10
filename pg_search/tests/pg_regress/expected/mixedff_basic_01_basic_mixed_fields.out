@@ -50,7 +50,7 @@ FROM mixed_numeric_string_test
 WHERE content @@@ 'red';
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mixed_numeric_string_test
+ Custom Scan (ParadeDB Base Scan) on mixed_numeric_string_test
    Table: mixed_numeric_string_test
    Index: mixed_test_search
    Exec Method: MixedFastFieldExecState

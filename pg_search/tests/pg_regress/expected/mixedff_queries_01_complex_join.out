@@ -123,14 +123,14 @@ ORDER BY d.id, f.id, p.id;
          Hash Cond: (f.documentid = d.id)
          ->  Nested Loop
                Join Filter: (f.id = p.fileid)
-               ->  Custom Scan (ParadeDB Scan) on files f
+               ->  Custom Scan (ParadeDB Base Scan) on files f
                      Table: files
                      Index: files_search
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: documentid, file_path, id, title
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Scan) on pages p
+               ->  Custom Scan (ParadeDB Base Scan) on pages p
                      Table: pages
                      Index: pages_search
                      Exec Method: MixedFastFieldExecState
@@ -138,7 +138,7 @@ ORDER BY d.id, f.id, p.id;
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
          ->  Hash
-               ->  Custom Scan (ParadeDB Scan) on documents d
+               ->  Custom Scan (ParadeDB Base Scan) on documents d
                      Table: documents
                      Index: documents_search
                      Exec Method: MixedFastFieldExecState
@@ -191,7 +191,7 @@ LIMIT 10;
                      Merge Cond: (files.id = pages.fileid)
                      ->  Sort
                            Sort Key: files.id
-                           ->  Custom Scan (ParadeDB Scan) on files
+                           ->  Custom Scan (ParadeDB Base Scan) on files
                                  Table: files
                                  Index: files_search
                                  Exec Method: MixedFastFieldExecState
@@ -200,7 +200,7 @@ LIMIT 10;
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
                      ->  Sort
                            Sort Key: pages.fileid
-                           ->  Custom Scan (ParadeDB Scan) on pages
+                           ->  Custom Scan (ParadeDB Base Scan) on pages
                                  Table: pages
                                  Index: pages_search
                                  Exec Method: MixedFastFieldExecState
@@ -208,7 +208,7 @@ LIMIT 10;
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
                ->  Hash
-                     ->  Custom Scan (ParadeDB Scan) on documents
+                     ->  Custom Scan (ParadeDB Base Scan) on documents
                            Table: documents
                            Index: documents_search
                            Exec Method: MixedFastFieldExecState

@@ -29,7 +29,7 @@ SELECT id, title FROM autocomplete WHERE title ||| 'sho' ORDER BY id;
  Sort
    Output: id, title
    Sort Key: autocomplete.id
-   ->  Custom Scan (ParadeDB Scan) on public.autocomplete
+   ->  Custom Scan (ParadeDB Base Scan) on public.autocomplete
          Output: id, title
          Table: autocomplete
          Index: idx_autocomplete

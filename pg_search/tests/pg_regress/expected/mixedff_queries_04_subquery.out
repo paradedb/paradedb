@@ -120,7 +120,7 @@ ORDER BY invoice_file_count DESC, d.id;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ((SubPlan 1)) DESC, d.id
-   ->  Custom Scan (ParadeDB Scan) on documents d
+   ->  Custom Scan (ParadeDB Base Scan) on documents d
          Table: documents
          Index: documents_search
          Exec Method: NormalScanExecState
@@ -128,7 +128,7 @@ ORDER BY invoice_file_count DESC, d.id;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
          SubPlan 1
            ->  Aggregate
-                 ->  Custom Scan (ParadeDB Scan) on files f
+                 ->  Custom Scan (ParadeDB Base Scan) on files f
                        Table: files
                        Index: files_search
                        Exec Method: NormalScanExecState

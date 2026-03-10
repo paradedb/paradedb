@@ -469,40 +469,36 @@ WHERE
 ORDER BY
     d.title ASC
 LIMIT 50;
-WARNING:  JoinScan not used: query must have a LIMIT clause
-                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.title, d.parents
    ->  Unique
          Output: d.id, d.title, d.parents
-         ->  Sort
+         ->  Custom Scan (ParadeDB Join Scan)
                Output: d.id, d.title, d.parents
-               Sort Key: d.title, d.id, d.parents
-               ->  Hash Join
-                     Output: d.id, d.title, d.parents
-                     Hash Cond: (p."fileId" = f.id)
-                     ->  Seq Scan on public.pages p
-                           Output: p.id, p."fileId", p.content, p.title, p.parents, p."sizeInBytes", p."createdAt", p.fill0, p.fill1, p.fill2, p.fill3, p.fill4, p.fill5, p.fill6, p.fill7, p.fill8, p.fill9, p.fill10, p.fill11, p.fill12, p.fill13, p.fill14, p.fill15, p.fill16, p.fill17, p.fill18, p.fill19, p.fill20, p.fill21, p.fill22, p.fill23, p.fill24, p.fill25, p.fill26, p.fill27, p.fill28
-                           Filter: (p."sizeInBytes" > 5000)
-                     ->  Hash
-                           Output: d.id, d.title, d.parents, f.id
-                           ->  Hash Join
-                                 Output: d.id, d.title, d.parents, f.id
-                                 Inner Unique: true
-                                 Hash Cond: (f."documentId" = d.id)
-                                 ->  Seq Scan on public.files f
-                                       Output: f.id, f."documentId", f.content, f.title, f.parents, f."sizeInBytes", f."createdAt", f.fill0, f.fill1, f.fill2, f.fill3, f.fill4, f.fill5, f.fill6, f.fill7, f.fill8, f.fill9, f.fill10, f.fill11, f.fill12, f.fill13, f.fill14, f.fill15, f.fill16, f.fill17, f.fill18, f.fill19, f.fill20, f.fill21, f.fill22, f.fill23, f.fill24, f.fill25, f.fill26, f.fill27, f.fill28
-                                 ->  Hash
-                                       Output: d.id, d.title, d.parents
-                                       ->  Custom Scan (ParadeDB Scan) on public.documents d
-                                             Output: d.id, d.title, d.parents
-                                             Table: documents
-                                             Index: documents_index
-                                             Exec Method: NormalScanExecState
-                                             Scores: false
-                                             Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}}]}}
-(30 rows)
+               Relation Tree: d INNER (p INNER f)
+               Join Cond: d.id = f.documentId, f.id = p.fileId
+               Limit: 50
+               Distinct: true
+               Order By: d.title asc, d.id asc, d.parents asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_1@5 as ctid_1, ctid_4@4 as ctid_4, ctid_2@3 as ctid_2]
+                 :   SortExec: TopK(fetch=50), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     AggregateExec: mode=Single, gby=[id@1 as col_1, title@2 as col_2, parents@3 as col_3], aggr=[ctid_2, ctid_4, ctid_1]
+                 :       ProjectionExec: expr=[ctid_1@1 as ctid_1, id@2 as id, title@3 as title, parents@4 as parents, ctid_4@0 as ctid_4, ctid_2@5 as ctid_2]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@1, id@5)], projection=[ctid_4@0, ctid_1@2, id@3, title@4, parents@5, ctid_2@6]
+                 :           ProjectionExec: expr=[ctid@0 as ctid_4, fileId@1 as fileId]
+                 :             CooperativeExec
+                 :               PgSearchScan: segments=1, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null,"is_datetime":false}}
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_1@0, id@1, title@2, parents@3, ctid_2@4, id@6]
+                 :             ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, title@2 as title, parents@3 as parents]
+                 :               CooperativeExec
+                 :                 PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
+                 :             ProjectionExec: expr=[ctid@0 as ctid_2, documentId@1 as documentId, id@2 as id]
+                 :               CooperativeExec
+                 :                 PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(27 rows)
 
 SELECT DISTINCT
     d.id,
@@ -518,7 +514,6 @@ WHERE
 ORDER BY
     d.title ASC
 LIMIT 50;
-WARNING:  JoinScan not used: query must have a LIMIT clause
                   id                  |                      title                       |         parents          
 --------------------------------------+--------------------------------------------------+--------------------------
  00000001-1000-0000-0110-000000011000 | Document Title 10670 - d4af2d263e57f8d5fb92df991 | SFR 615ee94d40192144e7fd

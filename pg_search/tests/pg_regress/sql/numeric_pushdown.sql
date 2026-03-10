@@ -1901,14 +1901,14 @@ ORDER BY id;
 DROP TABLE empty_range_test;
 
 -- ============================================================================
--- PART 8: Window Aggregate Tests for NUMERIC columns (TopN queries)
+-- PART 8: Window Aggregate Tests for NUMERIC columns (Top K queries)
 -- ============================================================================
 -- Tests that window aggregates work correctly with Numeric64 fields
 -- and are properly rejected for NumericBytes fields.
--- NOTE: Window aggregate pushdown only occurs for TopN queries (ORDER BY + LIMIT)
+-- NOTE: Window aggregate pushdown only occurs for Top K queries (ORDER BY + LIMIT)
 
 -- ----------------------------------------------------------------------------
--- TEST: Window aggregates on Numeric64 fields in TopN query (should work)
+-- TEST: Window aggregates on Numeric64 fields in Top K query (should work)
 -- ----------------------------------------------------------------------------
 -- NUMERIC(10,2) has precision 10, which is <= 18, so uses Numeric64 storage
 
@@ -1930,7 +1930,7 @@ CREATE INDEX window_agg_numeric64_idx ON window_agg_numeric64_test USING bm25 (
     id, category, price
 ) WITH (key_field = 'id');
 
--- Window aggregate SUM on Numeric64 field in TopN query - should be pushed down
+-- Window aggregate SUM on Numeric64 field in Top K query - should be pushed down
 -- Note: Must have ORDER BY and LIMIT for window aggregate pushdown
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category, price,
@@ -1947,7 +1947,7 @@ WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
 
--- Window aggregate AVG on Numeric64 field in TopN query
+-- Window aggregate AVG on Numeric64 field in Top K query
 SELECT id, category, price,
        AVG(price) OVER () as avg_price
 FROM window_agg_numeric64_test
@@ -1955,7 +1955,7 @@ WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
 
--- Window aggregate MIN/MAX on Numeric64 field in TopN query
+-- Window aggregate MIN/MAX on Numeric64 field in Top K query
 SELECT id, category, price,
        MIN(price) OVER () as min_price,
        MAX(price) OVER () as max_price
@@ -1967,7 +1967,7 @@ LIMIT 10;
 DROP TABLE window_agg_numeric64_test;
 
 -- ----------------------------------------------------------------------------
--- TEST: Window aggregates on NumericBytes fields in TopN query (should error)
+-- TEST: Window aggregates on NumericBytes fields in Top K query (should error)
 -- ----------------------------------------------------------------------------
 -- Unbounded NUMERIC uses NumericBytes storage which cannot be aggregated
 
@@ -1986,7 +1986,7 @@ CREATE INDEX window_agg_numericbytes_idx ON window_agg_numericbytes_test USING b
     id, category, amount
 ) WITH (key_field = 'id');
 
--- Window aggregate on NumericBytes field in TopN query should error
+-- Window aggregate on NumericBytes field in Top K query should error
 -- This query should fail with an error about NumericBytes not being aggregatable
 SELECT id, category, amount,
         SUM(amount) OVER () as total
@@ -1998,7 +1998,7 @@ LIMIT 10;
 DROP TABLE window_agg_numericbytes_test;
 
 -- ----------------------------------------------------------------------------
--- TEST: Window aggregates on high-precision NUMERIC in TopN query (should error)
+-- TEST: Window aggregates on high-precision NUMERIC in Top K query (should error)
 -- ----------------------------------------------------------------------------
 -- NUMERIC(30,10) has precision > 18, so uses NumericBytes storage
 
@@ -2017,7 +2017,7 @@ CREATE INDEX window_agg_highprec_idx ON window_agg_highprec_test USING bm25 (
     id, category, value
 ) WITH (key_field = 'id');
 
--- Window aggregate on high-precision NUMERIC in TopN query should error
+-- Window aggregate on high-precision NUMERIC in Top K query should error
 SELECT id, category, value,
         AVG(value) OVER () as avg_val
 FROM window_agg_highprec_test

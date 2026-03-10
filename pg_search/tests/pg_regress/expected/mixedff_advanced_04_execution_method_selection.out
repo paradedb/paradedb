@@ -365,7 +365,7 @@ ORDER BY text_field1, text_field2;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, text_field2
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
          Exec Method: MixedFastFieldExecState
@@ -442,7 +442,7 @@ ORDER BY text_field1, num_field1, num_field2;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, num_field1, num_field2
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
          Exec Method: MixedFastFieldExecState
@@ -509,7 +509,7 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, text_field2, num_field1, bool_field
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
          Exec Method: MixedFastFieldExecState
@@ -561,7 +561,7 @@ ORDER BY text_field1;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
          Exec Method: MixedFastFieldExecState
@@ -638,7 +638,7 @@ ORDER BY num_field1, num_field2;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: num_field1, num_field2
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
          Exec Method: MixedFastFieldExecState
@@ -690,7 +690,7 @@ ORDER BY text_field1, non_indexed_field;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, non_indexed_field
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
          Exec Method: NormalScanExecState
@@ -766,7 +766,7 @@ ORDER BY text_field1, num_field1 DESC;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, num_field1 DESC
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
          Exec Method: MixedFastFieldExecState
@@ -846,7 +846,7 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, text_field2, num_field1, bool_field
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
          Exec Method: MixedFastFieldExecState
@@ -896,7 +896,7 @@ ORDER BY t.text_field1, t.num_field1;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: exec_method_test.text_field1, exec_method_test.num_field1
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
          Exec Method: MixedFastFieldExecState

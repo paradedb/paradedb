@@ -36,7 +36,7 @@ WHERE description @@@ 'hello'
   AND flag IS TRUE;
                                                                                                                                        QUERY PLAN                                                                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on booltest_simple
+ Custom Scan (ParadeDB Base Scan) on booltest_simple
    Table: booltest_simple
    Index: booltest_simple_idx
    Exec Method: NormalScanExecState

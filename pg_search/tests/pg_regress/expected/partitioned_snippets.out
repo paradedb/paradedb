@@ -44,21 +44,21 @@ LIMIT 3;
  Limit
    ->  Merge Append
          Sort Key: logs.id
-         ->  Custom Scan (ParadeDB Scan) on logs_2020 logs_1
+         ->  Custom Scan (ParadeDB Base Scan) on logs_2020 logs_1
                Table: logs_2020
                Index: logs_2020_id_message_country_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 3
+                  TopK Order By: id asc
+                  TopK Limit: 3
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
-         ->  Custom Scan (ParadeDB Scan) on logs_2021 logs_2
+         ->  Custom Scan (ParadeDB Base Scan) on logs_2021 logs_2
                Table: logs_2021
                Index: logs_2021_id_message_country_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 3
+                  TopK Order By: id asc
+                  TopK Limit: 3
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
 (19 rows)
 
@@ -90,21 +90,21 @@ LIMIT 3;
          ->  Result
                ->  Merge Append
                      Sort Key: logs.id
-                     ->  Custom Scan (ParadeDB Scan) on logs_2020 logs_1
+                     ->  Custom Scan (ParadeDB Base Scan) on logs_2020 logs_1
                            Table: logs_2020
                            Index: logs_2020_id_message_country_idx
-                           Exec Method: TopNScanExecState
+                           Exec Method: TopKScanExecState
                            Scores: false
-                              TopN Order By: id asc
-                              TopN Limit: 3
+                              TopK Order By: id asc
+                              TopK Limit: 3
                            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
-                     ->  Custom Scan (ParadeDB Scan) on logs_2021 logs_2
+                     ->  Custom Scan (ParadeDB Base Scan) on logs_2021 logs_2
                            Table: logs_2021
                            Index: logs_2021_id_message_country_idx
-                           Exec Method: TopNScanExecState
+                           Exec Method: TopKScanExecState
                            Scores: false
-                              TopN Order By: id asc
-                              TopN Limit: 3
+                              TopK Order By: id asc
+                              TopK Limit: 3
                            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}}}},{"with_index":{"query":{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}}}]}}
 (21 rows)
 
@@ -126,13 +126,13 @@ LIMIT 3;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
-         ->  Custom Scan (ParadeDB Scan) on logs_2020
+         ->  Custom Scan (ParadeDB Base Scan) on logs_2020
                Table: logs_2020
                Index: logs_2020_id_message_country_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 3
+                  TopK Order By: id asc
+                  TopK Limit: 3
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
 (10 rows)
 
@@ -160,13 +160,13 @@ LIMIT 2 OFFSET 1;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
-         ->  Custom Scan (ParadeDB Scan) on logs_2020
+         ->  Custom Scan (ParadeDB Base Scan) on logs_2020
                Table: logs_2020
                Index: logs_2020_id_message_country_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 3
+                  TopK Order By: id asc
+                  TopK Limit: 3
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
 (10 rows)
 
@@ -193,13 +193,13 @@ LIMIT 0;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  ProjectSet
-         ->  Custom Scan (ParadeDB Scan) on logs_2020
+         ->  Custom Scan (ParadeDB Base Scan) on logs_2020
                Table: logs_2020
                Index: logs_2020_id_message_country_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 0
+                  TopK Order By: id asc
+                  TopK Limit: 0
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"research","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"Canada","lenient":null,"conjunction_mode":null}}}}]}}
 (10 rows)
 
@@ -214,7 +214,7 @@ LIMIT 0;
 
 \echo 'Test 6: Multiple SRFs on a child table'
 Test 6: Multiple SRFs on a child table
--- NOTE: Other SRFs are not yet supported, so this should not get a TopN.
+-- NOTE: Other SRFs are not yet supported, so this should not get a Top K.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)), generate_series(1,2)
 FROM logs_2020
@@ -228,7 +228,7 @@ LIMIT 3;
          ->  Result
                ->  Sort
                      Sort Key: id
-                     ->  Custom Scan (ParadeDB Scan) on logs_2020
+                     ->  Custom Scan (ParadeDB Base Scan) on logs_2020
                            Table: logs_2020
                            Index: logs_2020_id_message_country_idx
                            Exec Method: NormalScanExecState

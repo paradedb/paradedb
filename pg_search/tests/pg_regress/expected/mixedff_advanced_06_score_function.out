@@ -364,13 +364,13 @@ LIMIT 10;
                                                                          QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on score_test
+   ->  Custom Scan (ParadeDB Base Scan) on score_test
          Table: score_test
          Index: score_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: title asc, pdb.score() asc, rating desc
-            TopN Limit: 10
+            TopK Order By: title asc, pdb.score() asc, rating desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -403,13 +403,13 @@ LIMIT 5;
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on score_test
+   ->  Custom Scan (ParadeDB Base Scan) on score_test
          Table: score_test
          Index: score_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: title asc, author asc, rating asc, views asc, pdb.score() desc
-            TopN Limit: 5
+            TopK Order By: title asc, author asc, rating asc, views asc, pdb.score() desc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -437,7 +437,7 @@ ORDER BY title, author, pdb.score(id) DESC;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: title, author, (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on score_test
+   ->  Custom Scan (ParadeDB Base Scan) on score_test
          Table: score_test
          Index: score_test_idx
          Exec Method: MixedFastFieldExecState
@@ -477,13 +477,13 @@ LIMIT 10;
                                                                                                                                           QUERY PLAN                                                                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on score_test
+   ->  Custom Scan (ParadeDB Base Scan) on score_test
          Table: score_test
          Index: score_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: title asc, author asc, pdb.score() desc
-            TopN Limit: 10
+            TopK Order By: title asc, author asc, pdb.score() desc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}
 (9 rows)
 
@@ -525,7 +525,7 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: score_test.title, score_test.author, (pdb.score(score_test.id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on score_test
+   ->  Custom Scan (ParadeDB Base Scan) on score_test
          Table: score_test
          Index: score_test_idx
          Exec Method: MixedFastFieldExecState
@@ -605,14 +605,14 @@ LIMIT 10;
    ->  Sort
          Sort Key: score_test.title, score_test.author, (pdb.score(score_test.id)) DESC
          ->  Append
-               ->  Custom Scan (ParadeDB Scan) on score_test
+               ->  Custom Scan (ParadeDB Base Scan) on score_test
                      Table: score_test
                      Index: score_test_idx
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: author, id, title
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
+               ->  Custom Scan (ParadeDB Base Scan) on score_test score_test_1
                      Table: score_test
                      Index: score_test_idx
                      Exec Method: MixedFastFieldExecState
@@ -666,7 +666,7 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
    Sort Key: score_test_2.title, score_test_2.author, score_test_2.rating, (pdb.score(score_test_2.id)), score_test.title
    ->  Hash Right Semi Join
          Hash Cond: (score_test_1.author = score_test.author)
-         ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
+         ->  Custom Scan (ParadeDB Base Scan) on score_test score_test_1
                Table: score_test
                Index: score_test_idx
                Exec Method: MixedFastFieldExecState
@@ -680,13 +680,13 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                      ->  Seq Scan on score_test
                      ->  Hash
                            ->  Limit
-                                 ->  Custom Scan (ParadeDB Scan) on score_test score_test_2
+                                 ->  Custom Scan (ParadeDB Base Scan) on score_test score_test_2
                                        Table: score_test
                                        Index: score_test_idx
-                                       Exec Method: TopNScanExecState
+                                       Exec Method: TopKScanExecState
                                        Scores: true
-                                          TopN Order By: pdb.score() desc
-                                          TopN Limit: 5
+                                          TopK Order By: pdb.score() desc
+                                          TopK Limit: 5
                                        Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
 (26 rows)
 
@@ -787,7 +787,7 @@ ORDER BY title, author, pdb.score(id) DESC;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: title, author, (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on score_test
+   ->  Custom Scan (ParadeDB Base Scan) on score_test
          Table: score_test
          Index: score_test_idx
          Exec Method: NormalScanExecState

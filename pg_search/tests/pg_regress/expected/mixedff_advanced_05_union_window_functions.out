@@ -328,7 +328,7 @@ ORDER BY rating DESC, title;
                Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
                ->  Sort
                      Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating, union_test_a.price
-                     ->  Custom Scan (ParadeDB Scan) on union_test_a
+                     ->  Custom Scan (ParadeDB Base Scan) on union_test_a
                            Table: union_test_a
                            Index: union_test_a_idx
                            Exec Method: MixedFastFieldExecState
@@ -337,7 +337,7 @@ ORDER BY rating DESC, title;
                            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}}
                ->  Sort
                      Sort Key: union_test_b.title, union_test_b.author, union_test_b.rating, union_test_b.price
-                     ->  Custom Scan (ParadeDB Scan) on union_test_b
+                     ->  Custom Scan (ParadeDB Base Scan) on union_test_b
                            Table: union_test_b
                            Index: union_test_b_idx
                            Exec Method: MixedFastFieldExecState
@@ -410,14 +410,14 @@ ORDER BY price;
  Sort
    Sort Key: union_test_a.price
    ->  Append
-         ->  Custom Scan (ParadeDB Scan) on union_test_a
+         ->  Custom Scan (ParadeDB Base Scan) on union_test_a
                Table: union_test_a
                Index: union_test_a_idx
                Exec Method: MixedFastFieldExecState
                Fast Fields: price, title, year
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":30.0},"is_datetime":false}},{"range":{"field":"year","lower_bound":{"excluded":2000},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
-         ->  Custom Scan (ParadeDB Scan) on union_test_b
+         ->  Custom Scan (ParadeDB Base Scan) on union_test_b
                Table: union_test_b
                Index: union_test_b_idx
                Exec Method: MixedFastFieldExecState
@@ -463,7 +463,7 @@ ORDER BY title, author, author_rank;
          Window: w1 AS (PARTITION BY author, price ORDER BY rating ROWS UNBOUNDED PRECEDING)
          ->  Sort
                Sort Key: author, price, rating DESC
-               ->  Custom Scan (ParadeDB Scan) on union_test_a
+               ->  Custom Scan (ParadeDB Base Scan) on union_test_a
                      Table: union_test_a
                      Index: union_test_a_idx
                      Exec Method: MixedFastFieldExecState
@@ -546,7 +546,7 @@ ORDER BY title, author, price;
          Window: w1 AS (PARTITION BY author ORDER BY price)
          ->  Sort
                Sort Key: author, price
-               ->  Custom Scan (ParadeDB Scan) on union_test_a
+               ->  Custom Scan (ParadeDB Base Scan) on union_test_a
                      Table: union_test_a
                      Index: union_test_a_idx
                      Exec Method: MixedFastFieldExecState
@@ -644,7 +644,7 @@ ORDER BY title, author, author_rank;
                                  ->  Append
                                        ->  Sort
                                              Sort Key: union_test_a.title, union_test_a.author, union_test_a.rating
-                                             ->  Custom Scan (ParadeDB Scan) on union_test_a
+                                             ->  Custom Scan (ParadeDB Base Scan) on union_test_a
                                                    Table: union_test_a
                                                    Index: union_test_a_idx
                                                    Exec Method: MixedFastFieldExecState
@@ -653,7 +653,7 @@ ORDER BY title, author, author_rank;
                                                    Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":3.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
                                        ->  Sort
                                              Sort Key: union_test_b.title, union_test_b.author, union_test_b.rating
-                                             ->  Custom Scan (ParadeDB Scan) on union_test_b
+                                             ->  Custom Scan (ParadeDB Base Scan) on union_test_b
                                                    Table: union_test_b
                                                    Index: union_test_b_idx
                                                    Exec Method: MixedFastFieldExecState
@@ -762,7 +762,7 @@ ORDER BY author, title;
                Sort Key: union_test_a.title, union_test_a.author, union_test_a.is_published
                ->  Sort
                      Sort Key: union_test_a.title, union_test_a.author, union_test_a.is_published
-                     ->  Custom Scan (ParadeDB Scan) on union_test_a
+                     ->  Custom Scan (ParadeDB Base Scan) on union_test_a
                            Table: union_test_a
                            Index: union_test_a_idx
                            Exec Method: MixedFastFieldExecState
@@ -771,7 +771,7 @@ ORDER BY author, title;
                            Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
                ->  Sort
                      Sort Key: union_test_b.title, union_test_b.author, union_test_b.is_published
-                     ->  Custom Scan (ParadeDB Scan) on union_test_b
+                     ->  Custom Scan (ParadeDB Base Scan) on union_test_b
                            Table: union_test_b
                            Index: union_test_b_idx
                            Exec Method: MixedFastFieldExecState
@@ -888,7 +888,7 @@ ORDER BY avg_rating DESC;
                      Sort Key: (avg(price))
                      ->  HashAggregate
                            Group Key: author
-                           ->  Custom Scan (ParadeDB Scan) on union_test_a
+                           ->  Custom Scan (ParadeDB Base Scan) on union_test_a
                                  Table: union_test_a
                                  Index: union_test_a_idx
                                  Exec Method: MixedFastFieldExecState
@@ -932,7 +932,7 @@ ORDER BY author;
  SetOp Intersect
    ->  Sort
          Sort Key: union_test_a.author
-         ->  Custom Scan (ParadeDB Scan) on union_test_a
+         ->  Custom Scan (ParadeDB Base Scan) on union_test_a
                Table: union_test_a
                Index: union_test_a_idx
                Exec Method: MixedFastFieldExecState
@@ -941,7 +941,7 @@ ORDER BY author;
                Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
    ->  Sort
          Sort Key: union_test_b.author
-         ->  Custom Scan (ParadeDB Scan) on union_test_b
+         ->  Custom Scan (ParadeDB Base Scan) on union_test_b
                Table: union_test_b
                Index: union_test_b_idx
                Exec Method: MixedFastFieldExecState

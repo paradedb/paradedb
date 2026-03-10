@@ -27,13 +27,13 @@ LIMIT 10;
                                                           QUERY PLAN                                                           
 -------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on test
+   ->  Custom Scan (ParadeDB Base Scan) on test
          Table: test
          Index: test_bm25
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: description asc
-            TopN Limit: 10
+            TopK Order By: description asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"cloud engineer","is_datetime":false}}}}
 (9 rows)
 

@@ -105,7 +105,7 @@ LIMIT 0;
 
 
 \echo 'Test 6: Multiple SRFs on a child table'
--- NOTE: Other SRFs are not yet supported, so this should not get a TopN.
+-- NOTE: Other SRFs are not yet supported, so this should not get a Top K.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, UNNEST(pdb.snippets(message, max_num_chars => 25)), generate_series(1,2)
 FROM logs_2020

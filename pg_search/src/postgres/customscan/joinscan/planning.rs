@@ -25,7 +25,7 @@
 
 use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode};
 use super::predicate::{find_base_info_recursive, is_column_fast_field};
-use super::privdat::{OutputColumnInfo, PrivateData, SCORE_COL_NAME};
+use super::privdat::{OutputColumnInfo, PrivateData};
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
@@ -45,6 +45,8 @@ use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
+use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, PgList};
 
 /// Check if an expression uses paradedb.score() for any relation in the JoinSource.
@@ -892,6 +894,81 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
     true
 }
 
+/// Check if all DISTINCT columns are fast fields in their respective BM25 indexes.
+///
+/// DISTINCT requires all target columns to be available as fast fields so that
+/// deduplication can happen within DataFusion without heap access.
+/// Walks `parse->distinctClause` (a list of SortGroupClause), resolves each to
+/// its TargetEntry, and checks the referenced Var against source fast fields.
+pub(super) unsafe fn distinct_columns_are_fast_fields(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[&JoinSource],
+) -> bool {
+    let parse = (*root).parse;
+    if (*parse).distinctClause.is_null() {
+        return true;
+    }
+
+    let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+
+    // Check whether a single DISTINCT expression is resolvable as a fast field.
+    let expr_is_fast_field = |expr: *mut pg_sys::Node| -> bool {
+        if let Some(var) = nodecast!(Var, T_Var, expr) {
+            // Plain column reference — must be a fast field in its source index.
+            let varno = (*var).varno as pg_sys::Index;
+            sources.iter().any(|source| {
+                source.contains_rti(varno)
+                    && is_column_fast_field(
+                        source.scan_info.heaprelid,
+                        source.scan_info.indexrelid,
+                        (*var).varattno,
+                    )
+            })
+        } else if get_score_func_rti(expr.cast()).is_some() {
+            // Score functions are handled separately — always allowed in DISTINCT.
+            true
+        } else {
+            // Non-Var expression (e.g. lower(name)) — check if it matches an indexed
+            // expression so we can emit it directly from the index.
+            // TODO(#3303): ORDER BY on indexed expressions is not yet supported in
+            // JoinScan, so in practice this path requires the ORDER BY to use a
+            // different column. Full support will come with #3303.
+            sources.iter().any(|source| {
+                let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+                let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+                    return false;
+                };
+                find_matching_fast_field(
+                    expr,
+                    &index_rel.index_expressions(),
+                    schema,
+                    source.scan_info.heap_rti,
+                )
+                .is_some()
+            })
+        }
+    };
+
+    for clause_ptr in distinct_list.iter_ptr() {
+        let tle_ref = (*clause_ptr).tleSortGroupRef;
+        let te = target_list
+            .iter_ptr()
+            .find(|te| (**te).ressortgroupref == tle_ref);
+
+        match te {
+            None => return false, // SortGroupClause references a TargetEntry we can't find
+            Some(te) => {
+                if !expr_is_fast_field((*te).expr as *mut pg_sys::Node) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
+}
+
 /// Extract ORDER BY score pathkey for the ordering side.
 ///
 /// This checks if the query has an ORDER BY clause with paradedb.score()
@@ -1042,7 +1119,6 @@ unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) 
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
-    ordering_side_index: Option<usize>,
     output_rtis: &[pg_sys::Index],
 ) -> Option<Vec<OrderByInfo>> {
     let mut result = Vec::new();
@@ -1092,28 +1168,19 @@ pub(super) unsafe fn extract_orderby(
 
             // Check if ordering by score
             let mut score_found = false;
-            for (i, source) in sources.iter().enumerate() {
+            for source in sources.iter() {
                 if is_score_func_recursive(check_expr.cast(), source) {
                     if !output_rtis.contains(&source.scan_info.heap_rti) {
                         continue;
                     }
 
-                    let is_ordering_source = Some(i) == ordering_side_index;
-
-                    if is_ordering_source {
-                        result.push(OrderByInfo {
-                            feature: OrderByFeature::Score,
-                            direction,
-                        });
-                    } else {
-                        let alias = source.execution_alias(i);
-                        result.push(OrderByInfo {
-                            feature: OrderByFeature::Field(
-                                format!("{}.{}", alias, SCORE_COL_NAME).into(),
-                            ),
-                            direction,
-                        });
-                    }
+                    // Always emit Score regardless of which source owns it.
+                    // The Field("p.score") path was wrong — after GROUP BY renames
+                    // columns to col_N, qualified names no longer exist.
+                    result.push(OrderByInfo {
+                        feature: OrderByFeature::Score,
+                        direction,
+                    });
                     score_found = true;
                     break;
                 }
@@ -1149,6 +1216,20 @@ pub(super) unsafe fn extract_orderby(
                         pathkey_resolved = true;
                         break;
                     }
+                }
+                // The Var is in the output but doesn't belong to any BM25 source
+                // (e.g. products.id when products has no BM25 predicate).
+                // Emit it as a plain field — it's a projected output column.
+                if !sources.iter().any(|s| s.contains_rti(varno)) && output_rtis.contains(&varno) {
+                    result.push(OrderByInfo {
+                        feature: OrderByFeature::Var {
+                            rti: varno,
+                            attno: varattno,
+                            name: None,
+                        },
+                        direction,
+                    });
+                    pathkey_resolved = true;
                 }
             }
             if pathkey_resolved {

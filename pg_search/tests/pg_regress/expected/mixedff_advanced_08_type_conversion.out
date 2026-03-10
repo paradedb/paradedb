@@ -316,7 +316,7 @@ FROM conversion_test
 WHERE content @@@ 'conversion test';
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on conversion_test
+ Custom Scan (ParadeDB Base Scan) on conversion_test
    Table: conversion_test
    Index: conversion_search
    Exec Method: MixedFastFieldExecState

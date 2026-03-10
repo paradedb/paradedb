@@ -1,6 +1,8 @@
 # PostgreSQL Regression Tests for ParadeDB
 
-This directory contains regression tests for ParadeDB's `pg_search` extension.
+This directory contains the **pg regress tests** for ParadeDB's `pg_search` extension. These run with `cargo pgrx regress` and do not need the extension to be manually installed: it is handled automatically.
+
+For a complete overview of ParadeDB's testing infrastructure (including unit tests, integration tests, and client property tests), please see the [Testing section in `CONTRIBUTING.md`](../../../CONTRIBUTING.md#testing).
 
 ## Directory Structure
 
@@ -72,8 +74,7 @@ cargo pgrx regress
 ### Run Specific Tests
 
 ```bash
-cd pg_search
-cargo pgrx regress pg18 PREFIX_your_test
+cargo pgrx regress -p pg_search --auto -- pg18 PREFIX_your_test
 ```
 
 ## Common Pitfalls

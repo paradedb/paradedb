@@ -67,7 +67,7 @@ ORDER BY numeric_field1;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: numeric_field1
-   ->  Custom Scan (ParadeDB Scan) on benchmark_data
+   ->  Custom Scan (ParadeDB Base Scan) on benchmark_data
          Table: benchmark_data
          Index: benchmark_data_idx
          Exec Method: NormalScanExecState
@@ -111,7 +111,7 @@ ORDER BY numeric_field1;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: numeric_field1
-   ->  Custom Scan (ParadeDB Scan) on benchmark_data
+   ->  Custom Scan (ParadeDB Base Scan) on benchmark_data
          Table: benchmark_data
          Index: benchmark_data_idx
          Exec Method: MixedFastFieldExecState

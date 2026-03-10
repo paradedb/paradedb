@@ -44,7 +44,7 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: uuid_key
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: idxproducts
          Exec Method: MixedFastFieldExecState
@@ -67,7 +67,7 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: uuid
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: idxproducts
          Exec Method: MixedFastFieldExecState

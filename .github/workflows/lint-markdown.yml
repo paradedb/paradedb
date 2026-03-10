@@ -1,7 +1,7 @@
 # workflows/lint-markdown.yml
 #
 # Lint Markdown
-# Lint Markdown files using Prettier.
+# Lint Markdown files using markdownlint and Prettier.
 
 name: Lint Markdown
 
@@ -30,11 +30,11 @@ jobs:
       - name: Set up NodeJS Environment
         uses: actions/setup-node@v6
 
-      - name: Install Prettier
+      - name: Install Prettier and markdownlint
         run: npm install -g prettier markdownlint-cli
 
       - name: Run Markdown Lint
-        run: markdownlint '**/*.md'
+        run: markdownlint "**/*.md"
 
       - name: Run Prettier
-        run: prettier --check '{**/*.md,**/*.mdx}'
+        run: prettier --check "{**/*.md,**/*.mdx}" --ignore-path .prettierignore

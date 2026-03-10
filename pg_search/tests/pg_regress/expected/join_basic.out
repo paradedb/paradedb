@@ -73,7 +73,7 @@ WARNING:  JoinScan not used: query must have a LIMIT clause
                Output: s.id, s.name, s.contact_info, s.country
          ->  Hash
                Output: p.id, p.name, p.supplier_id
-               ->  Custom Scan (ParadeDB Scan) on public.products p
+               ->  Custom Scan (ParadeDB Base Scan) on public.products p
                      Output: p.id, p.name, p.supplier_id
                      Table: products
                      Index: products_bm25_idx
@@ -229,7 +229,7 @@ LEFT JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-WARNING:  JoinScan not used: only INNER and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, s)
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -244,7 +244,7 @@ WARNING:  JoinScan not used: only INNER and SEMI JOIN are currently supported (t
                      Output: s.id, s.name, s.contact_info, s.country
                ->  Hash
                      Output: p.id, p.name, p.supplier_id
-                     ->  Custom Scan (ParadeDB Scan) on public.products p
+                     ->  Custom Scan (ParadeDB Base Scan) on public.products p
                            Output: p.id, p.name, p.supplier_id
                            Table: products
                            Index: products_bm25_idx
@@ -279,7 +279,7 @@ LIMIT 10;
                      Output: s.id, s.name, s.contact_info, s.country
                ->  Hash
                      Output: p.id, p.name, p.supplier_id
-                     ->  Custom Scan (ParadeDB Scan) on public.products p
+                     ->  Custom Scan (ParadeDB Base Scan) on public.products p
                            Output: p.id, p.name, p.supplier_id
                            Table: products
                            Index: products_bm25_idx
@@ -451,7 +451,7 @@ WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is r
          Sort Key: c.id, s.id
          ->  Nested Loop
                Output: c.name, s.name, c.id, s.id
-               ->  Custom Scan (ParadeDB Scan) on public.colors c
+               ->  Custom Scan (ParadeDB Base Scan) on public.colors c
                      Output: c.name, c.id
                      Table: colors
                      Index: colors_bm25_idx
@@ -460,7 +460,7 @@ WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is r
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
                ->  Materialize
                      Output: s.name, s.id
-                     ->  Custom Scan (ParadeDB Scan) on public.sizes s
+                     ->  Custom Scan (ParadeDB Base Scan) on public.sizes s
                            Output: s.name, s.id
                            Table: sizes
                            Index: sizes_bm25_idx

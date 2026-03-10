@@ -12,7 +12,7 @@ CREATE INDEX search_idx ON mock_items USING bm25 (id, (description::pdb.literal)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * from mock_items where rating @@@ '4';
                                                                  QUERY PLAN                                                                  
 ---------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: search_idx
    Exec Method: NormalScanExecState
@@ -23,7 +23,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * from mock_items where rati
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE rating @@@ 'IN [1 2]';
                                                                      QUERY PLAN                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: search_idx
    Exec Method: NormalScanExecState
@@ -34,7 +34,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE rati
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ pdb.all() AND rating = 4;
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: search_idx
    Exec Method: NormalScanExecState
@@ -45,7 +45,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE id @
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ pdb.all() AND rating IN (1, 2);
                                                                                                      QUERY PLAN                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: search_idx
    Exec Method: NormalScanExecState

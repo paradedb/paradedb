@@ -31,19 +31,19 @@ SELECT * FROM paradedb.schema('idxtokenizer_fast') ORDER BY name;
  t_long   | Str        | f      | t       | t    | f          |             | literal_normalized[stopwords_language=English] | basic  | raw
 (5 rows)
 
--- Top N over literal
+-- Top K over literal
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on tokenizer_fast
+   ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
          Table: tokenizer_fast
          Index: idxtokenizer_fast
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: t asc, id asc
-            TopN Limit: 5
+            TopK Order By: t asc, id asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -77,19 +77,19 @@ SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER B
  world |     1
 (2 rows)
 
--- Top N over literal normalized
+-- Top K over literal normalized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on tokenizer_fast
+   ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
          Table: tokenizer_fast
          Index: idxtokenizer_fast
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: t_long asc, id asc
-            TopN Limit: 5
+            TopK Order By: t_long asc, id asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -150,13 +150,13 @@ SELECT metadata->>'key', COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GRO
 -- Order by JSON not supported
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: tokenizer_fast)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: tokenizer_fast)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: ((metadata ->> 'key'::text)), id
-         ->  Custom Scan (ParadeDB Scan) on tokenizer_fast
+         ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
                Table: tokenizer_fast
                Index: idxtokenizer_fast
                Exec Method: NormalScanExecState
@@ -165,7 +165,7 @@ WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). R
 (9 rows)
 
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: tokenizer_fast)
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: tokenizer_fast)
  id |   t   |     t_long      |                metadata                
 ----+-------+-----------------+----------------------------------------
   3 | world | Quick brown fox | {"key": "Quick brown fox", "value": 2}

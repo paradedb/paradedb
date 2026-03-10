@@ -47,6 +47,36 @@ All changes to ParadeDB happen through GitHub Pull Requests. Here is the recomme
 
 ParadeDB's public-facing documentation is stored in the `docs` folder. If you are adding a new feature that requires new documentation, please add the documentation as part of your pull request. We will not merge a feature without appropriate documentation.
 
+### Testing
+
+ParadeDB has three main categories of tests. For a full overview of how and when to use them, please see their respective documentation:
+
+#### 1. pg regress tests
+
+Located in `pg_search/tests/pg_regress`.
+
+- **Purpose:** These are for output / golden testing, and are useful when the output is small enough that you can inspect it visually to determine correctness.
+- **Running:** Run them with `cargo pgrx regress -p pg_search --auto -- pg18 one_file_name`. There is no need to manually install the extension: it is handled automatically.
+- **Details:** See [`pg_search/tests/pg_regress/README.md`](pg_search/tests/pg_regress/README.md) for more details.
+
+#### 2. Integration tests
+
+Located in the `tests/` directory.
+
+- **Purpose:** These tests run outside the Postgres process as a client. They should be used to assert things when output is too complicated to visually inspect, or is non-deterministic (such as property testing).
+- **Running:** Since these run outside the process, they need the extension to already be installed. Run them with `cargo test -p tests -- a_specific_method_to_run`.
+- **Details:** See [`tests/README.md`](tests/README.md) for more details.
+
+#### 3. Unit tests
+
+Located in the `pg_search/src` directory.
+
+- **Purpose:** They are either:
+  - **Unit tests without Postgres** if they are not marked `#[pg_test]`.
+  - **Unit tests which run in Postgres as UDFs** if they are marked `#[pg_test]`. These use all of Postgres APIs via `pgrx`.
+- **Running:** Run them with `cargo test -p pg_search -- a_specific_method_to_run`. There is no need to pre-install the extension for `#[pg_test]` annotated tests (the annotation automatically handles it).
+- **Details:** See [`pg_search/README.md`](pg_search/README.md#testing) for more details.
+
 ## Legal Info
 
 ### Contributor License Agreement

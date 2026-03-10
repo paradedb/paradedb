@@ -67,7 +67,7 @@ ORDER BY numeric_field1;
  Sort
    Output: numeric_field1, numeric_field2, numeric_field3
    Sort Key: benchmark_data.numeric_field1
-   ->  Custom Scan (ParadeDB Scan) on public.benchmark_data
+   ->  Custom Scan (ParadeDB Base Scan) on public.benchmark_data
          Output: numeric_field1, numeric_field2, numeric_field3
          Table: benchmark_data
          Index: benchmark_data_idx
@@ -112,7 +112,7 @@ ORDER BY numeric_field1;
  Sort
    Output: numeric_field1, numeric_field2, numeric_field3
    Sort Key: benchmark_data.numeric_field1
-   ->  Custom Scan (ParadeDB Scan) on public.benchmark_data
+   ->  Custom Scan (ParadeDB Base Scan) on public.benchmark_data
          Output: numeric_field1, numeric_field2, numeric_field3
          Table: benchmark_data
          Index: benchmark_data_idx

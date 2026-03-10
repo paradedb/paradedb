@@ -5,7 +5,7 @@ noindex: true
 
 ## Performance Improvements 🚀
 
-- TopN queries that request `paradedb.score` but do not order by `paradedb.score` still get a TopN scan,
+- Top K queries that request `paradedb.score` but do not order by `paradedb.score` still get a Top K scan,
   which significantly improves performance
 
 The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.18.9).

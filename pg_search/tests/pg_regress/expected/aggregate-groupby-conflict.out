@@ -218,7 +218,7 @@ WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast 
    ->  Sort
          Output: title, rating
          Sort Key: groupby_conflict_test.title
-         ->  Custom Scan (ParadeDB Scan) on public.groupby_conflict_test
+         ->  Custom Scan (ParadeDB Base Scan) on public.groupby_conflict_test
                Output: title, rating
                Table: groupby_conflict_test
                Index: groupby_conflict_idx

@@ -145,7 +145,7 @@ ORDER BY id;
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on corner_case_test
+   ->  Custom Scan (ParadeDB Base Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState
@@ -180,7 +180,7 @@ ORDER BY id;
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on corner_case_test
+   ->  Custom Scan (ParadeDB Base Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: NormalScanExecState
@@ -213,7 +213,7 @@ ORDER BY id;
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on corner_case_test
+   ->  Custom Scan (ParadeDB Base Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState
@@ -247,7 +247,7 @@ ORDER BY id;
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on corner_case_test
+   ->  Custom Scan (ParadeDB Base Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState
@@ -282,7 +282,7 @@ ORDER BY id;
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on corner_case_test
+   ->  Custom Scan (ParadeDB Base Scan) on corner_case_test
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState

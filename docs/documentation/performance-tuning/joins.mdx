@@ -57,9 +57,9 @@ The plan will have this shape:
 Gather
   -> Parallel Hash Join
        Hash Cond: (b.id = a.id)
-       -> Parallel ParadeDB Scan on authors a
+       -> Parallel ParadeDB Base Scan on authors a
        -> Parallel Hash
-            -> Parallel ParadeDB Scan on books b
+            -> Parallel ParadeDB Base Scan on books b
 ```
 
 ### Slower Cases

@@ -46,7 +46,7 @@ ORDER BY id;
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_test
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
@@ -75,7 +75,7 @@ ORDER BY id;
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_test
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
@@ -109,7 +109,7 @@ ORDER BY id;
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_test
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
@@ -142,7 +142,7 @@ ORDER BY id;
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_test
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
@@ -171,7 +171,7 @@ ORDER BY id;
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_test
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
@@ -202,7 +202,7 @@ ORDER BY id;
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_test
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
@@ -234,7 +234,7 @@ ORDER BY id;
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_test
          Output: id, price, quantity, rate
          Table: numeric64_test
          Index: numeric64_idx
@@ -284,7 +284,7 @@ ORDER BY id;
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_bytes_test
          Output: id, big_value, huge_precision
          Table: numeric_bytes_test
          Index: numeric_bytes_idx
@@ -313,7 +313,7 @@ ORDER BY id;
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_bytes_test
          Output: id, big_value, huge_precision
          Table: numeric_bytes_test
          Index: numeric_bytes_idx
@@ -344,7 +344,7 @@ ORDER BY id;
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_bytes_test
          Output: id, big_value, huge_precision
          Table: numeric_bytes_test
          Index: numeric_bytes_idx
@@ -373,7 +373,7 @@ ORDER BY id;
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_bytes_test
          Output: id, big_value, huge_precision
          Table: numeric_bytes_test
          Index: numeric_bytes_idx
@@ -404,7 +404,7 @@ ORDER BY id;
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_bytes_test
          Output: id, big_value, huge_precision
          Table: numeric_bytes_test
          Index: numeric_bytes_idx
@@ -451,7 +451,7 @@ ORDER BY id;
  Sort
    Output: id, small_numeric, large_numeric, unlimited_numeric
    Sort Key: numeric_mixed_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_mixed_test
          Output: id, small_numeric, large_numeric, unlimited_numeric
          Table: numeric_mixed_test
          Index: numeric_mixed_idx
@@ -480,7 +480,7 @@ ORDER BY id;
  Sort
    Output: id, small_numeric, large_numeric, unlimited_numeric
    Sort Key: numeric_mixed_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_mixed_test
          Output: id, small_numeric, large_numeric, unlimited_numeric
          Table: numeric_mixed_test
          Index: numeric_mixed_idx
@@ -510,7 +510,7 @@ ORDER BY id;
  Sort
    Output: id, small_numeric, large_numeric, unlimited_numeric
    Sort Key: numeric_mixed_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_mixed_test
          Output: id, small_numeric, large_numeric, unlimited_numeric
          Table: numeric_mixed_test
          Index: numeric_mixed_idx
@@ -557,7 +557,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric_edge_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_edge_test
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
@@ -587,7 +587,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric_edge_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_edge_test
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
@@ -617,7 +617,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric_edge_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_edge_test
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
@@ -647,7 +647,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric_edge_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_edge_test
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
@@ -702,7 +702,7 @@ ORDER BY id;
  Sort
    Output: id, big_int
    Sort Key: numeric_precision_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_precision_test
          Output: id, big_int
          Table: numeric_precision_test
          Index: numeric_precision_idx
@@ -741,7 +741,7 @@ ORDER BY id;
  Sort
    Output: id, big_int
    Sort Key: numeric_precision_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_precision_test
          Output: id, big_int
          Table: numeric_precision_test
          Index: numeric_precision_idx
@@ -794,7 +794,7 @@ ORDER BY id;
  Sort
    Output: id, precise_value
    Sort Key: numeric_bytes_precision_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_precision_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_bytes_precision_test
          Output: id, precise_value
          Table: numeric_bytes_precision_test
          Index: numeric_bytes_precision_idx
@@ -852,7 +852,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: int8range_precision_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.int8range_precision_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.int8range_precision_test
          Output: id, val
          Table: int8range_precision_test
          Index: int8range_precision_idx
@@ -908,7 +908,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numrange_precision_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numrange_precision_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numrange_precision_test
          Output: id, val
          Table: numrange_precision_test
          Index: numrange_precision_idx
@@ -963,7 +963,7 @@ ORDER BY id;
  Sort
    Output: id, vals
    Sort Key: numeric_array_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_array_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_array_test
          Output: id, vals
          Table: numeric_array_test
          Index: numeric_array_idx
@@ -1041,7 +1041,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: large_decimal_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.large_decimal_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.large_decimal_test
          Output: id, val
          Table: large_decimal_test
          Index: large_decimal_idx
@@ -1114,7 +1114,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: large_decimal_range_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.large_decimal_range_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.large_decimal_range_test
          Output: id, val
          Table: large_decimal_range_test
          Index: large_decimal_range_idx
@@ -1253,7 +1253,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric64_decimal_compare_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric64_decimal_compare_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric64_decimal_compare_test
          Output: id, val
          Table: numeric64_decimal_compare_test
          Index: numeric64_decimal_compare_idx
@@ -1344,7 +1344,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric_large_precision_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_large_precision_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_large_precision_test
          Output: id, val
          Table: numeric_large_precision_test
          Index: numeric_large_precision_idx
@@ -1374,7 +1374,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric_large_precision_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_large_precision_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_large_precision_test
          Output: id, val
          Table: numeric_large_precision_test
          Index: numeric_large_precision_idx
@@ -1442,7 +1442,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric_very_large_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_very_large_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_very_large_test
          Output: id, val
          Table: numeric_very_large_test
          Index: numeric_very_large_idx
@@ -1501,7 +1501,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric_unbounded_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_unbounded_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_unbounded_test
          Output: id, val
          Table: numeric_unbounded_test
          Index: numeric_unbounded_idx
@@ -1531,7 +1531,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric_unbounded_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_unbounded_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_unbounded_test
          Output: id, val
          Table: numeric_unbounded_test
          Index: numeric_unbounded_idx
@@ -1603,7 +1603,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: numeric_high_scale_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_high_scale_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_high_scale_test
          Output: id, val
          Table: numeric_high_scale_test
          Index: numeric_high_scale_idx
@@ -1658,15 +1658,15 @@ FROM numeric_unbounded_agg_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
  GroupAggregate
    Output: category, sum(amount)
    Group Key: numeric_unbounded_agg_test.category
    ->  Sort
          Output: category, amount
          Sort Key: numeric_unbounded_agg_test.category
-         ->  Custom Scan (ParadeDB Scan) on public.numeric_unbounded_agg_test
+         ->  Custom Scan (ParadeDB Base Scan) on public.numeric_unbounded_agg_test
                Output: category, amount
                Table: numeric_unbounded_agg_test
                Index: numeric_unbounded_agg_idx
@@ -1724,7 +1724,7 @@ ORDER BY id;
  Sort
    Output: id, bounded_high, unbounded
    Sort Key: numeric_mixed_precision_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_precision_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_mixed_precision_test
          Output: id, bounded_high, unbounded
          Table: numeric_mixed_precision_test
          Index: numeric_mixed_precision_idx
@@ -1753,7 +1753,7 @@ ORDER BY id;
  Sort
    Output: id, bounded_high, unbounded
    Sort Key: numeric_mixed_precision_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_precision_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_mixed_precision_test
          Output: id, bounded_high, unbounded
          Table: numeric_mixed_precision_test
          Index: numeric_mixed_precision_idx
@@ -1846,7 +1846,7 @@ ORDER BY id;
  Sort
    Output: id, value
    Sort Key: float8_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.float8_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.float8_test
          Output: id, value
          Table: float8_test
          Index: float8_idx
@@ -1876,7 +1876,7 @@ ORDER BY id;
  Sort
    Output: id, value
    Sort Key: float8_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.float8_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.float8_test
          Output: id, value
          Table: float8_test
          Index: float8_idx
@@ -1930,7 +1930,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: sci_notation_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.sci_notation_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.sci_notation_test
          Output: id, val
          Table: sci_notation_test
          Index: sci_notation_idx
@@ -1960,7 +1960,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: sci_notation_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.sci_notation_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.sci_notation_test
          Output: id, val
          Table: sci_notation_test
          Index: sci_notation_idx
@@ -2008,7 +2008,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: small_decimal_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.small_decimal_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.small_decimal_test
          Output: id, val
          Table: small_decimal_test
          Index: small_decimal_idx
@@ -2038,7 +2038,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: small_decimal_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.small_decimal_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.small_decimal_test
          Output: id, val
          Table: small_decimal_test
          Index: small_decimal_idx
@@ -2087,7 +2087,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: max_scale_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.max_scale_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.max_scale_test
          Output: id, val
          Table: max_scale_test
          Index: max_scale_idx
@@ -2117,7 +2117,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: max_scale_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.max_scale_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.max_scale_test
          Output: id, val
          Table: max_scale_test
          Index: max_scale_idx
@@ -2142,11 +2142,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM max_scale_test
 WHERE id @@@ paradedb.all();
-                         QUERY PLAN                         
-------------------------------------------------------------
+                           QUERY PLAN                            
+-----------------------------------------------------------------
  Aggregate
    Output: sum(val), avg(val), min(val), max(val)
-   ->  Custom Scan (ParadeDB Scan) on public.max_scale_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.max_scale_test
          Output: val
          Table: max_scale_test
          Index: max_scale_idx
@@ -2199,7 +2199,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: negative_scale_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.negative_scale_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.negative_scale_test
          Output: id, val
          Table: negative_scale_test
          Index: negative_scale_idx
@@ -2229,7 +2229,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: negative_scale_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.negative_scale_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.negative_scale_test
          Output: id, val
          Table: negative_scale_test
          Index: negative_scale_idx
@@ -2265,11 +2265,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM negative_scale_test
 WHERE id @@@ paradedb.all();
-                           QUERY PLAN                            
------------------------------------------------------------------
+                              QUERY PLAN                              
+----------------------------------------------------------------------
  Aggregate
    Output: sum(val), avg(val), min(val), max(val)
-   ->  Custom Scan (ParadeDB Scan) on public.negative_scale_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.negative_scale_test
          Output: val
          Table: negative_scale_test
          Index: negative_scale_idx
@@ -2371,7 +2371,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: nan_numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.nan_numeric64_test
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
@@ -2402,7 +2402,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: nan_numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.nan_numeric64_test
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
@@ -2432,7 +2432,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: nan_numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.nan_numeric64_test
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
@@ -2463,7 +2463,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: nan_numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.nan_numeric64_test
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
@@ -2495,7 +2495,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: nan_numeric64_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.nan_numeric64_test
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
@@ -2571,7 +2571,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: nan_numeric_bytes_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric_bytes_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.nan_numeric_bytes_test
          Output: id, val
          Table: nan_numeric_bytes_test
          Index: nan_numeric_bytes_idx
@@ -2602,7 +2602,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: nan_numeric_bytes_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric_bytes_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.nan_numeric_bytes_test
          Output: id, val
          Table: nan_numeric_bytes_test
          Index: nan_numeric_bytes_idx
@@ -2632,7 +2632,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: nan_numeric_bytes_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric_bytes_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.nan_numeric_bytes_test
          Output: id, val
          Table: nan_numeric_bytes_test
          Index: nan_numeric_bytes_idx
@@ -2687,7 +2687,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -2717,7 +2717,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -2747,7 +2747,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -2777,7 +2777,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -2808,7 +2808,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -2840,7 +2840,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -2872,7 +2872,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -2943,7 +2943,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -2975,7 +2975,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -3009,7 +3009,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -3046,7 +3046,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: special_values_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.special_values_test
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
@@ -3115,7 +3115,7 @@ ORDER BY id;
  Sort
    Output: id, val_small, val_large
    Sort Key: numeric_precision_only_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_only_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_precision_only_test
          Output: id, val_small, val_large
          Table: numeric_precision_only_test
          Index: numeric_prec_only_idx
@@ -3145,7 +3145,7 @@ ORDER BY id;
  Sort
    Output: id, val_small, val_large
    Sort Key: numeric_precision_only_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_only_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_precision_only_test
          Output: id, val_small, val_large
          Table: numeric_precision_only_test
          Index: numeric_prec_only_idx
@@ -3169,11 +3169,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
 FROM numeric_precision_only_test
 WHERE id @@@ paradedb.all();
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Aggregate
    Output: sum(val_small), avg(val_small), min(val_small), max(val_small)
-   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_only_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.numeric_precision_only_test
          Output: val_small
          Table: numeric_precision_only_test
          Index: numeric_prec_only_idx
@@ -3289,7 +3289,7 @@ ORDER BY id;
  Sort
    Output: id, val
    Sort Key: empty_range_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.empty_range_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.empty_range_test
          Output: id, val
          Table: empty_range_test
          Index: empty_range_idx
@@ -3317,13 +3317,13 @@ ORDER BY id;
 
 DROP TABLE empty_range_test;
 -- ============================================================================
--- PART 8: Window Aggregate Tests for NUMERIC columns (TopN queries)
+-- PART 8: Window Aggregate Tests for NUMERIC columns (Top K queries)
 -- ============================================================================
 -- Tests that window aggregates work correctly with Numeric64 fields
 -- and are properly rejected for NumericBytes fields.
--- NOTE: Window aggregate pushdown only occurs for TopN queries (ORDER BY + LIMIT)
+-- NOTE: Window aggregate pushdown only occurs for Top K queries (ORDER BY + LIMIT)
 -- ----------------------------------------------------------------------------
--- TEST: Window aggregates on Numeric64 fields in TopN query (should work)
+-- TEST: Window aggregates on Numeric64 fields in Top K query (should work)
 -- ----------------------------------------------------------------------------
 -- NUMERIC(10,2) has precision 10, which is <= 18, so uses Numeric64 storage
 CREATE TABLE window_agg_numeric64_test (
@@ -3341,7 +3341,7 @@ INSERT INTO window_agg_numeric64_test (category, price) VALUES
 CREATE INDEX window_agg_numeric64_idx ON window_agg_numeric64_test USING bm25 (
     id, category, price
 ) WITH (key_field = 'id');
--- Window aggregate SUM on Numeric64 field in TopN query - should be pushed down
+-- Window aggregate SUM on Numeric64 field in Top K query - should be pushed down
 -- Note: Must have ORDER BY and LIMIT for window aggregate pushdown
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category, price,
@@ -3358,7 +3358,7 @@ WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
 ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
--- Window aggregate AVG on Numeric64 field in TopN query
+-- Window aggregate AVG on Numeric64 field in Top K query
 SELECT id, category, price,
        AVG(price) OVER () as avg_price
 FROM window_agg_numeric64_test
@@ -3366,7 +3366,7 @@ WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
 ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
--- Window aggregate MIN/MAX on Numeric64 field in TopN query
+-- Window aggregate MIN/MAX on Numeric64 field in Top K query
 SELECT id, category, price,
        MIN(price) OVER () as min_price,
        MAX(price) OVER () as max_price
@@ -3377,7 +3377,7 @@ LIMIT 10;
 ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_numeric64_test;
 -- ----------------------------------------------------------------------------
--- TEST: Window aggregates on NumericBytes fields in TopN query (should error)
+-- TEST: Window aggregates on NumericBytes fields in Top K query (should error)
 -- ----------------------------------------------------------------------------
 -- Unbounded NUMERIC uses NumericBytes storage which cannot be aggregated
 CREATE TABLE window_agg_numericbytes_test (
@@ -3392,7 +3392,7 @@ INSERT INTO window_agg_numericbytes_test (category, amount) VALUES
 CREATE INDEX window_agg_numericbytes_idx ON window_agg_numericbytes_test USING bm25 (
     id, category, amount
 ) WITH (key_field = 'id');
--- Window aggregate on NumericBytes field in TopN query should error
+-- Window aggregate on NumericBytes field in Top K query should error
 -- This query should fail with an error about NumericBytes not being aggregatable
 SELECT id, category, amount,
         SUM(amount) OVER () as total
@@ -3403,7 +3403,7 @@ LIMIT 10;
 ERROR:  Aggregate on NUMERIC field 'amount' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_numericbytes_test;
 -- ----------------------------------------------------------------------------
--- TEST: Window aggregates on high-precision NUMERIC in TopN query (should error)
+-- TEST: Window aggregates on high-precision NUMERIC in Top K query (should error)
 -- ----------------------------------------------------------------------------
 -- NUMERIC(30,10) has precision > 18, so uses NumericBytes storage
 CREATE TABLE window_agg_highprec_test (
@@ -3418,7 +3418,7 @@ INSERT INTO window_agg_highprec_test (category, value) VALUES
 CREATE INDEX window_agg_highprec_idx ON window_agg_highprec_test USING bm25 (
     id, category, value
 ) WITH (key_field = 'id');
--- Window aggregate on high-precision NUMERIC in TopN query should error
+-- Window aggregate on high-precision NUMERIC in Top K query should error
 SELECT id, category, value,
         AVG(value) OVER () as avg_val
 FROM window_agg_highprec_test

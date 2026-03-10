@@ -1,5 +1,5 @@
 -- Test file to investigate query slowdown with range fields
--- This test specifically examines why a query with LIMIT is not using TopNScanExecState
+-- This test specifically examines why a query with LIMIT is not using TopKScanExecState
 
 -- Setup
 \i common/common_setup.sql
@@ -96,12 +96,12 @@ USING bm25 (
 );
 
 \echo '======== EXECUTION METHOD TESTS ========'
-\echo 'Tests to identify when TopNScanExecState vs NormalScanExecState is used'
+\echo 'Tests to identify when TopKScanExecState vs NormalScanExecState is used'
 
--- TODO: Many queries won't get TopN due to https://github.com/paradedb/paradedb/issues/2688
+-- TODO: Many queries won't get Top K due to https://github.com/paradedb/paradedb/issues/2688
 
--- Test 1: Simple query with LIMIT (should use TopNScanExecState)
-\echo 'Test 1: Simple query with LIMIT (should use TopNScanExecState)'
+-- Test 1: Simple query with LIMIT (should use TopKScanExecState)
+\echo 'Test 1: Simple query with LIMIT (should use TopKScanExecState)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, notes, tenant_id
 FROM records
@@ -228,8 +228,8 @@ WHERE id @@@ paradedb.all()
 ORDER BY state, id
 LIMIT 10000;
 
--- Test 12: 4-column ORDER BY uses TopN (issue #3148)
-\echo 'Test 12: 4-column ORDER BY uses TopN'
+-- Test 12: 4-column ORDER BY uses Top K (issue #3148)
+\echo 'Test 12: 4-column ORDER BY uses Top K'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code
 FROM records
@@ -237,8 +237,8 @@ WHERE id @@@ paradedb.all()
 ORDER BY state, flow_type, currency_code, id
     LIMIT 25;
 
--- Test 13: 5-column ORDER BY uses TopN (issue #3148)
-\echo 'Test 13: 5-column ORDER BY uses TopN'
+-- Test 13: 5-column ORDER BY uses Top K (issue #3148)
+\echo 'Test 13: 5-column ORDER BY uses Top K'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id
 FROM records
@@ -246,7 +246,7 @@ WHERE id @@@ paradedb.all()
 ORDER BY state, flow_type, currency_code, tenant_id, id
     LIMIT 25;
 
--- Test 14: 6-column ORDER BY exceeds MAX_TOPN_FEATURES, falls back to NormalScan
+-- Test 14: 6-column ORDER BY exceeds MAX_TOPK_FEATURES, falls back to NormalScan
 \echo 'Test 14: 6-column ORDER BY falls back to NormalScan'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, state, flow_type, currency_code, tenant_id, source_id

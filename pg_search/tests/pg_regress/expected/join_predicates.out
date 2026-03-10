@@ -826,7 +826,7 @@ WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all
                Output: s.name, s.id
          ->  Hash
                Output: p.id, p.name, p.supplier_id, p.category_id
-               ->  Custom Scan (ParadeDB Scan) on public.products p
+               ->  Custom Scan (ParadeDB Base Scan) on public.products p
                      Output: p.id, p.name, p.supplier_id, p.category_id
                      Table: products
                      Index: products_bm25_idx

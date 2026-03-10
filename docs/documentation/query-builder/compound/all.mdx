@@ -14,14 +14,14 @@ To use it, pass the [key field](/documentation/indexing/create-index#choosing-a-
 
 <CodeGroup>
 ```sql SQL
--- Top N executed by standard Postgres
+-- Top K executed by standard Postgres
 SELECT id, description, rating, category
 FROM mock_items
 WHERE rating IS NOT NULL
 ORDER BY rating
 LIMIT 5;
 
--- Top N executed by ParadeDB
+-- Top K executed by ParadeDB
 SELECT id, description, rating, category
 FROM mock_items
 WHERE rating IS NOT NULL AND id @@@ pdb.all()
@@ -32,12 +32,12 @@ LIMIT 5;
 ```python Django
 from paradedb import All, ParadeDB
 
-# Top N executed by standard Postgres
+# Top K executed by standard Postgres
 MockItem.objects.filter(
     rating__isnull=False
 ).order_by('rating')[:5]
 
-# Top N executed by ParadeDB
+# Top K executed by ParadeDB
 MockItem.objects.filter(
     rating__isnull=False,
     id=ParadeDB(All())
@@ -47,4 +47,4 @@ MockItem.objects.filter(
 </CodeGroup>
 
 This is useful for cases where queries that don't contain a ParadeDB operator can be more efficiently executed by ParadeDB vs. standard Postgres,
-like [Top N](/documentation/sorting/topn) or [aggregate](/documentation/aggregates/overview) queries.
+like [Top K](/documentation/sorting/topk) or [aggregate](/documentation/aggregates/overview) queries.

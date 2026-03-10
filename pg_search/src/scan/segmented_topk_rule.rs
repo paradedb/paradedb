@@ -35,7 +35,7 @@
 //! ```
 //!
 //! The rule walks the plan tree top-down. When it finds a `SortExec` with
-//! `fetch` (TopK mode), it searches its descendants for a `TantivyLookupExec`.
+//! `fetch` (Top K mode), it searches its descendants for a `TantivyLookupExec`.
 //! If the primary sort key matches one of the deferred string/bytes fields,
 //! it injects a `SegmentedTopKExec` as the new child of `TantivyLookupExec`.
 

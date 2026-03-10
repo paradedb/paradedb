@@ -19,7 +19,6 @@ use crate::api::{FieldName, HashSet, MvccVisibility, OrderByFeature};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::filterquery::{new_filter_query, FilterQuery};
-use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
 use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
@@ -35,6 +34,7 @@ use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use anyhow::Result;
 use pgrx::pg_sys;
 use tantivy::aggregation::agg_req::Aggregations;
@@ -65,7 +65,7 @@ impl AggregationKey for FilterSentinelKey {
 pub struct AggregateCSClause {
     targetlist: TargetList,
     orderby: OrderByClause,
-    limit_offset: LimitOffsetClause,
+    limit_offset: LimitOffset,
     quals: SearchQueryClause,
     indexrelid: pg_sys::Oid,
     is_execution_time: bool,
@@ -127,7 +127,7 @@ pub trait CollectAggregations {
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
         // Validate that no custom aggregate has solve_mvcc=false in GROUP BY context.
-        // solve_mvcc=false is only allowed in TopN (window function) context.
+        // solve_mvcc=false is only allowed in Top K (window function) context.
         for agg in self.aggregates() {
             if let AggregateType::Custom {
                 mvcc_visibility, ..
@@ -418,7 +418,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             }
         };
         // LimitOffset is optional
-        let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index).unwrap_or_default();
+        let limit_offset = unsafe { LimitOffset::from_parse(args.root().parse) };
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         if !gucs::enable_custom_scan_without_operator()

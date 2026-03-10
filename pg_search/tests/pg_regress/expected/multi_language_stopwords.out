@@ -76,7 +76,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'the';
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+ Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
@@ -95,7 +95,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'le';
                                                                   QUERY PLAN                                                                   
 -----------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+ Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
@@ -114,7 +114,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+ Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
@@ -136,7 +136,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+ Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
@@ -158,7 +158,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'and';
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+ Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
@@ -177,7 +177,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'et';
                                                                   QUERY PLAN                                                                   
 -----------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+ Custom Scan (ParadeDB Base Scan) on public.test_multi_stopwords
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
@@ -215,7 +215,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_single_stopwords WHERE content @@@ 'the';
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.test_single_stopwords
+ Custom Scan (ParadeDB Base Scan) on public.test_single_stopwords
    Output: id, content
    Table: test_single_stopwords
    Index: idx_single_stopwords_bm25
@@ -234,7 +234,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_single_stopwords WHERE content @@@ 'quick';
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.test_single_stopwords
+ Custom Scan (ParadeDB Base Scan) on public.test_single_stopwords
    Output: id, content
    Table: test_single_stopwords
    Index: idx_single_stopwords_bm25

@@ -412,7 +412,7 @@ GROUP BY category
 ORDER BY category;
 
 -- =====================================================================
--- SECTION 7: pdb.agg() Window Functions (TopN)
+-- SECTION 7: pdb.agg() Window Functions (Top K)
 -- =====================================================================
 
 -- Test 29: Multiple pdb.agg() window functions
@@ -686,8 +686,8 @@ SELECT pdb.agg('{"range": {"field": "response_time", "ranges": [
 FROM logs
 WHERE description @@@ 'error';
 
--- Test 45: Range histogram with TopN (window function)
--- Get response time distribution alongside top N results
+-- Test 45: Range histogram with Top K (window function)
+-- Get response time distribution alongside Top K results
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *,
        pdb.agg('{"range": {"field": "response_time", "ranges": [
@@ -1190,7 +1190,7 @@ WHERE description @@@ 'test'
 ORDER BY id DESC LIMIT 3;
 
 -- Test 68: pdb.agg() in GROUP BY context with solve_mvcc = false should ERROR
--- solve_mvcc=false is only allowed in TopN (window function) context
+-- solve_mvcc=false is only allowed in Top K (window function) context
 SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false)
 FROM mvcc_test
 WHERE description @@@ 'test'

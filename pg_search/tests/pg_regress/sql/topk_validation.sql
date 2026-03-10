@@ -1,6 +1,6 @@
--- Test TopN scan validation feature
--- This test validates that paradedb.check_topn_scan correctly warns when
--- queries with LIMIT cannot use TopN scan optimization
+-- Test Top K scan validation feature
+-- This test validates that paradedb.check_topk_scan correctly warns when
+-- queries with LIMIT cannot use Top K scan optimization
 
 \i common/common_setup.sql
 
@@ -11,7 +11,7 @@ CALL paradedb.create_bm25_test_table(
 );
 
 -- Scenario 1: Index WITHOUT lower() but query uses lower() in ORDER BY
--- This should trigger a warning when check_topn_scan is enabled
+-- This should trigger a warning when check_topk_scan is enabled
 CREATE INDEX products_base_idx ON test_products
 USING bm25 (id, description, category, rating)
 WITH (
@@ -25,7 +25,7 @@ WITH (
 
 -- Test 1: Validation OFF (default) - should not warn
 \echo 'Test 1: Validation OFF (no warning expected)'
-SET paradedb.check_topn_scan = false;
+SET paradedb.check_topk_scan = false;
 SELECT id, description FROM test_products
 WHERE description @@@ 'shoes'
 ORDER BY description  -- Missing fast field
@@ -33,14 +33,14 @@ LIMIT 5;
 
 -- Test 2: Enable validation - should warn about missing fast field
 \echo 'Test 2: Validation ON - warning expected (ORDER BY not a fast field)'
-SET paradedb.check_topn_scan = true;
+SET paradedb.check_topk_scan = true;
 SELECT id, description FROM test_products
 WHERE description @@@ 'shoes'
 ORDER BY description  -- Not marked as fast
 LIMIT 5;
 
--- Test 3: Proper TopN - should NOT warn
-\echo 'Test 3: Valid TopN query (no warning expected)'
+-- Test 3: Proper Top K - should NOT warn
+\echo 'Test 3: Valid Top K query (no warning expected)'
 SELECT id, category,rating FROM test_products
 WHERE category @@@ 'electronics'
 ORDER BY rating DESC  -- rating is fast
@@ -74,7 +74,7 @@ WITH (
     key_field='id'
 );
 
-\echo 'Test 5a: ORDER BY with lower() - should use TopN (no warning)'
+\echo 'Test 5a: ORDER BY with lower() - should use Top K (no warning)'
 SELECT id, category FROM test_products
 WHERE category === 'Electronics'
 ORDER BY lower(category) DESC  -- Matches index
@@ -90,7 +90,7 @@ LIMIT 5;
 \echo 'Test 6: No LIMIT (no validation, no warning)'
 SELECT id FROM test_products
 WHERE category === 'Electronics'
-ORDER BY rating DESC;  -- No LIMIT, so TopN not expected
+ORDER BY rating DESC;  -- No LIMIT, so Top K not expected
 
 -- Test 7: EXPLAIN should show warning in logs
 \echo 'Test 7: EXPLAIN with validation warning'
@@ -102,7 +102,7 @@ LIMIT 10;
 
 -- Test 8: Disable validation mid-session
 \echo 'Test 8: Disable validation (no warning)'
-SET paradedb.check_topn_scan = false;
+SET paradedb.check_topk_scan = false;
 SELECT id FROM test_products
 WHERE category === 'Electronics'
 ORDER BY category DESC  -- No warning now

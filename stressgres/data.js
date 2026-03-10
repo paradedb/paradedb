@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773162334980,
+  "lastUpdate": 1773162342136,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35352,6 +35352,114 @@ window.BENCHMARK_DATA = {
             "value": 170.97265625,
             "unit": "median mem",
             "extra": "avg mem: 167.89538203526703, max mem: 171.7890625, count: 55817"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef1d389927ae8a9bfe0e047ad3e19bd63e08ae66",
+          "message": "feat: push down InListExpr and numeric HashTableLookupExpr (#4306)\n\n# Ticket(s) Closed\n\n- Closes #4267\n\n## What\nEnables dynamic filter pushdown for `InListExpr` and\n`HashTableLookupExpr` (restricted to non-string columns) into the\npre-filter.\n\n## Why\nWhen DataFusion optimizes joins using Hash Joins, it generates dynamic\nfilters (`InListExpr` for small build sides, `HashTableLookupExpr` for\nlarge ones). Previously, these were blocked by our `is_supported` check,\nforcing the engine to materialize unneeded rows. Pushing these down to\nthe Tantivy storage layer drastically reduces memory usage and improves\noverall join performance.\n\n## How\n* **Allowlist Updates:** Added `InListExpr` and `HashTableLookupExpr` to\n`is_supported`. Added a subtree traversal constraint to explicitly block\n`HashTableLookupExpr` from evaluating on string columns to avoid\nexpensive dictionary hydration.\n* **Schema Validation Bypass:** Implemented `try_rewrite_in_list` using\n`try_new_from_array` to cleanly map string lists to dictionary ordinals\nwithout triggering DataFusion's strict schema validation panics.\n* **Storage-to-Execution Casting:** Updated `PreFilter::apply_arrow` to\nautomatically downcast Tantivy's native `Int64` fast fields to match\nDataFusion's expected schema types , preventing strict evaluation\npanics.\n* **TopK Safety:** Updated `rewrite_col_op_lit` to safely intercept and\nmap `NULL` literals (`ScalarValue::Utf8(None)`) pushed down by `TopK`\nnodes, preventing type-mismatch crashes.",
+          "timestamp": "2026-03-10T09:04:31-07:00",
+          "tree_id": "2b08033dcbf7cc115d186284245aae6c8dd7cdd8",
+          "url": "https://github.com/paradedb/paradedb/commit/ef1d389927ae8a9bfe0e047ad3e19bd63e08ae66"
+        },
+        "date": 1773162336637,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.047356620547685, max cpu: 47.38401, count: 55574"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 170.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 146.59866391545506, max mem: 176.125, count: 55574"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.691900861441923, max cpu: 27.934044, count: 55574"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 118.93073052090456, max mem: 120.23828125, count: 55574"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.701966186614393, max cpu: 18.86051, count: 55574"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 171.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 145.18282331047342, max mem: 177.2734375, count: 55574"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16611,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17019.981016302587, max block_count: 31878.0, count: 55574"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.346936878142426, max cpu: 4.701273, count: 55574"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 110.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 97.27744299829956, max mem: 137.62109375, count: 55574"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.6557382948861, max segment_count: 41.0, count: 55574"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.069557313220427, max cpu: 27.988338, count: 111148"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 177.875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.88856085326546, max mem: 179.984375, count: 111148"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.325794540636357, max cpu: 27.799229, count: 55574"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.20598949430038, max mem: 171.8046875, count: 55574"
           }
         ]
       }

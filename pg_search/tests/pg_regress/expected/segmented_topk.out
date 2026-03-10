@@ -55,7 +55,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                             QUERY PLAN
+                                                                                             QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
@@ -65,7 +65,7 @@ LIMIT 3;
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
@@ -86,7 +86,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
- id |     title
+ id |     title      
 ----+----------------
   1 | File Title 001
   3 | File Title 003
@@ -104,7 +104,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title DESC
 LIMIT 3;
-                                                                                             QUERY PLAN
+                                                                                             QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
@@ -114,7 +114,7 @@ LIMIT 3;
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title desc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[title@2 DESC], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
@@ -135,7 +135,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title DESC
 LIMIT 3;
- id |     title
+ id |     title      
 ----+----------------
  99 | File Title 099
  97 | File Title 097
@@ -153,7 +153,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                            QUERY PLAN
+                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
@@ -161,13 +161,13 @@ LIMIT 3;
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 005], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=50, rows_output=3, segments_seen=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=50, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=100% (50/50)]
-           :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=50, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=100% (50/50)]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id], metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1]
@@ -185,7 +185,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 1000;
- id |     title
+ id |     title      
 ----+----------------
   1 | File Title 001
   3 | File Title 003
@@ -249,7 +249,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 1;
- id |     title
+ id |     title      
 ----+----------------
   1 | File Title 001
 (1 row)
@@ -266,7 +266,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.id ASC
 LIMIT 3;
-                                                                                                    QUERY PLAN
+                                                                                                    QUERY PLAN                                                                                                     
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
@@ -276,7 +276,7 @@ LIMIT 3;
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
@@ -299,7 +299,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC;
 WARNING:  JoinScan not used: query must have a LIMIT clause
-                                                                                 QUERY PLAN
+                                                                                 QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: f.id, f.title
@@ -334,7 +334,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                            QUERY PLAN
+                                                                                            QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
@@ -344,7 +344,7 @@ LIMIT 3;
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
@@ -365,7 +365,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
- id |     title
+ id |     title      
 ----+----------------
   1 | File Title 001
   3 | File Title 003
@@ -400,7 +400,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
- id  |     title
+ id  |     title     
 -----+---------------
  106 | Group A Title
  105 | Group A Title
@@ -419,7 +419,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
-                                                                                             QUERY PLAN
+                                                                                             QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title
@@ -429,7 +429,7 @@ LIMIT 5;
          Join Cond: f.document_id = d.id
          Limit: 5
          Order By: f.title asc, f.id desc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, id@3 DESC], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
@@ -450,7 +450,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
- id  |     title
+ id  |     title     
 -----+---------------
  106 | Group A Title
  105 | Group A Title
@@ -470,7 +470,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
- id  |     title     |  content
+ id  |     title     |  content   
 -----+---------------+------------
  106 | Group A Title | content 06
  105 | Group A Title | content 05
@@ -488,7 +488,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
-                                                                                             QUERY PLAN
+                                                                                             QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, f.content
@@ -498,7 +498,7 @@ LIMIT 5;
          Join Cond: f.document_id = d.id
          Limit: 5
          Order By: f.title asc, f.content desc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, content@3 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, content@3 DESC], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title, content]
@@ -519,7 +519,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.content DESC
 LIMIT 5;
- id  |     title     |  content
+ id  |     title     |  content   
 -----+---------------+------------
  106 | Group A Title | content 06
  105 | Group A Title | content 05
@@ -538,7 +538,7 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
- id  |     title     |             category
+ id  |     title     |             category              
 -----+---------------+-----------------------------------
  102 | Group A Title | PROJECT_ALPHA roadmap planning
  105 | Group A Title | PROJECT_ALPHA resource allocation
@@ -555,7 +555,7 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
-                                                                                              QUERY PLAN
+                                                                                              QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, d.category
@@ -565,7 +565,7 @@ LIMIT 5;
          Join Cond: f.document_id = d.id
          Limit: 5
          Order By: f.title asc, d.category desc, f.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@4 as col_1, title@3 as col_2, category@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
@@ -586,7 +586,7 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
- id  |     title     |             category
+ id  |     title     |             category              
 -----+---------------+-----------------------------------
  102 | Group A Title | PROJECT_ALPHA roadmap planning
  105 | Group A Title | PROJECT_ALPHA resource allocation

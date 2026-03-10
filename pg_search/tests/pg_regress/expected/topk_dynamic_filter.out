@@ -59,7 +59,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.id
 LIMIT 3;
-                                                                                                   QUERY PLAN
+                                                                                                   QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
@@ -69,7 +69,7 @@ LIMIT 3;
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
@@ -87,7 +87,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.id
 LIMIT 3;
- id |   name    | supplier_name
+ id |   name    | supplier_name 
 ----+-----------+---------------
   1 | Product 1 | BetaGoods
   2 | Product 2 | GammaParts
@@ -107,7 +107,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.region @@@ 'wireless'
 ORDER BY p.id
 LIMIT 3;
-                                                                                                 QUERY PLAN
+                                                                                                 QUERY PLAN                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
@@ -117,7 +117,7 @@ LIMIT 3;
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
@@ -135,7 +135,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.region @@@ 'wireless'
 ORDER BY p.id
 LIMIT 3;
- id |    name    | supplier_name
+ id |    name    | supplier_name 
 ----+------------+---------------
   4 | Product 4  | EpsilonTech
   9 | Product 9  | EpsilonTech
@@ -153,7 +153,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.region @@@ 'wireless'
 ORDER BY p.id
 LIMIT 3;
-                                                                                                                                                                     QUERY PLAN
+                                                                                                                                                                     QUERY PLAN                                                                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
@@ -161,7 +161,7 @@ LIMIT 3;
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 14], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1, row_replacements=3]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4], metrics=[output_rows=6, output_bytes=192.0 KB, output_batches=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=6, build_mem_used=89, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
@@ -183,7 +183,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.id DESC
 LIMIT 2;
-                                                                                                   QUERY PLAN
+                                                                                                   QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
@@ -193,7 +193,7 @@ LIMIT 2;
          Join Cond: p.supplier_id = s.id
          Limit: 2
          Order By: p.id desc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=2), expr=[id@2 DESC], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
@@ -211,7 +211,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.id DESC
 LIMIT 2;
- id |    name    | supplier_name
+ id |    name    | supplier_name 
 ----+------------+---------------
  30 | Product 30 | AlphaSupply
  29 | Product 29 | EpsilonTech
@@ -227,7 +227,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.price ASC
 LIMIT 2;
-                                                                                                   QUERY PLAN
+                                                                                                   QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name
@@ -237,7 +237,7 @@ LIMIT 2;
          Join Cond: p.supplier_id = s.id
          Limit: 2
          Order By: p.price asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=2), expr=[price@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, price@4]
@@ -255,7 +255,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.price ASC
 LIMIT 2;
- id |   name    | price | supplier_name
+ id |   name    | price | supplier_name 
 ----+-----------+-------+---------------
   1 | Product 1 | 19.80 | BetaGoods
   2 | Product 2 | 29.60 | GammaParts
@@ -272,7 +272,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium' AND s.region @@@ 'global'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                   QUERY PLAN
+                                                                                                   QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
@@ -282,7 +282,7 @@ LIMIT 5;
          Join Cond: p.supplier_id = s.id
          Limit: 5
          Order By: p.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
@@ -300,7 +300,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium' AND s.region @@@ 'global'
 ORDER BY p.id
 LIMIT 5;
- id |    name    | supplier_name
+ id |    name    | supplier_name 
 ----+------------+---------------
   2 | Product 2  | GammaParts
   7 | Product 7  | GammaParts
@@ -327,7 +327,7 @@ WHERE p.supplier_id IN (
 )
 ORDER BY p.id ASC
 LIMIT 3;
-                                                                                                 QUERY PLAN
+                                                                                                 QUERY PLAN                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price
@@ -337,7 +337,7 @@ LIMIT 3;
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
@@ -358,7 +358,7 @@ WHERE p.supplier_id IN (
 )
 ORDER BY p.id ASC
 LIMIT 3;
- id |    name    | price
+ id |    name    | price  
 ----+------------+--------
   4 | Product 4  |  49.20
   9 | Product 9  |  98.20
@@ -375,7 +375,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.id;
 WARNING:  JoinScan not used: query must have a LIMIT clause
-                                                                             QUERY PLAN
+                                                                             QUERY PLAN                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.id, p.name, s.name
@@ -477,7 +477,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                            QUERY PLAN
+                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
@@ -485,13 +485,13 @@ LIMIT 3;
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 007], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=70, rows_output=3, segments_seen=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=70, output_bytes=128.9 KB, output_batches=1, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, build_mem_used=424, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
-           :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=7, output_bytes=232.0 B, output_batches=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=70, output_bytes=128.9 KB, output_batches=1, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, build_mem_used=424, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id], metrics=[output_rows=7, output_bytes=232.0 B, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=70, output_bytes=2.6 KB, output_batches=1]
@@ -506,7 +506,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
- id |     title
+ id |     title      
 ----+----------------
   1 | File Title 001
   4 | File Title 004
@@ -526,7 +526,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                            QUERY PLAN
+                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
@@ -534,7 +534,7 @@ LIMIT 3;
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
-         DataFusion Physical Plan:
+         DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 041], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
@@ -555,7 +555,7 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
- id |     title
+ id |     title      
 ----+----------------
   1 | File Title 001
  21 | File Title 021

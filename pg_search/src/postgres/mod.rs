@@ -190,7 +190,7 @@ impl ParallelScanPayloadLayout {
         let partitioning_nsegments = all_nsegments
             .get(partitioning_source_idx)
             .copied()
-            .unwrap_or(0);
+            .expect("partitioning_source_idx out of bounds");
 
         // Query.
         let layout = Layout::from_size_align(serialized_query.len(), 1)?;
@@ -272,14 +272,21 @@ impl ParallelScanPayload {
         with_aggregates: bool,
     ) {
         let all_nsegments: Vec<usize> = all_sources.iter().map(|s| s.len()).collect();
-        // Compute and assign our Layout: must match what we were allocated with.
-        self.layout = ParallelScanPayloadLayout::new(
+        // Compute the execution-time layout and assert it fits within the DSM allocation,
+        // which was sized from planning-time segment counts (a safe upper bound since
+        // segment merges can only reduce counts between planning and execution).
+        let execution_layout = ParallelScanPayloadLayout::new(
             &all_nsegments,
             partitioning_source_idx,
             query,
             with_aggregates,
         )
         .expect("could not layout `ParallelScanPayload` for initialization");
+        assert!(
+            execution_layout.total.size() <= self.layout.total.size(),
+            "execution-time segment counts exceed planning-time DSM allocation"
+        );
+        self.layout = execution_layout;
 
         // Query.
         let query_range = self.layout.query.clone();
@@ -565,7 +572,8 @@ impl ParallelScanState {
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
         let partitioning_count = all_sources
             .get(partitioning_source_idx)
-            .map_or(0, |s| s.len());
+            .expect("partitioning_source_idx out of bounds")
+            .len();
         self.remaining_segments = partitioning_count;
         // Set nsegments LAST - this signals initialization is complete
         self.nsegments = partitioning_count;

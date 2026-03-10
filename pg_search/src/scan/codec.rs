@@ -151,9 +151,12 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         // participant (leader and workers) opens the same frozen set of segments, preventing
         // DocAddress mismatches caused by per-worker snapshot divergence.
         if let Some(np_idx) = provider.non_partitioning_index() {
-            if let Some(ids) = self.non_partitioning_segment_ids.get(np_idx).cloned() {
-                provider.set_canonical_segment_ids(ids);
-            }
+            let ids = self
+                .non_partitioning_segment_ids
+                .get(np_idx)
+                .cloned()
+                .expect("missing canonical segment IDs for non-partitioning source");
+            provider.set_canonical_segment_ids(ids);
         }
         provider.set_expr_context(self.expr_context);
         Ok(Arc::new(provider))

@@ -451,10 +451,10 @@ pub unsafe fn strip_unnest_and_relabel(mut node: *mut pg_sys::Node) -> (*mut pg_
 pub fn is_unnest_func(funcid: pg_sys::Oid) -> bool {
     use std::sync::Once;
     static mut UNNEST_OID: pg_sys::Oid = pg_sys::InvalidOid;
-    static APPROVE_SRF_ONCE: Once = Once::new();
+    static UNNEST_OID_ONCE: Once = Once::new();
 
     unsafe {
-        APPROVE_SRF_ONCE.call_once(|| {
+        UNNEST_OID_ONCE.call_once(|| {
             if let Some(oid) = direct_function_call::<pg_sys::Oid>(
                 pg_sys::regprocedurein,
                 &[c"pg_catalog.unnest(anyarray)".into_datum()],
@@ -465,15 +465,6 @@ pub fn is_unnest_func(funcid: pg_sys::Oid) -> bool {
 
         if funcid == UNNEST_OID && UNNEST_OID != pg_sys::InvalidOid {
             return true;
-        }
-
-        // Fallback: check function name
-        let fn_name = pg_sys::get_func_name(funcid);
-        if !fn_name.is_null() {
-            let name = std::ffi::CStr::from_ptr(fn_name);
-            if name == c"unnest" {
-                return true;
-            }
         }
 
         false

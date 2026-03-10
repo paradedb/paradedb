@@ -510,7 +510,13 @@ impl CustomScan for AggregateScan {
                                 }
                             }
                         }
-                        TargetListEntry::GroupingColumn(_) => (datums[i], isnull[i]),
+                        TargetListEntry::GroupingColumn(_) => {
+                            debug_assert!(
+                                i < natts,
+                                "aggregate clause entry index out of bounds for tuple descriptor"
+                            );
+                            (datums[i], isnull[i])
+                        }
                     };
 
                     (*const_node).constvalue = datum;

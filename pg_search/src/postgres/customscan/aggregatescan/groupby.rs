@@ -77,6 +77,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
         let mut grouping_columns = Vec::new();
         let schema = index.schema().expect("could not get index schema");
         let index_expressions = index.index_expressions();
+        let categorized_fields = schema.categorized_fields();
 
         let pathkeys = if args.root().group_pathkeys.is_null() {
             PgList::<pg_sys::PathKey>::new()
@@ -91,6 +92,8 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                     PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
                 let mut found_valid_column = false;
+                // Track the most recent error reason across equivalence members.
+                // If no valid column is found, we report this to the caller.
                 let mut last_error: Option<String> = None;
 
                 for member in members.iter_ptr() {
@@ -135,7 +138,6 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                             .into());
                         }
                         if search_field.is_fast() {
-                            let categorized_fields = schema.categorized_fields();
                             let is_array = categorized_fields
                                 .iter()
                                 .find(|(sf, _)| sf.field_name().as_ref() == field_name)
@@ -149,11 +151,10 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                                 )
                                 .into());
                             } else if !is_array && is_unnest {
-                                return Err(format!(
-                                    "grouping field {} is not an array, but UNNEST() was used in GROUP BY",
+                                unreachable!(
+                                    "Postgres should not allow UNNEST() on a non-array column: {}",
                                     field_name
-                                )
-                                .into());
+                                );
                             }
 
                             grouping_columns.push(GroupingColumn { field_name, attno });

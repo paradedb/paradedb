@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773171661244,
+  "lastUpdate": 1773171669049,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11880,6 +11880,138 @@ window.BENCHMARK_DATA = {
             "value": 54.3515625,
             "unit": "median mem",
             "extra": "avg mem: 53.21194035368208, max mem: 65.9921875, count: 55159"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a5deba480c52402ef2f525835b706838db93694",
+          "message": "refactor: rename MixedFastField to Columnar across the codebase (#4323)\n\n## Summary\n- Renames all mentions of `MixedFastField` to `Columnar` across the\ncodebase to better reflect the column-oriented nature of this execution\nmethod\n- Renames files: `mixed.rs` → `columnar.rs`, `mixed_fast_fields.rs` →\n`columnar.rs`, `mixed_fast_fields_benchmark.rs` →\n`columnar_benchmark.rs`\n- Renames GUC settings: `paradedb.enable_mixed_fast_field_exec` →\n`paradedb.enable_columnar_exec`, `paradedb.enable_mixed_fast_field_sort`\n→ `paradedb.enable_columnar_sort`,\n`paradedb.mixed_fast_field_exec_column_threshold` →\n`paradedb.columnar_exec_column_threshold`\n- Renames Rust types/functions: `MixedFastFieldExecState` →\n`ColumnarExecState`, `MixedExecStrategy` → `ColumnarExecStrategy`,\n`ExecMethodType::FastFieldMixed` → `ExecMethodType::Columnar`, and all\nrelated functions\n\nCloses #4296\n\n## Test plan\n- [x] All pre-commit hooks pass (fmt, clippy, cargo check)\n- [x] CI passes with all existing tests (pure rename, no logic changes)",
+          "timestamp": "2026-03-10T15:21:15-04:00",
+          "tree_id": "1528a5ba7cafa3179885f00030c7d63dd6212dfc",
+          "url": "https://github.com/paradedb/paradedb/commit/2a5deba480c52402ef2f525835b706838db93694"
+        },
+        "date": 1773171663051,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.250561337441553, max cpu: 29.357798, count: 55133"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.23046875,
+            "unit": "median mem",
+            "extra": "avg mem: 63.03144831305661, max mem: 74.39453125, count: 55133"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.456114174767229, max cpu: 18.82353, count: 55133"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 62.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.13732955988247, max mem: 73.46484375, count: 55133"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.662327742283866, max cpu: 9.275363, count: 55133"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.82322080809134, max mem: 37.8125, count: 55133"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.577718087690593, max cpu: 4.7999997, count: 55133"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.60585347307874, max mem: 72.38671875, count: 55133"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.634549317057014, max cpu: 9.504951, count: 110266"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 48.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.84723206269385, max mem: 60.01953125, count: 110266"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1747,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1755.2481091179511, max block_count: 3122.0, count: 55133"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.827907061106778, max segment_count: 25.0, count: 55133"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.451869572599936, max cpu: 19.161678, count: 55133"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 61.969936264918466, max mem: 73.30859375, count: 55133"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6114567385025484, max cpu: 9.221902, count: 55133"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.16653422179094, max mem: 62.6015625, count: 55133"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.430410915034513, max cpu: 4.6647234, count: 55133"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 53.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.33523515011427, max mem: 65.93359375, count: 55133"
           }
         ]
       }

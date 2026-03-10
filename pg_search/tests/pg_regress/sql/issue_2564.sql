@@ -1,5 +1,5 @@
 -- uses the same schema as the columnar storage queries
-\i common/mixedff_queries_setup.sql
+\i common/columnar_queries_setup.sql
 
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
@@ -52,4 +52,4 @@ ORDER BY d.id;
 -- be a good citizen
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
-\i common/mixedff_queries_cleanup.sql
+\i common/columnar_queries_cleanup.sql

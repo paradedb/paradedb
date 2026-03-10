@@ -1103,29 +1103,29 @@ ORDER BY score DESC, id LIMIT 1;
 ------------------------------------------------------------
 \echo '=== TEST: ColumnarExecState with Composite Fields ==='
 === TEST: ColumnarExecState with Composite Fields ===
-DROP TYPE IF EXISTS mixedff_comp CASCADE;
-CREATE TYPE mixedff_comp AS (priority INTEGER, created_at DATE);
-DROP TABLE IF EXISTS mixedff_comp_test CASCADE;
-CREATE TABLE mixedff_comp_test (
+DROP TYPE IF EXISTS columnar_comp CASCADE;
+CREATE TYPE columnar_comp AS (priority INTEGER, created_at DATE);
+DROP TABLE IF EXISTS columnar_comp_test CASCADE;
+CREATE TABLE columnar_comp_test (
     id SERIAL PRIMARY KEY,
     content TEXT,
     priority INTEGER,
     created_at DATE
 );
-INSERT INTO mixedff_comp_test (content, priority, created_at) VALUES
+INSERT INTO columnar_comp_test (content, priority, created_at) VALUES
     ('item alpha', 10, '2024-01-01'),
     ('item beta', 30, '2024-01-02'),
     ('item gamma', 20, '2024-01-03'),
     ('item delta', 40, '2024-01-04');
 -- Create index with priority ONLY in composite (not as direct column)
-CREATE INDEX mixedff_comp_test_idx ON mixedff_comp_test
-USING bm25 (id, content, (ROW(priority, created_at)::mixedff_comp))
+CREATE INDEX columnar_comp_test_idx ON columnar_comp_test
+USING bm25 (id, content, (ROW(priority, created_at)::columnar_comp))
 WITH (
     key_field = 'id',
     sort_by = 'priority DESC NULLS LAST'
 );
 -- Verify schema shows priority as fast field
-SELECT name, field_type, fast FROM paradedb.schema('mixedff_comp_test_idx')
+SELECT name, field_type, fast FROM paradedb.schema('columnar_comp_test_idx')
 WHERE name = 'priority';
    name   | field_type | fast 
 ----------+------------+------
@@ -1135,14 +1135,14 @@ WHERE name = 'priority';
 -- Should use ColumnarExecState (not NormalScanExecState)
 -- and NO Sort node because sorted path is available
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, priority FROM mixedff_comp_test
+SELECT id, priority FROM columnar_comp_test
 WHERE content @@@ 'item'
 ORDER BY priority DESC NULLS LAST;
                                                                    QUERY PLAN                                                                    
 -------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on mixedff_comp_test
-   Table: mixedff_comp_test
-   Index: mixedff_comp_test_idx
+ Custom Scan (ParadeDB Base Scan) on columnar_comp_test
+   Table: columnar_comp_test
+   Index: columnar_comp_test_idx
    Exec Method: ColumnarExecState
    Fast Fields: id, priority
    Order By: priority DESC
@@ -1151,7 +1151,7 @@ ORDER BY priority DESC NULLS LAST;
 (8 rows)
 
 -- Verify correct sorted results
-SELECT id, priority FROM mixedff_comp_test
+SELECT id, priority FROM columnar_comp_test
 WHERE content @@@ 'item'
 ORDER BY priority DESC NULLS LAST;
  id | priority 
@@ -1162,8 +1162,8 @@ ORDER BY priority DESC NULLS LAST;
   1 |       10
 (4 rows)
 
-DROP TABLE mixedff_comp_test CASCADE;
-DROP TYPE mixedff_comp CASCADE;
+DROP TABLE columnar_comp_test CASCADE;
+DROP TYPE columnar_comp CASCADE;
 ------------------------------------------------------------
 -- TEST: Expression-based indexing (fast fields + sorted path)
 ------------------------------------------------------------

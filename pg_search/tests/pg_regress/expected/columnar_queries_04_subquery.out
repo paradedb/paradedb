@@ -1,4 +1,4 @@
--- uses the same schema as the columnar storage queries
+-- Test subqueries with columnar storage
 \i common/columnar_queries_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
@@ -103,78 +103,23 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page_cte2', 'file_cte1', 2, 'Page 2 with more content for testing'),
 ('page_cte3', 'file_cte2', 1, 'Another page with test terms to search'),
 ('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing');
--- Disable parallel workers to avoid differences in plans
-SET max_parallel_workers_per_gather = 0;
-SET enable_indexscan to OFF;
--- by turning off this GUC we're forcing pg_search to choose its "NormalScanExecState", which is the method under test
-SET paradedb.enable_columnar_exec = false;
--- this should return one row
-EXPLAIN (COSTS OFF) SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
-FROM documents d
-         JOIN files f ON d.id = f.documentId
-         JOIN pages p ON p.fileId = f.id
-WHERE d.parents @@@ 'Factures'
-  AND f.title @@@ 'Receipt'
-  AND p.content @@@ 'Socienty'
-ORDER BY d.id, f.id, p.id;
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: d.id, p.fileid, p.id
-   ->  Hash Join
-         Hash Cond: (f.documentid = d.id)
-         ->  Nested Loop
-               Join Filter: (f.id = p.fileid)
-               ->  Custom Scan (ParadeDB Base Scan) on files f
-                     Table: files
-                     Index: files_search
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on pages p
-                     Table: pages
-                     Index: pages_search
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-         ->  Hash
-               ->  Custom Scan (ParadeDB Base Scan) on documents d
-                     Table: documents
-                     Index: documents_search
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-(25 rows)
-
-SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
-FROM documents d
-         JOIN files f ON d.id = f.documentId
-         JOIN pages p ON p.fileId = f.id
-WHERE d.parents @@@ 'Factures'
-  AND f.title @@@ 'Receipt'
-  AND p.content @@@ 'Socienty'
-ORDER BY d.id, f.id, p.id;
-  id  | parents  |  title  |     file_path      | fileid | page_number 
-------+----------+---------+--------------------+--------+-------------
- doc2 | Factures | Receipt | /receipts/2023.pdf | file3  |           1
-(1 row)
-
--- this should return two rows
--- it's exercising Top K being a parameterized plan in the subselect
-EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
-       (
-           SELECT f.title
-           FROM files f
-           WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
-           ORDER BY pdb.score(f.id) DESC LIMIT 1
-       ) AS file_title
+\echo 'Test: Subqueries with mixed fields'
+Test: Subqueries with mixed fields
+-- Check execution plan to verify columnar storage in subquery
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT d.id, d.title, d.parents,
+    (
+        SELECT COUNT(*)
+        FROM files f
+        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+    ) AS invoice_file_count
 FROM documents d
 WHERE d.parents @@@ 'Factures'
-ORDER BY d.id;
+ORDER BY invoice_file_count DESC, d.id;
                                                                                                                                                  QUERY PLAN                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: d.id
+   Sort Key: ((SubPlan 1)) DESC, d.id
    ->  Custom Scan (ParadeDB Base Scan) on documents d
          Table: documents
          Index: documents_search
@@ -182,36 +127,71 @@ ORDER BY d.id;
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
          SubPlan 1
-           ->  Limit
+           ->  Aggregate
                  ->  Custom Scan (ParadeDB Base Scan) on files f
                        Table: files
                        Index: files_search
-                       Exec Method: TopKScanExecState
-                       Scores: true
-                          TopK Order By: pdb.score() desc
-                          TopK Limit: 1
+                       Exec Method: NormalScanExecState
+                       Scores: false
                        Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
-(18 rows)
+(16 rows)
 
+-- Test with subquery
 SELECT d.id, d.title, d.parents,
-       (
-           SELECT f.title
-           FROM files f
-           WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
-           ORDER BY pdb.score(f.id) DESC LIMIT 1
-       ) AS file_title
+    (
+        SELECT COUNT(*)
+        FROM files f
+        WHERE f.documentId = d.id AND f.title @@@ 'Invoice'
+    ) AS invoice_file_count
 FROM documents d
 WHERE d.parents @@@ 'Factures'
-ORDER BY d.id;
-  id  |    title     | parents  | file_title  
-------+--------------+----------+-------------
- doc1 | Invoice 2023 | Factures | Invoice PDF
- doc2 | Receipt 2023 | Factures | 
+ORDER BY invoice_file_count DESC, d.id;
+  id  |    title     | parents  | invoice_file_count 
+------+--------------+----------+--------------------
+ doc1 | Invoice 2023 | Factures |                  2
+ doc2 | Receipt 2023 | Factures |                  0
 (2 rows)
 
--- be a good citizen
-RESET max_parallel_workers_per_gather;
-RESET enable_indexscan;
+SELECT d.id, d.title, d.parents,
+    (
+        SELECT COUNT(*)
+        FROM files f
+        WHERE f.documentId = d.id AND (f.title = 'Invoice Receipt' OR f.title = 'Invoice PDF')
+    ) AS invoice_file_count
+FROM documents d
+WHERE d.parents = 'Factures'
+ORDER BY invoice_file_count DESC, d.id;
+  id  |    title     | parents  | invoice_file_count 
+------+--------------+----------+--------------------
+ doc1 | Invoice 2023 | Factures |                  2
+ doc2 | Receipt 2023 | Factures |                  0
+(2 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT d.id, d.title, d.parents,
+    (
+        SELECT COUNT(*)
+        FROM files f
+        WHERE f.documentId = d.id AND (f.title = 'Invoice Receipt' OR f.title = 'Invoice PDF')
+    ) AS invoice_file_count
+FROM documents d
+WHERE d.parents = 'Factures'
+ORDER BY invoice_file_count DESC, d.id;
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: ((SubPlan 1)) DESC, d.id
+   ->  Seq Scan on documents d
+         Filter: (parents = 'Factures'::text)
+         SubPlan 1
+           ->  Aggregate
+                 ->  Bitmap Heap Scan on files f
+                       Recheck Cond: (documentid = d.id)
+                       Filter: ((title = 'Invoice Receipt'::text) OR (title = 'Invoice PDF'::text))
+                       ->  Bitmap Index Scan on files_pkey
+                             Index Cond: (documentid = d.id)
+(11 rows)
+
 \i common/columnar_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)
 -- Drop the tables used in these tests

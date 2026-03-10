@@ -1,12 +1,12 @@
 SET paradedb.global_mutable_segment_rows = 0;
 -- uses the same schema as the columnar storage queries
-\i common/mixedff_queries_setup.sql
+\i common/columnar_queries_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
--- The `mixedff` tests allow any number of columns to be used with columnar storage, in order to test
+-- The `columnar` tests allow any number of columns to be used with columnar storage, in order to test
 -- more permutations of selected columns.
 SET paradedb.columnar_exec_column_threshold = 100;
 SET paradedb.enable_aggregate_custom_scan = false;
@@ -218,7 +218,7 @@ ORDER BY d.id;
 -- be a good citizen
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
-\i common/mixedff_queries_cleanup.sql
+\i common/columnar_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)
 -- Drop the tables used in these tests
 DROP TABLE IF EXISTS pages CASCADE;

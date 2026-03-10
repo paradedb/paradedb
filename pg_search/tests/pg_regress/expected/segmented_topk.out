@@ -316,7 +316,7 @@ WARNING:  JoinScan not used: query must have a LIMIT clause
                      Output: d.id
                      Table: stk_documents
                      Index: stk_documents_bm25_idx
-                     Exec Method: MixedFastFieldExecState
+                     Exec Method: ColumnarExecState
                      Fast Fields: id
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}

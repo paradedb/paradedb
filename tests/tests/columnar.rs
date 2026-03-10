@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-// Tests for MixedFastFieldExecState implementation
+// Tests for ColumnarExecState implementation
 // Includes both basic functionality tests and corner/edge cases
 
 mod fixtures;
@@ -60,7 +60,7 @@ fn extract_methods(node: &Value, methods: &mut Vec<String>) {
     }
 }
 
-// Setup for complex aggregation with mixed fast fields
+// Setup for complex aggregation with columnars
 fn complex_aggregation_setup() -> &'static str {
     r#"
         DROP TABLE IF EXISTS expected_payments;
@@ -147,7 +147,7 @@ fn complex_aggregation_setup() -> &'static str {
 
 #[ignore]
 #[rstest]
-fn test_complex_aggregation_with_mixed_fast_fields(mut conn: PgConnection) {
+fn test_complex_aggregation_with_columnars(mut conn: PgConnection) {
     complex_aggregation_setup().execute(&mut conn);
 
     // Force disable regular index scans to ensure BM25 index is used
@@ -325,8 +325,8 @@ fn test_fast_fields_cases(
     fast_fields_setup().execute(&mut conn);
     "SET enable_indexscan = off;".execute(&mut conn);
     "SET paradedb.enable_aggregate_custom_scan = on;".execute(&mut conn);
-    "SET paradedb.enable_mixed_fast_field_exec = on;".execute(&mut conn);
-    "SET paradedb.mixed_fast_field_exec_column_threshold = 10;".execute(&mut conn);
+    "SET paradedb.enable_columnar_exec = on;".execute(&mut conn);
+    "SET paradedb.columnar_exec_column_threshold = 10;".execute(&mut conn);
 
     let explain_query = format!("EXPLAIN (ANALYZE, FORMAT JSON) {}", query);
     let (plan,) = explain_query.fetch_one::<(Value,)>(&mut conn);
@@ -346,10 +346,10 @@ fn test_fast_fields_cases(
 }
 
 // ============================================================================
-// Sorted Path Tests for MixedFastFieldExecState
+// Sorted Path Tests for ColumnarExecState
 // ============================================================================
 //
-// These tests verify that MixedFastFieldExecState correctly handles the sorted
+// These tests verify that ColumnarExecState correctly handles the sorted
 // path using SortPreservingMergeExec when the index has a sort_by configuration
 // AND the query includes an ORDER BY clause matching the sort_by.
 //
@@ -365,12 +365,12 @@ fn is_sorted_asc<T: Ord>(values: &[T]) -> bool {
     values.windows(2).all(|w| w[0] <= w[1])
 }
 
-/// Test MixedFastFieldExecState with sorted scans across various configurations.
+/// Test ColumnarExecState with sorted scans across various configurations.
 #[rstest]
 #[case::desc_serial("DESC", "DESC", false)]
 #[case::asc_serial("ASC", "ASC", false)]
 #[case::parallel_desc("DESC", "DESC", true)]
-fn mixed_fast_fields_sorted_scan(
+fn columnars_sorted_scan(
     mut conn: PgConnection,
     #[case] sort_by_dir: &str,
     #[case] order_by_dir: &str,
@@ -388,8 +388,8 @@ fn mixed_fast_fields_sorted_scan(
         "SET max_parallel_workers TO 0;".execute(&mut conn);
     }
 
-    "SET paradedb.enable_mixed_fast_field_exec TO true;".execute(&mut conn);
-    "SET paradedb.mixed_fast_field_exec_column_threshold = 10;".execute(&mut conn);
+    "SET paradedb.enable_columnar_exec TO true;".execute(&mut conn);
+    "SET paradedb.columnar_exec_column_threshold = 10;".execute(&mut conn);
 
     let sort_by = format!(
         "score {} NULLS {}",
@@ -463,8 +463,8 @@ fn mixed_fast_fields_sorted_scan(
     // Get execution methods
     let methods = get_all_exec_methods(&plan);
     assert!(
-        methods.contains(&"MixedFastFieldExecState".to_string()),
-        "Expected MixedFastFieldExecState, got: {:?}",
+        methods.contains(&"ColumnarExecState".to_string()),
+        "Expected ColumnarExecState, got: {:?}",
         methods
     );
 
@@ -493,14 +493,14 @@ fn mixed_fast_fields_sorted_scan(
     }
 }
 
-/// Test that sorting still works when MixedFastFieldExecState is disabled.
+/// Test that sorting still works when ColumnarExecState is disabled.
 ///
-/// When enable_mixed_fast_field_exec is false, queries with ORDER BY should
+/// When enable_columnar_exec is false, queries with ORDER BY should
 /// still produce correctly sorted results (PostgreSQL will handle sorting).
 #[rstest]
-fn mixed_fast_fields_disabled_still_works(mut conn: PgConnection) {
+fn columnars_disabled_still_works(mut conn: PgConnection) {
     "SET max_parallel_workers TO 0;".execute(&mut conn);
-    "SET paradedb.enable_mixed_fast_field_exec TO false;".execute(&mut conn);
+    "SET paradedb.enable_columnar_exec TO false;".execute(&mut conn);
 
     r#"
         CREATE TABLE test_mff_disabled (

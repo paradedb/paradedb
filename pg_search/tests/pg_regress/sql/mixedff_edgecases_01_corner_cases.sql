@@ -1,4 +1,4 @@
--- Tests corner cases for mixed fast fields
+-- Tests corner cases for columnars
 
 \i common/mixedff_edgecases_setup.sql
 

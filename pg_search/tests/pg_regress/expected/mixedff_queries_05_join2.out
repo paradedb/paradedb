@@ -4,10 +4,10 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- The `mixedff` tests allow any number of columns to be used with fast fields, in order to test
 -- more permutations of selected columns.
-SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.columnar_exec_column_threshold = 100;
 SET paradedb.enable_aggregate_custom_scan = false;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
@@ -103,8 +103,8 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page_cte2', 'file_cte1', 2, 'Page 2 with more content for testing'),
 ('page_cte3', 'file_cte2', 1, 'Another page with test terms to search'),
 ('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing');
-\echo 'Test: join with mixed fast fields'
-Test: join with mixed fast fields
+\echo 'Test: join with columnars'
+Test: join with columnars
 SET enable_hashjoin=off;
 SET enable_memoize=off;
 DROP TABLE IF EXISTS users CASCADE;
@@ -207,7 +207,7 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
 (1 row)
 
 vacuum;
-SET paradedb.enable_mixed_fast_field_exec = false;
+SET paradedb.enable_columnar_exec = false;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
                                                                                                                                                  QUERY PLAN                                                                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -231,7 +231,7 @@ SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.
  blue
 (1 row)
 
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
                                                                                                                                                  QUERY PLAN                                                                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -240,7 +240,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
          ->  Custom Scan (ParadeDB Base Scan) on users
                Table: users
                Index: idxusers
-               Exec Method: MixedFastFieldExecState
+               Exec Method: ColumnarExecState
                Fast Fields: color, id
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
@@ -267,8 +267,8 @@ DROP TABLE IF EXISTS documents CASCADE;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
-RESET paradedb.enable_mixed_fast_field_exec;
-RESET paradedb.mixed_fast_field_exec_column_threshold;
+RESET paradedb.enable_columnar_exec;
+RESET paradedb.columnar_exec_column_threshold;
 SELECT 'Relational query tests cleanup complete' AS status; 
                  status                  
 -----------------------------------------

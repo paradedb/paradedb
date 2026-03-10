@@ -1,8 +1,8 @@
--- Test file to reproduce the bug where MixedFastFieldExec doesn't produce expected data
+-- Test file to reproduce the bug where ColumnarExec doesn't produce expected data
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
-SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.columnar_exec_column_threshold = 100;
 
 -- Create test table
 DROP TABLE IF EXISTS benchmark_data CASCADE;
@@ -59,7 +59,7 @@ SET enable_indexscan = off;
 
 -- First run with normal execution method
 SET paradedb.enable_fast_field_exec = false;
-SET paradedb.enable_mixed_fast_field_exec = false;
+SET paradedb.enable_columnar_exec = false;
 
 -- Get query plan to verify we're using NormalScanExecState
 EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
@@ -80,11 +80,11 @@ WHERE
     string_field2 @@@ 'IN [red blue green]'
 ORDER BY numeric_field1;
 
--- Now enable MixedFastFieldExec
+-- Now enable ColumnarExec
 SET paradedb.enable_fast_field_exec = false;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 
--- Get query plan to verify we're using MixedFastFieldExec
+-- Get query plan to verify we're using ColumnarExec
 EXPLAIN (VERBOSE, COSTS OFF, TIMING OFF)
 SELECT
     numeric_field1, numeric_field2, numeric_field3
@@ -94,7 +94,7 @@ WHERE
     string_field2 @@@ 'IN [red blue green]'
 ORDER BY numeric_field1;
 
--- Run the query with MixedFastFieldExec (should return same data)
+-- Run the query with ColumnarExec (should return same data)
 SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
@@ -104,7 +104,7 @@ WHERE
 ORDER BY numeric_field1; 
 
 RESET paradedb.enable_fast_field_exec;
-RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.enable_columnar_exec;
 RESET enable_seqscan;
 RESET enable_bitmapscan;
 RESET enable_indexscan;

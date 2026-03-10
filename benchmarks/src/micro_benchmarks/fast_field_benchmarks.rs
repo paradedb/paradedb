@@ -101,7 +101,7 @@ pub fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
     for metric in metrics {
         let values = collect_json_field_values(plan, metric);
         if ASSERT_HEAP_VIRTUAL_TUPLES {
-            if execution_method == "MixedFastFieldExec" {
+            if execution_method == "ColumnarExec" {
                 values.iter().for_each(|v| {
                     assert!(v.is_number());
                     if metric == "Heap Fetches" {
@@ -145,8 +145,8 @@ pub fn detect_exec_method(plan: &Value) -> String {
 
     // If the custom scan method is explicitly mentioned, extract it
     if plan_str.contains("Exec Method") {
-        if plan_str.contains("MixedFastFieldExecState") {
-            return "MixedFastFieldExec".to_string();
+        if plan_str.contains("ColumnarExecState") {
+            return "ColumnarExec".to_string();
         } else if plan_str.contains("NormalScanExecState") {
             return "NormalScanExecState".to_string();
         } else if uses_custom_scan {
@@ -244,7 +244,7 @@ pub fn display_results(results: &[BenchmarkResult]) {
     let mut test_groups = std::collections::HashMap::new();
 
     for result in results {
-        // Extract base test name (e.g., "Basic Mixed Fields" from "Basic Mixed Fields (MixedFastFieldExec)")
+        // Extract base test name (e.g., "Basic Columnar Fields" from "Basic Columnar Fields (ColumnarExec)")
         let base_name = if let Some(pos) = result.test_name.find(" (") {
             result.test_name[..pos].to_string()
         } else {
@@ -270,7 +270,7 @@ pub fn display_results(results: &[BenchmarkResult]) {
         // Identify results by their test names, which include the execution method
         let mixed_result = group_results
             .iter()
-            .find(|r| r.test_name.contains("MixedFastFieldExec"));
+            .find(|r| r.test_name.contains("ColumnarExec"));
 
         let normal_result = group_results
             .iter()
@@ -351,25 +351,25 @@ pub async fn set_execution_method(
     table_name: &str,
 ) -> Result<()> {
     // Create appropriate index if execution method is specified
-    // This should be "MixedFastFieldExec"
-    if execution_method == "MixedFastFieldExec" {
+    // This should be "ColumnarExec"
+    if execution_method == "ColumnarExec" {
         sqlx::query("SET paradedb.enable_fast_field_exec = false")
             .execute(&mut *conn)
             .await?;
-        sqlx::query("SET paradedb.enable_mixed_fast_field_exec = true")
+        sqlx::query("SET paradedb.enable_columnar_exec = true")
             .execute(&mut *conn)
             .await?;
     } else {
         sqlx::query("SET paradedb.enable_fast_field_exec = false")
             .execute(&mut *conn)
             .await?;
-        sqlx::query("SET paradedb.enable_mixed_fast_field_exec = false")
+        sqlx::query("SET paradedb.enable_columnar_exec = false")
             .execute(&mut *conn)
             .await?;
     }
 
-    // Allow any number of columns to be used with Mixed.
-    sqlx::query("SET paradedb.mixed_fast_field_exec_column_threshold = 100")
+    // Allow any number of columns to be used with Columnar.
+    sqlx::query("SET paradedb.columnar_exec_column_threshold = 100")
         .execute(&mut *conn)
         .await?;
 
@@ -398,7 +398,7 @@ pub async fn set_execution_method(
     Ok(())
 }
 
-pub async fn benchmark_mixed_fast_fields(
+pub async fn benchmark_columnar(
     conn: &mut PgConnection,
     is_existing: bool,
     iterations: usize,
@@ -422,7 +422,7 @@ pub async fn benchmark_mixed_fast_fields(
     }
 
     println!("========================================");
-    println!("Starting mixed fast fields benchmark");
+    println!("Starting columnars benchmark");
     println!("========================================");
 
     let mut results = Vec::new();
@@ -439,8 +439,8 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         basic_query,
-        "Basic - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        "Basic - Columnar",
+        &["ColumnarExec", "NormalScanExecState"],
         &mut results,
         &config,
     )
@@ -456,7 +456,7 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         agg_query,
-        "Agg Query - MixedFF",
+        "Agg Query - Columnar",
         &["NormalScanExecState"],
         &mut results,
         &config,
@@ -524,8 +524,8 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         complex_query,
-        "Complex Aggregation - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        "Complex Aggregation - Columnar",
+        &["ColumnarExec", "NormalScanExecState"],
         &mut results,
         &config,
     )
@@ -544,8 +544,8 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         json_query,
-        "JSON Query - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        "JSON Query - Columnar",
+        &["ColumnarExec", "NormalScanExecState"],
         &mut results,
         &config,
     )
@@ -564,8 +564,8 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         long_text_query,
-        "Long Text Query - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        "Long Text Query - Columnar",
+        &["ColumnarExec", "NormalScanExecState"],
         &mut results,
         &config,
     )
@@ -585,8 +585,8 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         ordering_query,
-        "Heavy Ordering - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        "Heavy Ordering - Columnar",
+        &["ColumnarExec", "NormalScanExecState"],
         &mut results,
         &config,
     )
@@ -598,7 +598,7 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         group_count_query,
-        "Group By Count - MixedFF",
+        "Group By Count - Columnar",
         &["NormalScanExecState"],
         &mut results,
         &config,
@@ -611,8 +611,8 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         select_id_query,
-        "Select ID - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        "Select ID - Columnar",
+        &["ColumnarExec", "NormalScanExecState"],
         &mut results,
         &config,
     )
@@ -624,7 +624,7 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         sum_query,
-        "Sum Aggregation - MixedFF",
+        "Sum Aggregation - Columnar",
         &["NormalScanExecState"],
         &mut results,
         &config,
@@ -637,7 +637,7 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         string_group_query,
-        "String Group Count - MixedFF",
+        "String Group Count - Columnar",
         &["NormalScanExecState"],
         &mut results,
         &config,
@@ -659,8 +659,8 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         join_query,
-        "Join Query - MixedFF",
-        &["MixedFastFieldExec", "NormalScanExecState"],
+        "Join Query - Columnar",
+        &["ColumnarExec", "NormalScanExecState"],
         &mut results,
         &config,
     )

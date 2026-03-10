@@ -2,7 +2,7 @@
 
 \i common/mixedff_queries_setup.sql
 
-\echo 'Test: join with mixed fast fields'
+\echo 'Test: join with columnars'
 
 SET enable_hashjoin=off;
 SET enable_memoize=off;
@@ -115,11 +115,11 @@ ANALYZE;
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color  =  'blue') AND (users.name  =  'bob') LIMIT 10;
 
 vacuum;
-SET paradedb.enable_mixed_fast_field_exec = false;
+SET paradedb.enable_columnar_exec = false;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
 
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
 

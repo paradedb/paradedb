@@ -444,7 +444,7 @@ WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github
                Output: category, price
                Table: products
                Index: products_idx
-               Exec Method: MixedFastFieldExecState
+               Exec Method: ColumnarExecState
                Fast Fields: category, price
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}

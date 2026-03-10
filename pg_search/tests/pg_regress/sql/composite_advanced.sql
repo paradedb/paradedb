@@ -521,11 +521,11 @@ FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')
 ORDER BY score DESC, id LIMIT 1;
 
 ------------------------------------------------------------
--- TEST: MixedFastFieldExecState with composite fields
+-- TEST: ColumnarExecState with composite fields
 -- Verifies that fields indexed ONLY via composite expressions
--- can be projected using MixedFastFieldExecState
+-- can be projected using ColumnarExecState
 ------------------------------------------------------------
-\echo '=== TEST: MixedFastFieldExecState with Composite Fields ==='
+\echo '=== TEST: ColumnarExecState with Composite Fields ==='
 
 DROP TYPE IF EXISTS mixedff_comp CASCADE;
 CREATE TYPE mixedff_comp AS (priority INTEGER, created_at DATE);
@@ -556,7 +556,7 @@ WITH (
 SELECT name, field_type, fast FROM paradedb.schema('mixedff_comp_test_idx')
 WHERE name = 'priority';
 
--- Should use MixedFastFieldExecState (not NormalScanExecState)
+-- Should use ColumnarExecState (not NormalScanExecState)
 -- and NO Sort node because sorted path is available
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority FROM mixedff_comp_test
@@ -617,7 +617,7 @@ CREATE INDEX comp_test_idx ON comp_test
 USING bm25 (id, name, (ROW(priority, created)::my_comp))
 WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST');
 
--- Should use MixedFastFieldExecState and NO Sort node
+-- Should use ColumnarExecState and NO Sort node
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority FROM comp_test WHERE name @@@ 'foo' ORDER BY priority DESC NULLS LAST;
 
@@ -669,7 +669,7 @@ CREATE INDEX func_expr_idx ON func_expr_test
 USING bm25 (id, name, (ABS(val)::pdb.alias('abs_val')))
 WITH (key_field = 'id', sort_by = 'abs_val DESC NULLS LAST');
 
--- MixedFastFieldExecState is used for projection, but ORDER BY still sorts.
+-- ColumnarExecState is used for projection, but ORDER BY still sorts.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ABS(val) FROM func_expr_test WHERE name @@@ 'foo' ORDER BY ABS(val) DESC NULLS LAST;
 

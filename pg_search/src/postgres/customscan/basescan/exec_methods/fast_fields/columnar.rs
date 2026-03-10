@@ -110,14 +110,14 @@ impl Inner {
     }
 }
 
-/// Scan execution strategy for MixedFastFieldExecState.
+/// Scan execution strategy for ColumnarExecState.
 ///
 /// This enum replaces the previous `sorted: bool` + `sort_order: Option<SortByField>`
 /// pattern to prevent invalid states (e.g., sorted=true with sort_order=None).
 ///
 /// The `Sorted` variant contains all sorted-specific state (sort order and schema),
 /// avoiding the need for Option wrappers on the main struct.
-pub enum MixedExecStrategy {
+pub enum ColumnarExecStrategy {
     /// Unsorted execution: segments are processed lazily via PostgreSQL's parallel
     /// query infrastructure, with each segment producing its own DataFusion stream.
     Unsorted,
@@ -130,14 +130,14 @@ pub enum MixedExecStrategy {
     },
 }
 
-impl MixedExecStrategy {
+impl ColumnarExecStrategy {
     /// Returns true if this is the sorted strategy.
     pub fn is_sorted(&self) -> bool {
-        matches!(self, MixedExecStrategy::Sorted { .. })
+        matches!(self, ColumnarExecStrategy::Sorted { .. })
     }
 }
 
-/// Execution state for mixed fast field retrieval using DataFusion execution.
+/// Execution state for columnar retrieval using DataFusion execution.
 ///
 /// This execution state is designed to handle two scenarios:
 /// 1. Multiple string fast fields in a single query
@@ -148,10 +148,10 @@ impl MixedExecStrategy {
 ///
 /// # Scan Strategy
 ///
-/// When using `MixedExecStrategy::Sorted`, this execution method uses `SortPreservingMergeExec`
+/// When using `ColumnarExecStrategy::Sorted`, this execution method uses `SortPreservingMergeExec`
 /// to merge sorted segment outputs into a globally sorted result.
 ///
-/// When using `MixedExecStrategy::Unsorted`, segments are processed lazily via PostgreSQL's
+/// When using `ColumnarExecStrategy::Unsorted`, segments are processed lazily via PostgreSQL's
 /// parallel query infrastructure with DataFusion producing batches for each segment.
 ///
 /// # Usage Context
@@ -160,12 +160,12 @@ impl MixedExecStrategy {
 /// fast field data structures, avoiding the need to fetch full documents.
 ///
 /// # Feature Flag
-/// This execution method is controlled by the `paradedb.enable_mixed_fast_field_exec` GUC setting.
+/// This execution method is controlled by the `paradedb.enable_columnar_exec` GUC setting.
 /// It is disabled by default and can be enabled with:
 /// ```sql
-/// SET paradedb.enable_mixed_fast_field_exec = true;
+/// SET paradedb.enable_columnar_exec = true;
 /// ```
-pub struct MixedFastFieldExecState {
+pub struct ColumnarExecState {
     /// Core functionality shared with other fast field execution methods
     inner: Inner,
 
@@ -176,7 +176,7 @@ pub struct MixedFastFieldExecState {
     batch_size_hint: Option<usize>,
 
     /// Scan execution strategy (sorted or unsorted).
-    strategy: MixedExecStrategy,
+    strategy: ColumnarExecStrategy,
 
     /// Tokio runtime for driving async DataFusion streams synchronously.
     /// Created once and reused (same pattern as JoinScan).
@@ -300,8 +300,8 @@ fn populate_slot_from_record_batch(
     }
 }
 
-impl MixedFastFieldExecState {
-    /// Creates a new MixedFastFieldExecState from a list of fast fields.
+impl ColumnarExecState {
+    /// Creates a new ColumnarExecState from a list of fast fields.
     ///
     /// This constructor analyzes the provided fast fields and categorizes them
     /// into string and numeric types for optimized processing.
@@ -315,7 +315,7 @@ impl MixedFastFieldExecState {
     ///
     /// # Returns
     ///
-    /// A new MixedFastFieldExecState instance
+    /// A new ColumnarExecState instance
     pub fn new(
         which_fast_fields: Vec<WhichFastField>,
         extra_fast_fields: Vec<WhichFastField>,
@@ -349,9 +349,9 @@ impl MixedFastFieldExecState {
             Some(sort_order) => {
                 // Use scanner_fast_fields to build schema, ensuring sort column is included
                 let schema = build_arrow_schema(&scanner_fast_fields);
-                MixedExecStrategy::Sorted { sort_order, schema }
+                ColumnarExecStrategy::Sorted { sort_order, schema }
             }
-            None => MixedExecStrategy::Unsorted,
+            None => ColumnarExecStrategy::Unsorted,
         };
 
         // If there is a limit, then we use a batch size hint which is a small multiple of the
@@ -397,12 +397,12 @@ impl MixedFastFieldExecState {
             .inner
             .heaprel
             .as_ref()
-            .expect("MixedFastFieldsExecState: heaprel should be initialized");
+            .expect("ColumnarExecState: heaprel should be initialized");
         let ffhelper = self
             .inner
             .ffhelper
             .as_ref()
-            .expect("MixedFastFieldsExecState: ffhelper should be initialized");
+            .expect("ColumnarExecState: ffhelper should be initialized");
 
         // Create scanner
         let scanner = Scanner::new(
@@ -417,7 +417,7 @@ impl MixedFastFieldExecState {
         let visibility = state
             .visibility_checker
             .as_ref()
-            .expect("MixedFastFieldsExecState: visibility_checker should be initialized")
+            .expect("ColumnarExecState: visibility_checker should be initialized")
             .clone();
 
         // Create PgSearchScanPlan and execute via DataFusion
@@ -464,25 +464,25 @@ impl MixedFastFieldExecState {
 
         // Extract sort_order and schema from the strategy
         let (sort_order, schema) = match &self.strategy {
-            MixedExecStrategy::Sorted { sort_order, schema } => (sort_order, Arc::clone(schema)),
-            MixedExecStrategy::Unsorted => return None,
+            ColumnarExecStrategy::Sorted { sort_order, schema } => (sort_order, Arc::clone(schema)),
+            ColumnarExecStrategy::Unsorted => return None,
         };
 
         let heaprel = self
             .inner
             .heaprel
             .as_ref()
-            .expect("MixedFastFieldsExecState: heaprel should be initialized");
+            .expect("ColumnarExecState: heaprel should be initialized");
         let ffhelper = self
             .inner
             .ffhelper
             .as_ref()
-            .expect("MixedFastFieldsExecState: ffhelper should be initialized");
+            .expect("ColumnarExecState: ffhelper should be initialized");
         let search_reader = state.search_reader.as_ref().unwrap();
         let visibility_checker = state
             .visibility_checker
             .clone()
-            .expect("MixedFastFieldsExecState: visibility_checker should be initialized");
+            .expect("ColumnarExecState: visibility_checker should be initialized");
         let ffhelper = Arc::clone(ffhelper);
 
         // Pre-open segments as we check them out.
@@ -581,7 +581,7 @@ impl MixedFastFieldExecState {
     }
 }
 
-impl ExecMethod for MixedFastFieldExecState {
+impl ExecMethod for ColumnarExecState {
     /// Initializes the execution state with the necessary context.
     ///
     /// # Arguments
@@ -725,7 +725,7 @@ impl ExecMethod for MixedFastFieldExecState {
                 .inner
                 .heaprel
                 .as_ref()
-                .expect("MixedFastFieldsExecState: heaprel should be initialized");
+                .expect("ColumnarExecState: heaprel should be initialized");
             let slot = self.inner.slot;
             let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
 

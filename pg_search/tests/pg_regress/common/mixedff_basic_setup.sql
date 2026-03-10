@@ -3,10 +3,10 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- The `basic` tests allow any number of columns to be used with fast fields, in order to test
 -- more permutations of selected columns.
-SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.columnar_exec_column_threshold = 100;
 
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;

@@ -1236,7 +1236,7 @@ DROP TABLE mvcc_test CASCADE;
 -- Test that window functions work correctly when combined with ORDER BY and LIMIT
 -- and when the ORDER BY column is not fast/columnar.
 
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 

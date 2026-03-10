@@ -1,6 +1,6 @@
--- Test proper execution method selection for mixed fast fields
--- This test verifies that the MixedFastFieldExecState is chosen when appropriate
--- and that NormalScanExecState is not used when mixed fast fields are available
+-- Test proper execution method selection for columnars
+-- This test verifies that the ColumnarExecState is chosen when appropriate
+-- and that NormalScanExecState is not used when columnars are available
 
 \i common/mixedff_advanced_setup.sql
 
@@ -35,7 +35,7 @@ SELECT
     'Non-indexed ' || i
 FROM generate_series(1, 50) i;
 
--- Create index with mixed fast fields
+-- Create index with columnars
 DROP INDEX IF EXISTS exec_method_idx;
 CREATE INDEX exec_method_idx ON exec_method_test
 USING bm25 (
@@ -52,9 +52,9 @@ WITH (
 
 -- We increase the threshold for Mixed selection in order to more easily validate which columns
 -- are capable of being used as fast.
-SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.columnar_exec_column_threshold = 100;
 
--- Test 1: Should use MixedFastFieldExecState with multiple string fields
+-- Test 1: Should use ColumnarExecState with multiple string fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2
 FROM exec_method_test
@@ -66,7 +66,7 @@ FROM exec_method_test
 WHERE text_field1 @@@ 'Text'
 ORDER BY text_field1, text_field2;
 
--- Test 2: Should use MixedFastFieldExecState with mixed string and numeric fields
+-- Test 2: Should use ColumnarExecState with mixed string and numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
@@ -78,7 +78,7 @@ FROM exec_method_test
 WHERE text_field1 @@@ 'Text' AND num_field1 > 10
 ORDER BY text_field1, num_field1, num_field2;
 
--- Test 3: Should use MixedFastFieldExecState with all field types
+-- Test 3: Should use ColumnarExecState with all field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
@@ -90,7 +90,7 @@ FROM exec_method_test
 WHERE text_field1 @@@ 'Text' AND bool_field = true
 ORDER BY text_field1, text_field2, num_field1, bool_field;
 
--- Test 4: Should use MixedFastFieldExecState when only one string field
+-- Test 4: Should use ColumnarExecState when only one string field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1
 FROM exec_method_test
@@ -102,7 +102,7 @@ FROM exec_method_test
 WHERE text_field1 @@@ 'Text'
 ORDER BY text_field1;
 
--- Test 5: Should use MixedFastFieldExecState when only numeric fields
+-- Test 5: Should use ColumnarExecState when only numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT num_field1, num_field2
 FROM exec_method_test
@@ -126,7 +126,7 @@ FROM exec_method_test
 WHERE text_field1 @@@ 'Text'
 ORDER BY text_field1, non_indexed_field;
 
--- Test 7: Should use MixedFastFieldExecState even with ORDER BY
+-- Test 7: Should use ColumnarExecState even with ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, num_field1
 FROM exec_method_test
@@ -138,7 +138,7 @@ FROM exec_method_test
 WHERE text_field1 @@@ 'Text'
 ORDER BY text_field1, num_field1 DESC;
 
--- Test 8: Should use MixedFastFieldExecState with filtering on multiple field types
+-- Test 8: Should use ColumnarExecState with filtering on multiple field types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
@@ -187,6 +187,6 @@ ORDER BY text_field1, text_field2, num_field1;
 DROP INDEX IF EXISTS exec_method_idx;
 DROP TABLE IF EXISTS exec_method_test; 
 
-RESET paradedb.mixed_fast_field_exec_column_threshold;
+RESET paradedb.columnar_exec_column_threshold;
 
 \i common/mixedff_advanced_cleanup.sql

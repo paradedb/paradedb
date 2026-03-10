@@ -1,10 +1,10 @@
--- Tests CTE with mixed fast fields
+-- Tests CTE with columnars
 
 \i common/mixedff_queries_setup.sql
 
 \echo 'Test: Basic CTE with mixed fields'
 
--- Check execution plan to verify mixed fast fields used in CTEs
+-- Check execution plan to verify columnars used in CTEs
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH searchable_docs AS (
     SELECT d.id, d.title, d.parents

@@ -20,7 +20,7 @@ mod fixtures;
 use anyhow::Result;
 use fixtures::*;
 use paradedb::micro_benchmarks::{
-    benchmark_mixed_fast_fields, detect_exec_method, set_execution_method, setup_benchmark_database,
+    benchmark_columnar, detect_exec_method, set_execution_method, setup_benchmark_database,
 };
 use pretty_assertions::assert_eq;
 use rstest::*;
@@ -37,8 +37,8 @@ const NUM_ROWS_VALIDATION: usize = 1000; // Reduced for faster test runs
 const BATCH_SIZE: usize = 10000; // For efficiency with large datasets, use batch inserts
 
 #[rstest]
-async fn benchmark_mixed_fast_fields_test(mut conn: PgConnection) -> Result<()> {
-    benchmark_mixed_fast_fields(
+async fn benchmark_columnar_test(mut conn: PgConnection) -> Result<()> {
+    benchmark_columnar(
         &mut conn,
         false,
         ITERATIONS,
@@ -53,7 +53,7 @@ async fn benchmark_mixed_fast_fields_test(mut conn: PgConnection) -> Result<()> 
 /// Validate that the different execution methods return the same results
 /// and enforce that we're actually using the intended execution methods
 #[rstest]
-async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Result<()> {
+async fn validate_columnars_correctness(mut conn: PgConnection) -> Result<()> {
     // Set up the benchmark database
     setup_benchmark_database(
         &mut conn,
@@ -87,9 +87,9 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         .execute(&mut conn)
         .await?;
 
-    set_execution_method(&mut conn, "MixedFastFieldExec", "test_benchmark_data").await?;
+    set_execution_method(&mut conn, "ColumnarExec", "test_benchmark_data").await?;
 
-    // Get results with MixedFastFieldExec
+    // Get results with ColumnarExec
     let mixed_results = sqlx::query(test_query).fetch_all(&mut conn).await?;
 
     // Get execution plan to verify method
@@ -98,12 +98,12 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         .await?;
 
     let mixed_method = detect_exec_method(&mixed_plan);
-    println!("✓ Mixed index using → {mixed_method}");
+    println!("✓ Columnar index using → {mixed_method}");
 
-    // ENFORCE: Validate we're actually using the MixedFastFieldExec method
+    // ENFORCE: Validate we're actually using the ColumnarExec method
     assert!(
-        mixed_method.contains("MixedFastFieldExec"),
-        "Expected MixedFastFieldExec execution method, but got: {mixed_method}. Check index configuration and query settings."
+        mixed_method.contains("ColumnarExec"),
+        "Expected ColumnarExec execution method, but got: {mixed_method}. Check index configuration and query settings."
     );
 
     set_execution_method(&mut conn, "NormalScanExecState", "test_benchmark_data").await?;
@@ -133,7 +133,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
     assert_eq!(
         mixed_results.len(),
         normal_results.len(),
-        "Mixed and Normal execution methods returned different number of rows"
+        "Columnar and Normal execution methods returned different number of rows"
     );
 
     // Verify that we have the same rows (by comparing the string representation of each row)
@@ -142,7 +142,7 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
         assert_eq!(
             format!("{:?}", mixed_row),
             format!("{:?}", normal_row),
-            "Row {} differs between Mixed and Normal execution methods",
+            "Row {} differs between Columnar and Normal execution methods",
             i
         );
     }

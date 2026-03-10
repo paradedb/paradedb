@@ -17,7 +17,7 @@
 
 use clap::Parser;
 use paradedb::median;
-use paradedb::micro_benchmarks::benchmark_mixed_fast_fields;
+use paradedb::micro_benchmarks::benchmark_columnar;
 use sqlx::{Connection, PgConnection};
 use std::fs::File;
 use std::io::Write;
@@ -80,7 +80,7 @@ async fn main() {
     let args = Args::parse();
     if args.benchmark == "fastfields" {
         let mut conn = PgConnection::connect(&args.url).await.unwrap();
-        let res = benchmark_mixed_fast_fields(
+        let res = benchmark_columnar(
             &mut conn,
             args.existing,
             args.runs,
@@ -89,7 +89,7 @@ async fn main() {
             args.batch_size,
         )
         .await;
-        println!("Mixed Fast Fields Benchmark Completed: {res:?}");
+        println!("Columnars Benchmark Completed: {res:?}");
     } else if args.benchmark == "sql" {
         if !args.existing {
             generate_test_data(&args.url, &args.dataset, args.rows);

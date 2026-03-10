@@ -1,4 +1,4 @@
--- Tests recursive CTE with mixed fast fields
+-- Tests recursive CTE with columnars
 
 \i common/mixedff_advanced_setup.sql
 
@@ -54,7 +54,7 @@ VALUES
     ('Speakers', 7, 3, 'Speaker systems', 15, '2023-01-03 10:00:00', true),
     ('Receivers', 7, 3, 'Audio receivers and amplifiers', 5, '2023-01-03 10:00:00', true);
 
--- Create search index with mixed fast fields
+-- Create search index with columnars
 DROP INDEX IF EXISTS category_idx;
 CREATE INDEX category_idx ON category
 USING bm25 (id, name, parent_id, description, level, item_count, is_active)

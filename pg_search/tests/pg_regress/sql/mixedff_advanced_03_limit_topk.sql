@@ -1,5 +1,5 @@
--- Test that LIMIT clause uses Top K execution with mixed fast fields
--- This test ensures that when a LIMIT clause is used with mixed fast fields,
+-- Test that LIMIT clause uses Top K execution with columnars
+-- This test ensures that when a LIMIT clause is used with columnars,
 -- the execution uses the optimized Top K execution path
 
 \i common/mixedff_advanced_setup.sql

@@ -4,10 +4,10 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- The `edgecases` tests allow any number of columns to be used with fast fields, in order to test
 -- more permutations of selected columns.
-SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.columnar_exec_column_threshold = 100;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS corner_case_test CASCADE;
 DROP TABLE IF EXISTS nullable_test CASCADE;
@@ -146,7 +146,7 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Base Scan) on mixed_numeric_string_test
          Table: mixed_numeric_string_test
          Index: mixed_string_edge_search
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, string_field1, string_field2
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"edge case","lenient":null,"conjunction_mode":null}}}}
@@ -173,8 +173,8 @@ DROP TABLE IF EXISTS mixed_numeric_string_test CASCADE;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
-RESET paradedb.enable_mixed_fast_field_exec;
-RESET paradedb.mixed_fast_field_exec_column_threshold;
+RESET paradedb.enable_columnar_exec;
+RESET paradedb.columnar_exec_column_threshold;
 SELECT 'Edge cases tests cleanup complete' AS status; 
               status               
 -----------------------------------

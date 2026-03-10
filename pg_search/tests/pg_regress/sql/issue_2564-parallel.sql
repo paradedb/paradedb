@@ -1,6 +1,6 @@
 SET paradedb.global_mutable_segment_rows = 0;
 
--- uses the same schema as the mixed fast fields queries
+-- uses the same schema as the columnars queries
 \i common/mixedff_queries_setup.sql
 
 -- Enable parallel workers to ensure they work too
@@ -8,7 +8,7 @@ SET max_parallel_workers_per_gather = 2;
 SET enable_indexscan to OFF;
 
 -- by turning off this GUC we're forcing pg_search to choose its "NormalScanExecState", which is the method under test
-SET paradedb.enable_mixed_fast_field_exec = false;
+SET paradedb.enable_columnar_exec = false;
 
 -- this should return one row
 EXPLAIN (COSTS OFF) SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number

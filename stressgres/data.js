@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773104290604,
+  "lastUpdate": 1773105075646,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37534,6 +37534,54 @@ window.BENCHMARK_DATA = {
             "value": 552.104802222342,
             "unit": "median tps",
             "extra": "avg tps: 505.21562469766036, max tps: 713.4928271801626, count: 107846"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "966f0a18a351e07aa0176c495f1405731110ba5d",
+          "message": "perf: Set minimum supported CPU era for SIMD auto-vectorization (#4254)\n\n## Summary\n\n- Configure per-target-triple `-Ctarget-cpu` flags in\n`.cargo/config.toml` to enable SIMD auto-vectorization: `x86-64-v3`\n(AVX2/FMA — Haswell 2013+), `cortex-a76` (Graviton 2+), `apple-m1`\n(Apple Silicon)\n- Add `rustflags: \"\"` to all publish and benchmark CI workflows so the\n`RUSTFLAGS` env var from `setup-rust-toolchain` doesn't override the\nconfig.toml target-cpu flags\n\nCloses #3862",
+          "timestamp": "2026-03-09T19:55:23-04:00",
+          "tree_id": "3325c4dd0bea803764849647757ff71cc66591c2",
+          "url": "https://github.com/paradedb/paradedb/commit/966f0a18a351e07aa0176c495f1405731110ba5d"
+        },
+        "date": 1773105070179,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 535.7174229435569,
+            "unit": "median tps",
+            "extra": "avg tps: 538.3319639732591, max tps: 666.1590705359201, count: 53905"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 596.2865761248372,
+            "unit": "median tps",
+            "extra": "avg tps: 601.6234820522343, max tps: 797.147087336734, count: 53905"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 92.15233149573449,
+            "unit": "median tps",
+            "extra": "avg tps: 91.92902949827185, max tps: 92.41705846902791, count: 53905"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 499.39587834159573,
+            "unit": "median tps",
+            "extra": "avg tps: 477.5370342711655, max tps: 707.2497912905866, count: 107810"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773172490533,
+  "lastUpdate": 1773173325378,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20454,6 +20454,54 @@ window.BENCHMARK_DATA = {
             "value": 5.266768176665803,
             "unit": "median tps",
             "extra": "avg tps: 5.320135240774333, max tps: 6.540858358019677, count: 56179"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a5deba480c52402ef2f525835b706838db93694",
+          "message": "refactor: rename MixedFastField to Columnar across the codebase (#4323)\n\n## Summary\n- Renames all mentions of `MixedFastField` to `Columnar` across the\ncodebase to better reflect the column-oriented nature of this execution\nmethod\n- Renames files: `mixed.rs` → `columnar.rs`, `mixed_fast_fields.rs` →\n`columnar.rs`, `mixed_fast_fields_benchmark.rs` →\n`columnar_benchmark.rs`\n- Renames GUC settings: `paradedb.enable_mixed_fast_field_exec` →\n`paradedb.enable_columnar_exec`, `paradedb.enable_mixed_fast_field_sort`\n→ `paradedb.enable_columnar_sort`,\n`paradedb.mixed_fast_field_exec_column_threshold` →\n`paradedb.columnar_exec_column_threshold`\n- Renames Rust types/functions: `MixedFastFieldExecState` →\n`ColumnarExecState`, `MixedExecStrategy` → `ColumnarExecStrategy`,\n`ExecMethodType::FastFieldMixed` → `ExecMethodType::Columnar`, and all\nrelated functions\n\nCloses #4296\n\n## Test plan\n- [x] All pre-commit hooks pass (fmt, clippy, cargo check)\n- [x] CI passes with all existing tests (pure rename, no logic changes)",
+          "timestamp": "2026-03-10T15:21:15-04:00",
+          "tree_id": "1528a5ba7cafa3179885f00030c7d63dd6212dfc",
+          "url": "https://github.com/paradedb/paradedb/commit/2a5deba480c52402ef2f525835b706838db93694"
+        },
+        "date": 1773173319676,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1150.3476017469725,
+            "unit": "median tps",
+            "extra": "avg tps: 1151.8365455687292, max tps: 1219.7758615783184, count: 56376"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1280.596646094917,
+            "unit": "median tps",
+            "extra": "avg tps: 1273.5432531994031, max tps: 1296.7888370336211, count: 56376"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1062.0822445569852,
+            "unit": "median tps",
+            "extra": "avg tps: 980.0792843999764, max tps: 1572.3662036229375, count: 56376"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.301440050968586,
+            "unit": "median tps",
+            "extra": "avg tps: 5.341961679070061, max tps: 7.521450198176674, count: 56376"
           }
         ]
       }

@@ -1,5 +1,5 @@
--- Test that LIMIT clause uses Top K execution with columnar fast fields
--- This test ensures that when a LIMIT clause is used with columnar fast fields,
+-- Test that LIMIT clause uses Top K execution with columnar storage
+-- This test ensures that when a LIMIT clause is used with columnar storage,
 -- the execution uses the optimized Top K execution path
 
 \i common/mixedff_advanced_setup.sql

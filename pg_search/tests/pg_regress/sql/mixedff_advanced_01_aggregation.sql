@@ -1,4 +1,4 @@
--- Tests aggregation with columnar fast fields
+-- Tests aggregation with columnar storage
 
 \i common/mixedff_advanced_setup.sql
 

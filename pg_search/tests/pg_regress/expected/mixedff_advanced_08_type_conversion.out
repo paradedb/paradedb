@@ -1,4 +1,4 @@
--- Tests type conversion edge cases with columnar fast fields
+-- Tests type conversion edge cases with columnar storage
 \i common/mixedff_advanced_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
@@ -278,7 +278,7 @@ SELECT
     (15 + (i * 3))::float,   -- Deterministic prices
     i % 4 != 0               -- Deterministic boolean pattern
 FROM generate_series(1, 50) i;
--- Create indices with columnar fast fields
+-- Create indices with columnar storage
 DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 CREATE INDEX union_test_a_idx ON union_test_a

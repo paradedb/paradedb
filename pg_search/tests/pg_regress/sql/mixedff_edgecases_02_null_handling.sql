@@ -1,4 +1,4 @@
--- Tests null handling in columnar fast fields
+-- Tests null handling in columnar storage
 
 \i common/mixedff_edgecases_setup.sql
 

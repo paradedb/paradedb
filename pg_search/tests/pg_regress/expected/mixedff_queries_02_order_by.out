@@ -1,4 +1,4 @@
--- Tests ORDER BY with columnar fast fields
+-- Tests ORDER BY with columnar storage
 \i common/mixedff_queries_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
@@ -103,8 +103,8 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page_cte2', 'file_cte1', 2, 'Page 2 with more content for testing'),
 ('page_cte3', 'file_cte2', 1, 'Another page with test terms to search'),
 ('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing');
-\echo 'Test: ORDER BY with columnar fast fields'
-Test: ORDER BY with columnar fast fields
+\echo 'Test: ORDER BY with columnar storage'
+Test: ORDER BY with columnar storage
 -- Query with ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT fileId, page_number

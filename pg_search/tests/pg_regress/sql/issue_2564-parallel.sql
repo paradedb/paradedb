@@ -1,6 +1,6 @@
 SET paradedb.global_mutable_segment_rows = 0;
 
--- uses the same schema as the columnar fast fields queries
+-- uses the same schema as the columnar storage queries
 \i common/mixedff_queries_setup.sql
 
 -- Enable parallel workers to ensure they work too

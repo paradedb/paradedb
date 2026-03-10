@@ -1,6 +1,6 @@
--- Test proper execution method selection for columnar fast fields
+-- Test proper execution method selection for columnar storage
 -- This test verifies that the ColumnarExecState is chosen when appropriate
--- and that NormalScanExecState is not used when columnar fast fields are available
+-- and that NormalScanExecState is not used when columnar storage are available
 
 \i common/mixedff_advanced_setup.sql
 
@@ -35,7 +35,7 @@ SELECT
     'Non-indexed ' || i
 FROM generate_series(1, 50) i;
 
--- Create index with columnar fast fields
+-- Create index with columnar storage
 DROP INDEX IF EXISTS exec_method_idx;
 CREATE INDEX exec_method_idx ON exec_method_test
 USING bm25 (

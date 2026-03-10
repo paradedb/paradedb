@@ -1,4 +1,4 @@
--- Tests type conversion edge cases with columnar fast fields
+-- Tests type conversion edge cases with columnar storage
 
 \i common/mixedff_advanced_setup.sql
 

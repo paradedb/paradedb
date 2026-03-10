@@ -2,7 +2,7 @@
 
 \i common/mixedff_queries_setup.sql
 
-\echo 'Test: join with columnar fast fields'
+\echo 'Test: join with columnar storage'
 
 SET enable_hashjoin=off;
 SET enable_memoize=off;

@@ -1,6 +1,6 @@
--- Test proper execution method selection for columnar fast fields
+-- Test proper execution method selection for columnar storage
 -- This test verifies that the ColumnarExecState is chosen when appropriate
--- and that NormalScanExecState is not used when columnar fast fields are available
+-- and that NormalScanExecState is not used when columnar storage are available
 \i common/mixedff_advanced_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
@@ -280,7 +280,7 @@ SELECT
     (15 + (i * 3))::float,   -- Deterministic prices
     i % 4 != 0               -- Deterministic boolean pattern
 FROM generate_series(1, 50) i;
--- Create indices with columnar fast fields
+-- Create indices with columnar storage
 DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 CREATE INDEX union_test_a_idx ON union_test_a
@@ -338,7 +338,7 @@ SELECT
     i % 2 = 0,
     'Non-indexed ' || i
 FROM generate_series(1, 50) i;
--- Create index with columnar fast fields
+-- Create index with columnar storage
 DROP INDEX IF EXISTS exec_method_idx;
 CREATE INDEX exec_method_idx ON exec_method_test
 USING bm25 (

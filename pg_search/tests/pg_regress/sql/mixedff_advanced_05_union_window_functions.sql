@@ -1,4 +1,4 @@
--- Tests UNION and window functions with columnar fast fields
+-- Tests UNION and window functions with columnar storage
 
 \i common/mixedff_advanced_setup.sql
 

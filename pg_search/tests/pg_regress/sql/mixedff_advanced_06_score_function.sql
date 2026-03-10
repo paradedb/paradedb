@@ -1,4 +1,4 @@
--- Tests score function behavior with columnar fast fields
+-- Tests score function behavior with columnar storage
 
 \i common/mixedff_advanced_setup.sql
 
@@ -42,7 +42,7 @@ VALUES
     ('Advanced Science Research', 'Detailed explanation of scientific breakthroughs and research methodology.', 'Author Expert', 5, 8888, '2023-07-20', true),
     ('Technology Trends Analysis', 'Analysis of current and future technology trends and developments.', 'Author Expert', 4, 7777, '2023-08-10', true);
 
--- Create search index with columnar fast fields
+-- Create search index with columnar storage
 DROP INDEX IF EXISTS score_test_idx;
 CREATE INDEX score_test_idx ON score_test
 USING bm25 (id, title, content, author, rating, views, is_featured)

@@ -1,8 +1,8 @@
--- Tests ORDER BY with columnar fast fields
+-- Tests ORDER BY with columnar storage
 
 \i common/mixedff_queries_setup.sql
 
-\echo 'Test: ORDER BY with columnar fast fields'
+\echo 'Test: ORDER BY with columnar storage'
 
 -- Query with ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

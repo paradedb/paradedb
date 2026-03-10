@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773163141143,
+  "lastUpdate": 1773171661244,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4166,6 +4166,78 @@ window.BENCHMARK_DATA = {
             "value": 42.947522441416616,
             "unit": "median tps",
             "extra": "avg tps: 63.40085611339157, max tps: 625.2540094413355, count: 55159"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a5deba480c52402ef2f525835b706838db93694",
+          "message": "refactor: rename MixedFastField to Columnar across the codebase (#4323)\n\n## Summary\n- Renames all mentions of `MixedFastField` to `Columnar` across the\ncodebase to better reflect the column-oriented nature of this execution\nmethod\n- Renames files: `mixed.rs` → `columnar.rs`, `mixed_fast_fields.rs` →\n`columnar.rs`, `mixed_fast_fields_benchmark.rs` →\n`columnar_benchmark.rs`\n- Renames GUC settings: `paradedb.enable_mixed_fast_field_exec` →\n`paradedb.enable_columnar_exec`, `paradedb.enable_mixed_fast_field_sort`\n→ `paradedb.enable_columnar_sort`,\n`paradedb.mixed_fast_field_exec_column_threshold` →\n`paradedb.columnar_exec_column_threshold`\n- Renames Rust types/functions: `MixedFastFieldExecState` →\n`ColumnarExecState`, `MixedExecStrategy` → `ColumnarExecStrategy`,\n`ExecMethodType::FastFieldMixed` → `ExecMethodType::Columnar`, and all\nrelated functions\n\nCloses #4296\n\n## Test plan\n- [x] All pre-commit hooks pass (fmt, clippy, cargo check)\n- [x] CI passes with all existing tests (pure rename, no logic changes)",
+          "timestamp": "2026-03-10T15:21:15-04:00",
+          "tree_id": "1528a5ba7cafa3179885f00030c7d63dd6212dfc",
+          "url": "https://github.com/paradedb/paradedb/commit/2a5deba480c52402ef2f525835b706838db93694"
+        },
+        "date": 1773171655703,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 135.6283770929379,
+            "unit": "median tps",
+            "extra": "avg tps: 135.23029314683376, max tps: 147.87570140818593, count: 55133"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 507.68703819307296,
+            "unit": "median tps",
+            "extra": "avg tps: 506.8746255064853, max tps: 609.0627581311292, count: 55133"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2985.415408742367,
+            "unit": "median tps",
+            "extra": "avg tps: 2975.3846815563215, max tps: 3008.8444799403173, count: 55133"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 456.7391753555109,
+            "unit": "median tps",
+            "extra": "avg tps: 456.77701971374535, max tps: 557.7491919807778, count: 55133"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2998.514764195795,
+            "unit": "median tps",
+            "extra": "avg tps: 3056.3992082612704, max tps: 3148.9845299394674, count: 110266"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 509.02420528322995,
+            "unit": "median tps",
+            "extra": "avg tps: 507.7835585705528, max tps: 593.9531351724075, count: 55133"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2006.9987225928994,
+            "unit": "median tps",
+            "extra": "avg tps: 1990.8611557686454, max tps: 2011.7114160715566, count: 55133"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 40.88455276626633,
+            "unit": "median tps",
+            "extra": "avg tps: 54.805214608457646, max tps: 305.46415813390723, count: 55133"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773174914147,
+  "lastUpdate": 1773180652159,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4238,6 +4238,78 @@ window.BENCHMARK_DATA = {
             "value": 40.88455276626633,
             "unit": "median tps",
             "extra": "avg tps: 54.805214608457646, max tps: 305.46415813390723, count: 55133"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2fee78f2dca0836179001f4bb3b6a4d55b7cb31e",
+          "message": "feat: Support semi and anti join in the same query (#4315)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAllows for a query to be pushed down if it contains both a semi and anti\njoin:\n\n```sql\nSELECT id, category\nFROM table_a\nWHERE id IN (\n    SELECT a_id\n    FROM table_b\n    WHERE group_id IN ('group_1')\n)\nAND id NOT IN (\n    SELECT a_id\n    FROM table_b\n    WHERE group_id IN ('group_3', 'group_4')\n)\nAND id @@@ 'category:\"target_category\"'\nORDER BY id ASC\nLIMIT 10;\n```\n\nThe main thing is that subqueries can reference the same relation, so we\nneed to build DataFusion plans without ambiguous bindings.\n\nJoin sources now carry two identities:\n\n1. `root_id`, which tracks which PostgreSQL planner root a source came\nfrom. i.e. a subquery can have a different root than the rest of the\nquery\n2. `plan_position`, which gives each source a stable position within the\nflattened join plan (before we were relying on `rti`, which is only\nunique within a single planner root.\n\nAdditionally, columns are suffixed with `plan_position` to disambiguate\nthem across relations.\n\n## Why\n\n## How\n\n## Tests\n\nUpdated regression tests and added prop testing.",
+          "timestamp": "2026-03-10T14:51:08-07:00",
+          "tree_id": "9c1cdc7cfab8249e160221289d6d3cb888cf0b02",
+          "url": "https://github.com/paradedb/paradedb/commit/2fee78f2dca0836179001f4bb3b6a4d55b7cb31e"
+        },
+        "date": 1773180646113,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 133.3991491979313,
+            "unit": "median tps",
+            "extra": "avg tps: 134.5741299286657, max tps: 146.52140308877281, count: 55159"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 466.71198061813567,
+            "unit": "median tps",
+            "extra": "avg tps: 470.54171451226966, max tps: 619.4252613674569, count: 55159"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3043.0492254555775,
+            "unit": "median tps",
+            "extra": "avg tps: 3023.932869545384, max tps: 3052.192662379112, count: 55159"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 422.5934973103975,
+            "unit": "median tps",
+            "extra": "avg tps: 430.37907480074375, max tps: 530.8691879925176, count: 55159"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3045.328019558724,
+            "unit": "median tps",
+            "extra": "avg tps: 3034.26223601272, max tps: 3075.0868554264516, count: 110318"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 470.3049657209964,
+            "unit": "median tps",
+            "extra": "avg tps: 478.1360145336585, max tps: 635.9912791285827, count: 55159"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1898.2001730997474,
+            "unit": "median tps",
+            "extra": "avg tps: 1884.5035963344997, max tps: 1908.1379447440888, count: 55159"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 149.65238151160145,
+            "unit": "median tps",
+            "extra": "avg tps: 169.98933370207726, max tps: 416.53668903752987, count: 55159"
           }
         ]
       }

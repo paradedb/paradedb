@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773103497108,
+  "lastUpdate": 1773103505031,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25516,6 +25516,108 @@ window.BENCHMARK_DATA = {
             "value": 162.4453125,
             "unit": "median mem",
             "extra": "avg mem: 180.4966199535612, max mem: 220.88671875, count: 56203"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "966f0a18a351e07aa0176c495f1405731110ba5d",
+          "message": "perf: Set minimum supported CPU era for SIMD auto-vectorization (#4254)\n\n## Summary\n\n- Configure per-target-triple `-Ctarget-cpu` flags in\n`.cargo/config.toml` to enable SIMD auto-vectorization: `x86-64-v3`\n(AVX2/FMA — Haswell 2013+), `cortex-a76` (Graviton 2+), `apple-m1`\n(Apple Silicon)\n- Add `rustflags: \"\"` to all publish and benchmark CI workflows so the\n`RUSTFLAGS` env var from `setup-rust-toolchain` doesn't override the\nconfig.toml target-cpu flags\n\nCloses #3862",
+          "timestamp": "2026-03-09T19:55:23-04:00",
+          "tree_id": "3325c4dd0bea803764849647757ff71cc66591c2",
+          "url": "https://github.com/paradedb/paradedb/commit/966f0a18a351e07aa0176c495f1405731110ba5d"
+        },
+        "date": 1773103498953,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07578554944079531, max background_merging: 2.0, count: 56330"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.808238859891582, max cpu: 9.687184, count: 56330"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 24.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 24.579212689175396, max mem: 24.6484375, count: 56330"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.046190949968349, max cpu: 28.015566, count: 56330"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 187.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 183.99994625699006, max mem: 187.30078125, count: 56330"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51465,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51325.722954020945, max block_count: 51465.0, count: 56330"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.810882300727854, max segment_count: 56.0, count: 56330"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.593601207661049, max cpu: 9.356726, count: 56330"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 125.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 115.3650268229629, max mem: 141.21484375, count: 56330"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.787993755814455, max cpu: 32.876713, count: 56330"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 186.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 182.0583427181342, max mem: 186.5390625, count: 56330"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.775149370341577, max cpu: 33.432835, count: 56330"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 181.24402141953667, max mem: 220.921875, count: 56330"
           }
         ]
       }

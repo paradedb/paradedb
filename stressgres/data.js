@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773160690202,
+  "lastUpdate": 1773160698071,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17312,6 +17312,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.2260023462839, max segment_count: 127.0, count: 57964"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef1d389927ae8a9bfe0e047ad3e19bd63e08ae66",
+          "message": "feat: push down InListExpr and numeric HashTableLookupExpr (#4306)\n\n# Ticket(s) Closed\n\n- Closes #4267\n\n## What\nEnables dynamic filter pushdown for `InListExpr` and\n`HashTableLookupExpr` (restricted to non-string columns) into the\npre-filter.\n\n## Why\nWhen DataFusion optimizes joins using Hash Joins, it generates dynamic\nfilters (`InListExpr` for small build sides, `HashTableLookupExpr` for\nlarge ones). Previously, these were blocked by our `is_supported` check,\nforcing the engine to materialize unneeded rows. Pushing these down to\nthe Tantivy storage layer drastically reduces memory usage and improves\noverall join performance.\n\n## How\n* **Allowlist Updates:** Added `InListExpr` and `HashTableLookupExpr` to\n`is_supported`. Added a subtree traversal constraint to explicitly block\n`HashTableLookupExpr` from evaluating on string columns to avoid\nexpensive dictionary hydration.\n* **Schema Validation Bypass:** Implemented `try_rewrite_in_list` using\n`try_new_from_array` to cleanly map string lists to dictionary ordinals\nwithout triggering DataFusion's strict schema validation panics.\n* **Storage-to-Execution Casting:** Updated `PreFilter::apply_arrow` to\nautomatically downcast Tantivy's native `Int64` fast fields to match\nDataFusion's expected schema types , preventing strict evaluation\npanics.\n* **TopK Safety:** Updated `rewrite_col_op_lit` to safely intercept and\nmap `NULL` literals (`ScalarValue::Utf8(None)`) pushed down by `TopK`\nnodes, preventing type-mismatch crashes.",
+          "timestamp": "2026-03-10T09:04:31-07:00",
+          "tree_id": "2b08033dcbf7cc115d186284245aae6c8dd7cdd8",
+          "url": "https://github.com/paradedb/paradedb/commit/ef1d389927ae8a9bfe0e047ad3e19bd63e08ae66"
+        },
+        "date": 1773160691953,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.180041087166273, max cpu: 42.687748, count: 57526"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.82057596782323, max mem: 234.43359375, count: 57526"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.521579583454763, max cpu: 33.168808, count: 57526"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.10585648228627, max mem: 175.875, count: 57526"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34485,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33559.50563223586, max block_count: 36242.0, count: 57526"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.49876577547543, max segment_count: 130.0, count: 57526"
           }
         ]
       }

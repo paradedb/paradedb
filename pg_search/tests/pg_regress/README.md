@@ -15,11 +15,11 @@ For a complete overview of ParadeDB's testing infrastructure (including unit tes
 
 Tests are organized into logical groups with a common prefix:
 
-- `mixedff_`: Mixed Fast Fields tests
-  - `mixedff_basic_*`: Basic mixed fast fields functionality tests
-  - `mixedff_edgecases_*`: Edge cases and boundary condition tests
-  - `mixedff_queries_*`: Tests for complex query features
-  - `mixedff_advanced_*`: Tests for advanced features and optimizations
+- `columnar_`: Columnar tests
+  - `columnar_basic_*`: Basic columnar storage functionality tests
+  - `columnar_edgecases_*`: Edge cases and boundary condition tests
+  - `columnar_queries_*`: Tests for complex query features
+  - `columnar_advanced_*`: Tests for advanced features and optimizations
 
 Each group uses its own setup and cleanup scripts from the `common/` directory.
 

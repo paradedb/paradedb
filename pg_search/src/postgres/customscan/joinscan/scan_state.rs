@@ -168,7 +168,7 @@ pub fn create_session_context() -> SessionContext {
 
     let mut builder = SessionStateBuilder::new().with_config(config);
 
-    if crate::gucs::is_mixed_fast_field_sort_enabled() {
+    if crate::gucs::is_columnar_sort_enabled() {
         let rule = Arc::new(SortMergeJoinEnforcer::new());
         builder = builder.with_physical_optimizer_rule(rule);
         // Re-run dynamic filter pushdown after the enforcer. The enforcer's

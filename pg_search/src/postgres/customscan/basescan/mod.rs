@@ -713,7 +713,7 @@ impl CustomScan for BaseScan {
             // Check if the index has a sort_by configuration and the query has a matching pathkey.
             // If so, create an additional sorted path that declares the pathkey.
             // This allows Postgres to use merge joins when joining with other sorted inputs.
-            let sort_by_pathkey = if gucs::is_mixed_fast_field_sort_enabled() {
+            let sort_by_pathkey = if gucs::is_columnar_sort_enabled() {
                 let sort_by_fields = bm25_index.options().sort_by();
                 sort_by_fields
                     .first()
@@ -766,7 +766,7 @@ impl CustomScan for BaseScan {
             for method in exec_method_types {
                 let per_tuple_cost = match &method {
                     // returning fields from fast fields
-                    ExecMethodType::FastFieldMixed { .. } => pg_sys::cpu_index_tuple_cost,
+                    ExecMethodType::Columnar { .. } => pg_sys::cpu_index_tuple_cost,
                     // requires heap access to return fields
                     _ => pg_sys::cpu_tuple_cost,
                 };
@@ -851,7 +851,7 @@ impl CustomScan for BaseScan {
                 ) {
                     path_builder = path_builder.set_pathkeys((*builder.args().root).query_pathkeys);
                 } else if is_sorted {
-                    // For sorted mixed fast field execution, add the sort pathkey
+                    // For sorted columnar execution, add the sort pathkey
                     if let Some(ref pathkey_style) = sort_by_pathkey {
                         path_builder = path_builder.add_path_key(pathkey_style);
                     }
@@ -1568,7 +1568,7 @@ fn validate_topk_expectation(
     let limit = privdata.limit().unwrap();
     let method_name = match chosen_method {
         ExecMethodType::Normal => "Normal",
-        ExecMethodType::FastFieldMixed { .. } => "FastFieldMixed",
+        ExecMethodType::Columnar { .. } => "Columnar",
         ExecMethodType::TopK { .. } => "TopK",
     };
 
@@ -1638,7 +1638,7 @@ fn validate_topk_expectation(
 /// If the query can return "fast fields", make that determination here, falling back to the
 /// [`NormalScanExecState`] if not.
 ///
-/// We support [`MixedFastFieldExecState`] when there are a mix of string and numeric fast fields.
+/// We support [`ColumnarExecState`] when there are a mix of string and numeric fast fields.
 ///
 /// If we have failed to extract all relevant information at planning time, then the fast-field
 /// execution methods might still fall back to `Normal` at execution time: see the notes in
@@ -1696,12 +1696,12 @@ fn choose_exec_method(
     }
 
     // Otherwise, see if we can use a fast fields method.
-    let is_capable = fast_fields::is_mixed_fast_field_capable(privdata);
+    let is_capable = fast_fields::is_columnar_capable(privdata);
     if is_capable {
         let mut methods = Vec::new();
 
         // Always create the Unsorted variant
-        methods.push(ExecMethodType::FastFieldMixed {
+        methods.push(ExecMethodType::Columnar {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             limit: privdata.limit(),
             sort_order: None,
@@ -1709,7 +1709,7 @@ fn choose_exec_method(
 
         // Check if the index has a sort_by configuration (and sorting is enabled)
         // and we have a matching pathkey from the query
-        if gucs::is_mixed_fast_field_sort_enabled() && has_sort_by_pathkey {
+        if gucs::is_columnar_sort_enabled() && has_sort_by_pathkey {
             let sort_order = privdata.indexrelid().and_then(|indexrelid| {
                 let indexrel =
                     PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
@@ -1719,7 +1719,7 @@ fn choose_exec_method(
             });
 
             if let Some(sort_order) = sort_order {
-                methods.push(ExecMethodType::FastFieldMixed {
+                methods.push(ExecMethodType::Columnar {
                     which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
                     limit: privdata.limit(),
                     sort_order: Some(sort_order),
@@ -1773,7 +1773,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
             None,
         ),
 
-        ExecMethodType::FastFieldMixed {
+        ExecMethodType::Columnar {
             which_fast_fields,
             limit,
             sort_order,
@@ -1813,7 +1813,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                     if !is_projected {
                         // Retrieve the sort field from the planned fast fields
                         let planned_fields = match &builder.custom_state_ref().exec_method_type {
-                            ExecMethodType::FastFieldMixed {
+                            ExecMethodType::Columnar {
                                 which_fast_fields, ..
                             } => which_fast_fields,
                             _ => unreachable!(),
@@ -1829,7 +1829,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                 }
 
                 builder.custom_state().assign_exec_method(
-                    exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
+                    exec_methods::fast_fields::columnar::ColumnarExecState::new(
                         which_fast_fields,
                         extra_fast_fields,
                         limit,

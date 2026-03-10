@@ -23,6 +23,7 @@ use crate::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
 use crate::fixtures::querygen::numericgen::arb_numeric_expr;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
+use crate::fixtures::querygen::wheregen::Expr as WhereExpr;
 use crate::fixtures::querygen::{
     arb_joins_and_wheres, compare, generated_queries_setup, Column, PgGucs,
 };
@@ -132,6 +133,58 @@ fn columns_named(names: Vec<&'static str>) -> Vec<Column> {
         .filter(|c| names.contains(&c.name))
         .cloned()
         .collect()
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SubqueryKind {
+    Exists,
+    In,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SubqueryPolarity {
+    Positive,
+    Negated,
+}
+
+#[derive(Clone, Debug)]
+struct GeneratedSubquery {
+    kind: SubqueryKind,
+    polarity: SubqueryPolarity,
+    column: &'static str,
+    inner_where_expr: WhereExpr,
+    paging_exprs: String,
+}
+
+impl GeneratedSubquery {
+    fn to_sql(&self, op: &str, outer_table_name: &str, inner_table_name: &str) -> String {
+        let base = match self.kind {
+            SubqueryKind::Exists => format!(
+                "EXISTS (\
+                    SELECT 1 FROM {inner_table_name} \
+                    WHERE {inner_table_name}.{column} = {outer_table_name}.{column} \
+                    AND {} {}\
+                )",
+                self.inner_where_expr.to_sql(op),
+                self.paging_exprs,
+                column = self.column,
+            ),
+            SubqueryKind::In => format!(
+                "{outer_table_name}.{column} IN (\
+                    SELECT {column} FROM {inner_table_name} WHERE {} {}\
+                )",
+                self.inner_where_expr.to_sql(op),
+                self.paging_exprs,
+                column = self.column,
+            ),
+        };
+
+        match (self.kind, self.polarity) {
+            (_, SubqueryPolarity::Positive) => base,
+            (SubqueryKind::Exists, SubqueryPolarity::Negated) => format!("NOT {base}"),
+            (SubqueryKind::In, SubqueryPolarity::Negated) => format!("NOT ({base})"),
+        }
+    }
 }
 
 ///
@@ -490,51 +543,32 @@ async fn generated_subquery(database: Db) {
             COLUMNS,
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
-        use_exists in proptest::bool::ANY,
-        negate_subquery in proptest::bool::ANY,
+        subquery_kind in prop_oneof![Just(SubqueryKind::Exists), Just(SubqueryKind::In)],
+        subquery_polarity in prop_oneof![
+            Just(SubqueryPolarity::Positive),
+            Just(SubqueryPolarity::Negated),
+        ],
         paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
-        let build_subquery_clause = |op: &str| {
-            if use_exists {
-                let exists_clause = format!(
-                    "EXISTS (\
-                        SELECT 1 FROM {inner_table_name} \
-                        WHERE {inner_table_name}.{subquery_column} = {outer_table_name}.{subquery_column} \
-                        AND {} {paging_exprs}\
-                    )",
-                    inner_where_expr.to_sql(op),
-                );
-                if negate_subquery {
-                    format!("NOT {exists_clause}")
-                } else {
-                    exists_clause
-                }
-            } else {
-                let in_clause = format!(
-                    "{outer_table_name}.{subquery_column} IN (\
-                        SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
-                    )",
-                    inner_where_expr.to_sql(op),
-                );
-                if negate_subquery {
-                    format!("NOT ({in_clause})")
-                } else {
-                    in_clause
-                }
-            }
+        let subquery = GeneratedSubquery {
+            kind: subquery_kind,
+            polarity: subquery_polarity,
+            column: subquery_column,
+            inner_where_expr,
+            paging_exprs,
         };
 
         let pg = format!(
             "SELECT COUNT(*) FROM {outer_table_name} \
             WHERE {} AND {}",
-            build_subquery_clause(" = "),
+            subquery.to_sql(" = ", outer_table_name, inner_table_name),
             outer_where_expr.to_sql(" = "),
         );
         let bm25 = format!(
             "SELECT COUNT(*) FROM {outer_table_name} \
             WHERE {} AND {}",
-            build_subquery_clause("@@@"),
+            subquery.to_sql("@@@", outer_table_name, inner_table_name),
             outer_where_expr.to_sql("@@@"),
         );
 

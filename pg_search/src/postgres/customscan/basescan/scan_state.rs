@@ -17,7 +17,7 @@
 
 use std::cell::UnsafeCell;
 
-use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
+use crate::api::{FieldName, HashMap, OrderByInfo, SortDirection, Varno};
 use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
@@ -30,17 +30,28 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
-use crate::postgres::{ParallelExplainData, ParallelScanArgs, ParallelScanState};
+use crate::postgres::{
+    ParallelExplainData, ParallelScanArgs, ParallelScanState, PartitionEarlyTermState,
+};
 use crate::query::SearchQueryInput;
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
 use tantivy::snippet::SnippetGenerator;
 
+/// Cross-partition early termination state for sorted TopK on partitioned tables.
+/// Present only when the scan is a partition child eligible for early termination.
+pub struct PartitionEarlyTerm {
+    pub shared_state: Option<*mut PartitionEarlyTermState>,
+    pub sort_rank: Option<usize>,
+    pub sort_direction: SortDirection,
+}
+
 #[derive(Default)]
 pub struct BaseScanState {
     pub parallel_state: Option<*mut ParallelScanState>,
     pub parallel_explain_data: Option<ParallelExplainData>,
+    pub partition_early_term: Option<PartitionEarlyTerm>,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.
@@ -57,6 +68,7 @@ pub struct BaseScanState {
     pub targetlist_len: usize,
 
     query_count: usize,
+    terminated_early: bool,
     pub virtual_tuple_count: usize,
 
     pub heaprelid: pg_sys::Oid,
@@ -337,11 +349,28 @@ impl BaseScanState {
         }
     }
 
+    pub fn terminated_early(&self) -> bool {
+        if let Some(explain_data) = &self.parallel_explain_data {
+            explain_data.terminated_early
+        } else {
+            self.terminated_early
+        }
+    }
+
     pub fn increment_query_count(&mut self) {
         self.query_count += 1;
         if let Some(parallel_state) = self.parallel_state {
             unsafe {
                 (*parallel_state).increment_query_count();
+            }
+        }
+    }
+
+    pub fn mark_terminated_early(&mut self) {
+        self.terminated_early = true;
+        if let Some(parallel_state) = self.parallel_state {
+            unsafe {
+                (*parallel_state).mark_terminated_early();
             }
         }
     }
@@ -357,6 +386,7 @@ impl BaseScanState {
             }
         }
         self.query_count = 0;
+        self.terminated_early = false;
         self.virtual_tuple_count = 0;
         if let Some(vc) = &mut self.visibility_checker {
             vc.heap_tuple_check_count = 0;

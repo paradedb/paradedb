@@ -29,7 +29,7 @@ use std::sync::Once;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
+use crate::api::{FieldName, HashMap, HashSet, OrderByFeature, OrderByInfo, SortDirection, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -46,9 +46,9 @@ use crate::postgres::customscan::basescan::projections::window_agg::{
     deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
     WindowAggregateInfo,
 };
-use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::customscan::basescan::scan_state::{BaseScanState, PartitionEarlyTerm};
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType,
+    restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -56,8 +56,8 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::orderby::{
-    extract_pathkey_styles_with_sortability_check, find_sort_by_pathkey, PathKeyInfo,
-    UnusableReason,
+    analyze_sort_expression, extract_pathkey_styles_with_sortability_check, find_sort_by_pathkey,
+    PathKeyInfo, SortExpressionType, UnusableReason,
 };
 use crate::postgres::customscan::parallel::{compute_nworkers, list_segment_ids, RowEstimate};
 use crate::postgres::customscan::projections::{
@@ -77,6 +77,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::filter_implied_predicates;
+use crate::postgres::var::VarContext;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -90,6 +91,20 @@ use tantivy::Index;
 
 #[derive(Default)]
 pub struct BaseScan;
+
+extern "C" {
+    fn get_default_partition_oid(parent_oid: pg_sys::Oid) -> pg_sys::Oid;
+    #[link_name = "RelationGetPartitionKey"]
+    fn relation_get_partition_key(rel: pg_sys::Relation) -> pg_sys::PartitionKey;
+}
+
+#[repr(C)]
+struct PartitionKeyDataCompat {
+    strategy: pg_sys::PartitionStrategy::Type,
+    partnatts: i16,
+    partattrs: *mut pg_sys::AttrNumber,
+    partexprs: *mut pg_sys::List,
+}
 
 impl BaseScan {
     /// (Re-)initializes the search reader for the current execution context.
@@ -434,6 +449,142 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
     }
 }
 
+#[derive(Debug, Clone)]
+struct PartitionOrderingKey {
+    field: FieldName,
+    direction: SortDirection,
+}
+
+impl PartitionOrderingKey {
+    unsafe fn try_new(
+        root: *mut pg_sys::PlannerInfo,
+        child_rti: pg_sys::Index,
+        child_rel: &PgSearchRelation,
+        pathkeys: Option<&Vec<OrderByStyle>>,
+    ) -> Option<Self> {
+        // Extract the first pathkey — must be a column sort, not a score sort
+        let first_pathkey_style = pathkeys?.first()?;
+        let (pathkey, expected_field) = match first_pathkey_style {
+            OrderByStyle::Field(pathkey, field_name) => (*pathkey, field_name.clone()),
+            OrderByStyle::Score(_) => return None,
+        };
+
+        // Verify the pathkey's equivalence class contains a raw (non-Tantivy) column
+        // matching the expected field name
+        let equivclass = (*pathkey).pk_eclass;
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+        let var_context = VarContext::from_planner(root);
+
+        let mut found_matching_raw_column = false;
+        for member in members.iter_ptr() {
+            if let Some((SortExpressionType::Raw, _, Some(field_name))) =
+                analyze_sort_expression((*member).em_expr.cast(), var_context)
+            {
+                if field_name == expected_field {
+                    found_matching_raw_column = true;
+                    break;
+                }
+            }
+        }
+
+        if !found_matching_raw_column {
+            return None;
+        }
+
+        let ordering_key = Self {
+            field: expected_field,
+            direction: first_pathkey_style.direction(),
+        };
+
+        // The child relation must itself be a partition
+        if !(*child_rel.rd_rel).relispartition {
+            return None;
+        }
+
+        // Walk the planner's append_rel_list to find the parent RTI for this child
+        if root.is_null() || (*root).append_rel_list.is_null() || (*root).parse.is_null() {
+            return None;
+        }
+        let append_rels = PgList::<pg_sys::AppendRelInfo>::from_pg((*root).append_rel_list);
+        let mut parent_rti = None;
+        for appinfo in append_rels.iter_ptr() {
+            if (*appinfo).child_relid == child_rti {
+                parent_rti = Some((*appinfo).parent_relid);
+                break;
+            }
+        }
+        let parent_rti = parent_rti?;
+        if parent_rti == 0 {
+            return None;
+        }
+
+        // Resolve the parent RTI to an OID via the query's range table
+        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable);
+        let parent_rte = rtable.get_ptr((parent_rti as usize).checked_sub(1)?)?;
+        if (*parent_rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
+            return None;
+        }
+        let parent_oid = (*parent_rte).relid;
+        if parent_oid == pg_sys::InvalidOid {
+            return None;
+        }
+
+        // The parent must be a partitioned table
+        if pg_sys::get_rel_relkind(parent_oid) as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
+            return None;
+        }
+
+        // Nested (multi-level) partitioning is not supported — the child must be
+        // a direct child of the root partitioned table
+        if child_rel.partition_parent_oid() != Some(parent_oid) {
+            return None;
+        }
+
+        // Open the parent relation and inspect its partition key
+        let parent_rel = PgSearchRelation::with_lock(parent_oid, pg_sys::AccessShareLock as _);
+        let partition_key = relation_get_partition_key(parent_rel.as_ptr());
+        if partition_key.is_null() {
+            return None;
+        }
+
+        // Only RANGE-partitioned tables with a single plain-column key are eligible
+        let partition_key = partition_key.cast::<PartitionKeyDataCompat>();
+        if (*partition_key).strategy != pg_sys::PartitionStrategy::PARTITION_STRATEGY_RANGE {
+            return None;
+        }
+        if (*partition_key).partnatts != 1
+            || (*partition_key).partattrs.is_null()
+            || !(*partition_key).partexprs.is_null()
+        {
+            return None;
+        }
+
+        // A default partition would break sorted-append ordering guarantees
+        if get_default_partition_oid(parent_oid) != pg_sys::InvalidOid {
+            return None;
+        }
+
+        // The partition key column must match the ORDER BY field
+        let first_attnum = *(*partition_key).partattrs;
+        if first_attnum <= 0 || first_attnum == pg_sys::InvalidAttrNumber as pg_sys::AttrNumber {
+            return None;
+        }
+        let att_index = (first_attnum as usize).checked_sub(1)?;
+        let tuple_desc = parent_rel.tuple_desc();
+        let partition_att = tuple_desc.get(att_index)?;
+
+        if ordering_key.field.as_ref() == partition_att.name() {
+            Some(ordering_key)
+        } else {
+            None
+        }
+    }
+
+    fn sort_direction(&self) -> SortDirection {
+        self.direction
+    }
+}
+
 impl CustomScan for BaseScan {
     const NAME: &'static CStr = c"ParadeDB Base Scan";
 
@@ -760,6 +911,9 @@ impl CustomScan for BaseScan {
             let startup_cost = DEFAULT_STARTUP_COST;
             let mut custom_paths = Vec::new();
 
+            let partition_ordering_key =
+                PartitionOrderingKey::try_new(root, rti, &table, topk_pathkey_info.pathkeys());
+
             // For each execution method variant (e.g. sorted vs unsorted), we build a separate
             // CustomPath. This allows the Postgres planner to choose the most efficient
             // implementation based on costs and downstream requirements like ordering.
@@ -854,6 +1008,26 @@ impl CustomScan for BaseScan {
                     // For sorted columnar execution, add the sort pathkey
                     if let Some(ref pathkey_style) = sort_by_pathkey {
                         path_builder = path_builder.add_path_key(pathkey_style);
+                    }
+                }
+
+                // Mark the parallel path as eligible for cross-partition early termination only
+                // when this is a TopK path and partition order can be proven to match ORDER BY.
+                if nworkers > 0
+                    && partition_ordering_key.is_some()
+                    && gucs::enable_partition_early_term()
+                    && matches!(
+                        method,
+                        ExecMethodType::TopK {
+                            orderby_info: Some(..),
+                            ..
+                        }
+                    )
+                {
+                    if let Some(partition_ordering_key) = partition_ordering_key.as_ref() {
+                        method_private.set_partition_early_term_eligible(true);
+                        method_private
+                            .set_partition_sort_direction(partition_ordering_key.sort_direction());
                     }
                 }
 
@@ -1108,6 +1282,14 @@ impl CustomScan for BaseScan {
             builder.custom_state().ambulkdelete_epoch =
                 builder.custom_private().ambulkdelete_epoch();
 
+            if builder.custom_private().partition_early_term_eligible() {
+                builder.custom_state().partition_early_term = Some(PartitionEarlyTerm {
+                    shared_state: None,
+                    sort_rank: None,
+                    sort_direction: builder.custom_private().partition_sort_direction(),
+                });
+            }
+
             assign_exec_method(&mut builder);
 
             builder.build()
@@ -1213,6 +1395,14 @@ impl CustomScan for BaseScan {
                     state.custom_state().total_query_count().try_into().unwrap(),
                     None,
                 );
+                if gucs::enable_partition_early_term()
+                    && state.custom_state().partition_early_term.is_some()
+                {
+                    explainer.add_bool(
+                        "   Terminated Early",
+                        state.custom_state().terminated_early(),
+                    );
+                }
             }
         }
 
@@ -1335,6 +1525,17 @@ impl CustomScan for BaseScan {
         }
 
         loop {
+            // Check cross-partition early termination: if earlier partitions have already
+            // produced enough results for the LIMIT, stop scanning this partition.
+            if let Some(et) = state.custom_state().partition_early_term.as_ref() {
+                if let (Some(et_state), Some(rank)) = (et.shared_state, et.sort_rank) {
+                    if unsafe { (*et_state).should_terminate(rank) } {
+                        state.custom_state_mut().mark_terminated_early();
+                        return std::ptr::null_mut();
+                    }
+                }
+            }
+
             let exec_method = state.custom_state_mut().exec_method_mut();
 
             // get the next matching document from our search results and look for it in the heap
@@ -1355,6 +1556,17 @@ impl CustomScan for BaseScan {
                             // the ctid is visible
                             Some(slot) => {
                                 exec_method.increment_visible();
+
+                                // Increment cross-partition early termination counter
+                                if let Some(et) = state.custom_state().partition_early_term.as_ref()
+                                {
+                                    if let (Some(et_state), Some(rank)) =
+                                        (et.shared_state, et.sort_rank)
+                                    {
+                                        (*et_state).increment_results(rank);
+                                    }
+                                }
+
                                 slot
                             }
 

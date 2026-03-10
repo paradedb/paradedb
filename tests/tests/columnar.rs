@@ -180,12 +180,10 @@ fn test_complex_aggregation_with_columnar(mut conn: PgConnection) {
     let methods = get_all_exec_methods(&plan);
     println!("Complex aggregation execution methods: {methods:?}");
 
-    // Assert that a columnar or fast field execution state is used
+    // Assert that a columnar execution state is used
     assert!(
-        methods
-            .iter()
-            .any(|m| m.contains("FastFieldExecState") || m.contains("ColumnarExecState")),
-        "Expected a columnar or fast field exec state for complex aggregation, got: {methods:?}"
+        methods.iter().any(|m| m.contains("ColumnarExecState")),
+        "Expected ColumnarExecState for complex aggregation, got: {methods:?}"
     );
 
     // Actually execute the query to verify results
@@ -334,13 +332,11 @@ fn test_fast_fields_cases(
     let (plan,) = explain_query.fetch_one::<(Value,)>(&mut conn);
     let methods = get_all_exec_methods(&plan);
 
-    let has_fast_field = methods
-        .iter()
-        .any(|m| m.contains("FastFieldExecState") || m.contains("ColumnarExecState"));
+    let has_columnar = methods.iter().any(|m| m.contains("ColumnarExecState"));
 
     assert_eq!(
-        has_fast_field, expect_fast_field,
-        "Columnar/FastField usage mismatch for query: '{}'. Methods: {:?}",
+        has_columnar, expect_fast_field,
+        "Columnar exec usage mismatch for query: '{}'. Methods: {:?}",
         query, methods
     );
 

@@ -1133,16 +1133,7 @@ unsafe fn try_pushdown(
         // Planner hook validation runs in Query context, but simple indexed predicates can still
         // be recognized by resolving field names from the Query's range table.
         if context.query().is_some() {
-            return try_build_pushdown_qual(context, rti, opexpr, indexrel).or_else(|| {
-                try_eval_const_bool_expr(opexpr_node).map(|bool_value| {
-                    state.uses_tantivy_to_query = true;
-                    if bool_value {
-                        Qual::All
-                    } else {
-                        Qual::Not(Box::new(Qual::All))
-                    }
-                })
-            });
+            return try_build_pushdown_qual(context, rti, opexpr, indexrel);
         }
         None
     };
@@ -1195,24 +1186,6 @@ unsafe fn try_pushdown(
         // SUCCESS: Predicate can be pushed down to index for fast evaluation
         state.uses_tantivy_to_query = true;
         pushdown_result
-    }
-}
-
-unsafe fn try_eval_const_bool_expr(node: *mut pg_sys::Node) -> Option<bool> {
-    if node.is_null() || pg_sys::exprType(node) != pg_sys::BOOLOID || is_complex(node) {
-        return None;
-    }
-
-    let expr_state = pg_sys::ExecInitExpr(node.cast(), std::ptr::null_mut());
-    let expr_context = pg_sys::CreateStandaloneExprContext();
-    let mut is_null = false;
-    let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
-    pg_sys::FreeExprContext(expr_context, false);
-
-    if is_null {
-        None
-    } else {
-        bool::from_datum(datum, false)
     }
 }
 

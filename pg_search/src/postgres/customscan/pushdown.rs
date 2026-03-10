@@ -134,12 +134,20 @@ pub unsafe fn try_build_pushdown_qual(
     let args = opexpr.args();
     let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
+    let opexpr_node = match &opexpr {
+        OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
+        OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
+    };
 
     // Planner context can detect correlated PARAM_EXEC nodes; query context cannot.
     if let Some(root) = context.planner_info() {
         if contains_correlated_param(root, rhs) {
             return None;
         }
+    }
+
+    if let Some(qual) = try_build_const_bool_qual(opexpr_node) {
+        return Some(qual);
     }
 
     if opexpr.opno() == *JSONB_EXISTS_OPOID.get_or_init(|| operator_oid("?(jsonb,text)")) {
@@ -248,6 +256,26 @@ unsafe fn try_pushdown_jsonb_exists(
             search_field: Some(search_field),
         },
     })
+}
+
+unsafe fn try_build_const_bool_qual(node: *mut pg_sys::Node) -> Option<Qual> {
+    if node.is_null() || pg_sys::exprType(node) != pg_sys::BOOLOID || is_complex(node) {
+        return None;
+    }
+
+    let expr_state = pg_sys::ExecInitExpr(node.cast(), std::ptr::null_mut());
+    let expr_context = pg_sys::CreateStandaloneExprContext();
+    let mut is_null = false;
+    let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
+    pg_sys::FreeExprContext(expr_context, false);
+
+    if is_null {
+        None
+    } else if bool::from_datum(datum, false).unwrap_or(false) {
+        Some(Qual::All)
+    } else {
+        Some(Qual::Not(Box::new(Qual::All)))
+    }
 }
 
 unsafe fn term_with_operator_procid() -> pg_sys::Oid {

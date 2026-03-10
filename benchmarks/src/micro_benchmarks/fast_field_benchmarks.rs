@@ -422,7 +422,7 @@ pub async fn benchmark_columnar(
     }
 
     println!("========================================");
-    println!("Starting columnars benchmark");
+    println!("Starting columnar benchmark");
     println!("========================================");
 
     let mut results = Vec::new();

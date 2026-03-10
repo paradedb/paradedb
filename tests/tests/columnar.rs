@@ -60,7 +60,7 @@ fn extract_methods(node: &Value, methods: &mut Vec<String>) {
     }
 }
 
-// Setup for complex aggregation with columnars
+// Setup for complex aggregation with columnar fast fields
 fn complex_aggregation_setup() -> &'static str {
     r#"
         DROP TABLE IF EXISTS expected_payments;

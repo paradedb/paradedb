@@ -1,4 +1,4 @@
--- Tests CTE with columnars
+-- Tests CTE with columnar fast fields
 \i common/mixedff_queries_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
@@ -105,7 +105,7 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page_cte4', 'file_cte3', 1, 'Final test page for CTE testing');
 \echo 'Test: Basic CTE with mixed fields'
 Test: Basic CTE with mixed fields
--- Check execution plan to verify columnars used in CTEs
+-- Check execution plan to verify columnar fast fields used in CTEs
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 WITH searchable_docs AS (
     SELECT d.id, d.title, d.parents

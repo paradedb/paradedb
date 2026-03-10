@@ -1,4 +1,4 @@
--- uses the same schema as the columnars queries
+-- uses the same schema as the columnar fast fields queries
 \i common/mixedff_queries_setup.sql
 
 -- Disable parallel workers to avoid differences in plans

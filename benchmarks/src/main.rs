@@ -89,7 +89,7 @@ async fn main() {
             args.batch_size,
         )
         .await;
-        println!("Columnars Benchmark Completed: {res:?}");
+        println!("Columnar Benchmark Completed: {res:?}");
     } else if args.benchmark == "sql" {
         if !args.existing {
             generate_test_data(&args.url, &args.dataset, args.rows);

@@ -1,10 +1,10 @@
--- Test subqueries with columnars
+-- Test subqueries with columnar fast fields
 
 \i common/mixedff_queries_setup.sql
 
 \echo 'Test: Subqueries with mixed fields'
 
--- Check execution plan to verify columnars in subquery
+-- Check execution plan to verify columnar fast fields in subquery
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT d.id, d.title, d.parents,
     (

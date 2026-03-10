@@ -307,7 +307,7 @@ SELECT
     i % 4 != 0               -- Deterministic boolean pattern
 FROM generate_series(1, 50) i;
 
--- Create indices with columnars
+-- Create indices with columnar fast fields
 DROP INDEX IF EXISTS union_test_a_idx;
 DROP INDEX IF EXISTS union_test_b_idx;
 

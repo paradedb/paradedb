@@ -1,5 +1,5 @@
--- Test multi-index search with columnars
--- This test verifies that queries using multiple indices with columnars work correctly
+-- Test multi-index search with columnar fast fields
+-- This test verifies that queries using multiple indices with columnar fast fields work correctly
 
 \i common/mixedff_advanced_setup.sql
 
@@ -109,7 +109,7 @@ SELECT
 FROM products p
 WHERE p.id % 9 = 0;  -- Only for every 9th product
 
--- Create search indices with columnars
+-- Create search indices with columnar fast fields
 DROP INDEX IF EXISTS products_idx;
 DROP INDEX IF EXISTS categories_idx;
 DROP INDEX IF EXISTS reviews_idx;

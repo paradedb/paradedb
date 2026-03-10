@@ -1,4 +1,4 @@
--- Tests null handling in columnars
+-- Tests null handling in columnar fast fields
 \i common/mixedff_edgecases_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans

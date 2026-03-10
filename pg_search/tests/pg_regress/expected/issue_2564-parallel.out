@@ -1,5 +1,5 @@
 SET paradedb.global_mutable_segment_rows = 0;
--- uses the same schema as the columnars queries
+-- uses the same schema as the columnar fast fields queries
 \i common/mixedff_queries_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans

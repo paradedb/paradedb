@@ -20,10 +20,11 @@ use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::opexpr::OpExpr;
-use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
+use crate::postgres::customscan::pushdown::{is_complex, try_build_pushdown_qual, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::var::VarContext;
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
@@ -508,9 +509,7 @@ pub enum PlannerContext {
     /// Full planner context with PlannerInfo (supports join qual extraction)
     Planner(*mut pg_sys::PlannerInfo),
     /// Query-only context (no join qual extraction, used in planner hook)
-    /// We don't store the Query pointer because we don't need it - we only need
-    /// to know that we're in Query context (not Planner context)
-    Query,
+    Query(*mut pg_sys::Query),
 }
 
 impl PlannerContext {
@@ -518,15 +517,29 @@ impl PlannerContext {
         Self::Planner(root)
     }
 
-    pub fn from_query(_parse: *mut pg_sys::Query) -> Self {
-        Self::Query
+    pub fn from_query(parse: *mut pg_sys::Query) -> Self {
+        Self::Query(parse)
     }
 
     /// Get the PlannerInfo pointer if available (for join qual extraction)
     pub fn planner_info(&self) -> Option<*mut pg_sys::PlannerInfo> {
         match self {
             Self::Planner(root) => Some(*root),
-            Self::Query => None,
+            Self::Query(_) => None,
+        }
+    }
+
+    pub fn query(&self) -> Option<*mut pg_sys::Query> {
+        match self {
+            Self::Planner(_) => None,
+            Self::Query(parse) => Some(*parse),
+        }
+    }
+
+    pub fn var_context(&self) -> VarContext {
+        match self {
+            Self::Planner(root) => VarContext::from_planner(*root),
+            Self::Query(parse) => VarContext::from_query(*parse),
         }
     }
 }
@@ -1101,9 +1114,8 @@ unsafe fn try_pushdown(
     };
 
     // Try to convert this OpExpr into an indexed predicate (fast field, search field, etc.)
-    // Note: try_pushdown_inner requires PlannerInfo
-    let pushdown_result = if let Some(root) = context.planner_info() {
-        try_pushdown_inner(root, rti, opexpr, indexrel)
+    let pushdown_result = if context.planner_info().is_some() {
+        try_build_pushdown_qual(context, rti, opexpr, indexrel)
     } else {
         // Query context: We can't call try_pushdown_inner, but we can check if this is our operator
         // by comparing the opno directly
@@ -1118,14 +1130,29 @@ unsafe fn try_pushdown(
                 expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
             });
         }
-        // Not our operator, can't pushdown in Query context
+        // Planner hook validation runs in Query context, but simple indexed predicates can still
+        // be recognized by resolving field names from the Query's range table.
+        if context.query().is_some() {
+            return try_build_pushdown_qual(context, rti, opexpr, indexrel).or_else(|| {
+                try_eval_const_bool_expr(opexpr_node).map(|bool_value| {
+                    state.uses_tantivy_to_query = true;
+                    if bool_value {
+                        Qual::All
+                    } else {
+                        Qual::Not(Box::new(Qual::All))
+                    }
+                })
+            });
+        }
         None
     };
 
     if pushdown_result.is_none() {
+        let references_relation = contains_relation_reference(opexpr_node, rti);
+        let has_param = contains_param(opexpr_node);
         // DECISION POINT: Predicate cannot be pushed down to index
         // Check if this expression references our relation
-        if contains_relation_reference(opexpr_node, rti) {
+        if references_relation {
             // Check if custom scan for non-indexed fields is enabled
             if !gucs::enable_filter_pushdown() {
                 return None;
@@ -1142,7 +1169,7 @@ unsafe fn try_pushdown(
                 expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
-        } else if contains_param(opexpr_node) {
+        } else if has_param {
             // Predicate doesn't reference our relation (e.g., $2 = 0 in prepared statements)
             // Check if it contains PARAM nodes - if so, create a HeapExpr that will be evaluated at execution
             // This prevents qual extraction from failing entirely when we have
@@ -1168,6 +1195,24 @@ unsafe fn try_pushdown(
         // SUCCESS: Predicate can be pushed down to index for fast evaluation
         state.uses_tantivy_to_query = true;
         pushdown_result
+    }
+}
+
+unsafe fn try_eval_const_bool_expr(node: *mut pg_sys::Node) -> Option<bool> {
+    if node.is_null() || pg_sys::exprType(node) != pg_sys::BOOLOID || is_complex(node) {
+        return None;
+    }
+
+    let expr_state = pg_sys::ExecInitExpr(node.cast(), std::ptr::null_mut());
+    let expr_context = pg_sys::CreateStandaloneExprContext();
+    let mut is_null = false;
+    let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
+    pg_sys::FreeExprContext(expr_context, false);
+
+    if is_null {
+        None
+    } else {
+        bool::from_datum(datum, false)
     }
 }
 

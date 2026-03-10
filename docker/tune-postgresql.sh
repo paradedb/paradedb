@@ -3,6 +3,11 @@
 set -Eeuo pipefail
 
 PGDATA=${PGDATA:-/var/lib/postgresql/data}
+
+# NOTE: This script writes directly to postgresql.auto.conf, which is the same file
+# used by PostgreSQL's 'ALTER SYSTEM' command. Therefore, any manual 'ALTER SYSTEM'
+# changes to the tuned parameters will be overwritten on the next container restart.
+# To permanently pin a specific value, users must use the PG_TUNE_* environment variables.
 CONF_FILE="$PGDATA/postgresql.auto.conf"
 
 tune_param() {
@@ -14,11 +19,11 @@ tune_param() {
 
   if [ ! -f "$CONF_FILE" ]; then
     touch "$CONF_FILE"
-    chown postgres:postgres "$CONF_FILE" 2>/dev/null || true
+    chown postgres:postgres "$CONF_FILE" 2>/dev/null || echo "ParadeDB auto-tune: Warning: could not chown $CONF_FILE"
   fi
 
-  if grep -q "^$param =" "$CONF_FILE"; then
-    sed -i "s|^$param =.*|$param = '$final_val'|" "$CONF_FILE"
+  if grep -qE "^\s*$param\s*=" "$CONF_FILE"; then
+    sed -i "s|^\s*$param\s*=.*|$param = '$final_val'|" "$CONF_FILE"
   else
     echo "$param = '$final_val'" >> "$CONF_FILE"
   fi
@@ -30,7 +35,7 @@ if [ "${PG_TUNE_ENABLED:-true}" = "false" ]; then
 fi
 
 # Skip auto-tuning in Kubernetes environments to avoid conflicts with resource limits
-if [ -n "${KUBERNETES_SERVICE_HOST:-}" ] && [ "${PG_TUNE_ENABLED:-}" != "true" ]; then
+if [ -n "${KUBERNETES_SERVICE_HOST:-}" ] && [ -n "${KUBERNETES_SERVICE_PORT:-}" ] && [ "${PG_TUNE_ENABLED:-}" != "true" ]; then
   echo "ParadeDB auto-tune: Kubernetes environment detected. Disabling auto-tuning."
   exit 0
 fi
@@ -45,8 +50,15 @@ fi
 if [ -f /sys/fs/cgroup/memory.max ] && [ "$(cat /sys/fs/cgroup/memory.max)" != "max" ]; then
   TOTAL_RAM_MB=$(awk "BEGIN {printf \"%.0f\", $(cat /sys/fs/cgroup/memory.max) / 1024 / 1024}")
 elif [ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
-  TOTAL_RAM_MB=$(awk "BEGIN {printf \"%.0f\", $(cat /sys/fs/cgroup/memory/memory.limit_in_bytes) / 1024 / 1024}")
+  CGROUP_V1_LIMIT=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+  # cgroup v1 reports ~2^63 when no limit is set -- fall through to /proc/meminfo
+  if [ "$CGROUP_V1_LIMIT" -lt 68719476736 ]; then  # < 64TB = real limit
+    TOTAL_RAM_MB=$(awk "BEGIN {printf \"%.0f\", $CGROUP_V1_LIMIT / 1024 / 1024}")
+  else
+    TOTAL_RAM_MB=$(grep MemTotal /proc/meminfo | awk '{printf "%.0f", $2 / 1024}')
+  fi
 else
+  # Fallback to host /proc/meminfo if cgroups are not available
   TOTAL_RAM_MB=$(grep MemTotal /proc/meminfo | awk '{printf "%.0f", $2 / 1024}')
 fi
 
@@ -69,7 +81,10 @@ CPU_COUNT=$(nproc)
 SB_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.25)}")
 ECS_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.75)}")
 MWM_MB=$(awk "BEGIN {m=int($TOTAL_RAM_MB / 16); print (m > 2048 ? 2048 : m)}")
-WM_MB=$(awk "BEGIN {print int(($TOTAL_RAM_MB - $SB_MB) / (100 * 3))}")
+
+MAX_CONN=${PG_TUNE_MAX_CONNECTIONS:-100}
+WM_MB=$(awk "BEGIN {w=int(($TOTAL_RAM_MB - $SB_MB) / ($MAX_CONN * 3)); print (w < 4 ? 4 : w)}")
+
 WAL_MB=$(awk "BEGIN {w=int($SB_MB / 32); print (w > 64 ? 64 : w)}")
 
 PARALLEL_GATHER=$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p < 1 ? 1 : p)}")
@@ -83,8 +98,8 @@ tune_param "work_mem" "${WM_MB}MB" "${PG_TUNE_WORK_MEM:-}"
 tune_param "wal_buffers" "${WAL_MB}MB" "${PG_TUNE_WAL_BUFFERS:-}"
 tune_param "max_worker_processes" "$CPU_COUNT" "${PG_TUNE_MAX_WORKER_PROCESSES:-}"
 tune_param "max_parallel_workers" "$CPU_COUNT" "${PG_TUNE_MAX_PARALLEL_WORKERS:-}"
-tune_param "max_parallel_workers_per_gather" "$PARALLEL_GATHER" "${PG_TUNE_MAX_PARALLEL_GATHER:-}"
+tune_param "max_parallel_workers_per_gather" "$PARALLEL_GATHER" "${PG_TUNE_MAX_PARALLEL_WORKERS_PER_GATHER:-}"
 tune_param "random_page_cost" "1.1" "${PG_TUNE_RANDOM_PAGE_COST:-}"
-tune_param "effective_io_concurrency" "200" "${PG_TUNE_IO_CONCURRENCY:-}"
+tune_param "effective_io_concurrency" "200" "${PG_TUNE_EFFECTIVE_IO_CONCURRENCY:-}"
 
 echo "ParadeDB auto-tune: Configuration written to $CONF_FILE"

@@ -260,5 +260,3 @@ RUN chmod +x /usr/local/bin/tune-postgresql.sh /usr/local/bin/entrypoint-wrapper
 # Override the default entrypoint to use our wrapper. This wrapper will trigger
 # the auto-tuning script and then exec the upstream docker-entrypoint.sh.
 ENTRYPOINT ["/usr/local/bin/entrypoint-wrapper.sh"]
-
-CMD ["postgres"]

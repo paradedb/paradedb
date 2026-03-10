@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773162342136,
+  "lastUpdate": 1773163133696,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -38194,6 +38194,54 @@ window.BENCHMARK_DATA = {
             "value": 499.39587834159573,
             "unit": "median tps",
             "extra": "avg tps: 477.5370342711655, max tps: 707.2497912905866, count: 107810"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef1d389927ae8a9bfe0e047ad3e19bd63e08ae66",
+          "message": "feat: push down InListExpr and numeric HashTableLookupExpr (#4306)\n\n# Ticket(s) Closed\n\n- Closes #4267\n\n## What\nEnables dynamic filter pushdown for `InListExpr` and\n`HashTableLookupExpr` (restricted to non-string columns) into the\npre-filter.\n\n## Why\nWhen DataFusion optimizes joins using Hash Joins, it generates dynamic\nfilters (`InListExpr` for small build sides, `HashTableLookupExpr` for\nlarge ones). Previously, these were blocked by our `is_supported` check,\nforcing the engine to materialize unneeded rows. Pushing these down to\nthe Tantivy storage layer drastically reduces memory usage and improves\noverall join performance.\n\n## How\n* **Allowlist Updates:** Added `InListExpr` and `HashTableLookupExpr` to\n`is_supported`. Added a subtree traversal constraint to explicitly block\n`HashTableLookupExpr` from evaluating on string columns to avoid\nexpensive dictionary hydration.\n* **Schema Validation Bypass:** Implemented `try_rewrite_in_list` using\n`try_new_from_array` to cleanly map string lists to dictionary ordinals\nwithout triggering DataFusion's strict schema validation panics.\n* **Storage-to-Execution Casting:** Updated `PreFilter::apply_arrow` to\nautomatically downcast Tantivy's native `Int64` fast fields to match\nDataFusion's expected schema types , preventing strict evaluation\npanics.\n* **TopK Safety:** Updated `rewrite_col_op_lit` to safely intercept and\nmap `NULL` literals (`ScalarValue::Utf8(None)`) pushed down by `TopK`\nnodes, preventing type-mismatch crashes.",
+          "timestamp": "2026-03-10T09:04:31-07:00",
+          "tree_id": "2b08033dcbf7cc115d186284245aae6c8dd7cdd8",
+          "url": "https://github.com/paradedb/paradedb/commit/ef1d389927ae8a9bfe0e047ad3e19bd63e08ae66"
+        },
+        "date": 1773163128107,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 520.8812790190999,
+            "unit": "median tps",
+            "extra": "avg tps: 526.5109923670102, max tps: 660.9525000769473, count: 53897"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 586.8179195172306,
+            "unit": "median tps",
+            "extra": "avg tps: 594.7225836994775, max tps: 810.6091131108324, count: 53897"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.3656739854734,
+            "unit": "median tps",
+            "extra": "avg tps: 88.44996368190182, max tps: 91.85959996325967, count: 53897"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 528.3464831628933,
+            "unit": "median tps",
+            "extra": "avg tps: 481.0994311254935, max tps: 685.2432537578219, count: 107794"
           }
         ]
       }

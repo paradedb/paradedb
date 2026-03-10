@@ -127,7 +127,7 @@ pub trait CollectAggregations {
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
         // Validate that no custom aggregate has solve_mvcc=false in GROUP BY context.
-        // solve_mvcc=false is only allowed in TopN (window function) context.
+        // solve_mvcc=false is only allowed in Top K (window function) context.
         for agg in self.aggregates() {
             if let AggregateType::Custom {
                 mvcc_visibility, ..

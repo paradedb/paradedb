@@ -94,10 +94,10 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: timestamp desc
-            TopN Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -240,10 +240,10 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: timestamp desc
-            TopN Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Full Index Scan: true
          Tantivy Query: "all"
 (12 rows)
@@ -282,10 +282,10 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: timestamp desc
-            TopN Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Tantivy Query: {"range":{"field":"status_code","lower_bound":{"included":500},"upper_bound":null,"is_datetime":false}}
 (11 rows)
 
@@ -785,7 +785,7 @@ ORDER BY category;
 (4 rows)
 
 -- =====================================================================
--- SECTION 7: pdb.agg() Window Functions (TopN)
+-- SECTION 7: pdb.agg() Window Functions (Top K)
 -- =====================================================================
 -- Test 29: Multiple pdb.agg() window functions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -803,10 +803,10 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"max":{"field":"status_code"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: timestamp desc
-            TopN Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -843,10 +843,10 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: timestamp desc
-            TopN Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -882,10 +882,10 @@ ORDER BY response_time DESC LIMIT 5;
          Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: response_time desc
-            TopN Limit: 5
+            TopK Order By: response_time desc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -1323,8 +1323,8 @@ WHERE description @@@ 'error';
  {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]} | {"buckets": [{"to": 400.0, "key": "*-400", "doc_count": 0}, {"to": 500.0, "key": "4xx", "from": 400.0, "doc_count": 1}, {"to": 600.0, "key": "5xx", "from": 500.0, "doc_count": 6}, {"key": "600-*", "from": 600.0, "doc_count": 0}]}
 (1 row)
 
--- Test 45: Range histogram with TopN (window function)
--- Get response time distribution alongside top N results
+-- Test 45: Range histogram with Top K (window function)
+-- Get response time distribution alongside Top K results
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *,
        pdb.agg('{"range": {"field": "response_time", "ranges": [
@@ -1343,10 +1343,10 @@ ORDER BY timestamp DESC LIMIT 10;
          Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: timestamp desc
-            TopN Limit: 10
+            TopK Order By: timestamp desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -1450,10 +1450,10 @@ LIMIT 1;
          Table: logs
          Index: logs_idx
          Segment Count: 1
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: timestamp desc
-            TopN Limit: 1
+            TopK Order By: timestamp desc
+            TopK Limit: 1
          Full Index Scan: true
          Tantivy Query: "all"
 (11 rows)
@@ -1481,10 +1481,10 @@ LIMIT 1;
          Table: logs
          Index: logs_idx
          Segment Count: 1
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: timestamp desc
-            TopN Limit: 1
+            TopK Order By: timestamp desc
+            TopK Limit: 1
          Full Index Scan: true
          Tantivy Query: "all"
 (11 rows)
@@ -2011,10 +2011,10 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id desc
-            TopN Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2044,10 +2044,10 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id desc
-            TopN Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2077,10 +2077,10 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id desc
-            TopN Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2109,10 +2109,10 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id desc
-            TopN Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2144,10 +2144,10 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id desc
-            TopN Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -2196,7 +2196,7 @@ ORDER BY id DESC LIMIT 3;
 (3 rows)
 
 -- Test 68: pdb.agg() in GROUP BY context with solve_mvcc = false should ERROR
--- solve_mvcc=false is only allowed in TopN (window function) context
+-- solve_mvcc=false is only allowed in Top K (window function) context
 SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false)
 FROM mvcc_test
 WHERE description @@@ 'test'
@@ -2254,10 +2254,10 @@ ORDER BY id DESC LIMIT 3;
          Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"value","ranges":[{"to":200},{"to":400,"from":200},{"from":400}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id desc
-            TopN Limit: 3
+            TopK Order By: id desc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 

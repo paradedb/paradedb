@@ -5,10 +5,10 @@ noindex: true
 
 ## Performance Improvements 🚀
 
-- Avoid re-querying Top N iterators that have no more results (up to 1.5X speedup)
+- Avoid re-querying Top K iterators that have no more results (up to 1.5X speedup)
 - Lazily load bitpacked columns (up to 2X speedup)
 - Use [Arrow](https://arrow.apache.org/) for fast field execution (up to 1.6X speedup)
-- Skip computing scores if not necessary during Top N queries
+- Skip computing scores if not necessary during Top K queries
 
 ## Aggregate Query Pushdown
 
@@ -22,7 +22,7 @@ support to v2. The new UX is still in beta and we would appreciate any community
 
 ## Stability Improvements 💪
 
-- Various correctness fixes to Top N queries
+- Various correctness fixes to Top K queries
 - Custom scans over partitioned tables don't error if one of the partitioned tables is empty
 
 The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.18.0).

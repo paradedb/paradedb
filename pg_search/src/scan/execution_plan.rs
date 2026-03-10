@@ -101,7 +101,7 @@ pub struct PgSearchScanPlan {
     partition_row_counts: Vec<u64>,
     properties: PlanProperties,
     query_for_display: SearchQueryInput,
-    /// Dynamic filters pushed down from parent operators (e.g. TopK threshold
+    /// Dynamic filters pushed down from parent operators (e.g. Top K threshold
     /// from SortExec, join-key bounds from HashJoinExec). Each batch produced
     /// by the scanner is filtered against all of these expressions so that rows
     /// which cannot contribute to the final result are pruned early.
@@ -424,13 +424,13 @@ impl ExecutionPlan for PgSearchScanPlan {
         child_pushdown_result: ChildPushdownResult,
         _config: &datafusion::common::config::ConfigOptions,
     ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
-        // Only handle dynamic filters in the Post phase (TopK pushdown happens here).
+        // Only handle dynamic filters in the Post phase (Top K pushdown happens here).
         if !matches!(phase, FilterPushdownPhase::Post) {
             return Ok(FilterPushdownPropagation::if_all(child_pushdown_result));
         }
 
         // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
-        // Multiple sources may push dynamic filters (e.g. TopK from SortExec,
+        // Multiple sources may push dynamic filters (e.g. Top K from SortExec,
         // join-key bounds from HashJoinExec). We accept and apply all of them.
         let mut dynamic_filters = Vec::new();
         let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
@@ -462,7 +462,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 .drain(..)
                 .collect();
 
-            // When the GUC is set, cap the scanner batch size so that TopK
+            // When the GUC is set, cap the scanner batch size so that Top K
             // can tighten its threshold between batches.
             let df_batch_size = crate::gucs::dynamic_filter_batch_size();
             if df_batch_size > 0 {
@@ -497,7 +497,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
 ///
 /// This is called on every `poll_next` (or loop iteration) so that tightening thresholds (e.g.
-/// from TopK) are picked up immediately.
+/// from Top K) are picked up immediately.
 ///
 /// Only filter predicates that can be lowered to fast-field or term-ordinal
 /// comparisons are retained. Anything else (unsupported types, non-comparison

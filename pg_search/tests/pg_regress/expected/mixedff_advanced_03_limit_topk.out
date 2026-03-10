@@ -1,6 +1,6 @@
--- Test that LIMIT clause uses TopN execution with mixed fast fields
+-- Test that LIMIT clause uses Top K execution with mixed fast fields
 -- This test ensures that when a LIMIT clause is used with mixed fast fields,
--- the execution uses the optimized TopN execution path
+-- the execution uses the optimized Top K execution path
 \i common/mixedff_advanced_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
@@ -309,11 +309,11 @@ ANALYZE products;
 ANALYZE conversion_test;
 ANALYZE union_test_a;
 ANALYZE union_test_b;
-\echo 'Test: LIMIT clause with TopN execution'
-Test: LIMIT clause with TopN execution
+\echo 'Test: LIMIT clause with Top K execution'
+Test: LIMIT clause with Top K execution
 -- Create test table with mixed field types
-DROP TABLE IF EXISTS limit_topn_test;
-CREATE TABLE limit_topn_test (
+DROP TABLE IF EXISTS limit_topk_test;
+CREATE TABLE limit_topk_test (
     id SERIAL PRIMARY KEY,
     title TEXT,
     description TEXT,
@@ -325,7 +325,7 @@ CREATE TABLE limit_topn_test (
     created_at TIMESTAMP
 );
 -- Insert test data with deterministic values
-INSERT INTO limit_topn_test (title, description, rating, price, category, is_available, created_at)
+INSERT INTO limit_topk_test (title, description, rating, price, category, is_available, created_at)
 SELECT
     'Product ' || i,
     'Description for product ' || i,
@@ -336,8 +336,8 @@ SELECT
     '1988-04-29'::timestamp + ((i || ' days')::interval)
 FROM generate_series(1, 100) i;
 -- Create search index with multiple fast fields
-DROP INDEX IF EXISTS limit_topn_idx;
-CREATE INDEX limit_topn_idx ON limit_topn_test
+DROP INDEX IF EXISTS limit_topk_idx;
+CREATE INDEX limit_topk_idx ON limit_topk_test
 USING bm25 (id, title, description, rating, price, category, is_available)
 WITH (
     key_field = 'id',
@@ -345,48 +345,48 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_available": {"fast": true}}'
 );
--- Test basic LIMIT with mixed fields (should use TopN)
+-- Test basic LIMIT with mixed fields (should use Top K)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, rating, price, category
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE title @@@ 'Product'
 ORDER BY rating DESC
 LIMIT 10;
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on limit_topn_test
-         Table: limit_topn_test
-         Index: limit_topn_idx
-         Exec Method: TopNScanExecState
+   ->  Custom Scan (ParadeDB Base Scan) on limit_topk_test
+         Table: limit_topk_test
+         Index: limit_topk_idx
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 10
+            TopK Order By: rating desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 -- Test LIMIT with mixed text and numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE category @@@ 'Electronics'
 ORDER BY price ASC
 LIMIT 5;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on limit_topn_test
-         Table: limit_topn_test
-         Index: limit_topn_idx
-         Exec Method: TopNScanExecState
+   ->  Custom Scan (ParadeDB Base Scan) on limit_topk_test
+         Table: limit_topk_test
+         Index: limit_topk_idx
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: price asc
-            TopN Limit: 5
+            TopK Order By: price asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 SELECT title, category, rating, price
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE category @@@ 'Electronics'
 ORDER BY price ASC
 LIMIT 5;
@@ -402,25 +402,25 @@ LIMIT 5;
 -- Test LIMIT with multiple string fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE category @@@ 'Books OR Electronics'
 ORDER BY title
 LIMIT 15;
                                                                                QUERY PLAN                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on limit_topn_test
-         Table: limit_topn_test
-         Index: limit_topn_idx
-         Exec Method: TopNScanExecState
+   ->  Custom Scan (ParadeDB Base Scan) on limit_topk_test
+         Table: limit_topk_test
+         Index: limit_topk_idx
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: title asc
-            TopN Limit: 15
+            TopK Order By: title asc
+            TopK Limit: 15
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Books OR Electronics","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 SELECT title, category
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE category @@@ 'Books OR Electronics'
 ORDER BY title
 LIMIT 15;
@@ -446,7 +446,7 @@ LIMIT 15;
 -- Test LIMIT with boolean field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, is_available, rating
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE is_available = true
 ORDER BY rating DESC, title ASC
 LIMIT 7;
@@ -455,12 +455,12 @@ LIMIT 7;
  Limit
    ->  Sort
          Sort Key: rating DESC, title
-         ->  Seq Scan on limit_topn_test
+         ->  Seq Scan on limit_topk_test
                Filter: is_available
 (5 rows)
 
 SELECT title, is_available, rating
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE is_available = true
 ORDER BY rating DESC, title ASC
 LIMIT 7;
@@ -478,7 +478,7 @@ LIMIT 7;
 -- Test LIMIT with multiple numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, price
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE rating > 3.0 AND price < 500
 ORDER BY price DESC
 LIMIT 12;
@@ -487,12 +487,12 @@ LIMIT 12;
  Limit
    ->  Sort
          Sort Key: price DESC
-         ->  Seq Scan on limit_topn_test
+         ->  Seq Scan on limit_topk_test
                Filter: ((rating > '3'::double precision) AND (price < '500'::double precision))
 (5 rows)
 
 SELECT rating, price
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE rating > 3.0 AND price < 500
 ORDER BY price DESC
 LIMIT 12;
@@ -505,25 +505,25 @@ LIMIT 12;
 -- Test LIMIT with complex where clause on mixed fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, category, rating, price
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Toys OR Clothing'
 ORDER BY price DESC
 LIMIT 8;
                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on limit_topn_test
-         Table: limit_topn_test
-         Index: limit_topn_idx
-         Exec Method: TopNScanExecState
+   ->  Custom Scan (ParadeDB Base Scan) on limit_topk_test
+         Table: limit_topk_test
+         Index: limit_topk_idx
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: price desc
-            TopN Limit: 8
+            TopK Order By: price desc
+            TopK Limit: 8
          Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"included":2.5},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"included":4.5},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Toys OR Clothing","lenient":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 
 SELECT title, category, rating, price
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Toys OR Clothing'
 ORDER BY price DESC
 LIMIT 8;
@@ -541,7 +541,7 @@ LIMIT 8;
 
 -- Verify actual results of LIMIT queries (not just execution path)
 SELECT title, rating, price, category
-FROM limit_topn_test
+FROM limit_topk_test
 WHERE title @@@ 'Product'
 ORDER BY rating DESC
 LIMIT 5;
@@ -555,8 +555,8 @@ LIMIT 5;
 (5 rows)
 
 -- Clean up
-DROP INDEX IF EXISTS limit_topn_idx;
-DROP TABLE IF EXISTS limit_topn_test;
+DROP INDEX IF EXISTS limit_topk_idx;
+DROP TABLE IF EXISTS limit_topk_test;
 \i common/mixedff_advanced_cleanup.sql
 -- Cleanup for advanced features tests (13-21)
 -- Drop the tables used in these tests (in reverse order to handle dependencies)

@@ -1,6 +1,6 @@
 -- Shape: Aggregate Sort (Computed Property)
 -- Join: Single Feature (Computed Aggregate)
--- Description: The feature driving the ORDER BY does not exist until the join is performed. The user is sorting files by an aggregate of their related pages (e.g., "Most recently active" or "Most interactions"). This requires computing the aggregate (via GROUP BY or LATERAL) before the TopN can be resolved.
+-- Description: The feature driving the ORDER BY does not exist until the join is performed. The user is sorting files by an aggregate of their related pages (e.g., "Most recently active" or "Most interactions"). This requires computing the aggregate (via GROUP BY or LATERAL) before the Top K can be resolved.
 
 SET paradedb.enable_join_custom_scan TO off; SELECT
     f.id,

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Per-segment Top-K pruning using term ordinals.
+//! Per-segment Top K pruning using term ordinals.
 //!
 //! `SegmentedTopKExec` sits between `TantivyLookupExec` and its child in the
 //! physical plan. It operates on the 3-way deferred `UnionArray` columns emitted
@@ -38,14 +38,14 @@
 //! necessary rows flow to `TantivyLookupExec` for dictionary decoding.
 //!
 //! **Compound sorts:** Only the primary sort column is used for ordinal
-//! pruning. When the TopK sort has tiebreaker columns (e.g.
+//! pruning. When the Top K sort has tiebreaker columns (e.g.
 //! `ORDER BY val DESC, id ASC LIMIT 25`), all rows tied at the boundary
 //! ordinal are retained — the exec cannot distinguish between them without
-//! the tiebreaker, so it keeps them all for the final TopK to resolve.
+//! the tiebreaker, so it keeps them all for the final Top K to resolve.
 //! This is safe (never drops correct rows) but slightly less aggressive
 //! than theoretically possible when there are many duplicates.
 //! TODO(https://github.com/paradedb/paradedb/issues/4255): rewrite the full
-//! TopK sort expression in terms of term ordinals to handle tiebreakers
+//! Top K sort expression in terms of term ordinals to handle tiebreakers
 //! natively.
 
 use crate::api::HashMap;
@@ -77,7 +77,7 @@ use tantivy::{DocId, SegmentOrdinal};
 /// and read by the scanner for early row pruning.
 ///
 /// As the exec builds up its per-segment heaps, it publishes the "worst"
-/// ordinal still in the top-K for each segment. The scanner can then skip
+/// ordinal still in the Top K for each segment. The scanner can then skip
 /// rows whose ordinal cannot beat that threshold, avoiding ctid lookups,
 /// visibility checks, and dictionary materialisation.
 ///
@@ -113,9 +113,9 @@ pub struct DeferredSortColumn {
 
 pub struct SegmentedTopKExec {
     input: Arc<dyn ExecutionPlan>,
-    /// The sort expressions defining the top-k order.
+    /// The sort expressions defining the Top K order.
     sort_exprs: LexOrdering,
-    /// The deferred string/bytes columns that are part of the top-k order.
+    /// The deferred string/bytes columns that are part of the Top K order.
     deferred_columns: Vec<DeferredSortColumn>,
     /// FFHelper for Tantivy fast field access (shared with TantivyLookupExec).
     ffhelper: Arc<FFHelper>,
@@ -602,7 +602,7 @@ impl SegmentedTopKState {
     /// Translates the threshold arrays from the `RowConverter` back into a DataFusion
     /// `PhysicalExpr` that can be pushed down to the scan layer to filter out rows.
     ///
-    /// This function largely emulates DataFusion's private `TopK` dynamic filter generation logic
+    /// This function largely emulates DataFusion's private `Top K` dynamic filter generation logic
     /// (`build_filter_expression`), with some key adaptations for `SegmentedTopKExec`:
     ///
     /// 1.  **Chained Lexicographical Sorting**: Like upstream, this builds a chained compound expression
@@ -691,7 +691,7 @@ impl SegmentedTopKState {
     /// Compact buffered batches by discarding rows that cannot survive the
     /// current per-segment cutoffs. This bounds memory at O(K * segments)
     /// instead of O(N) for large inputs — analogous to the batch compaction
-    /// step in upstream DataFusion TopK.
+    /// step in upstream DataFusion Top K.
     fn maybe_compact(&mut self) {
         let num_segments = self.segment_heaps.len().max(1);
         if self.row_ordinals.len() <= self.k * num_segments * 4 {

@@ -367,10 +367,10 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on score_test
          Table: score_test
          Index: score_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: title asc, pdb.score() asc, rating desc
-            TopN Limit: 10
+            TopK Order By: title asc, pdb.score() asc, rating desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -406,10 +406,10 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Base Scan) on score_test
          Table: score_test
          Index: score_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: title asc, author asc, rating asc, views asc, pdb.score() desc
-            TopN Limit: 5
+            TopK Order By: title asc, author asc, rating asc, views asc, pdb.score() desc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -480,10 +480,10 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Base Scan) on score_test
          Table: score_test
          Index: score_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: title asc, author asc, pdb.score() desc
-            TopN Limit: 10
+            TopK Order By: title asc, author asc, pdb.score() desc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}
 (9 rows)
 
@@ -683,10 +683,10 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                                  ->  Custom Scan (ParadeDB Base Scan) on score_test score_test_2
                                        Table: score_test
                                        Index: score_test_idx
-                                       Exec Method: TopNScanExecState
+                                       Exec Method: TopKScanExecState
                                        Scores: true
-                                          TopN Order By: pdb.score() desc
-                                          TopN Limit: 5
+                                          TopK Order By: pdb.score() desc
+                                          TopK Limit: 5
                                        Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
 (26 rows)
 

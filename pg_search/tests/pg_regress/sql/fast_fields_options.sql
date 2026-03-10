@@ -1,5 +1,5 @@
 -- Test file to demonstrate how specifying fast:true for non-text/non-json fields
--- doesn't affect the usage of TopN executor or other FastField executors
+-- doesn't affect the usage of Top K executor or other FastField executors
 
 -- Setup
 \i common/common_setup.sql
@@ -74,7 +74,7 @@ WHERE title @@@ 'product'
 ORDER BY title
 LIMIT 10;
 
--- 'Test 2: ORDER BY with LIMIT (should use TopNScanExecState)'
+-- 'Test 2: ORDER BY with LIMIT (should use TopKScanExecState)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
 FROM data_records
@@ -103,7 +103,7 @@ WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
 
--- TODO: Won't get TopN due to https://github.com/paradedb/paradedb/issues/2688.
+-- TODO: Won't get Top K due to https://github.com/paradedb/paradedb/issues/2688.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
 FROM data_records
@@ -147,7 +147,7 @@ USING bm25 (
 
 -- '--- Tests with index WITH explicit fast:true for non-text fields ---'
 
--- 'Test 4: ORDER BY with LIMIT (should use TopNScanExecState)'
+-- 'Test 4: ORDER BY with LIMIT (should use TopKScanExecState)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -206,7 +206,7 @@ USING bm25 (
 
 -- '--- Tests with index WITH explicit fast:false for non-text fields ---'
 
--- 'Test 6: ORDER BY with LIMIT (should not use TopNScanExecState, because fast:false)'
+-- 'Test 6: ORDER BY with LIMIT (should not use TopKScanExecState, because fast:false)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category

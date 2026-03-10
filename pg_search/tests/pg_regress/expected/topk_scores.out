@@ -22,10 +22,10 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: rating desc
-            TopN Limit: 5
+            TopK Order By: rating desc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
@@ -53,10 +53,10 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: rating asc, id asc
-            TopN Limit: 5
+            TopK Order By: rating asc, id asc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
@@ -84,10 +84,10 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: rating asc, id asc, category asc
-            TopN Limit: 5
+            TopK Order By: rating asc, id asc, category asc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
@@ -115,10 +115,10 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: rating asc, pdb.score() desc
-            TopN Limit: 5
+            TopK Order By: rating asc, pdb.score() desc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
@@ -146,10 +146,10 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: rating asc, pdb.score() asc, id desc
-            TopN Limit: 5
+            TopK Order By: rating asc, pdb.score() asc, id desc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
@@ -177,10 +177,10 @@ LIMIT 5;
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: rating asc, pdb.score() asc, id asc, category desc
-            TopN Limit: 5
+            TopK Order By: rating asc, pdb.score() asc, id asc, category desc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 

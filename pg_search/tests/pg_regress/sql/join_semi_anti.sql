@@ -56,7 +56,7 @@ SET paradedb.enable_join_custom_scan TO on;
 -- =====================================================================
 -- 1. Semi Join Only
 -- =====================================================================
-EXPLAIN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category
 FROM table_a
 WHERE id IN (
@@ -71,6 +71,7 @@ LIMIT 10;
 -- =====================================================================
 -- 2. Anti Join Only
 -- =====================================================================
+-- This does not trigger an anti join because Postgres cannot prove that group_id is not NULL.
 -- TODO: This query only triggers set_rel_pathlist_hook and not set_join_pathlist_hook, and so does
 -- not render our warning. See https://github.com/paradedb/paradedb/issues/4236 about resolving this.
 SELECT id, category
@@ -84,10 +85,24 @@ AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
 
+-- This does trigger an anti join because we use NOT EXISTS
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM table_b
+    WHERE table_b.a_id = table_a.id
+    AND table_b.group_id IN ('group_3', 'group_4')
+)
+AND table_a.id @@@ 'category:"target_category"'
+ORDER BY table_a.id ASC
+LIMIT 10;
+
 -- =====================================================================
 -- 3. Both Semi and Anti Join
 -- =====================================================================
--- TODO: This query should produce a warning because Anti-Joins are not supported.
+-- TODO: This query should produce a warning because only binary base table joins are supported
 SELECT id, category
 FROM table_a
 WHERE id IN (

@@ -481,10 +481,10 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
          Table: fast_test_50
          Index: idx_fast_50
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: n01 asc
-            TopN Limit: 3
+            TopK Order By: n01 asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t01:first_text OR t01:alpha","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -511,10 +511,10 @@ LIMIT 2;
    ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
          Table: fast_test_50
          Index: idx_fast_50
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: n10 desc
-            TopN Limit: 2
+            TopK Order By: n10 desc
+            TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"t01:first_text OR t01:alpha","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -1016,9 +1016,9 @@ SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_
 (1 row)
 
 ------------------------------------------------------------
--- TEST: TopN queries with pdb functions on composite fields
+-- TEST: Top K queries with pdb functions on composite fields
 ------------------------------------------------------------
--- TopN with pdb.term() on composite field, ORDER BY score
+-- Top K with pdb.term() on composite field, ORDER BY score
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, t01, pdb.score(id) as score
 FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text')
@@ -1029,10 +1029,10 @@ ORDER BY score DESC, id LIMIT 2;
    ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
          Table: fast_test_50
          Index: idx_fast_50
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 2
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"term":{"field":"t01","value":"first_text","is_datetime":false}}}}
 (9 rows)
 
@@ -1045,7 +1045,7 @@ ORDER BY score DESC, id LIMIT 2;
   3 | first_text | 0.47000363
 (2 rows)
 
--- TopN with pdb.match() on composite field, ORDER BY n01 (fast numeric field)
+-- Top K with pdb.match() on composite field, ORDER BY n01 (fast numeric field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, t01, n01
 FROM fast_test_50 WHERE t01 @@@ pdb.match('first_text OR alpha')
@@ -1056,10 +1056,10 @@ ORDER BY n01 DESC, id LIMIT 3;
    ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
          Table: fast_test_50
          Index: idx_fast_50
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: n01 desc, id asc
-            TopN Limit: 3
+            TopK Order By: n01 desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"match":{"field":"t01","value":"first_text OR alpha","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -1070,7 +1070,7 @@ ORDER BY n01 DESC, id LIMIT 3;
 ----+-----+-----
 (0 rows)
 
--- TopN with pdb functions on parallel test (large table)
+-- Top K with pdb functions on parallel test (large table)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id) as score
 FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')
@@ -1081,10 +1081,10 @@ ORDER BY score DESC, id LIMIT 1;
    ->  Custom Scan (ParadeDB Base Scan) on parallel_test
          Table: parallel_test
          Index: idx_parallel
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 1
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 1
          Tantivy Query: {"with_index":{"query":{"term":{"field":"f1","value":"field1_1000","is_datetime":false}}}}
 (9 rows)
 

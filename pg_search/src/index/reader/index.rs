@@ -54,8 +54,8 @@ use tantivy::{
 };
 
 /// The maximum number of sort-features/`OrderByInfo`s supported for
-/// `SearchIndexReader::search_top_n_in_segments`.
-pub const MAX_TOPN_FEATURES: usize = 5;
+/// `SearchIndexReader::search_top_k_in_segments`.
+pub const MAX_TOPK_FEATURES: usize = 5;
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
@@ -82,19 +82,19 @@ impl PartialOrd for SearchIndexScore {
 pub type FastFieldCache = HashMap<SegmentOrdinal, FFType>;
 
 /// See `SearchIndexReader::top_in_segments`.
-type TopNWithAggregate<T> = (
+type TopKWithAggregate<T> = (
     Vec<((T, Option<Score>), DocAddress)>,
     Option<IntermediateAggregationResults>,
 );
 
-/// A known-size iterator of results for Top-N.
-pub struct TopNSearchResults {
+/// A known-size iterator of results for Top K.
+pub struct TopKSearchResults {
     results_original_len: usize,
     results: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
     aggregation_results: Option<IntermediateAggregationResults>,
 }
 
-impl TopNSearchResults {
+impl TopKSearchResults {
     pub fn empty() -> Self {
         Self::new(vec![], None)
     }
@@ -146,7 +146,7 @@ impl TopNSearchResults {
     ///
     /// TODO: We could in theory actually render that field using a virtual tuple (for the right
     /// query), similar to what we do in fast-fields execution.
-    fn new_for_discarded_field<T>(searcher: &Searcher, results: TopNWithAggregate<T>) -> Self {
+    fn new_for_discarded_field<T>(searcher: &Searcher, results: TopKWithAggregate<T>) -> Self {
         let (results, aggregation_results) = results;
         Self::new_for_score(
             searcher,
@@ -189,7 +189,7 @@ impl PartialOrd for AscendingScore {
     }
 }
 
-impl Iterator for TopNSearchResults {
+impl Iterator for TopKSearchResults {
     type Item = (SearchIndexScore, DocAddress);
 
     #[inline]
@@ -289,20 +289,20 @@ impl Iterator for MultiSegmentSearchResults {
     }
 }
 
-/// Defines auxiliary `Collector`s that may be used in parallel/around TopN.
+/// Defines auxiliary `Collector`s that may be used in parallel/around Top K.
 ///
 /// The TopDocs collectors themselves are highly specialized based on field and query types, and so
 /// usually cannot have their types spelled all the way out: they are defined by the method calls
-/// below `search_top_n_in_segments`. This struct defines optional wrappers and neighbors for that
-/// core TopN collector.
-pub struct TopNAuxiliaryCollector {
-    /// If aggregations should be computed alongside TopN, the collector to use.
+/// below `search_top_k_in_segments`. This struct defines optional wrappers and neighbors for that
+/// core Top K collector.
+pub struct TopKAuxiliaryCollector {
+    /// If aggregations should be computed alongside Top K, the collector to use.
     pub aggregation_collector: DistributedAggregationCollector,
     /// If MVCC filtering should be applied, then the visibility checker to use for that.
     ///
-    /// Note: If enabled, visibility checking is applied to _both_ the TopN and to any
+    /// Note: If enabled, visibility checking is applied to _both_ the Top K and to any
     /// aggregation collector: this is because once you've bothered to filter for MVCC, you might
-    /// as well feed the filtered result to TopN too.
+    /// as well feed the filtered result to Top K too.
     pub vischeck: Option<VisibilityChecker>,
 }
 
@@ -695,14 +695,14 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search_top_n_unordered_in_segments(
+    pub fn search_top_k_unordered_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         n: usize,
         offset: usize,
-    ) -> TopNSearchResults {
+    ) -> TopKSearchResults {
         // Do an un-ordered search.
-        TopNSearchResults::new(
+        TopKSearchResults::new(
             self.search_segments(segment_ids)
                 .skip(offset)
                 .take(n)
@@ -711,22 +711,22 @@ impl SearchIndexReader {
         )
     }
 
-    /// Search the Tantivy index for the "top N" matching documents in specific segments.
+    /// Search the Tantivy index for the Top K matching documents in specific segments.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
     ///
-    /// If a TopNAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
+    /// If a TopKAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
     /// visibility: if a collector is _not_ provided, then it is up to the caller to filter the
     /// results for MVCC visibility, and re-query if necessary.
-    pub fn search_top_n_in_segments(
+    pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         orderby_info: &[OrderByInfo],
         n: usize,
         offset: usize,
-        aux_collector: Option<TopNAuxiliaryCollector>,
-    ) -> TopNSearchResults {
+        aux_collector: Option<TopKAuxiliaryCollector>,
+    ) -> TopKSearchResults {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {
@@ -739,7 +739,7 @@ impl SearchIndexReader {
                     .expect("sort field should exist in index schema");
                 let order: ComparatorEnum = (*direction).into();
                 match field.field_entry().field_type().value_type() {
-                    tantivy::schema::Type::Str => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::Str => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -750,7 +750,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::U64 => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::U64 => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -761,7 +761,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::I64 => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::I64 => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -772,7 +772,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::F64 => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::F64 => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -783,7 +783,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::Bool => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::Bool => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -794,7 +794,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::Date => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::Date => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -808,7 +808,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::Bytes => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::Bytes => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -847,7 +847,7 @@ impl SearchIndexReader {
                     offset,
                     aux_collector,
                 );
-                TopNSearchResults::new_for_score(
+                TopKSearchResults::new_for_score(
                     &self.searcher,
                     top_docs.into_iter().map(|((f, _), doc)| (f, doc)),
                     aggregation_results,
@@ -863,13 +863,13 @@ impl SearchIndexReader {
         }
     }
 
-    /// Called by `search_top_n_in_segments`.
+    /// Called by `search_top_k_in_segments`.
     ///
-    /// `search_top_n_in_segments` is specialized for all combinations of:
+    /// `search_top_k_in_segments` is specialized for all combinations of:
     /// 1. first sort field type -- via the generic `S: SortKeyComputer` parameter of this method. This
     ///    gets us unboxed/optimized comparison for the first feature, which always receives more
     ///    comparison than the remaining features (sometimes a lot more).
-    /// 2. supported sort field counts (from 1 to MAX_TOPN_FEATURES) -- by calls to
+    /// 2. supported sort field counts (from 1 to MAX_TOPK_FEATURES) -- by calls to
     ///    `top_for_orderable_in_segments` for varying tuple lengths. Ordering on tuples is what is
     ///    supported by `TopDocs::order_by`, because it avoids allocation, and allows for the most
     ///    inlining of comparisons.
@@ -886,8 +886,8 @@ impl SearchIndexReader {
         mut erased_features: ErasedFeatures,
         n: usize,
         offset: usize,
-        aux_collector: Option<TopNAuxiliaryCollector>,
-    ) -> TopNWithAggregate<S::SortKey>
+        aux_collector: Option<TopKAuxiliaryCollector>,
+    ) -> TopKWithAggregate<S::SortKey>
     where
         S: SortKeyComputer + Clone + Send + 'static,
     {
@@ -1010,11 +1010,11 @@ impl SearchIndexReader {
                 if erased_features.score_index() == Some(x - 1) {
                     panic!(
                         "Unsupported sort-field count: {}. At most {} are supported when `pdb.score` is requested.",
-                        x, MAX_TOPN_FEATURES - 1
+                        x, MAX_TOPK_FEATURES - 1
                     )
                 } else {
                     panic!(
-                        "Unsupported sort-field count: {}. At most {MAX_TOPN_FEATURES} are supported.",
+                        "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
                         x + 1,
                     )
                 }
@@ -1036,8 +1036,8 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
         offset: usize,
-        aux_collector: Option<TopNAuxiliaryCollector>,
-    ) -> TopNSearchResults {
+        aux_collector: Option<TopKAuxiliaryCollector>,
+    ) -> TopKSearchResults {
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::AscNullsFirst | SortDirection::AscNullsLast => {
@@ -1052,7 +1052,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
-                TopNSearchResults::new_for_score(
+                TopKSearchResults::new_for_score(
                     &self.searcher,
                     top_docs
                         .into_iter()
@@ -1068,7 +1068,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
-                TopNSearchResults::new_for_score(&self.searcher, top_docs, aggregation_results)
+                TopKSearchResults::new_for_score(&self.searcher, top_docs, aggregation_results)
             }
         }
     }
@@ -1267,7 +1267,7 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         top_docs_collector: C,
-        aux_collector: Option<TopNAuxiliaryCollector>,
+        aux_collector: Option<TopKAuxiliaryCollector>,
     ) -> (C::Fruit, Option<IntermediateAggregationResults>) {
         let query = self.query();
         let weight = query
@@ -1279,7 +1279,7 @@ impl SearchIndexReader {
             let fruits = self.collect_segments(segment_ids, &top_docs_collector, weight.as_ref());
             let top_docs = top_docs_collector
                 .merge_fruits(fruits)
-                .expect("should be able to merge top-n in segments");
+                .expect("should be able to merge Top K in segments");
             return (top_docs, None);
         };
 
@@ -1292,13 +1292,13 @@ impl SearchIndexReader {
             let fruits = self.collect_segments(segment_ids, &collector, weight.as_ref());
             let (top_docs, aggregation_results) = collector
                 .merge_fruits(fruits)
-                .expect("should be able to merge top-n in segment");
+                .expect("should be able to merge Top K in segment");
             (top_docs, Some(aggregation_results))
         } else {
             let fruits = self.collect_segments(segment_ids, &compound_collector, weight.as_ref());
             let (top_docs, aggregation_results) = compound_collector
                 .merge_fruits(fruits)
-                .expect("should be able to merge top-n in segment");
+                .expect("should be able to merge Top K in segment");
             (top_docs, Some(aggregation_results))
         }
     }
@@ -1355,7 +1355,7 @@ impl SearchIndexReader {
     }
 
     /// NOTE: It is very important that this method consumes the input SegmentIds lazily, because
-    /// some callers (the TopN exec method in particular) are producing them lazily by checking
+    /// some callers (the Top K exec method in particular) are producing them lazily by checking
     /// them out of shared mutable state as they go.
     ///
     /// TODO: See https://github.com/paradedb/paradedb/issues/2758 about removing the O(N) behavior

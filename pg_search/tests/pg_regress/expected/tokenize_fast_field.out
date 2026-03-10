@@ -33,10 +33,10 @@ LIMIT 5;
          Output: id, description
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: description asc
-            TopN Limit: 5
+            TopK Order By: description asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 
@@ -104,10 +104,10 @@ LIMIT 5;
          Output: id, description, lower(description)
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: description asc
-            TopN Limit: 5
+            TopK Order By: description asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
 

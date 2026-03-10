@@ -490,10 +490,10 @@ SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_
 SELECT COUNT(*) AS fast_match FROM fast_test_50 WHERE t20 @@@ pdb.match('middle_text');
 
 ------------------------------------------------------------
--- TEST: TopN queries with pdb functions on composite fields
+-- TEST: Top K queries with pdb functions on composite fields
 ------------------------------------------------------------
 
--- TopN with pdb.term() on composite field, ORDER BY score
+-- Top K with pdb.term() on composite field, ORDER BY score
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, t01, pdb.score(id) as score
 FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text')
@@ -502,7 +502,7 @@ SELECT id, t01, pdb.score(id) as score
 FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text')
 ORDER BY score DESC, id LIMIT 2;
 
--- TopN with pdb.match() on composite field, ORDER BY n01 (fast numeric field)
+-- Top K with pdb.match() on composite field, ORDER BY n01 (fast numeric field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, t01, n01
 FROM fast_test_50 WHERE t01 @@@ pdb.match('first_text OR alpha')
@@ -511,7 +511,7 @@ SELECT id, t01, n01
 FROM fast_test_50 WHERE t01 @@@ pdb.match('first_text OR alpha')
 ORDER BY n01 DESC, id LIMIT 3;
 
--- TopN with pdb functions on parallel test (large table)
+-- Top K with pdb functions on parallel test (large table)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id) as score
 FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')

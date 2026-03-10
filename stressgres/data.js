@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773104283399,
+  "lastUpdate": 1773104290604,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34740,6 +34740,114 @@ window.BENCHMARK_DATA = {
             "value": 170.45703125,
             "unit": "median mem",
             "extra": "avg mem: 167.64600664385168, max mem: 171.4296875, count: 55446"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "966f0a18a351e07aa0176c495f1405731110ba5d",
+          "message": "perf: Set minimum supported CPU era for SIMD auto-vectorization (#4254)\n\n## Summary\n\n- Configure per-target-triple `-Ctarget-cpu` flags in\n`.cargo/config.toml` to enable SIMD auto-vectorization: `x86-64-v3`\n(AVX2/FMA — Haswell 2013+), `cortex-a76` (Graviton 2+), `apple-m1`\n(Apple Silicon)\n- Add `rustflags: \"\"` to all publish and benchmark CI workflows so the\n`RUSTFLAGS` env var from `setup-rust-toolchain` doesn't override the\nconfig.toml target-cpu flags\n\nCloses #3862",
+          "timestamp": "2026-03-09T19:55:23-04:00",
+          "tree_id": "3325c4dd0bea803764849647757ff71cc66591c2",
+          "url": "https://github.com/paradedb/paradedb/commit/966f0a18a351e07aa0176c495f1405731110ba5d"
+        },
+        "date": 1773104285074,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.220653678463727, max cpu: 48.096195, count: 55817"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 173.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 144.8594146804513, max mem: 176.62109375, count: 55817"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.684275549545279, max cpu: 27.934044, count: 55817"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 119.36312812684756, max mem: 120.65625, count: 55817"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.934480953700847, max cpu: 18.568666, count: 55817"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 174.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 145.03658544607825, max mem: 177.5390625, count: 55817"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16426,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16792.243510041742, max block_count: 31135.0, count: 55817"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.2722835453508665, max cpu: 4.6421666, count: 55817"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 112.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 97.74848521451798, max mem: 138.625, count: 55817"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.62857194044825, max segment_count: 36.0, count: 55817"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.173642240788617, max cpu: 28.346458, count: 111634"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 177.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.07414600250596, max mem: 179.01171875, count: 111634"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.248723989374495, max cpu: 27.906979, count: 55817"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.89538203526703, max mem: 171.7890625, count: 55817"
           }
         ]
       }

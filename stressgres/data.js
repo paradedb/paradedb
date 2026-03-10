@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773105075646,
+  "lastUpdate": 1773105084600,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47660,6 +47660,186 @@ window.BENCHMARK_DATA = {
             "value": 33.1015625,
             "unit": "median mem",
             "extra": "avg mem: 32.46955887909612, max mem: 33.52734375, count: 53923"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "966f0a18a351e07aa0176c495f1405731110ba5d",
+          "message": "perf: Set minimum supported CPU era for SIMD auto-vectorization (#4254)\n\n## Summary\n\n- Configure per-target-triple `-Ctarget-cpu` flags in\n`.cargo/config.toml` to enable SIMD auto-vectorization: `x86-64-v3`\n(AVX2/FMA — Haswell 2013+), `cortex-a76` (Graviton 2+), `apple-m1`\n(Apple Silicon)\n- Add `rustflags: \"\"` to all publish and benchmark CI workflows so the\n`RUSTFLAGS` env var from `setup-rust-toolchain` doesn't override the\nconfig.toml target-cpu flags\n\nCloses #3862",
+          "timestamp": "2026-03-09T19:55:23-04:00",
+          "tree_id": "3325c4dd0bea803764849647757ff71cc66591c2",
+          "url": "https://github.com/paradedb/paradedb/commit/966f0a18a351e07aa0176c495f1405731110ba5d"
+        },
+        "date": 1773105079142,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.98778217639574, max cpu: 13.806328, count: 53905"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 50.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.11725358848901, max mem: 55.953125, count: 53905"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.532578,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.539816957073077, max cpu: 4.6065254, count: 53905"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 31.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.7663040012522, max mem: 31.7578125, count: 53905"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.55279781737572, max cpu: 18.768328, count: 53905"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 53.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.59252098599388, max mem: 59.7421875, count: 53905"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.993601276746846, max cpu: 9.275363, count: 53905"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 49.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.85975877701512, max mem: 55.671875, count: 53905"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6321695499667195, max cpu: 9.248554, count: 53905"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.18493646229478, max mem: 38.3671875, count: 53905"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1087,
+            "unit": "median pages",
+            "extra": "avg pages: 1098.8380855208236, max pages: 1830.0, count: 53905"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.4921875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.584672688062332, max relation_size:MB: 14.296875, count: 53905"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.546517020684538, max segment_count: 17.0, count: 53905"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.17399457579869, max cpu: 4.6065254, count: 53905"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.592248588373064, max mem: 29.6796875, count: 53905"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.12896576715734, max cpu: 4.610951, count: 53905"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.61929899823764, max mem: 29.68359375, count: 53905"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.471183791349032, max cpu: 23.054754, count: 53905"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 47.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.99956549717095, max mem: 53.83203125, count: 53905"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000038774817830920714, max replication_lag:MB: 0.319000244140625, count: 53905"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.134129788018991, max cpu: 13.859479, count: 107810"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 48.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.54186651429598, max mem: 54.578125, count: 107810"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.331975021036007, max cpu: 4.6065254, count: 53905"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.458170479315463, max mem: 32.46875, count: 53905"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.1972513070080217, max cpu: 4.6153846, count: 53905"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 32.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 31.565019768574345, max mem: 32.47265625, count: 53905"
           }
         ]
       }

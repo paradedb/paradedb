@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773102677257,
+  "lastUpdate": 1773103497108,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19758,6 +19758,54 @@ window.BENCHMARK_DATA = {
             "value": 5.354718765048258,
             "unit": "median tps",
             "extra": "avg tps: 5.391142499189804, max tps: 7.292614949697292, count: 56203"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "966f0a18a351e07aa0176c495f1405731110ba5d",
+          "message": "perf: Set minimum supported CPU era for SIMD auto-vectorization (#4254)\n\n## Summary\n\n- Configure per-target-triple `-Ctarget-cpu` flags in\n`.cargo/config.toml` to enable SIMD auto-vectorization: `x86-64-v3`\n(AVX2/FMA — Haswell 2013+), `cortex-a76` (Graviton 2+), `apple-m1`\n(Apple Silicon)\n- Add `rustflags: \"\"` to all publish and benchmark CI workflows so the\n`RUSTFLAGS` env var from `setup-rust-toolchain` doesn't override the\nconfig.toml target-cpu flags\n\nCloses #3862",
+          "timestamp": "2026-03-09T19:55:23-04:00",
+          "tree_id": "3325c4dd0bea803764849647757ff71cc66591c2",
+          "url": "https://github.com/paradedb/paradedb/commit/966f0a18a351e07aa0176c495f1405731110ba5d"
+        },
+        "date": 1773103491502,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1038.78099337311,
+            "unit": "median tps",
+            "extra": "avg tps: 1038.1170440846483, max tps: 1133.5244556398623, count: 56330"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1287.409485599333,
+            "unit": "median tps",
+            "extra": "avg tps: 1277.7046392058455, max tps: 1296.9070788109734, count: 56330"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1834.4532690974163,
+            "unit": "median tps",
+            "extra": "avg tps: 1809.311802138729, max tps: 2036.6103171245486, count: 56330"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.276260592235508,
+            "unit": "median tps",
+            "extra": "avg tps: 5.315737092402312, max tps: 7.110374362561161, count: 56330"
           }
         ]
       }

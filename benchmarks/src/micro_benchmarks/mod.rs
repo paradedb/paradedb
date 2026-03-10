@@ -20,7 +20,7 @@ mod fast_field_benchmarks;
 
 pub use benchmark_data_setup::{create_bm25_index, setup_benchmark_database};
 pub use fast_field_benchmarks::{
-    benchmark_mixed_fast_fields, check_execution_plan_metrics, collect_json_field_values,
+    benchmark_columnar, check_execution_plan_metrics, collect_json_field_values,
     detect_exec_method, display_results, run_benchmark, run_benchmarks_with_methods,
     set_execution_method, BenchmarkConfig, BenchmarkResult,
 };

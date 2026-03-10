@@ -44,11 +44,11 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
 
 ------------------------------------------------------------
--- TEST: MixedFastFieldExecState with ROW expression fields
+-- TEST: ColumnarExecState with ROW expression fields
 ------------------------------------------------------------
 
-SET paradedb.enable_mixed_fast_field_exec = true;
-SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.columnar_exec_column_threshold = 100;
 
 -- Composite type using pdb.literal to enable fast fields
 CREATE TYPE fast_article_search AS (
@@ -79,8 +79,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
 SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
 
-RESET paradedb.enable_mixed_fast_field_exec;
-RESET paradedb.mixed_fast_field_exec_column_threshold;
+RESET paradedb.enable_columnar_exec;
+RESET paradedb.columnar_exec_column_threshold;
 
 ------------------------------------------------------------
 -- TEST: Composite type with more than 32 fields
@@ -1147,7 +1147,7 @@ ORDER BY id;
 ------------------------------------------------------------
 \echo '=== TEST: EXPLAIN Plans ==='
 
--- NormalScanExecState / MixedFastFieldExecState - basic search
+-- NormalScanExecState / ColumnarExecState - basic search
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM smoke_test
 WHERE id @@@ pdb.parse('name:Shoes');

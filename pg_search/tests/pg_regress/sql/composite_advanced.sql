@@ -521,55 +521,55 @@ FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')
 ORDER BY score DESC, id LIMIT 1;
 
 ------------------------------------------------------------
--- TEST: MixedFastFieldExecState with composite fields
+-- TEST: ColumnarExecState with composite fields
 -- Verifies that fields indexed ONLY via composite expressions
--- can be projected using MixedFastFieldExecState
+-- can be projected using ColumnarExecState
 ------------------------------------------------------------
-\echo '=== TEST: MixedFastFieldExecState with Composite Fields ==='
+\echo '=== TEST: ColumnarExecState with Composite Fields ==='
 
-DROP TYPE IF EXISTS mixedff_comp CASCADE;
-CREATE TYPE mixedff_comp AS (priority INTEGER, created_at DATE);
+DROP TYPE IF EXISTS columnar_comp CASCADE;
+CREATE TYPE columnar_comp AS (priority INTEGER, created_at DATE);
 
-DROP TABLE IF EXISTS mixedff_comp_test CASCADE;
-CREATE TABLE mixedff_comp_test (
+DROP TABLE IF EXISTS columnar_comp_test CASCADE;
+CREATE TABLE columnar_comp_test (
     id SERIAL PRIMARY KEY,
     content TEXT,
     priority INTEGER,
     created_at DATE
 );
 
-INSERT INTO mixedff_comp_test (content, priority, created_at) VALUES
+INSERT INTO columnar_comp_test (content, priority, created_at) VALUES
     ('item alpha', 10, '2024-01-01'),
     ('item beta', 30, '2024-01-02'),
     ('item gamma', 20, '2024-01-03'),
     ('item delta', 40, '2024-01-04');
 
 -- Create index with priority ONLY in composite (not as direct column)
-CREATE INDEX mixedff_comp_test_idx ON mixedff_comp_test
-USING bm25 (id, content, (ROW(priority, created_at)::mixedff_comp))
+CREATE INDEX columnar_comp_test_idx ON columnar_comp_test
+USING bm25 (id, content, (ROW(priority, created_at)::columnar_comp))
 WITH (
     key_field = 'id',
     sort_by = 'priority DESC NULLS LAST'
 );
 
 -- Verify schema shows priority as fast field
-SELECT name, field_type, fast FROM paradedb.schema('mixedff_comp_test_idx')
+SELECT name, field_type, fast FROM paradedb.schema('columnar_comp_test_idx')
 WHERE name = 'priority';
 
--- Should use MixedFastFieldExecState (not NormalScanExecState)
+-- Should use ColumnarExecState (not NormalScanExecState)
 -- and NO Sort node because sorted path is available
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, priority FROM mixedff_comp_test
+SELECT id, priority FROM columnar_comp_test
 WHERE content @@@ 'item'
 ORDER BY priority DESC NULLS LAST;
 
 -- Verify correct sorted results
-SELECT id, priority FROM mixedff_comp_test
+SELECT id, priority FROM columnar_comp_test
 WHERE content @@@ 'item'
 ORDER BY priority DESC NULLS LAST;
 
-DROP TABLE mixedff_comp_test CASCADE;
-DROP TYPE mixedff_comp CASCADE;
+DROP TABLE columnar_comp_test CASCADE;
+DROP TYPE columnar_comp CASCADE;
 
 ------------------------------------------------------------
 -- TEST: Expression-based indexing (fast fields + sorted path)
@@ -617,7 +617,7 @@ CREATE INDEX comp_test_idx ON comp_test
 USING bm25 (id, name, (ROW(priority, created)::my_comp))
 WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST');
 
--- Should use MixedFastFieldExecState and NO Sort node
+-- Should use ColumnarExecState and NO Sort node
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, priority FROM comp_test WHERE name @@@ 'foo' ORDER BY priority DESC NULLS LAST;
 
@@ -669,7 +669,7 @@ CREATE INDEX func_expr_idx ON func_expr_test
 USING bm25 (id, name, (ABS(val)::pdb.alias('abs_val')))
 WITH (key_field = 'id', sort_by = 'abs_val DESC NULLS LAST');
 
--- MixedFastFieldExecState is used for projection, but ORDER BY still sorts.
+-- ColumnarExecState is used for projection, but ORDER BY still sorts.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ABS(val) FROM func_expr_test WHERE name @@@ 'foo' ORDER BY ABS(val) DESC NULLS LAST;
 

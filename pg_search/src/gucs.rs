@@ -46,12 +46,12 @@ static ENABLE_FILTER_PUSHDOWN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the FastFieldsExecState executor. Default is `true`.
 static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `true`.
-static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// Allows the user to enable or disable the ColumnarExecState executor. Default is `true`.
+static ENABLE_COLUMNAR_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to enable or disable sorted execution for MixedFastFieldExecState.
+/// Allows the user to enable or disable sorted execution for ColumnarExecState.
 /// When disabled, sorted paths will not be created even if the index has sort_by.
-static ENABLE_MIXED_FAST_FIELD_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
+static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// In a Top K query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
@@ -71,16 +71,15 @@ static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>:
 /// For testing, ensures the same handling of null aggregates as Postgres
 static ADD_DOC_COUNT_TO_AGGS: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
-/// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
+/// The number of fast-field columns below-which the ColumnarExecState will be used, rather
+/// than the NormalExecState. The Columnar execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
 ///
 /// Each fetch from a fast-field column costs one or two disk seeks, whereas a fetch of a row
 /// generally costs one. But with a wide enough row, fetching multiple columns might still result
 /// in better cache performance than fetching a row.
-static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(3);
-static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &CStr =
-    c"paradedb.mixed_fast_field_exec_column_threshold";
+static COLUMNAR_EXEC_COLUMN_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(3);
+static COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME: &CStr = c"paradedb.columnar_exec_column_threshold";
 
 /// The `PER_TUPLE_COST` is an arbitrary value that needs to be really high.  In fact, we default
 /// to one hundred million.
@@ -186,29 +185,29 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.enable_mixed_fast_field_exec",
-        c"Enable MixedFastFieldExecState executor",
-        c"Enable the MixedFastFieldExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
-        &ENABLE_MIXED_FAST_FIELD_EXEC,
+        c"paradedb.enable_columnar_exec",
+        c"Enable ColumnarExecState executor",
+        c"Enable the ColumnarExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
+        &ENABLE_COLUMNAR_EXEC,
         GucContext::Userset,
         GucFlags::default(),
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.enable_mixed_fast_field_sort",
-        c"Enable sorted execution for MixedFastFieldExecState",
-        c"Enable sorted execution for MixedFastFieldExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
-                &ENABLE_MIXED_FAST_FIELD_SORT,
+        c"paradedb.enable_columnar_sort",
+        c"Enable sorted execution for ColumnarExecState",
+        c"Enable sorted execution for ColumnarExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
+                &ENABLE_COLUMNAR_SORT,
                 GucContext::Userset,
                 GucFlags::default(),
             );
 
     GucRegistry::define_int_guc(
-                MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which MixedFastFieldExecState will be used.",
-        c"The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather \
-         than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas \
+                COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which ColumnarExecState will be used.",
+        c"The number of fast-field columns below-which the ColumnarExecState will be used, rather \
+         than the NormalExecState. The Columnar execution mode fetches data as column-oriented, whereas \
          the Normal mode fetches data as row-oriented.",
-        &MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD,
+        &COLUMNAR_EXEC_COLUMN_THRESHOLD,
         0,
         i32::MAX,
         GucContext::Userset,
@@ -414,24 +413,22 @@ pub fn is_fast_field_exec_enabled() -> bool {
     ENABLE_FAST_FIELD_EXEC.get()
 }
 
-pub fn is_mixed_fast_field_exec_enabled() -> bool {
-    ENABLE_MIXED_FAST_FIELD_EXEC.get()
+pub fn is_columnar_exec_enabled() -> bool {
+    ENABLE_COLUMNAR_EXEC.get()
 }
 
-pub fn is_mixed_fast_field_sort_enabled() -> bool {
-    ENABLE_MIXED_FAST_FIELD_SORT.get()
+pub fn is_columnar_sort_enabled() -> bool {
+    ENABLE_COLUMNAR_SORT.get()
 }
 
-pub fn mixed_fast_field_exec_column_threshold() -> usize {
-    MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD
+pub fn columnar_exec_column_threshold() -> usize {
+    COLUMNAR_EXEC_COLUMN_THRESHOLD
         .get()
         .try_into()
         .unwrap_or_else(|e| {
             panic!(
                 "{} must be positive. {e}",
-                MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME
-                    .to_str()
-                    .unwrap()
+                COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME.to_str().unwrap()
             );
         })
 }

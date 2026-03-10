@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- ============================================================================
 -- NUMERIC PUSHDOWN TESTS
 -- ============================================================================
@@ -561,7 +561,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0","is_datetime":false}}]}}
@@ -591,7 +591,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"99999999.99","is_datetime":false}}]}}
@@ -621,7 +621,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"-99999999.99","is_datetime":false}}]}}
@@ -651,7 +651,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric_edge_test
          Index: numeric_edge_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-0.01"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"0.01"},"is_datetime":false}}]}}
@@ -706,7 +706,7 @@ ORDER BY id;
          Output: id, big_int
          Table: numeric_precision_test
          Index: numeric_precision_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: big_int, id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_int","value":"123456789012345678","is_datetime":false}}]}}
@@ -745,7 +745,7 @@ ORDER BY id;
          Output: id, big_int
          Table: numeric_precision_test
          Index: numeric_precision_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: big_int, id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_int","lower_bound":{"included":"123456789012345678"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"big_int","lower_bound":null,"upper_bound":{"included":"123456789012345679"},"is_datetime":false}}]}}
@@ -798,7 +798,7 @@ ORDER BY id;
          Output: id, precise_value
          Table: numeric_bytes_precision_test
          Index: numeric_bytes_precision_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, precise_value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"precise_value","value":"12345678901234567890.12345678901234567890123456789","is_datetime":false}}]}}
@@ -1045,7 +1045,7 @@ ORDER BY id;
          Output: id, val
          Table: large_decimal_test
          Index: large_decimal_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"val","value":"1.123456789012345678901234567890123456789","is_datetime":false}}}}
@@ -1118,7 +1118,7 @@ ORDER BY id;
          Output: id, val
          Table: large_decimal_range_test
          Index: large_decimal_range_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"range":{"field":"val","lower_bound":{"included":"1.000000000000000000000000000000000000002"},"upper_bound":{"excluded":"1.000000000000000000000000000000000000005"},"is_datetime":false}}}}
@@ -1257,7 +1257,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric64_decimal_compare_test
          Index: numeric64_decimal_compare_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"val","value":"12.35","is_datetime":false}}}}
@@ -1348,7 +1348,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric_large_precision_test
          Index: numeric_large_precision_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"1","is_datetime":false}}]}}
@@ -1378,7 +1378,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric_large_precision_test
          Index: numeric_large_precision_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"2"},"is_datetime":false}}]}}
@@ -1446,7 +1446,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric_very_large_test
          Index: numeric_very_large_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"42.123456789","is_datetime":false}}]}}
@@ -1505,7 +1505,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric_unbounded_test
          Index: numeric_unbounded_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"1","is_datetime":false}}]}}
@@ -1535,7 +1535,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric_unbounded_test
          Index: numeric_unbounded_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-2"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"5"},"is_datetime":false}}]}}
@@ -1607,7 +1607,7 @@ ORDER BY id;
          Output: id, val
          Table: numeric_high_scale_test
          Index: numeric_high_scale_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"3"},"is_datetime":false}}]}}
@@ -1850,7 +1850,7 @@ ORDER BY id;
          Output: id, value
          Table: float8_test
          Index: float8_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":100.5,"is_datetime":false}}]}}
@@ -1880,7 +1880,7 @@ ORDER BY id;
          Output: id, value
          Table: float8_test
          Index: float8_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"excluded":200.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"excluded":500.0},"is_datetime":false}}]}}
@@ -1934,7 +1934,7 @@ ORDER BY id;
          Output: id, val
          Table: sci_notation_test
          Index: sci_notation_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"1000000"},"upper_bound":null,"is_datetime":false}}]}}
@@ -1964,7 +1964,7 @@ ORDER BY id;
          Output: id, val
          Table: sci_notation_test
          Index: sci_notation_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"2500","is_datetime":false}}]}}
@@ -2012,7 +2012,7 @@ ORDER BY id;
          Output: id, val
          Table: small_decimal_test
          Index: small_decimal_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0.0000000000000001","is_datetime":false}}]}}
@@ -2042,7 +2042,7 @@ ORDER BY id;
          Output: id, val
          Table: small_decimal_test
          Index: small_decimal_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0.0000000000000001"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.00000000000001"},"is_datetime":false}}]}}
@@ -2091,7 +2091,7 @@ ORDER BY id;
          Output: id, val
          Table: max_scale_test
          Index: max_scale_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"0.123456789012345678","is_datetime":false}}]}}
@@ -2121,7 +2121,7 @@ ORDER BY id;
          Output: id, val
          Table: max_scale_test
          Index: max_scale_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"0"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"0.5"},"is_datetime":false}}]}}
@@ -2150,7 +2150,7 @@ WHERE id @@@ paradedb.all();
          Output: val
          Table: max_scale_test
          Index: max_scale_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: val
          Scores: false
          Full Index Scan: true
@@ -2203,7 +2203,7 @@ ORDER BY id;
          Output: id, val
          Table: negative_scale_test
          Index: negative_scale_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"12000","is_datetime":false}}]}}
@@ -2233,7 +2233,7 @@ ORDER BY id;
          Output: id, val
          Table: negative_scale_test
          Index: negative_scale_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"10000"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"20000"},"is_datetime":false}}]}}
@@ -2273,7 +2273,7 @@ WHERE id @@@ paradedb.all();
          Output: val
          Table: negative_scale_test
          Index: negative_scale_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: val
          Scores: false
          Full Index Scan: true
@@ -2375,7 +2375,7 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null,"is_datetime":false}}]}}
@@ -2406,7 +2406,7 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"},"is_datetime":false}}]}}
@@ -2436,7 +2436,7 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null,"is_datetime":false}}]}}
@@ -2467,7 +2467,7 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"},"is_datetime":false}}]}}
@@ -2499,7 +2499,7 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric64_test
          Index: nan_numeric64_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"},"is_datetime":false}}]}}
@@ -2575,7 +2575,7 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric_bytes_test
          Index: nan_numeric_bytes_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null,"is_datetime":false}}]}}
@@ -2606,7 +2606,7 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric_bytes_test
          Index: nan_numeric_bytes_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"},"is_datetime":false}}]}}
@@ -2636,7 +2636,7 @@ ORDER BY id;
          Output: id, val
          Table: nan_numeric_bytes_test
          Index: nan_numeric_bytes_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"},"is_datetime":false}}]}}
@@ -2691,7 +2691,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"100","is_datetime":false}}]}}
@@ -2721,7 +2721,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"NaN","is_datetime":false}}]}}
@@ -2751,7 +2751,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"Infinity","is_datetime":false}}]}}
@@ -2781,7 +2781,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"-Infinity","is_datetime":false}}]}}
@@ -2812,7 +2812,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"50"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"250"},"is_datetime":false}}]}}
@@ -2844,7 +2844,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"250"},"upper_bound":null,"is_datetime":false}}]}}
@@ -2876,7 +2876,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"-50"},"is_datetime":false}}]}}
@@ -2947,7 +2947,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null,"is_datetime":false}}]}}
@@ -2979,7 +2979,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"200"},"is_datetime":false}}]}}
@@ -3013,7 +3013,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-Infinity"},"upper_bound":null,"is_datetime":false}}]}}
@@ -3050,7 +3050,7 @@ ORDER BY id;
          Output: id, val
          Table: special_values_test
          Index: special_values_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"Infinity"},"is_datetime":false}}]}}
@@ -3177,7 +3177,7 @@ WHERE id @@@ paradedb.all();
          Output: val_small
          Table: numeric_precision_only_test
          Index: numeric_prec_only_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: val_small
          Scores: false
          Full Index Scan: true
@@ -3293,7 +3293,7 @@ ORDER BY id;
          Output: id, val
          Table: empty_range_test
          Index: empty_range_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, val
          Scores: false
          Tantivy Query: {"with_index":{"query":{"empty":{"field":"val"}}}}

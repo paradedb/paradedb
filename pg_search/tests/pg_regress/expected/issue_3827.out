@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- PG18 RTE_GROUP regression (issue #3827)
 SET paradedb.enable_aggregate_custom_scan TO on;
 DROP TABLE IF EXISTS issue_3827_t CASCADE;
@@ -165,7 +165,7 @@ DROP TABLE issue_3827_t;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
-RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.enable_columnar_exec;
 SELECT 'Common tests cleanup complete' AS status; 
             status             
 -------------------------------

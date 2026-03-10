@@ -69,7 +69,7 @@ WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column (tabl
                ->  Custom Scan (ParadeDB Base Scan) on products
                      Table: products
                      Index: products_idx
-                     Exec Method: MixedFastFieldExecState
+                     Exec Method: ColumnarExecState
                      Fast Fields: id, rating
                      Scores: false
                      Full Index Scan: true

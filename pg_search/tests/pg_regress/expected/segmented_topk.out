@@ -596,6 +596,86 @@ LIMIT 5;
 (5 rows)
 
 -- =============================================================================
+-- TEST 12: Multi-segment global threshold pruning
+--
+-- Forces the probe-side table (stk_files) into multiple segments via
+-- mutable_segment_rows, then runs a HashJoin + ORDER BY title LIMIT K.
+-- After flushing segment 0's top K, SegmentedTopKExec publishes a global
+-- threshold expressed as a string literal. The scanner translates it to
+-- per-segment ordinal bounds and prunes rows from later segments at scan
+-- level before they ever reach SegmentedTopKExec.
+-- =============================================================================
+DROP TABLE IF EXISTS stk_files CASCADE;
+DROP TABLE IF EXISTS stk_documents CASCADE;
+CREATE TABLE stk_documents (
+    id TEXT PRIMARY KEY,
+    category TEXT
+);
+INSERT INTO stk_documents (id, category) VALUES
+('doc-01', 'PROJECT_ALPHA design review'),
+('doc-02', 'BETA_GROUP budget overview'),
+('doc-03', 'PROJECT_ALPHA roadmap planning'),
+('doc-04', 'GAMMA_DIVISION quarterly report'),
+('doc-05', 'PROJECT_ALPHA feedback notes');
+CREATE TABLE stk_files (
+    id SERIAL PRIMARY KEY,
+    document_id TEXT,
+    title TEXT,
+    content TEXT
+);
+-- Create indexes BEFORE inserting data so inserts go through the mutable
+-- segment pathway, producing multiple segments.
+CREATE INDEX stk_documents_bm25_idx ON stk_documents USING bm25 (id, category)
+WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+CREATE INDEX stk_files_bm25_idx ON stk_files USING bm25 (id, document_id, title, content)
+WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}', mutable_segment_rows = 5000);
+-- Insert 50K files across multiple segments (mutable_segment_rows=5000).
+-- Round-robin across the 5 documents. Titles zero-padded for clean sort.
+INSERT INTO stk_files (document_id, title, content)
+SELECT
+    'doc-' || LPAD(((i - 1) % 5 + 1)::TEXT, 2, '0'),
+    'File Title ' || LPAD(i::TEXT, 5, '0'),
+    'file content for item ' || i
+FROM generate_series(1, 50000) AS i;
+ANALYZE stk_files;
+ANALYZE stk_documents;
+-- Ground truth: optimization OFF
+SET paradedb.enable_segmented_topk = off;
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 5;
+ id |      title       
+----+------------------
+  1 | File Title 00001
+  3 | File Title 00003
+  5 | File Title 00005
+  6 | File Title 00006
+  8 | File Title 00008
+(5 rows)
+
+-- With optimization ON: results must match ground truth.
+SET paradedb.enable_segmented_topk = on;
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 5;
+ id |      title       
+----+------------------
+  1 | File Title 00001
+  3 | File Title 00003
+  5 | File Title 00005
+  6 | File Title 00006
+  8 | File Title 00008
+(5 rows)
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE stk_files CASCADE;

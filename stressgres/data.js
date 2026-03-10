@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773182330684,
+  "lastUpdate": 1773183119123,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30152,6 +30152,60 @@ window.BENCHMARK_DATA = {
             "value": 15.82126740459677,
             "unit": "median tps",
             "extra": "avg tps: 15.853333096270747, max tps: 20.13918796981579, count: 55330"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2fee78f2dca0836179001f4bb3b6a4d55b7cb31e",
+          "message": "feat: Support semi and anti join in the same query (#4315)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAllows for a query to be pushed down if it contains both a semi and anti\njoin:\n\n```sql\nSELECT id, category\nFROM table_a\nWHERE id IN (\n    SELECT a_id\n    FROM table_b\n    WHERE group_id IN ('group_1')\n)\nAND id NOT IN (\n    SELECT a_id\n    FROM table_b\n    WHERE group_id IN ('group_3', 'group_4')\n)\nAND id @@@ 'category:\"target_category\"'\nORDER BY id ASC\nLIMIT 10;\n```\n\nThe main thing is that subqueries can reference the same relation, so we\nneed to build DataFusion plans without ambiguous bindings.\n\nJoin sources now carry two identities:\n\n1. `root_id`, which tracks which PostgreSQL planner root a source came\nfrom. i.e. a subquery can have a different root than the rest of the\nquery\n2. `plan_position`, which gives each source a stable position within the\nflattened join plan (before we were relying on `rti`, which is only\nunique within a single planner root.\n\nAdditionally, columns are suffixed with `plan_position` to disambiguate\nthem across relations.\n\n## Why\n\n## How\n\n## Tests\n\nUpdated regression tests and added prop testing.",
+          "timestamp": "2026-03-10T14:51:08-07:00",
+          "tree_id": "9c1cdc7cfab8249e160221289d6d3cb888cf0b02",
+          "url": "https://github.com/paradedb/paradedb/commit/2fee78f2dca0836179001f4bb3b6a4d55b7cb31e"
+        },
+        "date": 1773183113102,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.556762586590956,
+            "unit": "median tps",
+            "extra": "avg tps: 30.4892934770584, max tps: 35.08519238688257, count: 55578"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.89034458149683,
+            "unit": "median tps",
+            "extra": "avg tps: 275.61797621679517, max tps: 3003.663181797572, count: 55578"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 706.0352367966025,
+            "unit": "median tps",
+            "extra": "avg tps: 699.4819908019161, max tps: 1037.267227157148, count: 55578"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 165.4912680957507,
+            "unit": "median tps",
+            "extra": "avg tps: 184.0502484228325, max tps: 1032.3245955836137, count: 111156"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.169307007888605,
+            "unit": "median tps",
+            "extra": "avg tps: 16.192692635816872, max tps: 21.26653079338366, count: 55578"
           }
         ]
       }

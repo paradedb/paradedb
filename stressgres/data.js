@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773174112671,
+  "lastUpdate": 1773174120169,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35964,6 +35964,114 @@ window.BENCHMARK_DATA = {
             "value": 170.94921875,
             "unit": "median mem",
             "extra": "avg mem: 168.20598949430038, max mem: 171.8046875, count: 55574"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a5deba480c52402ef2f525835b706838db93694",
+          "message": "refactor: rename MixedFastField to Columnar across the codebase (#4323)\n\n## Summary\n- Renames all mentions of `MixedFastField` to `Columnar` across the\ncodebase to better reflect the column-oriented nature of this execution\nmethod\n- Renames files: `mixed.rs` → `columnar.rs`, `mixed_fast_fields.rs` →\n`columnar.rs`, `mixed_fast_fields_benchmark.rs` →\n`columnar_benchmark.rs`\n- Renames GUC settings: `paradedb.enable_mixed_fast_field_exec` →\n`paradedb.enable_columnar_exec`, `paradedb.enable_mixed_fast_field_sort`\n→ `paradedb.enable_columnar_sort`,\n`paradedb.mixed_fast_field_exec_column_threshold` →\n`paradedb.columnar_exec_column_threshold`\n- Renames Rust types/functions: `MixedFastFieldExecState` →\n`ColumnarExecState`, `MixedExecStrategy` → `ColumnarExecStrategy`,\n`ExecMethodType::FastFieldMixed` → `ExecMethodType::Columnar`, and all\nrelated functions\n\nCloses #4296\n\n## Test plan\n- [x] All pre-commit hooks pass (fmt, clippy, cargo check)\n- [x] CI passes with all existing tests (pure rename, no logic changes)",
+          "timestamp": "2026-03-10T15:21:15-04:00",
+          "tree_id": "1528a5ba7cafa3179885f00030c7d63dd6212dfc",
+          "url": "https://github.com/paradedb/paradedb/commit/2a5deba480c52402ef2f525835b706838db93694"
+        },
+        "date": 1773174114427,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.195159767830965, max cpu: 47.38401, count: 55330"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 170.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 151.70054509590187, max mem: 176.26953125, count: 55330"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.656523680029197, max cpu: 32.24568, count: 55330"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 119.18317926249323, max mem: 120.4375, count: 55330"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.017508946705409, max cpu: 18.934912, count: 55330"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 170.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 144.44247992160672, max mem: 176.93359375, count: 55330"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16250,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16719.74930417495, max block_count: 31019.0, count: 55330"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.507916945742347, max cpu: 4.6376815, count: 55330"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 111.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 97.35824943803091, max mem: 137.20703125, count: 55330"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.637845653352613, max segment_count: 36.0, count: 55330"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.239980081299242, max cpu: 32.307693, count: 110660"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 177.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.62371890814205, max mem: 180.29296875, count: 110660"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.832853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.832103737219546, max cpu: 32.24568, count: 55330"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.8038036694605, max mem: 171.5078125, count: 55330"
           }
         ]
       }

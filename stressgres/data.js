@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773105084600,
+  "lastUpdate": 1773159867055,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4094,6 +4094,78 @@ window.BENCHMARK_DATA = {
             "value": 44.53756566043404,
             "unit": "median tps",
             "extra": "avg tps: 65.14904874985027, max tps: 331.7496552647154, count: 55172"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef1d389927ae8a9bfe0e047ad3e19bd63e08ae66",
+          "message": "feat: push down InListExpr and numeric HashTableLookupExpr (#4306)\n\n# Ticket(s) Closed\n\n- Closes #4267\n\n## What\nEnables dynamic filter pushdown for `InListExpr` and\n`HashTableLookupExpr` (restricted to non-string columns) into the\npre-filter.\n\n## Why\nWhen DataFusion optimizes joins using Hash Joins, it generates dynamic\nfilters (`InListExpr` for small build sides, `HashTableLookupExpr` for\nlarge ones). Previously, these were blocked by our `is_supported` check,\nforcing the engine to materialize unneeded rows. Pushing these down to\nthe Tantivy storage layer drastically reduces memory usage and improves\noverall join performance.\n\n## How\n* **Allowlist Updates:** Added `InListExpr` and `HashTableLookupExpr` to\n`is_supported`. Added a subtree traversal constraint to explicitly block\n`HashTableLookupExpr` from evaluating on string columns to avoid\nexpensive dictionary hydration.\n* **Schema Validation Bypass:** Implemented `try_rewrite_in_list` using\n`try_new_from_array` to cleanly map string lists to dictionary ordinals\nwithout triggering DataFusion's strict schema validation panics.\n* **Storage-to-Execution Casting:** Updated `PreFilter::apply_arrow` to\nautomatically downcast Tantivy's native `Int64` fast fields to match\nDataFusion's expected schema types , preventing strict evaluation\npanics.\n* **TopK Safety:** Updated `rewrite_col_op_lit` to safely intercept and\nmap `NULL` literals (`ScalarValue::Utf8(None)`) pushed down by `TopK`\nnodes, preventing type-mismatch crashes.",
+          "timestamp": "2026-03-10T09:04:31-07:00",
+          "tree_id": "2b08033dcbf7cc115d186284245aae6c8dd7cdd8",
+          "url": "https://github.com/paradedb/paradedb/commit/ef1d389927ae8a9bfe0e047ad3e19bd63e08ae66"
+        },
+        "date": 1773159861723,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.16819416635087,
+            "unit": "median tps",
+            "extra": "avg tps: 129.92334142681668, max tps: 169.1803482814322, count: 55159"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3084.09397964252,
+            "unit": "median tps",
+            "extra": "avg tps: 3070.9054618328946, max tps: 3107.2490629158274, count: 55159"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 425.00987591240494,
+            "unit": "median tps",
+            "extra": "avg tps: 428.04734378291016, max tps: 508.6790393799813, count: 55159"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3008.709377611232,
+            "unit": "median tps",
+            "extra": "avg tps: 3001.6042012487596, max tps: 3052.7645206989105, count: 110318"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 465.9765722587179,
+            "unit": "median tps",
+            "extra": "avg tps: 470.98426270899483, max tps: 560.8243684765907, count: 55159"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 493.886941140661,
+            "unit": "median tps",
+            "extra": "avg tps: 496.99243552132884, max tps: 576.2359840157167, count: 55159"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1906.6197009717498,
+            "unit": "median tps",
+            "extra": "avg tps: 1895.962398991836, max tps: 1914.3122733576747, count: 55159"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 42.947522441416616,
+            "unit": "median tps",
+            "extra": "avg tps: 63.40085611339157, max tps: 625.2540094413355, count: 55159"
           }
         ]
       }

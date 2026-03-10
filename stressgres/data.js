@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773183119123,
+  "lastUpdate": 1773183128148,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36576,6 +36576,114 @@ window.BENCHMARK_DATA = {
             "value": 170.5859375,
             "unit": "median mem",
             "extra": "avg mem: 167.8038036694605, max mem: 171.5078125, count: 55330"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2fee78f2dca0836179001f4bb3b6a4d55b7cb31e",
+          "message": "feat: Support semi and anti join in the same query (#4315)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAllows for a query to be pushed down if it contains both a semi and anti\njoin:\n\n```sql\nSELECT id, category\nFROM table_a\nWHERE id IN (\n    SELECT a_id\n    FROM table_b\n    WHERE group_id IN ('group_1')\n)\nAND id NOT IN (\n    SELECT a_id\n    FROM table_b\n    WHERE group_id IN ('group_3', 'group_4')\n)\nAND id @@@ 'category:\"target_category\"'\nORDER BY id ASC\nLIMIT 10;\n```\n\nThe main thing is that subqueries can reference the same relation, so we\nneed to build DataFusion plans without ambiguous bindings.\n\nJoin sources now carry two identities:\n\n1. `root_id`, which tracks which PostgreSQL planner root a source came\nfrom. i.e. a subquery can have a different root than the rest of the\nquery\n2. `plan_position`, which gives each source a stable position within the\nflattened join plan (before we were relying on `rti`, which is only\nunique within a single planner root.\n\nAdditionally, columns are suffixed with `plan_position` to disambiguate\nthem across relations.\n\n## Why\n\n## How\n\n## Tests\n\nUpdated regression tests and added prop testing.",
+          "timestamp": "2026-03-10T14:51:08-07:00",
+          "tree_id": "9c1cdc7cfab8249e160221289d6d3cb888cf0b02",
+          "url": "https://github.com/paradedb/paradedb/commit/2fee78f2dca0836179001f4bb3b6a4d55b7cb31e"
+        },
+        "date": 1773183120746,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.019153825325922, max cpu: 47.290638, count: 55578"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 172.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.40837447764852, max mem: 175.93359375, count: 55578"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.707294828668958, max cpu: 37.907207, count: 55578"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 118.00061287739753, max mem: 119.3125, count: 55578"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.922099035272696, max cpu: 18.479307, count: 55578"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 171.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 144.52883904433858, max mem: 176.921875, count: 55578"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16506,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16844.73030695599, max block_count: 31417.0, count: 55578"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.949953087127882, max cpu: 4.6647234, count: 55578"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 109.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.97961704721293, max mem: 136.6953125, count: 55578"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.55307855626327, max segment_count: 37.0, count: 55578"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.08883006470596, max cpu: 32.526623, count: 111156"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 175.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 159.45847576407257, max mem: 179.30859375, count: 111156"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.49855362730976, max cpu: 27.826086, count: 55578"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.79209539970853, max mem: 171.24609375, count: 55578"
           }
         ]
       }

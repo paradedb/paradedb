@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773103505031,
+  "lastUpdate": 1773104283399,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28640,6 +28640,60 @@ window.BENCHMARK_DATA = {
             "value": 16.218620373644253,
             "unit": "median tps",
             "extra": "avg tps: 16.05995479660619, max tps: 21.174221088808515, count: 55446"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "966f0a18a351e07aa0176c495f1405731110ba5d",
+          "message": "perf: Set minimum supported CPU era for SIMD auto-vectorization (#4254)\n\n## Summary\n\n- Configure per-target-triple `-Ctarget-cpu` flags in\n`.cargo/config.toml` to enable SIMD auto-vectorization: `x86-64-v3`\n(AVX2/FMA — Haswell 2013+), `cortex-a76` (Graviton 2+), `apple-m1`\n(Apple Silicon)\n- Add `rustflags: \"\"` to all publish and benchmark CI workflows so the\n`RUSTFLAGS` env var from `setup-rust-toolchain` doesn't override the\nconfig.toml target-cpu flags\n\nCloses #3862",
+          "timestamp": "2026-03-09T19:55:23-04:00",
+          "tree_id": "3325c4dd0bea803764849647757ff71cc66591c2",
+          "url": "https://github.com/paradedb/paradedb/commit/966f0a18a351e07aa0176c495f1405731110ba5d"
+        },
+        "date": 1773104277912,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.17982355531651,
+            "unit": "median tps",
+            "extra": "avg tps: 29.187100344681323, max tps: 35.823389364965315, count: 55817"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.46852105653446,
+            "unit": "median tps",
+            "extra": "avg tps: 269.30904672482916, max tps: 2917.75623248941, count: 55817"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 685.1189019547785,
+            "unit": "median tps",
+            "extra": "avg tps: 671.4719230797925, max tps: 999.1330698670364, count: 55817"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 159.62600425942497,
+            "unit": "median tps",
+            "extra": "avg tps: 177.44572149868765, max tps: 1051.26113478962, count: 111634"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.458384769797261,
+            "unit": "median tps",
+            "extra": "avg tps: 15.475659409783914, max tps: 23.33580311694922, count: 55817"
           }
         ]
       }

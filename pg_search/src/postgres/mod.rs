@@ -272,21 +272,14 @@ impl ParallelScanPayload {
         with_aggregates: bool,
     ) {
         let all_nsegments: Vec<usize> = all_sources.iter().map(|s| s.len()).collect();
-        // Compute the execution-time layout and assert it fits within the DSM allocation,
-        // which was sized from planning-time segment counts (a safe upper bound since
-        // segment merges can only reduce counts between planning and execution).
-        let execution_layout = ParallelScanPayloadLayout::new(
+        // Compute and assign the execution-time layout from actual segment counts.
+        self.layout = ParallelScanPayloadLayout::new(
             &all_nsegments,
             partitioning_source_idx,
             query,
             with_aggregates,
         )
         .expect("could not layout `ParallelScanPayload` for initialization");
-        assert!(
-            execution_layout.total.size() <= self.layout.total.size(),
-            "execution-time segment counts exceed planning-time DSM allocation"
-        );
-        self.layout = execution_layout;
 
         // Query.
         let query_range = self.layout.query.clone();
@@ -519,25 +512,51 @@ pub struct ParallelScanState {
     /// Index into the unified sources array identifying the partitioning source —
     /// the one from which workers claim segments via `checkout_segment`.
     partitioning_source_idx: usize,
+    /// DSM payload capacity in bytes, set during `initialize_dsm` from planning-time
+    /// segment counts. Used in `create_and_populate` to assert that execution-time
+    /// layout fits within the DSM allocation.
+    dsm_payload_capacity: usize,
     queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
 
 impl ParallelScanState {
+    pub fn payload_capacity_of(
+        all_nsegments: &[usize],
+        partitioning_source_idx: usize,
+        serialized_query: &[u8],
+        with_aggregates: bool,
+    ) -> usize {
+        ParallelScanPayloadLayout::new(
+            all_nsegments,
+            partitioning_source_idx,
+            serialized_query,
+            with_aggregates,
+        )
+        .expect("could not compute DSM payload capacity")
+        .total
+        .size()
+    }
+
     fn size_of(
         all_nsegments: &[usize],
         partitioning_source_idx: usize,
         serialized_query: &[u8],
         with_aggregates: bool,
     ) -> usize {
-        let dynamic_layout = ParallelScanPayloadLayout::new(
-            all_nsegments,
-            partitioning_source_idx,
-            serialized_query,
-            with_aggregates,
-        )
-        .expect("could not layout `ParallelScanPayload` for allocation");
-        std::mem::size_of::<Self>() + dynamic_layout.total.size()
+        std::mem::size_of::<Self>()
+            + Self::payload_capacity_of(
+                all_nsegments,
+                partitioning_source_idx,
+                serialized_query,
+                with_aggregates,
+            )
+    }
+
+    /// Set the DSM payload capacity in bytes. Must be called before `create_and_populate`,
+    /// using the planning-time segment counts (from `payload_capacity_of`).
+    pub fn set_dsm_payload_capacity(&mut self, capacity: usize) {
+        self.dsm_payload_capacity = capacity;
     }
 
     /// Phase 1+2: Create the mutex and populate with actual data in one call.
@@ -546,6 +565,18 @@ impl ParallelScanState {
         self.mutex.init();
         self.aggregation_cv.init();
         self.init_cv.init();
+        // Assert that the execution-time layout fits within the planning-time DSM allocation.
+        // `dsm_payload_capacity` was set from planning-time segment counts in `initialize_dsm`.
+        let execution_capacity = Self::payload_capacity_of(
+            &args.all_nsegments(),
+            args.partitioning_source_idx,
+            &args.query,
+            args.with_aggregates,
+        );
+        assert!(
+            execution_capacity <= self.dsm_payload_capacity,
+            "execution-time segment counts exceed planning-time DSM allocation"
+        );
         self.populate(
             &args.all_sources,
             args.partitioning_source_idx,

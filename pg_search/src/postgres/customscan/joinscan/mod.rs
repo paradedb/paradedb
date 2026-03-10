@@ -227,6 +227,18 @@ impl ParallelQueryCapable for JoinScan {
         let sources = join_clause.plan.sources();
         let partitioning_idx = join_clause.partitioning_source_index();
 
+        // Compute planning-time payload capacity from plan's segment counts,
+        // matching what estimate_dsm used. This is the upper bound for the assertion
+        // in create_and_populate, since execution-time counts may be lower due to merges.
+        let all_nsegments_planning: Vec<usize> =
+            sources.iter().map(|s| s.scan_info.segment_count).collect();
+        let capacity = ParallelScanState::payload_capacity_of(
+            &all_nsegments_planning,
+            partitioning_idx,
+            &[],
+            false,
+        );
+
         let expr_context = crate::postgres::utils::ExprContextGuard::new();
 
         // Open ALL sources with Snapshot visibility, in ascending sources() order.
@@ -264,6 +276,7 @@ impl ParallelQueryCapable for JoinScan {
         };
 
         unsafe {
+            (*pscan_state).set_dsm_payload_capacity(capacity);
             (*pscan_state).create_and_populate(args);
         }
 

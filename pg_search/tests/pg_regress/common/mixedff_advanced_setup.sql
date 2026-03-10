@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_columnar_exec = true;
--- The `advanced` tests allow any number of columns to be used with fast fields, in order to test
+-- The `advanced` tests allow any number of columns to be used with columnar storage, in order to test
 -- more permutations of selected columns.
 SET paradedb.columnar_exec_column_threshold = 100;
 

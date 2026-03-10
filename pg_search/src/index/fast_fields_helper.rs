@@ -377,7 +377,7 @@ impl WhichFastField {
 
 /// Build an Arrow schema from a list of fast fields.
 ///
-/// This is used by Scanner and MixedFastFieldExecState to create consistent
+/// This is used by Scanner and ColumnarExecState to create consistent
 /// Arrow schemas for DataFusion execution.
 pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema::SchemaRef {
     use arrow_schema::{Field, Schema};

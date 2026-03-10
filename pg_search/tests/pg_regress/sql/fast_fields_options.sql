@@ -118,7 +118,7 @@ WHERE title @@@ 'product'
 ORDER BY created_at
 LIMIT 10;
 
--- 'Test 3: ORDER BY with no LIMIT (should use MixedFastFieldExecState)'
+-- 'Test 3: ORDER BY with no LIMIT (should use ColumnarExecState)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, price, in_stock, created_at, valid_period, quantity_range, tags
@@ -177,7 +177,7 @@ WHERE title @@@ 'product'
 ORDER BY created_at
 LIMIT 10;
 
--- 'Test 5: ORDER BY with no LIMIT (should use MixedFastFieldExecState)'
+-- 'Test 5: ORDER BY with no LIMIT (should use ColumnarExecState)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, price, in_stock, created_at, valid_period, quantity_range, tags
@@ -236,7 +236,7 @@ WHERE title @@@ 'product'
 ORDER BY created_at
 LIMIT 10;
 
--- 'Test 7: ORDER BY with no LIMIT (should use MixedFastFieldExecState)'
+-- 'Test 7: ORDER BY with no LIMIT (should use ColumnarExecState)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, price, in_stock, created_at, valid_period, quantity_range, tags

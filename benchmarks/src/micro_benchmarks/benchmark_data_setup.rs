@@ -405,7 +405,7 @@ pub async fn create_bm25_index(conn: &mut PgConnection, table_name: &str) -> Res
         .await?;
 
     // Define configuration based on the desired execution method
-    // All fields are marked as fast for MixedFastFieldExec
+    // All fields are marked as fast for ColumnarExec
     // IMPORTANT: ALL fields, including ID and those used in SELECT must be fast
     // Use keyword tokenizer for string fields to ensure exact matching
     let index_definition = format!(

@@ -7,8 +7,8 @@
 
 \i common/common_setup.sql
 
--- Explicitly enable mixed fast field sorted paths for this test suite
-SET paradedb.enable_mixed_fast_field_sort = true;
+-- Explicitly enable columnar sorted paths for this test suite
+SET paradedb.enable_columnar_sort = true;
 
 -- =============================================================================
 -- MAIN TEST TABLE: sorted_scan_test
@@ -567,7 +567,7 @@ DROP TABLE mod_test CASCADE;
 
 -- =============================================================================
 -- SECTION 10: EXECUTION METHOD VERIFICATION
--- Verifies MixedFastFieldExec is used and Sort node is eliminated
+-- Verifies ColumnarExec is used and Sort node is eliminated
 -- =============================================================================
 
 \echo '=== SECTION 10: Execution Method Verification ==='
@@ -599,12 +599,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, non_fast_field, fast_fie
 WHERE content @@@ 'searchable'
 ORDER BY fast_field DESC NULLS LAST;
 
-\echo 'Test 10.3: With enable_mixed_fast_field_exec OFF - should add Sort node'
-SET paradedb.enable_mixed_fast_field_exec = false;
+\echo 'Test 10.3: With enable_columnar_exec OFF - should add Sort node'
+SET paradedb.enable_columnar_exec = false;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, fast_field FROM exec_method_test
 WHERE content @@@ 'searchable'
 ORDER BY fast_field DESC NULLS LAST;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 
 DROP TABLE exec_method_test CASCADE;
 
@@ -851,4 +851,4 @@ DROP TABLE IF EXISTS sorted_scan_test CASCADE;
 
 \echo '=== All sorted index scan tests completed ==='
 
-RESET paradedb.enable_mixed_fast_field_sort;
+RESET paradedb.enable_columnar_sort;

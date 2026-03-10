@@ -538,7 +538,7 @@ WARNING:  JoinScan not used: queries with aggregate functions are not supported
                            Output: p.supplier_id
                            Table: dist_products
                            Index: dist_products_bm25_idx
-                           Exec Method: MixedFastFieldExecState
+                           Exec Method: ColumnarExecState
                            Fast Fields: supplier_id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
@@ -593,7 +593,7 @@ WARNING:  JoinScan not used: query must have a LIMIT clause
                            Output: p.name, p.supplier_id
                            Table: dist_products
                            Index: dist_products_bm25_idx
-                           Exec Method: MixedFastFieldExecState
+                           Exec Method: ColumnarExecState
                            Fast Fields: name, supplier_id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}

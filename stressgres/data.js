@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773183935196,
+  "lastUpdate": 1773189733146,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4310,6 +4310,78 @@ window.BENCHMARK_DATA = {
             "value": 149.65238151160145,
             "unit": "median tps",
             "extra": "avg tps: 169.98933370207726, max tps: 416.53668903752987, count: 55159"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "78790a6905b23c19ad96d1640532d2e11c7ef76f",
+          "message": "feat: Add support for UNNEST in the aggregate scan, and improve warnings (#4288)\n\n## What\n\nAdd support for `UNNEST(array)` in the group-by/target-list/order-by of\naggregate scan queries, and improve warnings around the reason why the\naggregate scan was not able to extract a column.\n\n## Why\n\nThe aggregate scan cannot natively group-by multi-valued columns\n(arrays), but it does natively execute the equivalent of\n`UNNEST(array)`. This is useful for some consumers, so expose it.\n\nAdditionally, when the basescan fails planning but the aggregatescan\nsucceeds, ensure that we don't render a warning by clearing the context\nfor the entire table.\n\n## Tests\n\nExpanded aggregate expression tests.",
+          "timestamp": "2026-03-10T17:22:29-07:00",
+          "tree_id": "0a4bbe70482801941c4ffa1db20deea70cd37c0c",
+          "url": "https://github.com/paradedb/paradedb/commit/78790a6905b23c19ad96d1640532d2e11c7ef76f"
+        },
+        "date": 1773189726975,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 133.64844978910958,
+            "unit": "median tps",
+            "extra": "avg tps: 133.03132698454039, max tps: 143.46026518271367, count: 55038"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 510.1832107238738,
+            "unit": "median tps",
+            "extra": "avg tps: 507.38842851647047, max tps: 599.8463624758909, count: 55038"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2944.5170868424125,
+            "unit": "median tps",
+            "extra": "avg tps: 2923.377875366429, max tps: 2956.521187179864, count: 55038"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 464.86845783341363,
+            "unit": "median tps",
+            "extra": "avg tps: 458.6153851409744, max tps: 665.2336899429401, count: 55038"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2970.8095219640677,
+            "unit": "median tps",
+            "extra": "avg tps: 2956.4115612976125, max tps: 3029.4142981838772, count: 110076"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 484.3175565005163,
+            "unit": "median tps",
+            "extra": "avg tps: 480.3474007695181, max tps: 601.5428644816801, count: 55038"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1878.0363382338728,
+            "unit": "median tps",
+            "extra": "avg tps: 1871.6463695364448, max tps: 1881.920287918427, count: 55038"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 44.96294274664395,
+            "unit": "median tps",
+            "extra": "avg tps: 48.41912436140381, max tps: 295.8190707455252, count: 55038"
           }
         ]
       }

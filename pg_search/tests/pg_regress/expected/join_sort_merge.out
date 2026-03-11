@@ -477,7 +477,7 @@ LIMIT 25;
            :                 SortPreservingMergeExec: [id@1 ASC]
            :                   ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val]
            :                     CooperativeExec
-           :                       PgSearchScan: segments=2, dynamic_filters=1, segmented_thresholds=true, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+           :                       PgSearchScan: segments=2, dynamic_filters=2, segmented_thresholds=true, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
            :                 SortPreservingMergeExec: [t1_id@1 ASC]
            :                   ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
            :                     CooperativeExec
@@ -511,7 +511,7 @@ LIMIT 25;
            :                 SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=16.62 K, output_bytes=925.4 KB, output_batches=3]
            :                   ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=16.62 K, output_bytes=471.9 KB, output_batches=4]
            :                     CooperativeExec
-           :                       PgSearchScan: segments=2, dynamic_filters=1, segmented_thresholds=true, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[rows_pruned=3.38 K, rows_scanned=20.47 K]
+           :                       PgSearchScan: segments=2, dynamic_filters=2, segmented_thresholds=true, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[rows_pruned=3.38 K, rows_scanned=20.23 K]
            :                 SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
            :                   ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
            :                     CooperativeExec
@@ -588,7 +588,7 @@ LIMIT 10;
            :                 SortPreservingMergeExec: [id@1 ASC]
            :                   ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val]
            :                     CooperativeExec
-           :                       PgSearchScan: segments=2, dynamic_filters=1, segmented_thresholds=true, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+           :                       PgSearchScan: segments=2, dynamic_filters=2, segmented_thresholds=true, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
            :                 SortPreservingMergeExec: [t1_id@1 ASC]
            :                   ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
            :                     CooperativeExec

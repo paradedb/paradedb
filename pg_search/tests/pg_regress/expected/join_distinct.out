@@ -462,7 +462,7 @@ ORDER BY p.name
            :               PgSearchScan: segments=1, query="all"
            :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: segments=1, dynamic_filters=3, segmented_thresholds=true, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 -- =============================================================================

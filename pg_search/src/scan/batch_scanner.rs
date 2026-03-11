@@ -252,9 +252,6 @@ impl Scanner {
         // to keep them aligned with `ids`.
         let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
 
-        // TODO(https://github.com/paradedb/paradedb/issues/4257): Unify `SegmentedThresholds`
-        // with the `DynamicFilterPhysicalExpr` infrastructure so that thresholds are pushed down
-        // via the standard DataFusion filter push-down path rather than this side-channel.
         let evaluate_pre_filters = |filters: &[crate::scan::pre_filter::PreFilter],
                                     schema: &SchemaRef,
                                     ids: &mut Vec<DocId>,
@@ -277,32 +274,16 @@ impl Scanner {
             (before, before - ids.len())
         };
 
-        // Apply segmented Top K thresholds before pre-filters and visibility.
-        // Per-segment thresholds use ordinals (cheap, segment-local).
-        // The global threshold uses materialized strings (cross-segment, translated
-        // to per-segment ordinals by try_rewrite_binary). Both are applied when
-        // available: per-segment first, then global to catch rows that are good
-        // within their segment but bad globally.
+        // Apply per-segment ordinal thresholds from SegmentedTopKExec.
+        // These use cheap segment-local ordinals for early row pruning.
+        // The global threshold (materialized strings) is pushed down separately
+        // through DataFusion's standard DynamicFilterPhysicalExpr mechanism
+        // and arrives via the `pre_filters` parameter.
         if let Some(thresholds) = self.segmented_thresholds.as_ref() {
-            let schema = self.schema();
-
             if let Some(seg_expr) = thresholds.get_threshold(segment_ord) {
+                let schema = self.schema();
                 let mut dyn_filters = Vec::new();
                 crate::scan::pre_filter::collect_filters(&seg_expr, &schema, &mut dyn_filters);
-                let (scanned, pruned) = evaluate_pre_filters(
-                    &dyn_filters,
-                    &schema,
-                    &mut ids,
-                    &mut scores,
-                    &mut memoized_columns,
-                );
-                self.pre_filter_rows_scanned += scanned;
-                self.pre_filter_rows_pruned += pruned;
-            }
-
-            if let Some(global_expr) = thresholds.get_global_threshold() {
-                let mut dyn_filters = Vec::new();
-                crate::scan::pre_filter::collect_filters(&global_expr, &schema, &mut dyn_filters);
                 let (scanned, pruned) = evaluate_pre_filters(
                     &dyn_filters,
                     &schema,

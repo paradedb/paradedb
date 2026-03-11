@@ -34,16 +34,19 @@
 //!
 //! As rows are ingested, two kinds of thresholds are published to the scanner:
 //!
-//! 1. **Per-segment thresholds** (ordinal-based): once a segment's heap reaches
-//!    K entries, the worst ordinal is published. The scanner skips rows that
-//!    cannot beat this within the same segment.
+//! 1. **Per-segment thresholds** (ordinal-based, side-channel): once a segment's
+//!    heap reaches K entries, the worst ordinal is published via
+//!    `SegmentedThresholds`. The scanner skips rows that cannot beat this within
+//!    the same segment. These use segment-local ordinals that cannot be expressed
+//!    as standard DataFusion physical expressions.
 //!
-//! 2. **Global threshold** (materialized string literals): once the global heap
-//!    across all segments reaches K entries, the worst entry's deferred ordinals
-//!    are converted back to strings via `FFHelper::ord_to_str`. The scanner's
-//!    `pre_filter::try_rewrite_binary` translates these to per-segment ordinal
-//!    bounds automatically. The global threshold acts as a **fallback** for
-//!    segments that haven't yet accumulated K entries of their own.
+//! 2. **Global threshold** (materialized string literals, DataFusion pushdown):
+//!    once the global heap across all segments reaches K entries, the worst
+//!    entry's deferred ordinals are converted back to strings via
+//!    `FFHelper::ord_to_str` and published as a `DynamicFilterPhysicalExpr`.
+//!    DataFusion's standard filter pushdown mechanism routes this to
+//!    `PgSearchScanPlan`, where `pre_filter::try_rewrite_binary` translates
+//!    the string literals to per-segment ordinal bounds automatically.
 //!
 //! ## Output bound
 //!
@@ -87,8 +90,13 @@ use arrow_select::filter::filter_record_batch;
 use datafusion::arrow::row::{OwnedRow, RowConverter, SortField};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion::physical_expr::{EquivalenceProperties, LexOrdering, PhysicalExpr};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::filter_pushdown::{
+    ChildFilterDescription, ChildPushdownResult, FilterDescription, FilterPushdownPhase,
+    FilterPushdownPropagation,
+};
 use datafusion::physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
 };
@@ -107,23 +115,20 @@ use tantivy::{DocId, SegmentOrdinal};
 /// rows whose ordinal cannot beat that threshold, avoiding ctid lookups,
 /// visibility checks, and dictionary materialisation.
 ///
-/// TODO(https://github.com/paradedb/paradedb/issues/4257): Unify `SegmentedThresholds`
-/// with the `DynamicFilterPhysicalExpr` infrastructure so that thresholds are pushed down
-/// via the standard DataFusion filter push-down path rather than this side-channel.
+/// Note: the *global* threshold (materialized string literals, cross-segment)
+/// is pushed down separately through DataFusion's standard
+/// `DynamicFilterPhysicalExpr` filter pushdown mechanism. This side-channel
+/// only carries per-segment ordinal thresholds, which cannot be expressed
+/// as standard physical expressions because they use segment-local ordinals.
 pub struct SegmentedThresholds {
-    /// segment_ord → threshold expression.
+    /// segment_ord → threshold expression (ordinal-based, segment-local).
     inner: Mutex<HashMap<SegmentOrdinal, Arc<dyn PhysicalExpr>>>,
-    /// Global threshold expression across all completed segments.
-    /// Uses materialized string literals so the scanner's `try_rewrite_binary`
-    /// can translate them to per-segment ordinal bounds automatically.
-    global: Mutex<Option<Arc<dyn PhysicalExpr>>>,
 }
 
 impl SegmentedThresholds {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(HashMap::default()),
-            global: Mutex::new(None),
         }
     }
 
@@ -133,14 +138,6 @@ impl SegmentedThresholds {
 
     pub fn get_threshold(&self, seg_ord: SegmentOrdinal) -> Option<Arc<dyn PhysicalExpr>> {
         self.inner.lock().unwrap().get(&seg_ord).cloned()
-    }
-
-    pub fn set_global_threshold(&self, threshold: Arc<dyn PhysicalExpr>) {
-        *self.global.lock().unwrap() = Some(threshold);
-    }
-
-    pub fn get_global_threshold(&self) -> Option<Arc<dyn PhysicalExpr>> {
-        self.global.lock().unwrap().clone()
     }
 }
 
@@ -160,8 +157,13 @@ pub struct SegmentedTopKExec {
     ffhelper: Arc<FFHelper>,
     /// Maximum rows to keep per segment.
     k: usize,
-    /// Shared thresholds published back to the scanner for early pruning.
+    /// Shared per-segment ordinal thresholds published back to the scanner.
     thresholds: Arc<SegmentedThresholds>,
+    /// Dynamic filter pushed down through DataFusion's standard filter pushdown
+    /// mechanism. Updated at runtime with a global threshold (materialized
+    /// string literals) that the scanner's `try_rewrite_binary` translates to
+    /// per-segment ordinal bounds.
+    dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
     properties: PlanProperties,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -192,6 +194,8 @@ impl SegmentedTopKExec {
         k: usize,
         thresholds: Arc<SegmentedThresholds>,
     ) -> Self {
+        use datafusion::physical_expr::expressions::lit;
+
         let eq_props = EquivalenceProperties::new(input.schema());
         let properties = PlanProperties::new(
             eq_props,
@@ -199,6 +203,14 @@ impl SegmentedTopKExec {
             EmissionType::Both,
             Boundedness::Bounded,
         );
+
+        // Create a DynamicFilterPhysicalExpr with the sort expression columns
+        // as children. The initial expression is `lit(true)` (no filtering).
+        // At runtime, `update()` replaces this with the global threshold.
+        let children: Vec<Arc<dyn PhysicalExpr>> =
+            sort_exprs.iter().map(|e| Arc::clone(&e.expr)).collect();
+        let dynamic_filter = Arc::new(DynamicFilterPhysicalExpr::new(children, lit(true)));
+
         Self {
             input,
             sort_exprs,
@@ -206,6 +218,7 @@ impl SegmentedTopKExec {
             ffhelper,
             k,
             thresholds,
+            dynamic_filter,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
         }
@@ -249,14 +262,18 @@ impl ExecutionPlan for SegmentedTopKExec {
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(SegmentedTopKExec::new(
+        let mut new = SegmentedTopKExec::new(
             children.remove(0),
             self.sort_exprs.clone(),
             self.deferred_columns.clone(),
             Arc::clone(&self.ffhelper),
             self.k,
             Arc::clone(&self.thresholds),
-        )))
+        );
+        // Preserve the existing dynamic filter so that filter pushdown
+        // wiring (which already holds a reference) stays connected.
+        new.dynamic_filter = Arc::clone(&self.dynamic_filter);
+        Ok(Arc::new(new))
     }
 
     fn execute(
@@ -306,6 +323,7 @@ impl ExecutionPlan for SegmentedTopKExec {
             row_converter,
             segment_heaps: HashMap::default(),
             thresholds: Arc::clone(&self.thresholds),
+            dynamic_filter: Arc::clone(&self.dynamic_filter),
             batches: Vec::new(),
             row_ordinals: Vec::new(),
             global_heap: BinaryHeap::new(),
@@ -360,6 +378,38 @@ impl ExecutionPlan for SegmentedTopKExec {
     fn metrics(&self) -> Option<MetricsSet> {
         Some(self.metrics.clone_inner())
     }
+
+    fn gather_filters_for_pushdown(
+        &self,
+        phase: FilterPushdownPhase,
+        parent_filters: Vec<Arc<dyn PhysicalExpr>>,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterDescription> {
+        // Only push filters in the Post phase (same as SortExec).
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterDescription::all_unsupported(
+                &parent_filters,
+                &self.children(),
+            ));
+        }
+
+        // Route parent filters to our child based on column compatibility,
+        // and add our own dynamic filter as a self-filter.
+        Ok(FilterDescription::new().with_child(
+            ChildFilterDescription::from_child(&parent_filters, &self.input)?
+                .with_self_filter(Arc::clone(&self.dynamic_filter) as Arc<dyn PhysicalExpr>),
+        ))
+    }
+
+    fn handle_child_pushdown_result(
+        &self,
+        _phase: FilterPushdownPhase,
+        child_pushdown_result: ChildPushdownResult,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        // Pass through: report parent filter support based on what the child accepted.
+        Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+    }
 }
 
 struct SegmentedTopKState {
@@ -373,8 +423,11 @@ struct SegmentedTopKState {
     /// the 'worst' element (the boundary) is always at the root. We also store the
     /// `(batch_idx, row_idx)` to allow for compaction.
     segment_heaps: HashMap<SegmentOrdinal, BinaryHeap<OwnedRow>>,
-    /// Shared thresholds published back to the scanner for early pruning.
+    /// Shared per-segment ordinal thresholds published back to the scanner.
     thresholds: Arc<SegmentedThresholds>,
+    /// Dynamic filter updated with global thresholds (materialized strings).
+    /// Pushed down through DataFusion's standard filter pushdown to the scanner.
+    dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
     /// Buffered batches during the collection phase.
     batches: Vec<RecordBatch>,
     /// Keeps track of the heap rows for compaction.
@@ -492,10 +545,12 @@ impl SegmentedTopKState {
             }
         }
 
-        // Publish a global threshold as a fallback for segments not yet seen.
+        // Update the dynamic filter with the global threshold (materialized strings).
+        // This is pushed down through DataFusion's standard filter pushdown to the
+        // scanner, where `try_rewrite_binary` translates it to per-segment ordinals.
         if self.global_heap.len() >= self.k {
             if let Some(expr) = self.build_global_filter_expression() {
-                self.thresholds.set_global_threshold(expr);
+                let _ = self.dynamic_filter.update(expr);
             }
         }
 

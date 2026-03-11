@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773193012208,
+  "lastUpdate": 1773212257673,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4382,6 +4382,78 @@ window.BENCHMARK_DATA = {
             "value": 44.96294274664395,
             "unit": "median tps",
             "extra": "avg tps: 48.41912436140381, max tps: 295.8190707455252, count: 55038"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "54ccd9b3dd50b2d5c93e9fe8e76e93df01d01153",
+          "message": "fix: Pushdown errors in faceted queries with `paradedb.enable_filter_pushdown` disabled (#4331)",
+          "timestamp": "2026-03-10T23:37:58-07:00",
+          "tree_id": "c94460e23a2833733222315576ff6cd28a1bcd6e",
+          "url": "https://github.com/paradedb/paradedb/commit/54ccd9b3dd50b2d5c93e9fe8e76e93df01d01153"
+        },
+        "date": 1773212251516,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 132.9826615296051,
+            "unit": "median tps",
+            "extra": "avg tps: 132.84742086018682, max tps: 141.76542468070832, count: 55093"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 463.38039562150607,
+            "unit": "median tps",
+            "extra": "avg tps: 462.68107413534864, max tps: 587.4352159922189, count: 55093"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3033.0027455122927,
+            "unit": "median tps",
+            "extra": "avg tps: 3013.0472909883556, max tps: 3040.0978360569575, count: 55093"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 411.9923091110047,
+            "unit": "median tps",
+            "extra": "avg tps: 411.1991172085301, max tps: 659.3958746875287, count: 55093"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3097.5253280868033,
+            "unit": "median tps",
+            "extra": "avg tps: 3084.739773191657, max tps: 3117.903772200423, count: 110186"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 496.6090769556829,
+            "unit": "median tps",
+            "extra": "avg tps: 495.6037524549438, max tps: 637.2180212903037, count: 55093"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2004.860578243092,
+            "unit": "median tps",
+            "extra": "avg tps: 1989.71007667929, max tps: 2010.2411401655063, count: 55093"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 48.216844798086726,
+            "unit": "median tps",
+            "extra": "avg tps: 61.70451428362372, max tps: 310.18383148167374, count: 55093"
           }
         ]
       }

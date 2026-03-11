@@ -371,6 +371,11 @@ impl BaseScanState {
     /// This function supports text, text[], and json/jsonb fields
     unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
         let heaprel = self.heaprel.as_ref().expect("should have a heap relation");
+
+        if !crate::postgres::utils::ctid_satisfies_nblocks(ctid, heaprel.as_ptr()) {
+            return None;
+        }
+
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
 

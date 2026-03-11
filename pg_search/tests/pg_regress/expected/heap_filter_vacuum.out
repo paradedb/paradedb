@@ -32,7 +32,11 @@ VACUUM hfv_test;
 -- This query uses the heap_filter path (extra is not in the BM25 index).
 -- Before the fix, this would ERROR with "could not read blocks ... read only 0 of 8192 bytes".
 SELECT count(*) FROM hfv_test WHERE body @@@ 'fox' AND extra = 5;
-ERROR:  could not read blocks 11..11 in file "base/3667973/3668748": read only 0 of 8192 bytes
+ count 
+-------
+   100
+(1 row)
+
 -- Also verify a simple BM25 query still works.
 SELECT count(*) FROM hfv_test WHERE body @@@ 'fox';
  count 

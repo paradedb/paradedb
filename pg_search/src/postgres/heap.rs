@@ -101,6 +101,11 @@ impl VisibilityChecker {
     ) -> Option<T> {
         self.heap_tuple_check_count += 1;
         unsafe {
+            if !utils::ctid_satisfies_nblocks(ctid, (*self.scan).rel) {
+                self.invisible_tuple_count += 1;
+                return None;
+            }
+
             utils::u64_to_item_pointer(ctid, &mut self.tid);
 
             let mut call_again = false;
@@ -133,6 +138,10 @@ impl VisibilityChecker {
     /// Returns true if the tuple was found and visible, false otherwise.
     pub fn fetch_tuple_direct(&self, ctid: u64, slot: *mut pg_sys::TupleTableSlot) -> bool {
         unsafe {
+            if !utils::ctid_satisfies_nblocks(ctid, self.heaprel.as_ptr()) {
+                return false;
+            }
+
             let mut tid = pg_sys::ItemPointerData::default();
             utils::u64_to_item_pointer(ctid, &mut tid);
 
@@ -203,11 +212,24 @@ impl VisibilityChecker {
             .collect();
         sorted_indices.sort_unstable_by_key(|(_, ctid)| *ctid);
 
+        let nblocks = unsafe {
+            pg_sys::RelationGetNumberOfBlocksInFork(
+                self.heaprel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+            )
+        };
+
         let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
         let mut current_block = pg_sys::InvalidBlockNumber;
 
         for (idx, mut ctid) in sorted_indices {
             let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+
+            if blockno >= nblocks {
+                self.invisible_tuple_count += 1;
+                results[idx] = None;
+                continue;
+            }
 
             if self.is_block_all_visible(blockno) {
                 results[idx] = Some(ctid);

@@ -109,6 +109,16 @@ impl HeapFieldFilter {
             .get_or_insert_with(|| HeapFetchState::new(relation));
         let econtext = expr_context.as_ptr();
 
+        // Guard against stale ctids referencing heap blocks truncated by VACUUM.
+        let blockno = pgrx::itemptr::item_pointer_get_block_number(&*ctid);
+        let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
+            relation.as_ptr(),
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+        );
+        if blockno >= nblocks {
+            return false;
+        }
+
         let mut call_again = false;
         let mut all_dead = false;
         if !pg_sys::table_index_fetch_tuple(

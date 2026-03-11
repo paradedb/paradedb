@@ -108,17 +108,12 @@ use tantivy::{DocId, SegmentOrdinal};
 pub struct SegmentedThresholds {
     /// segment_ord → threshold expression.
     inner: Mutex<HashMap<SegmentOrdinal, Arc<dyn PhysicalExpr>>>,
-    /// Global threshold expression across all completed segments.
-    /// Uses materialized string literals so the scanner's `try_rewrite_binary`
-    /// can translate them to per-segment ordinal bounds automatically.
-    global: Mutex<Option<Arc<dyn PhysicalExpr>>>,
 }
 
 impl SegmentedThresholds {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(HashMap::default()),
-            global: Mutex::new(None),
         }
     }
 
@@ -128,14 +123,6 @@ impl SegmentedThresholds {
 
     pub fn get_threshold(&self, seg_ord: SegmentOrdinal) -> Option<Arc<dyn PhysicalExpr>> {
         self.inner.lock().unwrap().get(&seg_ord).cloned()
-    }
-
-    pub fn set_global_threshold(&self, threshold: Arc<dyn PhysicalExpr>) {
-        *self.global.lock().unwrap() = Some(threshold);
-    }
-
-    pub fn get_global_threshold(&self) -> Option<Arc<dyn PhysicalExpr>> {
-        self.global.lock().unwrap().clone()
     }
 }
 
@@ -307,7 +294,6 @@ impl ExecutionPlan for SegmentedTopKExec {
             batches: Vec::new(),
             row_ordinals: Vec::new(),
             current_segment: None,
-            global_heap: BinaryHeap::new(),
             rows_input,
             rows_output,
             segments_seen,
@@ -331,6 +317,13 @@ impl ExecutionPlan for SegmentedTopKExec {
                                     state.rows_output.add(fb.num_rows());
                                     yield fb;
                                 }
+                            }
+                            // With lazy scans, segments are sequential so all
+                            // buffered batches belong to the just-flushed segment.
+                            // Clear them to avoid quadratic re-scanning in
+                            // subsequent flush_segment calls.
+                            if state.row_ordinals.is_empty() {
+                                state.batches.clear();
                             }
                         }
                     }
@@ -400,12 +393,6 @@ struct SegmentedTopKState {
 
     /// The segment ordinal currently being accumulated.
     current_segment: Option<SegmentOrdinal>,
-
-    /// Global K-sized max-heap across all completed segments.
-    /// The worst entry (heap root) defines the global threshold.
-    /// `SegmentOrdinal` is stored so we can look up the string for
-    /// the worst entry's deferred ordinals via `FFHelper::ord_to_str`.
-    global_heap: BinaryHeap<(OwnedRow, SegmentOrdinal)>,
 
     rows_input: Count,
     rows_output: Count,
@@ -838,13 +825,8 @@ impl SegmentedTopKState {
         // 2. Filter buffered batches to keep only survivor rows.
         let result = self.filter_batches(&survivors)?;
 
-        // 3. Merge this segment's heap into the global heap and publish a threshold.
-        self.update_global_heap(finished_seg);
-        if self.global_heap.len() >= self.k {
-            if let Some(expr) = self.build_global_filter_expression() {
-                self.thresholds.set_global_threshold(expr);
-            }
-        }
+        // 3. Remove the flushed segment's heap (no longer needed).
+        self.segment_heaps.remove(&finished_seg);
 
         self.segments_flushed.add(1);
         Ok(result)
@@ -895,96 +877,6 @@ impl SegmentedTopKState {
             }
         }
         Ok(result)
-    }
-
-    /// Feed the completed segment's heap entries into the global K-sized heap.
-    fn update_global_heap(&mut self, seg_ord: SegmentOrdinal) {
-        if let Some(segment_heap) = self.segment_heaps.remove(&seg_ord) {
-            for owned_row in segment_heap.into_vec() {
-                Self::update_cutoff_heap_pair(&mut self.global_heap, (owned_row, seg_ord), self.k);
-            }
-        }
-    }
-
-    /// Same as `update_cutoff_heap` but for `(OwnedRow, SegmentOrdinal)` pairs.
-    fn update_cutoff_heap_pair(
-        heap: &mut BinaryHeap<(OwnedRow, SegmentOrdinal)>,
-        entry: (OwnedRow, SegmentOrdinal),
-        k: usize,
-    ) {
-        if heap.len() < k {
-            heap.push(entry);
-        } else if let Some(worst) = heap.peek() {
-            if &entry < worst {
-                heap.pop();
-                heap.push(entry);
-            }
-        }
-    }
-
-    /// Resolve threshold values for the global filter.
-    ///
-    /// For deferred columns, converts ordinals back to materialized strings
-    /// via `FFHelper::ord_to_str`. For non-deferred columns, reads the scalar
-    /// directly from the array. Returns `None` if any conversion fails.
-    fn resolve_global_threshold_values(
-        &self,
-        arrays: &[ArrayRef],
-        seg_ord: SegmentOrdinal,
-    ) -> Option<Vec<datafusion::common::ScalarValue>> {
-        use datafusion::common::ScalarValue;
-
-        let mut values = Vec::with_capacity(self.sort_exprs.len());
-        for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
-            let is_deferred = sort_expr
-                .expr
-                .as_any()
-                .downcast_ref::<datafusion::physical_expr::expressions::Column>()
-                .and_then(|c| {
-                    self.deferred_columns
-                        .iter()
-                        .find(|d| d.sort_col_idx == c.index())
-                });
-
-            let value = if let Some(deferred) = is_deferred {
-                let term_ord = arrays[i].as_any().downcast_ref::<UInt64Array>()?.value(0);
-                let col = self.ffhelper.column(seg_ord, deferred.ff_index);
-                match col {
-                    FFType::Text(str_col) => {
-                        let mut s = String::new();
-                        str_col.ord_to_str(term_ord, &mut s).ok()?;
-                        ScalarValue::Utf8View(Some(s))
-                    }
-                    FFType::Bytes(bytes_col) => {
-                        let mut b = Vec::new();
-                        bytes_col.ord_to_bytes(term_ord, &mut b).ok()?;
-                        ScalarValue::BinaryView(Some(b))
-                    }
-                    _ => return None,
-                }
-            } else {
-                ScalarValue::try_from_array(&arrays[i], 0).ok()?
-            };
-            values.push(value);
-        }
-        Some(values)
-    }
-
-    /// Build a global filter expression using materialized string values.
-    ///
-    /// Unlike `build_filter_expression` which emits UInt64 ordinal literals
-    /// (only valid within one segment), this converts deferred ordinals back
-    /// to string literals via `FFHelper::ord_to_str`. The scanner's
-    /// `pre_filter::try_rewrite_binary` automatically translates string
-    /// literals to per-segment ordinal bounds.
-    fn build_global_filter_expression(&self) -> Option<Arc<dyn PhysicalExpr>> {
-        let (worst_row, worst_seg_ord) = self.global_heap.peek()?;
-        let arrays = self
-            .row_converter
-            .convert_rows(std::iter::once(worst_row.row()))
-            .ok()?;
-        let values = self.resolve_global_threshold_values(&arrays, *worst_seg_ord)?;
-        Self::build_lexicographic_filter(&self.sort_exprs, &values)
     }
 
     /// Compact buffered batches by discarding rows that cannot survive the

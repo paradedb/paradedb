@@ -27,7 +27,7 @@ MockItem.objects.filter(
 
 ```ruby Rails
 MockItem.search(:description)
-        .near("sleek", "shoes", distance: 1)
+        .near("sleek", anchor: "shoes", distance: 1)
         .select(:description, :rating, :category)
 ```
 
@@ -57,7 +57,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("description @@@ ('sleek' ##> 1 ##> 'shoes')")
+MockItem.search(:description)
+        .near("sleek", anchor: "shoes", distance: 1, ordered: true)
         .select(:description, :rating, :category)
 ```
 
@@ -86,7 +87,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes')")
+MockItem.search(:description)
+        .near_regex("sl.*", anchor: "shoes", distance: 1)
         .select(:description, :rating, :category)
 ```
 
@@ -112,7 +114,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes')")
+MockItem.search(:description)
+        .near_regex("sl.*", anchor: "shoes", distance: 1, max_expansions: 100)
         .select(:description, :rating, :category)
 ```
 
@@ -139,7 +142,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes')")
+MockItem.search(:description)
+        .near(%w[sleek white], anchor: "shoes", distance: 1)
         .select(:description, :rating, :category)
 ```
 
@@ -163,6 +167,7 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
+# rails-paradedb does not currently expose mixed regex + prox_array composition.
 MockItem.where("description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## 'shoes')")
         .select(:description, :rating, :category)
 ```

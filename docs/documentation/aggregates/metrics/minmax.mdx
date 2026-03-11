@@ -91,7 +91,10 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.search(:id).match_all.minimum(Arel.sql("COALESCE(rating, 0)"))
+rating = MockItem.arel_table[:rating]
+coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
+
+MockItem.search(:id).match_all.minimum(coalesced_rating)
 ```
 
 </CodeGroup>
@@ -173,7 +176,10 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.search(:id).match_all.maximum(Arel.sql("COALESCE(rating, 0)"))
+rating = MockItem.arel_table[:rating]
+coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
+
+MockItem.search(:id).match_all.maximum(coalesced_rating)
 ```
 
 </CodeGroup>

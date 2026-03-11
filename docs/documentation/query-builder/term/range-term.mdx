@@ -27,7 +27,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("weight_range @@@ pdb.range_term(1)")
+MockItem.search(:weight_range)
+        .range_term(1)
         .select(:id, :weight_range)
 ```
 
@@ -53,7 +54,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("weight_range @@@ pdb.range_term('(10, 12]'::int4range, 'Intersects')")
+MockItem.search(:weight_range)
+        .range_term("(10, 12]", relation: "Intersects", range_type: "int4range")
         .select(:id, :weight_range)
 ```
 
@@ -78,7 +80,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("weight_range @@@ pdb.range_term('(3, 9]'::int4range, 'Contains')")
+MockItem.search(:weight_range)
+        .range_term("(3, 9]", relation: "Contains", range_type: "int4range")
         .select(:id, :weight_range)
 ```
 
@@ -103,7 +106,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("weight_range @@@ pdb.range_term('(2, 11]'::int4range, 'Within')")
+MockItem.search(:weight_range)
+        .range_term("(2, 11]", relation: "Within", range_type: "int4range")
         .select(:id, :weight_range)
 ```
 

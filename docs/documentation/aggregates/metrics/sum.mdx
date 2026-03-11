@@ -87,7 +87,10 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.search(:id).match_all.sum(Arel.sql("COALESCE(rating, 0)"))
+rating = MockItem.arel_table[:rating]
+coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
+
+MockItem.search(:id).match_all.sum(coalesced_rating)
 ```
 
 </CodeGroup>

@@ -25,7 +25,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("description @@@ pdb.regex_phrase(ARRAY['ru.*', 'shoes'])")
+MockItem.search(:description)
+        .regex_phrase("ru.*", "shoes")
         .select(:description, :rating, :category)
 ```
 

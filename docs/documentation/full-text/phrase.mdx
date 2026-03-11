@@ -130,7 +130,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("description ### 'running shoes'::pdb.whitespace")
+MockItem.search(:description)
+        .phrase("running shoes", tokenizer: "whitespace")
         .select(:description, :rating, :category)
 ```
 
@@ -157,7 +158,8 @@ MockItem.objects.extra(
 ```
 
 ```ruby Rails
-MockItem.where("description ### ARRAY['running', 'shoes']")
+MockItem.search(:description)
+        .phrase(%w[running shoes])
         .select(:description, :rating, :category)
 ```
 
@@ -179,7 +181,8 @@ MockItem.objects.extra(
 ```
 
 ```ruby Rails
-MockItem.where("description ### ARRAY['shoes', 'running']::pdb.slop(2)")
+MockItem.search(:description)
+        .phrase(%w[shoes running], slop: 2)
         .select(:description, :rating, :category)
 ```
 

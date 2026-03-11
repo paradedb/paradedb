@@ -64,9 +64,11 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
+rating = MockItem.arel_table[:rating]
+
 base = MockItem.all
 left = base.search(:description).matching_any("keyboard")
-right = base.where("rating < 2")
+right = base.where(rating.lt(2))
 
 left.or(right)
     .with_score
@@ -133,16 +135,29 @@ Order.objects.filter(
 ```
 
 ```ruby Rails
-Order.joins("JOIN mock_items ON orders.product_id = mock_items.id")
-     .where("orders.customer_name ||| ?", "Johnson")
-     .where("mock_items.description ||| ?", "running shoes")
+orders = Order.arel_table
+mock_items = MockItem.arel_table
+combined_score = Arel::Nodes::Addition.new(
+  orders[:order_id].pdb_score,
+  mock_items[:id].pdb_score
+)
+join = orders.join(mock_items).on(orders[:product_id].eq(mock_items[:id])).join_sources
+
+Order.joins(join)
+     .search(:customer_name)
+     .matching_any("Johnson")
+     .search(mock_items[:description])
+     .matching_any("running shoes")
      .select(
-       "orders.order_id",
-       "orders.customer_name",
-       "mock_items.description AS product_description",
-       "pdb.score(orders.order_id) + pdb.score(mock_items.id) AS score"
+       orders[:order_id],
+       orders[:customer_name],
+       mock_items[:description].as("product_description"),
+       combined_score.as("score")
      )
-     .order(Arel.sql("score DESC, orders.order_id"))
+     .order(
+       Arel::Nodes::Descending.new(combined_score),
+       Arel::Nodes::Ascending.new(orders[:order_id])
+     )
      .limit(5)
 ```
 

@@ -197,7 +197,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-MockItem.where("description &&& ARRAY['running', 'shoes']")
+MockItem.search(:description)
+        .matching_all("running", "shoes")
         .select(:description, :rating, :category)
 ```
 

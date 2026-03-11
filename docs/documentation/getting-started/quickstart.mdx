@@ -77,9 +77,11 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
+rating = MockItem.arel_table[:rating]
+
 MockItem.search(:description)
         .matching_any("running shoes")
-        .where("rating > 2")
+        .where(rating.gt(2))
         .select(:description, :rating, :category)
         .order(:rating)
         .limit(5)
@@ -120,9 +122,11 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
+rating = MockItem.arel_table[:rating]
+
 MockItem.search(:description)
         .matching_all("running shoes")
-        .where("rating > 2")
+        .where(rating.gt(2))
         .select(:description, :rating, :category)
         .order(:rating)
         .limit(5)
@@ -161,9 +165,11 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
+rating = MockItem.arel_table[:rating]
+
 MockItem.search(:description)
         .matching_any("running shoes")
-        .where("rating > 2")
+        .where(rating.gt(2))
         .with_score
         .select(:description)
         .order(search_score: :desc)
@@ -208,9 +214,11 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
+rating = MockItem.arel_table[:rating]
+
 MockItem.search(:description)
         .matching_any("running shoes")
-        .where("rating > 2")
+        .where(rating.gt(2))
         .with_snippet(:description)
         .with_score
         .select(:description)

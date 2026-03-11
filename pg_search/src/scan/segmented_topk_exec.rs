@@ -664,88 +664,97 @@ impl SegmentedTopKState {
 
         Ok(global_term_ords)
     }
-    /// Translates the threshold arrays from the `RowConverter` back into a DataFusion
-    /// `PhysicalExpr` that can be pushed down to the scan layer to filter out rows.
+    /// Build a per-segment filter from the worst heap entry's ordinal arrays.
     ///
-    /// This function largely emulates DataFusion's private `Top K` dynamic filter generation logic
-    /// (`build_filter_expression`), with some key adaptations for `SegmentedTopKExec`:
-    ///
-    /// 1.  **Chained Lexicographical Sorting**: Like upstream, this builds a chained compound expression
-    ///     for tie-breakers. For a sort order like `ORDER BY a ASC, b ASC`, the threshold row translates
-    ///     to a filter that keeps rows where: `a < threshold_a OR (a = threshold_a AND b < threshold_b)`.
-    /// 2.  **NULL semantics**: Upstream correctly incorporates `IS NULL` and `IS NOT NULL` to preserve
-    ///     or discard `NULL` rows based on `NULLS FIRST` / `NULLS LAST` semantics compared to the worst
-    ///     row in the heap.
-    /// 3.  **Deferred Column Ordinalization (Difference)**: Unlike upstream, one of the `threshold_arrays`
-    ///     passed to this function (the deferred column) is a `UInt64Array` representing dictionary
-    ///     term ordinals rather than the materialized String/Bytes. The resulting `PhysicalExpr` treats
-    ///     this threshold as a literal `UInt64` (and maps to the column via the same index). The pre-filter
-    ///     logic inside `Scanner::next` evaluates this `UInt64` comparison directly against the term
-    ///     ordinals fetched from the fast fields, skipping dictionary materialization entirely.
+    /// The deferred columns remain as UInt64 ordinals (valid only within the
+    /// segment). The pre-filter evaluates them directly against fast-field
+    /// ordinals, skipping dictionary materialization.
     fn build_filter_expression(
         &self,
         threshold_arrays: &[ArrayRef],
     ) -> Option<Arc<dyn PhysicalExpr>> {
         use datafusion::common::ScalarValue;
+
+        let values: Vec<ScalarValue> = threshold_arrays
+            .iter()
+            .map(|a| ScalarValue::try_from_array(a, 0))
+            .collect::<std::result::Result<_, _>>()
+            .ok()?;
+        Self::build_lexicographic_filter(&self.sort_exprs, &values)
+    }
+
+    /// Build a chained lexicographic filter expression from threshold values.
+    ///
+    /// For `ORDER BY a ASC, b ASC` with thresholds `(t_a, t_b)`, produces:
+    ///   `a < t_a OR (a = t_a AND b < t_b)`
+    ///
+    /// Handles NULL semantics via IS NULL / IS NOT NULL based on NULLS FIRST/LAST.
+    fn build_lexicographic_filter(
+        sort_exprs: &LexOrdering,
+        values: &[datafusion::common::ScalarValue],
+    ) -> Option<Arc<dyn PhysicalExpr>> {
         use datafusion::logical_expr::Operator;
         use datafusion::physical_expr::expressions::{is_not_null, is_null, lit, BinaryExpr};
 
-        let mut filters = Vec::with_capacity(threshold_arrays.len());
-        let mut prev_sort_expr: Option<Arc<dyn PhysicalExpr>> = None;
+        let mut filters = Vec::with_capacity(values.len());
+        let mut prev_eq: Option<Arc<dyn PhysicalExpr>> = None;
 
-        for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
-            let threshold_array = &threshold_arrays[i];
-            let value = ScalarValue::try_from_array(threshold_array, 0).ok()?;
-
+        for (sort_expr, value) in sort_exprs.iter().zip(values) {
+            let col_expr = &sort_expr.expr;
             let op = if sort_expr.options.descending {
-                Operator::Gt // Exclude smaller values
+                Operator::Gt
             } else {
-                Operator::Lt // Exclude larger values
+                Operator::Lt
             };
 
             let value_null = value.is_null();
+
+            // col <op> threshold
             let comparison = Arc::new(BinaryExpr::new(
-                Arc::clone(&sort_expr.expr),
+                Arc::clone(col_expr),
                 op,
                 lit(value.clone()),
             )) as Arc<dyn PhysicalExpr>;
 
-            let comparison_with_null = match (sort_expr.options.nulls_first, value_null) {
+            // Wrap with NULL handling.
+            let filter = match (sort_expr.options.nulls_first, value_null) {
                 (true, true) => lit(false),
                 (true, false) => {
-                    let is_null_expr = is_null(Arc::clone(&sort_expr.expr)).ok()?;
+                    let is_null_expr = is_null(Arc::clone(col_expr)).ok()?;
                     Arc::new(BinaryExpr::new(is_null_expr, Operator::Or, comparison))
                         as Arc<dyn PhysicalExpr>
                 }
-                (false, true) => is_not_null(Arc::clone(&sort_expr.expr)).ok()?,
+                (false, true) => is_not_null(Arc::clone(col_expr)).ok()?,
                 (false, false) => comparison,
             };
 
+            // col = threshold (for tiebreaker chaining).
             let mut eq_expr = Arc::new(BinaryExpr::new(
-                Arc::clone(&sort_expr.expr),
+                Arc::clone(col_expr),
                 Operator::Eq,
                 lit(value.clone()),
             )) as Arc<dyn PhysicalExpr>;
-
             if value_null {
-                let is_null_expr = is_null(Arc::clone(&sort_expr.expr)).ok()?;
+                let is_null_expr = is_null(Arc::clone(col_expr)).ok()?;
                 eq_expr = Arc::new(BinaryExpr::new(is_null_expr, Operator::Or, eq_expr));
             }
 
-            match prev_sort_expr.take() {
+            // Chain: first column stands alone; subsequent columns are
+            // gated by "all prior columns equal their thresholds".
+            match prev_eq.take() {
                 None => {
-                    prev_sort_expr = Some(eq_expr);
-                    filters.push(comparison_with_null);
+                    filters.push(filter);
                 }
                 Some(p) => {
                     filters.push(Arc::new(BinaryExpr::new(
                         Arc::clone(&p),
                         Operator::And,
-                        comparison_with_null,
+                        filter,
                     )));
-                    prev_sort_expr = Some(Arc::new(BinaryExpr::new(p, Operator::And, eq_expr)));
+                    eq_expr = Arc::new(BinaryExpr::new(p, Operator::And, eq_expr));
                 }
             }
+            prev_eq = Some(eq_expr);
         }
 
         filters
@@ -753,77 +762,100 @@ impl SegmentedTopKState {
             .reduce(|a, b| Arc::new(BinaryExpr::new(a, Operator::Or, b)) as Arc<dyn PhysicalExpr>)
     }
 
-    /// Peek at the first deferred column's UnionArray to determine which
-    /// segment this batch belongs to.
-    fn detect_batch_segment(&self, batch: &RecordBatch) -> Result<Option<SegmentOrdinal>> {
-        if self.deferred_columns.is_empty() {
-            return Ok(None);
-        }
-
-        let deferred_col = &self.deferred_columns[0];
-        let union_col = batch
-            .column(deferred_col.sort_col_idx)
+    /// Downcast a batch column to a dense `UnionArray` and return it with its offsets.
+    fn get_deferred_union(batch: &RecordBatch, col_idx: usize) -> Result<&UnionArray> {
+        batch
+            .column(col_idx)
             .as_any()
             .downcast_ref::<UnionArray>()
             .ok_or_else(|| {
                 DataFusionError::Internal(
                     "SegmentedTopKExec: sort column should be a deferred UnionArray".into(),
                 )
-            })?;
+            })
+    }
 
-        let type_ids = union_col.type_ids();
+    /// Extract `segment_ord` from a single row of a deferred UnionArray.
+    /// Returns `None` for State 2 (materialized) rows.
+    fn segment_ord_from_union_row(
+        union_col: &UnionArray,
+        offsets: &[i32],
+        row_idx: usize,
+    ) -> Result<Option<SegmentOrdinal>> {
+        match union_col.type_ids()[row_idx] {
+            0 => {
+                let packed = union_col
+                    .child(0)
+                    .as_any()
+                    .downcast_ref::<UInt64Array>()
+                    .expect("child 0 should be UInt64 doc addresses")
+                    .value(offsets[row_idx] as usize);
+                let (seg_ord, _) = unpack_doc_address(packed);
+                Ok(Some(seg_ord))
+            }
+            1 => {
+                let struct_child = union_col
+                    .child(1)
+                    .as_any()
+                    .downcast_ref::<StructArray>()
+                    .expect("child 1 should be StructArray");
+                let seg_ord = struct_child
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<UInt32Array>()
+                    .expect("segment_ord should be UInt32")
+                    .value(offsets[row_idx] as usize);
+                Ok(Some(seg_ord))
+            }
+            2 => Ok(None),
+            _ => unreachable!("Invalid Union state"),
+        }
+    }
+
+    /// Peek at the first deferred column to find the segment this batch belongs to.
+    /// Scans rows until it finds one that is not State 2 (materialized).
+    fn detect_batch_segment(&self, batch: &RecordBatch) -> Result<Option<SegmentOrdinal>> {
+        if self.deferred_columns.is_empty() {
+            return Ok(None);
+        }
+        let union_col = Self::get_deferred_union(batch, self.deferred_columns[0].sort_col_idx)?;
         let offsets = union_col.offsets().ok_or_else(|| {
             DataFusionError::Internal("SegmentedTopKExec: expected dense union with offsets".into())
         })?;
-
         for row_idx in 0..batch.num_rows() {
-            match type_ids[row_idx] {
-                0 => {
-                    let doc_addr_child = union_col
-                        .child(0)
-                        .as_any()
-                        .downcast_ref::<UInt64Array>()
-                        .ok_or_else(|| {
-                            DataFusionError::Internal(
-                                "SegmentedTopKExec: child 0 should be UInt64 doc addresses".into(),
-                            )
-                        })?;
-                    let packed = doc_addr_child.value(offsets[row_idx] as usize);
-                    let (seg_ord, _) = unpack_doc_address(packed);
-                    return Ok(Some(seg_ord));
-                }
-                1 => {
-                    let term_ord_child = union_col
-                        .child(1)
-                        .as_any()
-                        .downcast_ref::<StructArray>()
-                        .ok_or_else(|| {
-                            DataFusionError::Internal(
-                                "SegmentedTopKExec: child 1 should be StructArray".into(),
-                            )
-                        })?;
-                    let seg_ord_array = term_ord_child
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<UInt32Array>()
-                        .ok_or_else(|| {
-                            DataFusionError::Internal(
-                                "SegmentedTopKExec: segment_ord should be UInt32".into(),
-                            )
-                        })?;
-                    let ci = offsets[row_idx] as usize;
-                    return Ok(Some(seg_ord_array.value(ci)));
-                }
-                2 => continue,
-                _ => unreachable!("Invalid Union state"),
+            if let Some(seg) = Self::segment_ord_from_union_row(union_col, offsets, row_idx)? {
+                return Ok(Some(seg));
             }
         }
-
         Ok(None)
     }
 
     /// Flush the completed segment's top-K survivors and update the global heap.
     fn flush_segment(&mut self, finished_seg: SegmentOrdinal) -> Result<Vec<RecordBatch>> {
+        // 1. Partition row_ordinals: survivors for this segment vs rows from other segments.
+        let survivors = self.collect_survivors(finished_seg);
+
+        // 2. Filter buffered batches to keep only survivor rows.
+        let result = self.filter_batches(&survivors)?;
+
+        // 3. Merge this segment's heap into the global heap and publish a threshold.
+        self.update_global_heap(finished_seg);
+        if self.global_heap.len() >= self.k {
+            if let Some(expr) = self.build_global_filter_expression() {
+                self.thresholds.set_global_threshold(expr);
+            }
+        }
+
+        self.segments_flushed.add(1);
+        Ok(result)
+    }
+
+    /// Partition `row_ordinals`: rows from `finished_seg` that beat the cutoff
+    /// become survivors; rows from other segments are kept for later.
+    fn collect_survivors(
+        &mut self,
+        finished_seg: SegmentOrdinal,
+    ) -> crate::api::HashSet<(usize, usize)> {
         let cutoff = self
             .segment_heaps
             .get(&finished_seg)
@@ -831,30 +863,29 @@ impl SegmentedTopKState {
             .cloned();
 
         let mut survivors = crate::api::HashSet::default();
-        let mut remaining_ordinals = Vec::new();
+        let mut remaining = Vec::new();
 
         for (batch_idx, row_idx, seg_ord, heap_val) in std::mem::take(&mut self.row_ordinals) {
-            if seg_ord == finished_seg {
-                let keep = match &cutoff {
-                    Some(cutoff_val) => &heap_val <= cutoff_val,
-                    None => true,
-                };
-                if keep {
-                    survivors.insert((batch_idx, row_idx));
-                }
-            } else {
-                remaining_ordinals.push((batch_idx, row_idx, seg_ord, heap_val));
+            if seg_ord != finished_seg {
+                remaining.push((batch_idx, row_idx, seg_ord, heap_val));
+            } else if cutoff.as_ref().is_none_or(|c| &heap_val <= c) {
+                survivors.insert((batch_idx, row_idx));
             }
         }
-        self.row_ordinals = remaining_ordinals;
+        self.row_ordinals = remaining;
+        survivors
+    }
 
+    /// Filter buffered batches to emit only the rows in `survivors`.
+    fn filter_batches(
+        &self,
+        survivors: &crate::api::HashSet<(usize, usize)>,
+    ) -> Result<Vec<RecordBatch>> {
         let mut result = Vec::new();
         for (batch_idx, batch) in self.batches.iter().enumerate() {
-            let num_rows = batch.num_rows();
-            let mask: BooleanArray = (0..num_rows)
+            let mask: BooleanArray = (0..batch.num_rows())
                 .map(|row_idx| Some(survivors.contains(&(batch_idx, row_idx))))
                 .collect();
-
             if mask.true_count() > 0 {
                 let filtered = filter_record_batch(batch, &mask)
                     .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
@@ -863,17 +894,6 @@ impl SegmentedTopKState {
                 }
             }
         }
-
-        self.update_global_heap(finished_seg);
-
-        if self.global_heap.len() >= self.k {
-            if let Some(expr) = self.build_global_filter_expression() {
-                self.thresholds.set_global_threshold(expr);
-            }
-        }
-
-        self.segments_flushed.add(1);
-
         Ok(result)
     }
 
@@ -881,44 +901,42 @@ impl SegmentedTopKState {
     fn update_global_heap(&mut self, seg_ord: SegmentOrdinal) {
         if let Some(segment_heap) = self.segment_heaps.remove(&seg_ord) {
             for owned_row in segment_heap.into_vec() {
-                if self.global_heap.len() < self.k {
-                    self.global_heap.push((owned_row, seg_ord));
-                } else if let Some((worst, _)) = self.global_heap.peek() {
-                    if &owned_row < worst {
-                        self.global_heap.pop();
-                        self.global_heap.push((owned_row, seg_ord));
-                    }
-                }
+                Self::update_cutoff_heap_pair(&mut self.global_heap, (owned_row, seg_ord), self.k);
             }
         }
     }
 
-    /// Build a global filter expression using materialized string values.
+    /// Same as `update_cutoff_heap` but for `(OwnedRow, SegmentOrdinal)` pairs.
+    fn update_cutoff_heap_pair(
+        heap: &mut BinaryHeap<(OwnedRow, SegmentOrdinal)>,
+        entry: (OwnedRow, SegmentOrdinal),
+        k: usize,
+    ) {
+        if heap.len() < k {
+            heap.push(entry);
+        } else if let Some(worst) = heap.peek() {
+            if &entry < worst {
+                heap.pop();
+                heap.push(entry);
+            }
+        }
+    }
+
+    /// Resolve threshold values for the global filter.
     ///
-    /// Unlike `build_filter_expression` which emits UInt64 ordinal literals
-    /// (only valid within one segment), this converts deferred ordinals back
-    /// to string literals via `FFHelper::ord_to_str`. The scanner's
-    /// `pre_filter::try_rewrite_binary` automatically translates string
-    /// literals to per-segment ordinal bounds.
-    fn build_global_filter_expression(&self) -> Option<Arc<dyn PhysicalExpr>> {
+    /// For deferred columns, converts ordinals back to materialized strings
+    /// via `FFHelper::ord_to_str`. For non-deferred columns, reads the scalar
+    /// directly from the array. Returns `None` if any conversion fails.
+    fn resolve_global_threshold_values(
+        &self,
+        arrays: &[ArrayRef],
+        seg_ord: SegmentOrdinal,
+    ) -> Option<Vec<datafusion::common::ScalarValue>> {
         use datafusion::common::ScalarValue;
-        use datafusion::logical_expr::Operator;
-        use datafusion::physical_expr::expressions::{is_not_null, is_null, lit, BinaryExpr};
 
-        let (worst_row, worst_seg_ord) = self.global_heap.peek()?;
-
-        let arrays = self
-            .row_converter
-            .convert_rows(std::iter::once(worst_row.row()))
-            .ok()?;
-
-        let mut filters = Vec::with_capacity(arrays.len());
-        let mut prev_sort_expr: Option<Arc<dyn PhysicalExpr>> = None;
-
+        let mut values = Vec::with_capacity(self.sort_exprs.len());
         for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
-            let threshold_array = &arrays[i];
-
-            let deferred = sort_expr
+            let is_deferred = sort_expr
                 .expr
                 .as_any()
                 .downcast_ref::<datafusion::physical_expr::expressions::Column>()
@@ -928,11 +946,9 @@ impl SegmentedTopKState {
                         .find(|d| d.sort_col_idx == c.index())
                 });
 
-            let value = if let Some(deferred) = deferred {
-                let ord_array = threshold_array.as_any().downcast_ref::<UInt64Array>()?;
-                let term_ord = ord_array.value(0);
-
-                let col = self.ffhelper.column(*worst_seg_ord, deferred.ff_index);
+            let value = if let Some(deferred) = is_deferred {
+                let term_ord = arrays[i].as_any().downcast_ref::<UInt64Array>()?.value(0);
+                let col = self.ffhelper.column(seg_ord, deferred.ff_index);
                 match col {
                     FFType::Text(str_col) => {
                         let mut s = String::new();
@@ -947,63 +963,28 @@ impl SegmentedTopKState {
                     _ => return None,
                 }
             } else {
-                ScalarValue::try_from_array(threshold_array, 0).ok()?
+                ScalarValue::try_from_array(&arrays[i], 0).ok()?
             };
-
-            let op = if sort_expr.options.descending {
-                Operator::Gt
-            } else {
-                Operator::Lt
-            };
-
-            let value_null = value.is_null();
-            let comparison = Arc::new(BinaryExpr::new(
-                Arc::clone(&sort_expr.expr),
-                op,
-                lit(value.clone()),
-            )) as Arc<dyn PhysicalExpr>;
-
-            let comparison_with_null = match (sort_expr.options.nulls_first, value_null) {
-                (true, true) => lit(false),
-                (true, false) => {
-                    let is_null_expr = is_null(Arc::clone(&sort_expr.expr)).ok()?;
-                    Arc::new(BinaryExpr::new(is_null_expr, Operator::Or, comparison))
-                        as Arc<dyn PhysicalExpr>
-                }
-                (false, true) => is_not_null(Arc::clone(&sort_expr.expr)).ok()?,
-                (false, false) => comparison,
-            };
-
-            let mut eq_expr = Arc::new(BinaryExpr::new(
-                Arc::clone(&sort_expr.expr),
-                Operator::Eq,
-                lit(value.clone()),
-            )) as Arc<dyn PhysicalExpr>;
-
-            if value_null {
-                let is_null_expr = is_null(Arc::clone(&sort_expr.expr)).ok()?;
-                eq_expr = Arc::new(BinaryExpr::new(is_null_expr, Operator::Or, eq_expr));
-            }
-
-            match prev_sort_expr.take() {
-                None => {
-                    prev_sort_expr = Some(eq_expr);
-                    filters.push(comparison_with_null);
-                }
-                Some(p) => {
-                    filters.push(Arc::new(BinaryExpr::new(
-                        Arc::clone(&p),
-                        Operator::And,
-                        comparison_with_null,
-                    )));
-                    prev_sort_expr = Some(Arc::new(BinaryExpr::new(p, Operator::And, eq_expr)));
-                }
-            }
+            values.push(value);
         }
+        Some(values)
+    }
 
-        filters
-            .into_iter()
-            .reduce(|a, b| Arc::new(BinaryExpr::new(a, Operator::Or, b)) as Arc<dyn PhysicalExpr>)
+    /// Build a global filter expression using materialized string values.
+    ///
+    /// Unlike `build_filter_expression` which emits UInt64 ordinal literals
+    /// (only valid within one segment), this converts deferred ordinals back
+    /// to string literals via `FFHelper::ord_to_str`. The scanner's
+    /// `pre_filter::try_rewrite_binary` automatically translates string
+    /// literals to per-segment ordinal bounds.
+    fn build_global_filter_expression(&self) -> Option<Arc<dyn PhysicalExpr>> {
+        let (worst_row, worst_seg_ord) = self.global_heap.peek()?;
+        let arrays = self
+            .row_converter
+            .convert_rows(std::iter::once(worst_row.row()))
+            .ok()?;
+        let values = self.resolve_global_threshold_values(&arrays, *worst_seg_ord)?;
+        Self::build_lexicographic_filter(&self.sort_exprs, &values)
     }
 
     /// Compact buffered batches by discarding rows that cannot survive the

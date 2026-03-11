@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::agg_funcoid;
-use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::operator::anyelement_search_opoids;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
 use crate::nodecast;
@@ -355,7 +355,6 @@ pub unsafe fn try_extract_quals_from_query(
             &context,
             rti,
             quals_node,
-            anyelement_query_input_opoid(),
             RestrictInfoType::BaseRelation,
             &bm25_index,
             false, // Don't convert external to special qual
@@ -595,8 +594,7 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
 unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     // We still need to check for the @@@(anyelement, searchqueryinput) variant
     // because it's the most common and we want fast-path for it
-    let searchqueryinput_opno = anyelement_query_input_opoid();
-    let target_ops = [searchqueryinput_opno];
+    let target_ops = anyelement_search_opoids();
 
     // Helper closure to check if expression contains our operators
     let contains_search_op = |node: *mut pg_sys::Node| -> bool {

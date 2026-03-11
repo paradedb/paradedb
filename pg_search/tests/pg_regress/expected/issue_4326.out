@@ -1,0 +1,49 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_filter_pushdown TO off;
+DROP TABLE IF EXISTS public.test_table;
+CREATE TABLE public.test_table (
+    id uuid NOT NULL,
+    col_uuid_1 uuid NOT NULL,
+    col_ts_1 timestamp without time zone NOT NULL,
+    col_bool_1 boolean NOT NULL
+);
+INSERT INTO public.test_table (id, col_uuid_1, col_ts_1, col_bool_1) VALUES
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '2024-01-01 10:00:00', TRUE),
+    ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000002', '2024-01-01 10:01:00', FALSE);
+CREATE INDEX test_table_search_index ON public.test_table USING bm25 (id, col_ts_1, col_bool_1, col_uuid_1) WITH (key_field=id, layer_sizes='0', background_layer_sizes='100kb, 1mb, 100mb, 1gb');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT *, pdb.agg('{"value_count":{"field":"id"}}') OVER () AS agg
+FROM "test_table"
+WHERE "test_table"."col_uuid_1" = '00000000-0000-0000-0000-000000000001'
+  AND "test_table"."col_bool_1" = TRUE
+  AND 1 = 1
+  AND (test_table.id @@@ pdb.all())
+ORDER BY "test_table"."col_ts_1" DESC, "test_table"."id" DESC
+LIMIT 25 OFFSET 0;
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on test_table
+         Table: test_table
+         Index: test_table_search_index
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: col_ts_1 desc, id desc
+            TopN Limit: 25
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"col_bool_1","value":true,"is_datetime":false}},{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"col_uuid_1","value":"00000000-0000-0000-0000-000000000001","is_datetime":false}}]}}
+(9 rows)
+
+SELECT *, pdb.agg('{"value_count":{"field":"id"}}') OVER () AS agg
+FROM "test_table"
+WHERE "test_table"."col_uuid_1" = '00000000-0000-0000-0000-000000000001'
+  AND "test_table"."col_bool_1" = TRUE
+  AND 1 = 1
+  AND (test_table.id @@@ pdb.all())
+ORDER BY "test_table"."col_ts_1" DESC, "test_table"."id" DESC
+LIMIT 25 OFFSET 0;
+                  id                  |              col_uuid_1              |         col_ts_1         | col_bool_1 |      agg       
+--------------------------------------+--------------------------------------+--------------------------+------------+----------------
+ 00000000-0000-0000-0000-000000000001 | 00000000-0000-0000-0000-000000000001 | Mon Jan 01 10:00:00 2024 | t          | {"value": 1.0}
+(1 row)
+
+DROP TABLE public.test_table;

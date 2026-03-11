@@ -240,16 +240,10 @@ pub trait CustomScan: Default + Sized {
     /// This should be called when a CustomScan is successfully planned for a set of tables,
     /// to suppress any "failure" warnings that might have been generated during the
     /// exploration of alternative (rejected) paths for these tables.
-    /// The category is automatically set to `Self::NAME`.
     fn mark_contexts_successful<C: crate::postgres::planner_warnings::ToWarningContexts>(
         contexts: C,
     ) {
-        crate::postgres::planner_warnings::mark_contexts_successful(
-            Self::NAME
-                .to_str()
-                .expect("CustomScan name should be valid UTF-8"),
-            contexts,
-        )
+        crate::postgres::planner_warnings::mark_contexts_successful(contexts)
     }
 }
 

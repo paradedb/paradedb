@@ -47,11 +47,11 @@ LIMIT 10;
                Limit: 10
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   GlobalLimitExec: skip=0, fetch=10
-                 :     ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, id@3 as id]
+                 :     ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
                  :       SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
-                 :         ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, query="all"
                  :         ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
@@ -106,11 +106,11 @@ OFFSET 5 LIMIT 10;
                Offset: 5
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   GlobalLimitExec: skip=0, fetch=15
-                 :     ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, id@3 as id]
+                 :     ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
                  :       SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
-                 :         ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, query="all"
                  :         ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
@@ -177,12 +177,12 @@ LIMIT 10;
                Limit: 10
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   SortPreservingMergeExec: [id@2 ASC], fetch=10
-                 :     ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, id@3 as id]
+                 :     ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
                  :       SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
                  :         SortPreservingMergeExec: [t1_id@1 ASC]
-                 :           ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
+                 :           ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
                  :             CooperativeExec
                  :               PgSearchScan: segments=2, query="all"
                  :         SortPreservingMergeExec: [id@1 ASC]
@@ -260,18 +260,18 @@ LIMIT 10;
                Limit: 10
                Order By: t1.id asc nulls first
                DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[NULL as col_1, id@1 as col_2, NULL as col_3, NULL as col_4, ctid_1@0 as ctid_1, ctid_2@2 as ctid_2, ctid_4@3 as ctid_4]
+                 : ProjectionExec: expr=[NULL as col_1, id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
                  :   GlobalLimitExec: skip=0, fetch=10
-                 :     ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, ctid_2@2 as ctid_2, ctid_4@4 as ctid_4]
+                 :     ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
                  :       SortMergeJoinExec: join_type=Inner, on=[(t1_id@3, t1_id@1)]
                  :         SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
-                 :           ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
+                 :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
                  :             CooperativeExec
                  :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
-                 :           ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, t1_id@1 as t1_id]
                  :             CooperativeExec
                  :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
-                 :         ProjectionExec: expr=[ctid@0 as ctid_4, t1_id@1 as t1_id]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (25 rows)
@@ -337,15 +337,15 @@ LIMIT 10;
          Limit: 10
          Order By: t1.val asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10
            :     SortExec: TopK(fetch=10), expr=[val@2 ASC NULLS LAST], preserve_partitioning=[true]
-           :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, val@4 as val]
+           :       ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val]
            :         TantivyLookupExec: decode=[val]
            :           SegmentedTopKExec: expr=[val@4 ASC NULLS LAST], k=10
            :             SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
            :               SortPreservingMergeExec: [t1_id@1 ASC]
-           :                 ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
+           :                 ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
            :                   CooperativeExec
            :                     PgSearchScan: segments=2, query="all"
            :               SortPreservingMergeExec: [id@1 ASC]
@@ -373,15 +373,15 @@ LIMIT 10;
          Limit: 10
          Order By: t1.val asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
+           : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10, metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :     SortExec: TopK(fetch=10), expr=[val@2 ASC NULLS LAST], preserve_partitioning=[true], filter=[val@2 < val 10005], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1, row_replacements=15]
-           :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, val@4 as val], metrics=[output_rows=20, output_bytes=640.0 B, output_batches=2]
+           :       ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val], metrics=[output_rows=20, output_bytes=640.0 B, output_batches=2]
            :         TantivyLookupExec: decode=[val], metrics=[output_rows=20, output_bytes=960.0 B, output_batches=2]
            :           SegmentedTopKExec: expr=[val@4 ASC NULLS LAST], k=10, metrics=[rows_input=20.00 K, rows_output=20, segments_seen=2]
            :             SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=20.00 K, output_bytes=1021.9 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=40.00 K, peak_mem_used=1.20 M]
            :               SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
-           :                 ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=2]
+           :                 ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=2]
            :                   CooperativeExec
            :                     PgSearchScan: segments=2, query="all"
            :               SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=1113.3 KB, output_batches=3]
@@ -466,11 +466,11 @@ LIMIT 25;
          Limit: 25
          Order By: t1.val desc, t1.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [val@3 DESC, id@2 ASC NULLS LAST], fetch=25
            :     SortExec: TopK(fetch=25), expr=[val@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[true]
-           :       ProjectionExec: expr=[ctid_2@3 as ctid_2, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
-           :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_2@3 as ctid_2]
+           :       ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
+           :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0]
            :           TantivyLookupExec: decode=[val]
            :             SegmentedTopKExec: expr=[val@2 DESC, id@1 ASC NULLS LAST], k=25
            :               SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
@@ -479,7 +479,7 @@ LIMIT 25;
            :                     CooperativeExec
            :                       PgSearchScan: segments=2, dynamic_filters=1, segmented_thresholds=true, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
            :                 SortPreservingMergeExec: [t1_id@1 ASC]
-           :                   ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
+           :                   ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
            :                     CooperativeExec
            :                       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (25 rows)
@@ -500,11 +500,11 @@ LIMIT 25;
          Limit: 25
          Order By: t1.val desc, t1.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
+           : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :   SortPreservingMergeExec: [val@3 DESC, id@2 ASC NULLS LAST], fetch=25, metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :     SortExec: TopK(fetch=25), expr=[val@3 DESC, id@2 ASC NULLS LAST], preserve_partitioning=[true], filter=[val@3 IS NULL OR val@3 > val 9986 OR val@3 = val 9986 AND id@2 < 9986], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1, row_replacements=35]
-           :       ProjectionExec: expr=[ctid_2@3 as ctid_2, ctid_1@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=60, output_bytes=2.4 KB, output_batches=4]
-           :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_2@3 as ctid_2], metrics=[output_rows=60, output_bytes=2.4 KB, output_batches=4]
+           :       ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=60, output_bytes=2.4 KB, output_batches=4]
+           :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0], metrics=[output_rows=60, output_bytes=2.4 KB, output_batches=4]
            :           TantivyLookupExec: decode=[val], metrics=[output_rows=60, output_bytes=2.8 KB, output_batches=4]
            :             SegmentedTopKExec: expr=[val@2 DESC, id@1 ASC NULLS LAST], k=25, metrics=[rows_input=18.42 K, rows_output=60, segments_seen=2]
            :               SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], metrics=[output_rows=18.42 K, output_bytes=1308.4 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=38.42 K, peak_mem_used=524.9 K]
@@ -513,7 +513,7 @@ LIMIT 25;
            :                     CooperativeExec
            :                       PgSearchScan: segments=2, dynamic_filters=1, segmented_thresholds=true, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[rows_pruned=1.58 K, rows_scanned=20.23 K]
            :                 SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
-           :                   ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
+           :                   ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
            :                     CooperativeExec
            :                       PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=20.00 K]
 (23 rows)
@@ -577,11 +577,11 @@ LIMIT 10;
          Limit: 10
          Order By: t1.val asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [val@3 ASC NULLS LAST], fetch=10
            :     SortExec: TopK(fetch=10), expr=[val@3 ASC NULLS LAST], preserve_partitioning=[true]
-           :       ProjectionExec: expr=[ctid_2@3 as ctid_2, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
-           :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_2@3 as ctid_2]
+           :       ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
+           :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0]
            :           TantivyLookupExec: decode=[val]
            :             SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10
            :               SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
@@ -590,7 +590,7 @@ LIMIT 10;
            :                     CooperativeExec
            :                       PgSearchScan: segments=2, dynamic_filters=1, segmented_thresholds=true, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
            :                 SortPreservingMergeExec: [t1_id@1 ASC]
-           :                   ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
+           :                   ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
            :                     CooperativeExec
            :                       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (25 rows)
@@ -687,18 +687,18 @@ LIMIT 15;
          Limit: 15
          Order By: t1.id desc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [id@2 DESC], fetch=15
            :     SortExec: TopK(fetch=15), expr=[id@2 DESC], preserve_partitioning=[true]
-           :       ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
-           :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, ctid_2@2 as ctid_2]
+           :       ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
+           :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, ctid_0@2 as ctid_0]
            :           SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
            :             SortPreservingMergeExec: [id@1 ASC]
            :               ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
            :                 CooperativeExec
            :                   PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
            :             SortPreservingMergeExec: [t1_id@1 ASC]
-           :               ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
+           :               ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
            :                 CooperativeExec
            :                   PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (23 rows)

@@ -21,7 +21,7 @@ use pgrx::{pg_sys, PgList};
 
 use crate::api::HashMap;
 use crate::postgres::customscan::joinscan::build::{
-    JoinLevelExpr, JoinLevelSearchPredicate, JoinSource,
+    JoinLevelExpr, JoinLevelSearchPredicate, JoinSource, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
 use crate::postgres::customscan::opexpr::lookup_operator;
@@ -64,11 +64,11 @@ impl<'a> PredicateTranslator<'a> {
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
-                source_idx: _,
+                plan_position,
                 predicate_idx,
             } => {
                 let predicate = predicates.get(*predicate_idx)?;
-                let col = ctid_map.get(&predicate.rti)?;
+                let col = ctid_map.get(&(*plan_position as pg_sys::Index))?;
                 // Create a SearchPredicateUDF that carries the search query.
                 // This will be pushed down to PgSearchTableProvider via filter pushdown.
                 let udf = SearchPredicateUDF::new(
@@ -326,13 +326,13 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
         };
 
         // 2. Find the source
-        let (source_idx, source) = self
+        let (plan_position, source) = self
             .sources
             .iter()
             .enumerate()
             .find(|(_, s)| s.contains_rti(rti))?;
 
-        let alias = source.execution_alias(source_idx);
+        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
 
         // 3. Resolve column name
         if is_score {

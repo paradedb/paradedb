@@ -14,7 +14,7 @@ INSERT INTO test_table (text) VALUES
 CREATE INDEX idx_test_table ON test_table USING bm25 (id, (text::pdb.unicode_words('ascii_folding=true'))) WITH (key_field='id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text, pdb.agg('{"value_count": {"field": "id"}}') FROM test_table WHERE id @@@ pdb.all() GROUP BY text ORDER BY text LIMIT 5;
-WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: test_table)
+WARNING:  Aggregate Scan not used: grouping column text exists, but is not a fast field (table: test_table)
                                      QUERY PLAN                                     
 ------------------------------------------------------------------------------------
  Limit

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773189741123,
+  "lastUpdate": 1773190559008,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14578,6 +14578,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3533306639342495,
             "unit": "median tps",
             "extra": "avg tps: 4.801821106848692, max tps: 5.978323947154085, count: 57577"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "78790a6905b23c19ad96d1640532d2e11c7ef76f",
+          "message": "feat: Add support for UNNEST in the aggregate scan, and improve warnings (#4288)\n\n## What\n\nAdd support for `UNNEST(array)` in the group-by/target-list/order-by of\naggregate scan queries, and improve warnings around the reason why the\naggregate scan was not able to extract a column.\n\n## Why\n\nThe aggregate scan cannot natively group-by multi-valued columns\n(arrays), but it does natively execute the equivalent of\n`UNNEST(array)`. This is useful for some consumers, so expose it.\n\nAdditionally, when the basescan fails planning but the aggregatescan\nsucceeds, ensure that we don't render a warning by clearing the context\nfor the entire table.\n\n## Tests\n\nExpanded aggregate expression tests.",
+          "timestamp": "2026-03-10T17:22:29-07:00",
+          "tree_id": "0a4bbe70482801941c4ffa1db20deea70cd37c0c",
+          "url": "https://github.com/paradedb/paradedb/commit/78790a6905b23c19ad96d1640532d2e11c7ef76f"
+        },
+        "date": 1773190552788,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.706000660959366,
+            "unit": "median tps",
+            "extra": "avg tps: 6.601275521407922, max tps: 9.983388343682643, count: 57503"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.298377352207855,
+            "unit": "median tps",
+            "extra": "avg tps: 4.760971815896698, max tps: 5.948490207151394, count: 57503"
           }
         ]
       }

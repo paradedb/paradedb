@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773267557723,
+  "lastUpdate": 1773268415915,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21846,6 +21846,54 @@ window.BENCHMARK_DATA = {
             "value": 5.3348589553309305,
             "unit": "median tps",
             "extra": "avg tps: 5.3736201639457315, max tps: 6.944172078584028, count: 56399"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6c58d0c3cc2ae7482037709b9c89abf0ecb925d",
+          "message": "chore: Upgrade to `0.21.14` (#4339)\n\n## What\nUpgrade pg_search to 0.21.14.\n\n## Why\nNew patch release with a bug fix.\n\n## How\n- Bump workspace version to 0.21.14\n- Add changelog for 0.21.14\n- Update docs download URLs, upgrade instructions, and version\nreferences\n- Add SQL upgrade script from 0.21.13 to 0.21.14\n- Rename bridge SQL file to maintain upgrade path to 0.22.0\n\n## Changelog (0.21.x branch since v0.21.13)\n\n### Bug Fixes\n- fix: Pushdown errors in faceted queries with\n`paradedb.enable_filter_pushdown` disabled (#4335)\n\n## Tests\nN/A — version bump only.",
+          "timestamp": "2026-03-11T14:42:55-07:00",
+          "tree_id": "3a1186f55842443b9ad1b351f6488d5d325cc702",
+          "url": "https://github.com/paradedb/paradedb/commit/c6c58d0c3cc2ae7482037709b9c89abf0ecb925d"
+        },
+        "date": 1773268409210,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1089.537046968348,
+            "unit": "median tps",
+            "extra": "avg tps: 1090.0079466814277, max tps: 1132.5597060048615, count: 56035"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1232.8660498149566,
+            "unit": "median tps",
+            "extra": "avg tps: 1226.7081057695373, max tps: 1245.7567577431687, count: 56035"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1814.2317992418234,
+            "unit": "median tps",
+            "extra": "avg tps: 1786.5597420871109, max tps: 1978.2548503375788, count: 56035"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.289834870574505,
+            "unit": "median tps",
+            "extra": "avg tps: 5.3240324198888835, max tps: 7.277719258850171, count: 56035"
           }
         ]
       }

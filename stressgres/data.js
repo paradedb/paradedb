@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773190566828,
+  "lastUpdate": 1773191404723,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21150,6 +21150,54 @@ window.BENCHMARK_DATA = {
             "value": 5.161304859184403,
             "unit": "median tps",
             "extra": "avg tps: 5.196997162878681, max tps: 7.945277126260639, count: 55918"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "78790a6905b23c19ad96d1640532d2e11c7ef76f",
+          "message": "feat: Add support for UNNEST in the aggregate scan, and improve warnings (#4288)\n\n## What\n\nAdd support for `UNNEST(array)` in the group-by/target-list/order-by of\naggregate scan queries, and improve warnings around the reason why the\naggregate scan was not able to extract a column.\n\n## Why\n\nThe aggregate scan cannot natively group-by multi-valued columns\n(arrays), but it does natively execute the equivalent of\n`UNNEST(array)`. This is useful for some consumers, so expose it.\n\nAdditionally, when the basescan fails planning but the aggregatescan\nsucceeds, ensure that we don't render a warning by clearing the context\nfor the entire table.\n\n## Tests\n\nExpanded aggregate expression tests.",
+          "timestamp": "2026-03-10T17:22:29-07:00",
+          "tree_id": "0a4bbe70482801941c4ffa1db20deea70cd37c0c",
+          "url": "https://github.com/paradedb/paradedb/commit/78790a6905b23c19ad96d1640532d2e11c7ef76f"
+        },
+        "date": 1773191398102,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 760.2328885097136,
+            "unit": "median tps",
+            "extra": "avg tps: 699.1259092570481, max tps: 1046.9184500248425, count: 56345"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1190.7115095330964,
+            "unit": "median tps",
+            "extra": "avg tps: 1189.682896803586, max tps: 1243.0627443388814, count: 56345"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1812.331582817971,
+            "unit": "median tps",
+            "extra": "avg tps: 1793.420479029083, max tps: 1953.494808391131, count: 56345"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.323152418090375,
+            "unit": "median tps",
+            "extra": "avg tps: 5.374890276631756, max tps: 6.464852178668276, count: 56345"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773212265030,
+  "lastUpdate": 1773213097193,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14818,6 +14818,42 @@ window.BENCHMARK_DATA = {
             "value": 5.298377352207855,
             "unit": "median tps",
             "extra": "avg tps: 4.760971815896698, max tps: 5.948490207151394, count: 57503"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "54ccd9b3dd50b2d5c93e9fe8e76e93df01d01153",
+          "message": "fix: Pushdown errors in faceted queries with `paradedb.enable_filter_pushdown` disabled (#4331)",
+          "timestamp": "2026-03-10T23:37:58-07:00",
+          "tree_id": "c94460e23a2833733222315576ff6cd28a1bcd6e",
+          "url": "https://github.com/paradedb/paradedb/commit/54ccd9b3dd50b2d5c93e9fe8e76e93df01d01153"
+        },
+        "date": 1773213091254,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.554835019896204,
+            "unit": "median tps",
+            "extra": "avg tps: 6.481320113276202, max tps: 9.777086478562188, count: 57334"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.391215142479246,
+            "unit": "median tps",
+            "extra": "avg tps: 4.8391394680699635, max tps: 6.041226219814455, count: 57334"
           }
         ]
       }

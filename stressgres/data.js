@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773267550446,
+  "lastUpdate": 1773267557723,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18812,6 +18812,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.95377960721387, max segment_count: 128.0, count: 57334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6c58d0c3cc2ae7482037709b9c89abf0ecb925d",
+          "message": "chore: Upgrade to `0.21.14` (#4339)\n\n## What\nUpgrade pg_search to 0.21.14.\n\n## Why\nNew patch release with a bug fix.\n\n## How\n- Bump workspace version to 0.21.14\n- Add changelog for 0.21.14\n- Update docs download URLs, upgrade instructions, and version\nreferences\n- Add SQL upgrade script from 0.21.13 to 0.21.14\n- Rename bridge SQL file to maintain upgrade path to 0.22.0\n\n## Changelog (0.21.x branch since v0.21.13)\n\n### Bug Fixes\n- fix: Pushdown errors in faceted queries with\n`paradedb.enable_filter_pushdown` disabled (#4335)\n\n## Tests\nN/A — version bump only.",
+          "timestamp": "2026-03-11T14:42:55-07:00",
+          "tree_id": "3a1186f55842443b9ad1b351f6488d5d325cc702",
+          "url": "https://github.com/paradedb/paradedb/commit/c6c58d0c3cc2ae7482037709b9c89abf0ecb925d"
+        },
+        "date": 1773267552091,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.002251878201513, max cpu: 43.460762, count: 57791"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 233.05539708821442, max mem: 234.7109375, count: 57791"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.45652441012973, max cpu: 33.267326, count: 57791"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.16904043233376, max mem: 175.78515625, count: 57791"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34178,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33538.807963177656, max block_count: 36006.0, count: 57791"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.5370559429669, max segment_count: 131.0, count: 57791"
           }
         ]
       }

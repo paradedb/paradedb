@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773191404723,
+  "lastUpdate": 1773191412661,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27316,6 +27316,108 @@ window.BENCHMARK_DATA = {
             "value": 162.36328125,
             "unit": "median mem",
             "extra": "avg mem: 181.20837620209502, max mem: 220.81640625, count: 55918"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "78790a6905b23c19ad96d1640532d2e11c7ef76f",
+          "message": "feat: Add support for UNNEST in the aggregate scan, and improve warnings (#4288)\n\n## What\n\nAdd support for `UNNEST(array)` in the group-by/target-list/order-by of\naggregate scan queries, and improve warnings around the reason why the\naggregate scan was not able to extract a column.\n\n## Why\n\nThe aggregate scan cannot natively group-by multi-valued columns\n(arrays), but it does natively execute the equivalent of\n`UNNEST(array)`. This is useful for some consumers, so expose it.\n\nAdditionally, when the basescan fails planning but the aggregatescan\nsucceeds, ensure that we don't render a warning by clearing the context\nfor the entire table.\n\n## Tests\n\nExpanded aggregate expression tests.",
+          "timestamp": "2026-03-10T17:22:29-07:00",
+          "tree_id": "0a4bbe70482801941c4ffa1db20deea70cd37c0c",
+          "url": "https://github.com/paradedb/paradedb/commit/78790a6905b23c19ad96d1640532d2e11c7ef76f"
+        },
+        "date": 1773191406716,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05737864939213772, max background_merging: 2.0, count: 56345"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.829187282529569, max cpu: 9.67742, count: 56345"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 24.875,
+            "unit": "median mem",
+            "extra": "avg mem: 24.92640575084302, max mem: 24.99609375, count: 56345"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.382933330518011, max cpu: 32.71665, count: 56345"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 212.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 215.79868943561985, max mem: 224.91015625, count: 56345"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 60930,
+            "unit": "median block_count",
+            "extra": "avg block_count: 60689.5282278818, max block_count: 60930.0, count: 56345"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 44,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.19107285473423, max segment_count: 53.0, count: 56345"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.58023633203873, max cpu: 27.826086, count: 56345"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 141.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 128.57174528851274, max mem: 156.59765625, count: 56345"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.76649381680884, max cpu: 28.430405, count: 56345"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 186.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.93493675958382, max mem: 186.25, count: 56345"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.710733835907952, max cpu: 33.7011, count: 56345"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 179.29172938481676, max mem: 220.859375, count: 56345"
           }
         ]
       }

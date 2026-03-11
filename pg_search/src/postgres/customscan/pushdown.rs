@@ -139,7 +139,12 @@ pub unsafe fn try_build_pushdown_qual(
         OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
     };
 
-    // Planner context can detect correlated PARAM_EXEC nodes; query context cannot.
+    // If the RHS contains correlated PARAM_EXEC nodes (parameters which depend on an outer
+    // relation), we can't push it down because the parameters need runtime evaluation with
+    // planstate. Return None to let the caller create a HeapExpr instead.
+    //
+    // Uncorrelated PARAM_EXEC nodes will result in Qual::Expr and Qual::PostgresExpr nodes, which
+    // are evaluated in BeginCustomScan.
     if let Some(root) = context.planner_info() {
         if contains_correlated_param(root, rhs) {
             return None;
@@ -150,10 +155,13 @@ pub unsafe fn try_build_pushdown_qual(
         return Some(qual);
     }
 
+    // JSONB ? operator: construct field path from LHS + RHS key.
     if opexpr.opno() == *JSONB_EXISTS_OPOID.get_or_init(|| operator_oid("?(jsonb,text)")) {
         return try_pushdown_jsonb_exists(context, rti, lhs, rhs, indexrel);
     }
 
+    // If <field> is an array, 'literal' = ANY(<field>) puts the value on the lhs.
+    // In all other pushdown scenarios, the value is on the rhs.
     let (maybe_field, maybe_value, field_is_array) = if is_a(lhs, T_Const)
         && nodecast!(Var, T_Var, rhs)
             .is_some_and(|var| pg_sys::type_is_array(unsafe { (*var).vartype }))
@@ -176,14 +184,17 @@ pub unsafe fn try_build_pushdown_qual(
                 return None;
             }
 
+            // Tantivy doesn't support JSON range if JSON is not fast.
             if search_field.is_json() && !search_field.is_fast() && pgsearch_operator.is_range() {
                 return None;
             }
 
+            // Tantivy doesn't support JSON exists if JSON is not fast, and our `<>` pushdown uses exists.
             if search_field.is_json() && !search_field.is_fast() && pgsearch_operator.is_neq() {
                 return None;
             }
 
+            // The `opexpr` is one we can push down.
             if pushdown.varno() == rti {
                 let pushed_down_funcexpr = make_opexpr(
                     &pushdown.attname(),
@@ -192,6 +203,7 @@ pub unsafe fn try_build_pushdown_qual(
                     maybe_value,
                     field_is_array,
                 )?;
+                // It's in this RTI, so we can use it directly.
                 if !is_complex(pushed_down_funcexpr.cast()) {
                     Some(Qual::PushdownExpr { funcexpr: pushed_down_funcexpr })
                 } else {
@@ -205,6 +217,8 @@ pub unsafe fn try_build_pushdown_qual(
                     })
                 }
             } else {
+                // It's not in this RTI, which means it's in some other table due to a join, so
+                // we need to indicate an arbitrary external var.
                 Some(Qual::ExternalVar)
             }
         }

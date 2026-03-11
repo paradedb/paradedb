@@ -368,6 +368,15 @@ LIMIT 5;
 -- With optimization ON: results must match ground truth.
 SET paradedb.enable_segmented_topk = on;
 
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 5;
+
 SELECT f.id, f.title
 FROM stk_files f
 WHERE f.document_id IN (

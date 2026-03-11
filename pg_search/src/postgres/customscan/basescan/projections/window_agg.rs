@@ -67,7 +67,6 @@
 //! LIMIT 10;
 //! ```
 
-use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::FieldName;
 use crate::api::{
@@ -595,7 +594,6 @@ pub unsafe fn resolve_window_aggregate_filters_at_plan_time(
                             &PlannerContext::from_planner(root),
                             heap_rti,
                             filter_node,
-                            anyelement_query_input_opoid(),
                             RestrictInfoType::BaseRelation,
                             bm25_index,
                             false, // convert_external_to_special_qual

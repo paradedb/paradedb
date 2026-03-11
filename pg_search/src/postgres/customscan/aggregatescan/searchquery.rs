@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
@@ -112,7 +111,6 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
                 &PlannerContext::from_planner(args.root),
                 heap_rti,
                 filtered_restrict_info.as_ptr().cast(),
-                anyelement_query_input_opoid(),
                 ri_type,
                 index,
                 false,

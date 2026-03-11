@@ -250,7 +250,6 @@ unsafe fn collect_join_sources_base_rel(
                     &context,
                     rti,
                     ri.cast(), // extract_quals expects Node, so we cast the RestrictInfo
-                    anyelement_query_input_opoid(),
                     crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
                     &bm25_index,
                     false,

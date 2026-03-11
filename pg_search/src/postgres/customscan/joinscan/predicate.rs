@@ -304,7 +304,6 @@ pub(super) unsafe fn extract_single_table_predicate(
         &context,
         rti,
         ri_list.as_ptr().cast(),
-        anyelement_query_input_opoid(),
         RestrictInfoType::BaseRelation,
         &bm25_idx,
         false,

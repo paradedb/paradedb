@@ -285,10 +285,12 @@ unsafe fn try_build_const_bool_qual(node: *mut pg_sys::Node) -> Option<Qual> {
 
     if is_null {
         None
-    } else if bool::from_datum(datum, false).unwrap_or(false) {
-        Some(Qual::All)
     } else {
-        Some(Qual::Not(Box::new(Qual::All)))
+        match bool::from_datum(datum, false) {
+            Some(true) => Some(Qual::All),
+            Some(false) => Some(Qual::Not(Box::new(Qual::All))),
+            None => None,
+        }
     }
 }
 

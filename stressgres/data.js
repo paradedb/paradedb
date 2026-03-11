@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773269242220,
+  "lastUpdate": 1773270051120,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41494,6 +41494,54 @@ window.BENCHMARK_DATA = {
             "value": 505.8767794526567,
             "unit": "median tps",
             "extra": "avg tps: 487.25433263971235, max tps: 705.790148147182, count: 107880"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6c58d0c3cc2ae7482037709b9c89abf0ecb925d",
+          "message": "chore: Upgrade to `0.21.14` (#4339)\n\n## What\nUpgrade pg_search to 0.21.14.\n\n## Why\nNew patch release with a bug fix.\n\n## How\n- Bump workspace version to 0.21.14\n- Add changelog for 0.21.14\n- Update docs download URLs, upgrade instructions, and version\nreferences\n- Add SQL upgrade script from 0.21.13 to 0.21.14\n- Rename bridge SQL file to maintain upgrade path to 0.22.0\n\n## Changelog (0.21.x branch since v0.21.13)\n\n### Bug Fixes\n- fix: Pushdown errors in faceted queries with\n`paradedb.enable_filter_pushdown` disabled (#4335)\n\n## Tests\nN/A — version bump only.",
+          "timestamp": "2026-03-11T14:42:55-07:00",
+          "tree_id": "3a1186f55842443b9ad1b351f6488d5d325cc702",
+          "url": "https://github.com/paradedb/paradedb/commit/c6c58d0c3cc2ae7482037709b9c89abf0ecb925d"
+        },
+        "date": 1773270045372,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 593.4687969872674,
+            "unit": "median tps",
+            "extra": "avg tps: 597.5675241338035, max tps: 686.5009703210666, count: 53901"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 583.0310107940309,
+            "unit": "median tps",
+            "extra": "avg tps: 589.2643098463951, max tps: 756.7947683080384, count: 53901"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 91.96627459531545,
+            "unit": "median tps",
+            "extra": "avg tps: 91.982034951376, max tps: 94.29643849457716, count: 53901"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 513.2404058443897,
+            "unit": "median tps",
+            "extra": "avg tps: 466.54931684372514, max tps: 654.6781280439124, count: 107802"
           }
         ]
       }

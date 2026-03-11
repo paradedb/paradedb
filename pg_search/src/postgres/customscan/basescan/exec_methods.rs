@@ -35,7 +35,7 @@ pub enum ExecState {
     ///
     /// NOTE: A virtual tuple must already be MVCC-correct, as the consumer of ExecState does not
     /// do any further checking. If it corresponds to a heap-tuple, and has been produced via a
-    /// covering index scan like the MixedFastField scan, then it should already have been proven
+    /// covering index scan like the Columnar scan, then it should already have been proven
     /// visible via the visibility map or our VisibilityChecker.
     Virtual { slot: *mut pg_sys::TupleTableSlot },
     /// Indicates that there are no more tuples available.

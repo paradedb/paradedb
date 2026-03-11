@@ -16,10 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! TODO: This module should be moved up to `pg_search/src/postgres/customscan` and
-//! `MixedFastFieldExec` should be renamed, as the functionality is now shared
+//! `ColumnarExec` should be renamed, as the functionality is now shared
 //! between the base scan and aggregate scan.
 
-pub mod mixed;
+pub mod columnar;
 
 use crate::api::operator::row_expr_from_indexed_expr;
 use crate::api::HashSet;
@@ -398,9 +398,9 @@ fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     true
 }
 
-/// Check if we can use the Mixed fast field execution method
-pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
-    if !gucs::is_mixed_fast_field_exec_enabled() {
+/// Check if we can use the Columnar execution method
+pub fn is_columnar_capable(privdata: &PrivateData) -> bool {
+    if !gucs::is_columnar_exec_enabled() {
         return false;
     }
 
@@ -408,7 +408,7 @@ pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
         return false;
     }
 
-    // We should only use Mixed if there is at least one named fast field, but fewer than the
+    // We should only use Columnar if there is at least one named fast field, but fewer than the
     // configured column threshold.
     let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
     let named_field_count = which_fast_fields
@@ -416,7 +416,7 @@ pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
         .filter(|wff| matches!(wff, WhichFastField::Named(_, _)))
         .count();
 
-    0 < named_field_count && named_field_count < gucs::mixed_fast_field_exec_column_threshold()
+    0 < named_field_count && named_field_count < gucs::columnar_exec_column_threshold()
 }
 
 pub fn is_all_special_or_junk_fields<'a>(
@@ -437,7 +437,7 @@ pub fn is_all_special_or_junk_fields<'a>(
 pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explainer) {
     use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 
-    if let ExecMethodType::FastFieldMixed {
+    if let ExecMethodType::Columnar {
         which_fast_fields,
         sort_order,
         ..

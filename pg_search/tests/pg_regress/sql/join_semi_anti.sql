@@ -17,13 +17,15 @@ DROP TABLE IF EXISTS table_b CASCADE;
 CREATE TABLE table_b (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     group_id character varying,
-    a_id bigint
+    a_id bigint,
+    category character varying
 );
 
-INSERT INTO table_b (group_id, a_id)
+INSERT INTO table_b (group_id, a_id, category)
 SELECT
     CASE WHEN i % 10 = 0 THEN 'group_1' ELSE 'group_2' END,
-    i
+    i,
+    CASE WHEN i % 2 = 0 THEN 'target_category' ELSE 'other_category' END
 FROM generate_series(1, 2000) as i;
 
 CREATE INDEX table_a_idx ON table_a
@@ -39,11 +41,12 @@ CREATE INDEX table_b_group_id_idx ON table_b USING btree (group_id);
 CREATE INDEX table_b_group_id_a_id_idx ON table_b USING btree (group_id, a_id);
 
 CREATE INDEX table_b_idx ON table_b
-USING bm25 (id, group_id, a_id)
+USING bm25 (id, group_id, a_id, category)
 WITH (
     key_field = id,
     text_fields = '{
-        "group_id": {"fast": true, "tokenizer": {"type": "keyword"}}
+        "group_id": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
     }',
     numeric_fields = '{
         "a_id": {"fast": true}
@@ -69,7 +72,7 @@ ORDER BY id ASC
 LIMIT 10;
 
 -- =====================================================================
--- 2. Anti Join Only
+-- 2a. Anti Join (No Pushdown)
 -- =====================================================================
 -- This does not trigger an anti join because Postgres cannot prove that group_id is not NULL.
 -- TODO: This query only triggers set_rel_pathlist_hook and not set_join_pathlist_hook, and so does
@@ -85,6 +88,9 @@ AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
 
+-- =====================================================================
+-- 2b. Anti Join (Pushdown)
+-- =====================================================================
 -- This does trigger an anti join because we use NOT EXISTS
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category
@@ -102,7 +108,7 @@ LIMIT 10;
 -- =====================================================================
 -- 3. Both Semi and Anti Join
 -- =====================================================================
--- TODO: This query should produce a warning because only binary base table joins are supported
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category
 FROM table_a
 WHERE id IN (
@@ -116,6 +122,38 @@ AND id NOT IN (
     WHERE group_id IN ('group_3', 'group_4')
 )
 AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+
+-- =====================================================================
+-- 4. Tuple Semi Join
+-- =====================================================================
+-- This is not supported yet
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE (id, category) IN (
+    SELECT a_id, category
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ pdb.all()
 ORDER BY id ASC
 LIMIT 10;
 

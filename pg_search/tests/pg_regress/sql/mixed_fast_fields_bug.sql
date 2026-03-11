@@ -1,6 +1,6 @@
--- Test file to reproduce the bug where MixedFastFieldExec doesn't produce expected data
+-- Test file to reproduce the bug where ColumnarExec doesn't produce expected data
 
--- The bug was that MixedFastFieldExec wouldn't return any results when only numeric fields
+-- The bug was that ColumnarExec wouldn't return any results when only numeric fields
 -- were used in the query (no string fields). 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -59,7 +59,7 @@ SET enable_indexscan = off;
 
 -- First run with normal execution method
 SET paradedb.enable_fast_field_exec = false;
-SET paradedb.enable_mixed_fast_field_exec = false;
+SET paradedb.enable_columnar_exec = false;
 
 -- Get query plan to verify we're using NormalScanExecState
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -80,12 +80,12 @@ WHERE
     string_field2 @@@ 'IN [red blue green]'
 ORDER BY numeric_field1;
 
--- Now enable MixedFastFieldExec
+-- Now enable ColumnarExec
 SET paradedb.enable_fast_field_exec = false;
-SET paradedb.enable_mixed_fast_field_exec = true;
-SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.columnar_exec_column_threshold = 100;
 
--- Get query plan to verify we're using MixedFastFieldExec
+-- Get query plan to verify we're using ColumnarExec
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT
     numeric_field1, numeric_field2, numeric_field3
@@ -95,7 +95,7 @@ WHERE
     string_field2 @@@ 'IN [red blue green]'
 ORDER BY numeric_field1;
 
--- Run the query with MixedFastFieldExec (should return same data)
+-- Run the query with ColumnarExec (should return same data)
 SELECT
     numeric_field1, numeric_field2, numeric_field3
 FROM benchmark_data
@@ -105,8 +105,8 @@ WHERE
 ORDER BY numeric_field1;
 
 RESET paradedb.enable_fast_field_exec;
-RESET paradedb.enable_mixed_fast_field_exec;
-RESET paradedb.mixed_fast_field_exec_column_threshold;
+RESET paradedb.enable_columnar_exec;
+RESET paradedb.columnar_exec_column_threshold;
 RESET enable_seqscan;
 RESET enable_bitmapscan;
 RESET enable_indexscan;

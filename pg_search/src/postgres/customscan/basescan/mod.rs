@@ -25,7 +25,6 @@ mod scan_state;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
-use std::sync::Once;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::window_aggregate::window_agg_oid;
@@ -76,7 +75,7 @@ use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::filter_implied_predicates;
+use crate::postgres::utils::{filter_implied_predicates, is_unnest_func};
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -84,7 +83,7 @@ use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_S
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::extract_const_i64;
-use pgrx::{direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
+use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -367,25 +366,6 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
     false
 }
 
-/// Is the function identified by `funcid` an approved set-returning-function
-/// that is safe for our limit push-down optimization?
-fn is_limit_safe_srf(funcid: pg_sys::Oid) -> bool {
-    static mut UNNEST_OID: pg_sys::Oid = pg_sys::InvalidOid;
-    static APPROVE_SRF_ONCE: Once = Once::new();
-
-    unsafe {
-        APPROVE_SRF_ONCE.call_once(|| {
-            if let Some(oid) = direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"pg_catalog.unnest(anyarray)".into_datum()],
-            ) {
-                UNNEST_OID = oid;
-            }
-        });
-        funcid == UNNEST_OID && UNNEST_OID != pg_sys::InvalidOid
-    }
-}
-
 /// Check if the query's target list contains only set-returning functions (e.g. `unnest()`) which
 /// are safe for use with our LIMIT optimization, and if so, then return the LIMIT from the parse.
 ///
@@ -414,7 +394,7 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
         if !(*te).expr.is_null() && pg_sys::expression_returns_set((*te).expr.cast()) {
             // It's a set-returning function, is it one we approve of?
             if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                if is_limit_safe_srf((*func_expr).funcid) {
+                if is_unnest_func((*func_expr).funcid) {
                     found_limit_safe_srf = true;
                 } else {
                     // We don't recognize this SRF, and can't vouch for it.
@@ -713,7 +693,7 @@ impl CustomScan for BaseScan {
             // Check if the index has a sort_by configuration and the query has a matching pathkey.
             // If so, create an additional sorted path that declares the pathkey.
             // This allows Postgres to use merge joins when joining with other sorted inputs.
-            let sort_by_pathkey = if gucs::is_mixed_fast_field_sort_enabled() {
+            let sort_by_pathkey = if gucs::is_columnar_sort_enabled() {
                 let sort_by_fields = bm25_index.options().sort_by();
                 sort_by_fields
                     .first()
@@ -766,7 +746,7 @@ impl CustomScan for BaseScan {
             for method in exec_method_types {
                 let per_tuple_cost = match &method {
                     // returning fields from fast fields
-                    ExecMethodType::FastFieldMixed { .. } => pg_sys::cpu_index_tuple_cost,
+                    ExecMethodType::Columnar { .. } => pg_sys::cpu_index_tuple_cost,
                     // requires heap access to return fields
                     _ => pg_sys::cpu_tuple_cost,
                 };
@@ -851,7 +831,7 @@ impl CustomScan for BaseScan {
                 ) {
                     path_builder = path_builder.set_pathkeys((*builder.args().root).query_pathkeys);
                 } else if is_sorted {
-                    // For sorted mixed fast field execution, add the sort pathkey
+                    // For sorted columnar execution, add the sort pathkey
                     if let Some(ref pathkey_style) = sort_by_pathkey {
                         path_builder = path_builder.add_path_key(pathkey_style);
                     }
@@ -1568,7 +1548,7 @@ fn validate_topk_expectation(
     let limit = privdata.limit().unwrap();
     let method_name = match chosen_method {
         ExecMethodType::Normal => "Normal",
-        ExecMethodType::FastFieldMixed { .. } => "FastFieldMixed",
+        ExecMethodType::Columnar { .. } => "Columnar",
         ExecMethodType::TopK { .. } => "TopK",
     };
 
@@ -1638,7 +1618,7 @@ fn validate_topk_expectation(
 /// If the query can return "fast fields", make that determination here, falling back to the
 /// [`NormalScanExecState`] if not.
 ///
-/// We support [`MixedFastFieldExecState`] when there are a mix of string and numeric fast fields.
+/// We support [`ColumnarExecState`] when there are a mix of string and numeric fast fields.
 ///
 /// If we have failed to extract all relevant information at planning time, then the fast-field
 /// execution methods might still fall back to `Normal` at execution time: see the notes in
@@ -1696,12 +1676,12 @@ fn choose_exec_method(
     }
 
     // Otherwise, see if we can use a fast fields method.
-    let is_capable = fast_fields::is_mixed_fast_field_capable(privdata);
+    let is_capable = fast_fields::is_columnar_capable(privdata);
     if is_capable {
         let mut methods = Vec::new();
 
         // Always create the Unsorted variant
-        methods.push(ExecMethodType::FastFieldMixed {
+        methods.push(ExecMethodType::Columnar {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             limit: privdata.limit(),
             sort_order: None,
@@ -1709,7 +1689,7 @@ fn choose_exec_method(
 
         // Check if the index has a sort_by configuration (and sorting is enabled)
         // and we have a matching pathkey from the query
-        if gucs::is_mixed_fast_field_sort_enabled() && has_sort_by_pathkey {
+        if gucs::is_columnar_sort_enabled() && has_sort_by_pathkey {
             let sort_order = privdata.indexrelid().and_then(|indexrelid| {
                 let indexrel =
                     PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
@@ -1719,7 +1699,7 @@ fn choose_exec_method(
             });
 
             if let Some(sort_order) = sort_order {
-                methods.push(ExecMethodType::FastFieldMixed {
+                methods.push(ExecMethodType::Columnar {
                     which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
                     limit: privdata.limit(),
                     sort_order: Some(sort_order),
@@ -1773,7 +1753,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
             None,
         ),
 
-        ExecMethodType::FastFieldMixed {
+        ExecMethodType::Columnar {
             which_fast_fields,
             limit,
             sort_order,
@@ -1813,7 +1793,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                     if !is_projected {
                         // Retrieve the sort field from the planned fast fields
                         let planned_fields = match &builder.custom_state_ref().exec_method_type {
-                            ExecMethodType::FastFieldMixed {
+                            ExecMethodType::Columnar {
                                 which_fast_fields, ..
                             } => which_fast_fields,
                             _ => unreachable!(),
@@ -1829,7 +1809,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                 }
 
                 builder.custom_state().assign_exec_method(
-                    exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
+                    exec_methods::fast_fields::columnar::ColumnarExecState::new(
                         which_fast_fields,
                         extra_fast_fields,
                         limit,

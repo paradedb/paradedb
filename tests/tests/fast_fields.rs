@@ -224,7 +224,7 @@ WITH (
     .fetch_one::<(Value,)>(&mut conn);
     eprintln!("plan: {plan:#?}");
     assert_eq!(
-        Some(&Value::String("MixedFastFieldExecState".into())),
+        Some(&Value::String("ColumnarExecState".into())),
         plan.pointer("/0/Plan/Plans/0/Plans/0/Plans/0/Plans/0/Exec Method")
     )
 }
@@ -277,7 +277,7 @@ fn numeric_bytes_fast_field_parallel(mut conn: PgConnection) {
     // Try to enable debug_parallel_query (available in PG16+)
     let _ = "SET debug_parallel_query TO on".execute_result(&mut conn);
 
-    // Query that selects NumericBytes columns - uses MixedFastFieldExecState
+    // Query that selects NumericBytes columns - uses ColumnarExecState
     // which exercises the batch scanner's FFType::Bytes handling
     let results = r#"
     SELECT id, amount, precise_value

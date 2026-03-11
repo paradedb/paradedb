@@ -11,7 +11,7 @@
 <h3 align="center">
   <a href="https://paradedb.com">Website</a> &bull;
   <a href="https://docs.paradedb.com">Docs</a> &bull;
-  <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw">Community</a> &bull;
+  <a href="https://paradedb.com/slack">Community</a> &bull;
   <a href="https://paradedb.com/blog/">Blog</a> &bull;
   <a href="https://docs.paradedb.com/changelog/">Changelog</a>
 </h3>
@@ -22,7 +22,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/paradedb/paradedb)](https://hub.docker.com/r/paradedb/paradedb)
 [![License](https://img.shields.io/github/license/paradedb/paradedb?color=blue)](https://github.com/paradedb/paradedb?tab=AGPL-3.0-1-ov-file#readme)
 [![Codecov](https://codecov.io/gh/paradedb/paradedb/branch/main/graph/badge.svg)](https://codecov.io/gh/paradedb/paradedb)
-[![Slack URL](https://img.shields.io/badge/Join%20Slack-purple?logo=slack&link=https%3A%2F%2Fjoin.slack.com%2Ft%2Fparadedbcommunity%2Fshared_invite%2Fzt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)
+[![Slack URL](https://img.shields.io/badge/Join%20Slack-purple?logo=slack&link=https%3A%2F%2Fparadedb.com%2Fslack)](https://paradedb.com/slack)
 [![X URL](https://img.shields.io/twitter/url?url=https%3A%2F%2Ftwitter.com%2Fparadedb&label=Follow%20%40paradedb)](https://x.com/paradedb)
 
 [ParadeDB](https://paradedb.com) is a modern Elasticsearch alternative built on Postgres. Built for real-time, update-heavy workloads.
@@ -98,7 +98,7 @@ If you're missing a feature or have found a bug, please open a
 
 To get community support, you can:
 
-- Post a question in the [ParadeDB Slack Community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)
+- Post a question in the [ParadeDB Slack Community](https://paradedb.com/slack)
 - Ask for help on our [GitHub Discussions](https://github.com/paradedb/paradedb/discussions)
 
 If you need commercial support, please [contact the ParadeDB team](mailto:sales@paradedb.com).
@@ -107,7 +107,7 @@ If you need commercial support, please [contact the ParadeDB team](mailto:sales@
 
 We welcome community contributions, big or small, and are here to guide you along
 the way. To get started contributing, check our [first timer issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue)
-or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw). Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
+or message us in the [ParadeDB Community Slack](https://paradedb.com/slack). Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
 
 For more information on how to contribute, please see our
 [Contributing Guide](/CONTRIBUTING.md).

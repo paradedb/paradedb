@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- PG18 RTE_GROUP regression (issue #3827)
 SET paradedb.enable_aggregate_custom_scan TO on;
 DROP TABLE IF EXISTS issue_3827_t CASCADE;
@@ -77,7 +77,7 @@ FROM issue_3827_t
 GROUP BY txt
 HAVING (txt @@@ pdb.parse('foo')) OR SUM(n) < 0
 ORDER BY txt;
-WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field (table: issue_3827_t)
  txt 
 -----
  foo
@@ -91,7 +91,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY not_indexed
 ORDER BY not_indexed;
-WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column not_indexed is missing from index (table: issue_3827_t)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  GroupAggregate
@@ -114,7 +114,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY not_indexed
 ORDER BY not_indexed;
-WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column not_indexed is missing from index (table: issue_3827_t)
  not_indexed | count 
 -------------+-------
           10 |     1
@@ -129,7 +129,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY txt, n
 ORDER BY txt, n;
-WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field (table: issue_3827_t)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  GroupAggregate
@@ -152,7 +152,7 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY txt, n
 ORDER BY txt, n;
-WARNING:  Aggregate Scan not used: grouping column is missing, or is not a fast field (table: issue_3827_t)
+WARNING:  Aggregate Scan not used: grouping column txt exists, but is not a fast field (table: issue_3827_t)
  txt | n | count 
 -----+---+-------
  foo | 1 |     1
@@ -165,7 +165,7 @@ DROP TABLE issue_3827_t;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
-RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.enable_columnar_exec;
 SELECT 'Common tests cleanup complete' AS status; 
             status             
 -------------------------------

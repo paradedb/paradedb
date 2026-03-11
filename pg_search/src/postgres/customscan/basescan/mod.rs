@@ -26,7 +26,7 @@ use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
 
-use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
+use crate::api::operator::estimate_selectivity;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
@@ -231,7 +231,6 @@ impl BaseScan {
             &context,
             rti,
             filtered_restrict_info.as_ptr().cast(),
-            anyelement_query_input_opoid(),
             ri_type,
             indexrel,
             false, // Base relation quals should not convert external to all
@@ -248,7 +247,6 @@ impl BaseScan {
                 &context,
                 rti,
                 joinri.as_ptr().cast(),
-                anyelement_query_input_opoid(),
                 RestrictInfoType::Join,
                 indexrel,
                 true, // Join quals should convert external to all
@@ -949,7 +947,6 @@ impl CustomScan for BaseScan {
             let join_predicates = extract_join_predicates(
                 &PlannerContext::from_planner(builder.args().root),
                 rti as pg_sys::Index,
-                anyelement_query_input_opoid(),
                 &indexrel,
                 true,
             );

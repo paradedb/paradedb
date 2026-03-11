@@ -15,15 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::{anyelement_query_input_opoid, searchqueryinput_typoid};
+use crate::api::operator::{is_anyelement_search_opoid, searchqueryinput_typoid};
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::opexpr::OpExpr;
-use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
+use crate::postgres::customscan::pushdown::{is_complex, try_build_pushdown_qual, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::var::VarContext;
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
@@ -508,9 +509,7 @@ pub enum PlannerContext {
     /// Full planner context with PlannerInfo (supports join qual extraction)
     Planner(*mut pg_sys::PlannerInfo),
     /// Query-only context (no join qual extraction, used in planner hook)
-    /// We don't store the Query pointer because we don't need it - we only need
-    /// to know that we're in Query context (not Planner context)
-    Query,
+    Query(*mut pg_sys::Query),
 }
 
 impl PlannerContext {
@@ -518,15 +517,29 @@ impl PlannerContext {
         Self::Planner(root)
     }
 
-    pub fn from_query(_parse: *mut pg_sys::Query) -> Self {
-        Self::Query
+    pub fn from_query(parse: *mut pg_sys::Query) -> Self {
+        Self::Query(parse)
     }
 
     /// Get the PlannerInfo pointer if available (for join qual extraction)
     pub fn planner_info(&self) -> Option<*mut pg_sys::PlannerInfo> {
         match self {
             Self::Planner(root) => Some(*root),
-            Self::Query => None,
+            Self::Query(_) => None,
+        }
+    }
+
+    pub fn query(&self) -> Option<*mut pg_sys::Query> {
+        match self {
+            Self::Planner(_) => None,
+            Self::Query(parse) => Some(*parse),
+        }
+    }
+
+    pub fn var_context(&self) -> VarContext {
+        match self {
+            Self::Planner(root) => VarContext::from_planner(*root),
+            Self::Query(parse) => VarContext::from_query(*parse),
         }
     }
 }
@@ -543,7 +556,6 @@ pub unsafe fn extract_quals(
     context: &PlannerContext,
     rti: pg_sys::Index,
     node: *mut pg_sys::Node,
-    pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     indexrel: &PgSearchRelation,
     convert_external_to_special_qual: bool,
@@ -581,7 +593,6 @@ pub unsafe fn extract_quals(
                 context,
                 rti,
                 node.cast(),
-                pdbopoid,
                 ri_type,
                 indexrel,
                 convert_external_to_special_qual,
@@ -606,7 +617,6 @@ pub unsafe fn extract_quals(
                 context,
                 rti,
                 clause.cast(),
-                pdbopoid,
                 ri_type,
                 indexrel,
                 convert_external_to_special_qual,
@@ -619,7 +629,6 @@ pub unsafe fn extract_quals(
             context,
             rti,
             OpExpr::from_single(node)?,
-            pdbopoid,
             ri_type,
             indexrel,
             convert_external_to_special_qual,
@@ -631,7 +640,6 @@ pub unsafe fn extract_quals(
             context,
             rti,
             OpExpr::from_array(node)?,
-            pdbopoid,
             ri_type,
             indexrel,
             convert_external_to_special_qual,
@@ -645,7 +653,6 @@ pub unsafe fn extract_quals(
                 context,
                 rti,
                 (*boolexpr).args,
-                pdbopoid,
                 ri_type,
                 indexrel,
                 convert_external_to_special_qual,
@@ -804,7 +811,6 @@ unsafe fn list(
     context: &PlannerContext,
     rti: pg_sys::Index,
     list: *mut pg_sys::List,
-    pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     indexrel: &PgSearchRelation,
     convert_external_to_special_qual: bool,
@@ -818,7 +824,6 @@ unsafe fn list(
             context,
             rti,
             child,
-            pdbopoid,
             ri_type,
             indexrel,
             convert_external_to_special_qual,
@@ -835,7 +840,6 @@ unsafe fn opexpr(
     context: &PlannerContext,
     rti: pg_sys::Index,
     opexpr: OpExpr,
-    pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     indexrel: &PgSearchRelation,
     convert_external_to_special_qual: bool,
@@ -845,6 +849,11 @@ unsafe fn opexpr(
     let args = opexpr.args();
     let mut lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
+    let is_our_operator = is_anyelement_search_opoid(opexpr.opno());
+
+    if is_our_operator {
+        state.uses_our_operator = true;
+    }
 
     // relabel types are essentially a cast, but for types that are directly compatible without
     // the need for a cast function.  So if the lhs of the input node is a RelabelType, just
@@ -858,7 +867,6 @@ unsafe fn opexpr(
         pg_sys::NodeTag::T_Var => node_opexpr(
             context,
             rti,
-            pdbopoid,
             ri_type,
             indexrel,
             state,
@@ -876,7 +884,6 @@ unsafe fn opexpr(
                 return node_opexpr(
                     context,
                     rti,
-                    pdbopoid,
                     ri_type,
                     indexrel,
                     state,
@@ -935,7 +942,19 @@ unsafe fn opexpr(
         pg_sys::NodeTag::T_OpExpr => node_opexpr(
             context,
             rti,
-            pdbopoid,
+            ri_type,
+            indexrel,
+            state,
+            opexpr,
+            lhs,
+            rhs,
+            convert_external_to_special_qual,
+            attempt_pushdown,
+        ),
+
+        _ if is_our_operator => node_opexpr(
+            context,
+            rti,
             ri_type,
             indexrel,
             state,
@@ -967,7 +986,6 @@ unsafe fn opexpr(
 unsafe fn node_opexpr(
     context: &PlannerContext,
     rti: pg_sys::Index,
-    pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     indexrel: &PgSearchRelation,
     state: &mut QualExtractState,
@@ -983,8 +1001,7 @@ unsafe fn node_opexpr(
 
     let rhs_as_const = nodecast!(Const, T_Const, rhs);
 
-    let is_our_operator = opexpr.opno() == pdbopoid;
-    state.uses_our_operator = state.uses_our_operator || is_our_operator;
+    let is_our_operator = is_anyelement_search_opoid(opexpr.opno());
 
     if rhs_as_const.is_none() {
         // the rhs expression is not a Const, so it's some kind of expression
@@ -1091,9 +1108,6 @@ unsafe fn try_pushdown(
     state: &mut QualExtractState,
     convert_external_to_special_qual: bool,
 ) -> Option<Qual> {
-    // Save the operator OID and node pointer before the move
-    let opno = opexpr.opno();
-
     // Save the node pointer before the move so we can recreate the OpExpr later
     let opexpr_node = match &opexpr {
         OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
@@ -1101,31 +1115,23 @@ unsafe fn try_pushdown(
     };
 
     // Try to convert this OpExpr into an indexed predicate (fast field, search field, etc.)
-    // Note: try_pushdown_inner requires PlannerInfo
-    let pushdown_result = if let Some(root) = context.planner_info() {
-        try_pushdown_inner(root, rti, opexpr, indexrel)
+    let pushdown_result = if context.planner_info().is_some() {
+        try_build_pushdown_qual(context, rti, opexpr, indexrel)
     } else {
-        // Query context: We can't call try_pushdown_inner, but we can check if this is our operator
-        // by comparing the opno directly
-        let our_opoid = anyelement_query_input_opoid();
-        if opno == our_opoid {
-            // This is our @@@ operator, we can handle it
-            state.uses_our_operator = true;
-            state.uses_tantivy_to_query = true;
-            // Return as Expr to be evaluated at execution time
-            return Some(Qual::Expr {
-                node: opexpr_node,
-                expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
-            });
+        // Planner hook validation runs in Query context, but simple indexed predicates can still
+        // be recognized by resolving field names from the Query's range table.
+        if context.query().is_some() {
+            return try_build_pushdown_qual(context, rti, opexpr, indexrel);
         }
-        // Not our operator, can't pushdown in Query context
         None
     };
 
     if pushdown_result.is_none() {
+        let references_relation = contains_relation_reference(opexpr_node, rti);
+        let has_param = contains_param(opexpr_node);
         // DECISION POINT: Predicate cannot be pushed down to index
         // Check if this expression references our relation
-        if contains_relation_reference(opexpr_node, rti) {
+        if references_relation {
             // Check if custom scan for non-indexed fields is enabled
             if !gucs::enable_filter_pushdown() {
                 return None;
@@ -1142,7 +1148,7 @@ unsafe fn try_pushdown(
                 expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
-        } else if contains_param(opexpr_node) {
+        } else if has_param {
             // Predicate doesn't reference our relation (e.g., $2 = 0 in prepared statements)
             // Check if it contains PARAM nodes - if so, create a HeapExpr that will be evaluated at execution
             // This prevents qual extraction from failing entirely when we have
@@ -1357,7 +1363,6 @@ unsafe fn booltest(
 pub unsafe fn extract_join_predicates(
     context: &PlannerContext,
     current_rti: pg_sys::Index,
-    pdbopoid: pg_sys::Oid,
     indexrel: &PgSearchRelation,
     attempt_pushdown: bool,
 ) -> Option<SearchQueryInput> {
@@ -1396,7 +1401,6 @@ pub unsafe fn extract_join_predicates(
                 context,
                 current_rti,
                 simplified_node.cast(),
-                pdbopoid,
                 RestrictInfoType::BaseRelation,
                 indexrel,
                 true,

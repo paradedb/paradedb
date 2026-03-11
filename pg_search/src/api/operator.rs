@@ -129,6 +129,24 @@ pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
     }
 }
 
+pub fn anyelement_pdb_query_opoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regoperatorin,
+            &[c"@@@(anyelement, pdb.query)".into_datum()],
+        )
+        .expect("the `@@@(anyelement, pdb.query)` operator should exist")
+    }
+}
+
+pub fn anyelement_search_opoids() -> [pg_sys::Oid; 2] {
+    [anyelement_query_input_opoid(), anyelement_pdb_query_opoid()]
+}
+
+pub fn is_anyelement_search_opoid(opno: pg_sys::Oid) -> bool {
+    anyelement_search_opoids().contains(&opno)
+}
+
 pub fn searchqueryinput_typoid() -> pg_sys::Oid {
     unsafe {
         let oid = direct_function_call::<pg_sys::Oid>(

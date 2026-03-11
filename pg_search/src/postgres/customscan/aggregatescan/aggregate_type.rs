@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{
     agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, FieldName, HashSet,
     MvccVisibility,
@@ -138,7 +137,6 @@ impl AggregateType {
                 &context,
                 heap_rti,
                 (*aggref).aggfilter as *mut pg_sys::Node,
-                anyelement_query_input_opoid(),
                 RestrictInfoType::BaseRelation,
                 bm25_index,
                 false,

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Per-segment streaming Top K with ordinal pruning.
+//! Per-segment Top K with ordinal pruning and global threshold.
 //!
 //! `SegmentedTopKExec` sits between `TantivyLookupExec` and its child in the
 //! physical plan. It operates on the 3-way deferred `UnionArray` columns emitted
@@ -27,8 +27,23 @@
 //!   - State 2 (materialized): already-decoded strings/bytes — always kept.
 //!
 //! For States 0 and 1, a per-segment bounded heap of size K retains only the
-//! top rows per segment. When a segment boundary is detected, the completed
-//! segment's survivors are emitted immediately to `TantivyLookupExec`.
+//! top rows per segment. All batches are collected during the input phase,
+//! and survivors are emitted in a single pass once all input is consumed.
+//!
+//! ## Per-segment and global thresholds
+//!
+//! As rows are ingested, two kinds of thresholds are published to the scanner:
+//!
+//! 1. **Per-segment thresholds** (ordinal-based): once a segment's heap reaches
+//!    K entries, the worst ordinal is published. The scanner skips rows that
+//!    cannot beat this within the same segment.
+//!
+//! 2. **Global threshold** (materialized string literals): once the global heap
+//!    across all segments reaches K entries, the worst entry's deferred ordinals
+//!    are converted back to strings via `FFHelper::ord_to_str`. The scanner's
+//!    `pre_filter::try_rewrite_binary` translates these to per-segment ordinal
+//!    bounds automatically. The global threshold acts as a **fallback** for
+//!    segments that haven't yet accumulated K entries of their own.
 //!
 //! ## Output bound
 //!
@@ -47,16 +62,6 @@
 //!
 //! where `S` is the number of segments. Pass-through rows (State 2 and NULL
 //! ordinals) are emitted immediately and are not bounded by K.
-//!
-//! ## Streaming and the TopK feedback loop
-//!
-//! The node uses `EmissionType::Both` — pass-through rows are yielded
-//! immediately, and ordinal-comparable survivors are yielded at each segment
-//! boundary. This incremental emission is critical: `SortExec(TopK)` receives
-//! rows early and tightens its `DynamicFilterPhysicalExpr`, which is pushed
-//! down to the scanner and prunes rows from later segments at scan level.
-//! Without per-segment streaming, TopK receives zero rows until all input is
-//! consumed and its dynamic filter never activates during scanning.
 //!
 //! **Compound sorts:** Only the primary sort column is used for ordinal
 //! pruning. When the Top K sort has tiebreaker columns (e.g.
@@ -292,9 +297,6 @@ impl ExecutionPlan for SegmentedTopKExec {
 
         let row_converter = RowConverter::new(sort_fields)?;
 
-        let segments_flushed =
-            MetricBuilder::new(&self.metrics).counter("segments_flushed", partition);
-
         let mut state = SegmentedTopKState {
             sort_exprs: self.sort_exprs.clone(),
             deferred_columns: self.deferred_columns.clone(),
@@ -306,12 +308,10 @@ impl ExecutionPlan for SegmentedTopKExec {
             thresholds: Arc::clone(&self.thresholds),
             batches: Vec::new(),
             row_ordinals: Vec::new(),
-            current_segment: None,
             global_heap: BinaryHeap::new(),
             rows_input,
             rows_output,
             segments_seen,
-            segments_flushed,
         };
 
         let stream_gen = async_stream::try_stream! {
@@ -319,23 +319,6 @@ impl ExecutionPlan for SegmentedTopKExec {
             while let Some(batch_res) = input_stream.next().await {
                 let batch = batch_res?;
                 state.rows_input.add(batch.num_rows());
-
-                // Detect segment boundary before ingesting batch.
-                let batch_seg = state.detect_batch_segment(&batch)?;
-                if let Some(new_seg) = batch_seg {
-                    if let Some(prev_seg) = state.current_segment {
-                        if prev_seg != new_seg {
-                            // Previous segment complete — flush its survivors.
-                            for fb in state.flush_segment(prev_seg)? {
-                                if fb.num_rows() > 0 {
-                                    state.rows_output.add(fb.num_rows());
-                                    yield fb;
-                                }
-                            }
-                        }
-                    }
-                    state.current_segment = Some(new_seg);
-                }
 
                 let batch_idx = state.batches.len();
                 match state.collect_batch(&batch, batch_idx)? {
@@ -352,17 +335,17 @@ impl ExecutionPlan for SegmentedTopKExec {
                 }
             }
 
-            // Flush all remaining segments. This handles both the final
-            // segment in the clean-boundary case and any segments from
-            // mixed-segment batches (e.g. HashJoin coalescing output).
-            let remaining_segs: Vec<SegmentOrdinal> =
-                state.segment_heaps.keys().cloned().collect();
-            for seg in remaining_segs {
-                for fb in state.flush_segment(seg)? {
-                    if fb.num_rows() > 0 {
-                        state.rows_output.add(fb.num_rows());
-                        yield fb;
-                    }
+            // All input consumed — emit survivors from every segment.
+            let survivors = state.build_survivors();
+            for (batch_idx, batch) in state.batches.iter().enumerate() {
+                let mask: BooleanArray = (0..batch.num_rows())
+                    .map(|row_idx| Some(survivors.contains(&(batch_idx, row_idx))))
+                    .collect();
+                let filtered = filter_record_batch(batch, &mask)
+                    .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+                if filtered.num_rows() > 0 {
+                    state.rows_output.add(filtered.num_rows());
+                    yield filtered;
                 }
             }
         };
@@ -398,9 +381,6 @@ struct SegmentedTopKState {
     /// (batch_idx, row_idx, seg_ord, row_data)
     row_ordinals: Vec<(usize, usize, SegmentOrdinal, OwnedRow)>,
 
-    /// The segment ordinal currently being accumulated.
-    current_segment: Option<SegmentOrdinal>,
-
     /// Global K-sized max-heap across all completed segments.
     /// The worst entry (heap root) defines the global threshold.
     /// `SegmentOrdinal` is stored so we can look up the string for
@@ -412,7 +392,6 @@ struct SegmentedTopKState {
     /// Counts segments that had rows participating in ordinal comparison (States 0+1).
     /// Segments with only State 2 (materialized) or only NULLs are not counted.
     segments_seen: Count,
-    segments_flushed: Count,
 }
 
 impl SegmentedTopKState {
@@ -489,16 +468,20 @@ impl SegmentedTopKState {
 
                 let heap_val = converted_rows.row(row_idx).owned();
                 Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
+                Self::update_cutoff_heap_pair(
+                    &mut self.global_heap,
+                    (heap_val.clone(), seg_ord),
+                    self.k,
+                );
                 self.row_ordinals
                     .push((batch_idx, row_idx, seg_ord, heap_val));
             }
         }
 
-        // Publish thresholds for segments with full heaps.
+        // Publish per-segment thresholds for segments with full heaps.
         for (seg_ord, heap) in &self.segment_heaps {
             if heap.len() >= self.k {
                 if let Some(worst) = heap.peek() {
-                    // Extract the values from the worst row
                     let arrays = self
                         .row_converter
                         .convert_rows(std::iter::once(worst.row()))?;
@@ -506,6 +489,13 @@ impl SegmentedTopKState {
                         self.thresholds.set_threshold(*seg_ord, expr);
                     }
                 }
+            }
+        }
+
+        // Publish a global threshold as a fallback for segments not yet seen.
+        if self.global_heap.len() >= self.k {
+            if let Some(expr) = self.build_global_filter_expression() {
+                self.thresholds.set_global_threshold(expr);
             }
         }
 
@@ -762,148 +752,21 @@ impl SegmentedTopKState {
             .reduce(|a, b| Arc::new(BinaryExpr::new(a, Operator::Or, b)) as Arc<dyn PhysicalExpr>)
     }
 
-    /// Downcast a batch column to a dense `UnionArray` and return it with its offsets.
-    fn get_deferred_union(batch: &RecordBatch, col_idx: usize) -> Result<&UnionArray> {
-        batch
-            .column(col_idx)
-            .as_any()
-            .downcast_ref::<UnionArray>()
-            .ok_or_else(|| {
-                DataFusionError::Internal(
-                    "SegmentedTopKExec: sort column should be a deferred UnionArray".into(),
-                )
-            })
-    }
-
-    /// Extract `segment_ord` from a single row of a deferred UnionArray.
-    /// Returns `None` for State 2 (materialized) rows.
-    fn segment_ord_from_union_row(
-        union_col: &UnionArray,
-        offsets: &[i32],
-        row_idx: usize,
-    ) -> Result<Option<SegmentOrdinal>> {
-        match union_col.type_ids()[row_idx] {
-            0 => {
-                let packed = union_col
-                    .child(0)
-                    .as_any()
-                    .downcast_ref::<UInt64Array>()
-                    .expect("child 0 should be UInt64 doc addresses")
-                    .value(offsets[row_idx] as usize);
-                let (seg_ord, _) = unpack_doc_address(packed);
-                Ok(Some(seg_ord))
-            }
-            1 => {
-                let struct_child = union_col
-                    .child(1)
-                    .as_any()
-                    .downcast_ref::<StructArray>()
-                    .expect("child 1 should be StructArray");
-                let seg_ord = struct_child
-                    .column(0)
-                    .as_any()
-                    .downcast_ref::<UInt32Array>()
-                    .expect("segment_ord should be UInt32")
-                    .value(offsets[row_idx] as usize);
-                Ok(Some(seg_ord))
-            }
-            2 => Ok(None),
-            _ => unreachable!("Invalid Union state"),
-        }
-    }
-
-    /// Peek at the first deferred column to find the segment this batch belongs to.
-    /// Scans rows until it finds one that is not State 2 (materialized).
-    fn detect_batch_segment(&self, batch: &RecordBatch) -> Result<Option<SegmentOrdinal>> {
-        if self.deferred_columns.is_empty() {
-            return Ok(None);
-        }
-        let union_col = Self::get_deferred_union(batch, self.deferred_columns[0].sort_col_idx)?;
-        let offsets = union_col.offsets().ok_or_else(|| {
-            DataFusionError::Internal("SegmentedTopKExec: expected dense union with offsets".into())
-        })?;
-        for row_idx in 0..batch.num_rows() {
-            if let Some(seg) = Self::segment_ord_from_union_row(union_col, offsets, row_idx)? {
-                return Ok(Some(seg));
-            }
-        }
-        Ok(None)
-    }
-
-    /// Flush the completed segment's top-K survivors and update the global heap.
-    fn flush_segment(&mut self, finished_seg: SegmentOrdinal) -> Result<Vec<RecordBatch>> {
-        // 1. Partition row_ordinals: survivors for this segment vs rows from other segments.
-        let survivors = self.collect_survivors(finished_seg);
-
-        // 2. Filter buffered batches to keep only survivor rows.
-        let result = self.filter_batches(&survivors)?;
-
-        // 3. Merge this segment's heap into the global heap and publish a threshold.
-        self.update_global_heap(finished_seg);
-        if self.global_heap.len() >= self.k {
-            if let Some(expr) = self.build_global_filter_expression() {
-                self.thresholds.set_global_threshold(expr);
-            }
-        }
-
-        self.segments_flushed.add(1);
-        Ok(result)
-    }
-
-    /// Partition `row_ordinals`: rows from `finished_seg` that beat the cutoff
-    /// become survivors; rows from other segments are kept for later.
-    fn collect_survivors(
-        &mut self,
-        finished_seg: SegmentOrdinal,
-    ) -> crate::api::HashSet<(usize, usize)> {
-        let cutoff = self
-            .segment_heaps
-            .get(&finished_seg)
-            .and_then(|h| h.peek())
-            .cloned();
-
+    /// Build the set of all survivors across all segments. A row survives if
+    /// its `OwnedRow` is <= the cutoff (worst heap entry) for its segment.
+    fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
         let mut survivors = crate::api::HashSet::default();
-        let mut remaining = Vec::new();
-
-        for (batch_idx, row_idx, seg_ord, heap_val) in std::mem::take(&mut self.row_ordinals) {
-            if seg_ord != finished_seg {
-                remaining.push((batch_idx, row_idx, seg_ord, heap_val));
-            } else if cutoff.as_ref().is_none_or(|c| &heap_val <= c) {
-                survivors.insert((batch_idx, row_idx));
+        for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+            let dominated = self
+                .segment_heaps
+                .get(seg_ord)
+                .and_then(|h| h.peek())
+                .is_some_and(|cutoff| heap_val <= cutoff);
+            if dominated {
+                survivors.insert((*batch_idx, *row_idx));
             }
         }
-        self.row_ordinals = remaining;
         survivors
-    }
-
-    /// Filter buffered batches to emit only the rows in `survivors`.
-    fn filter_batches(
-        &self,
-        survivors: &crate::api::HashSet<(usize, usize)>,
-    ) -> Result<Vec<RecordBatch>> {
-        let mut result = Vec::new();
-        for (batch_idx, batch) in self.batches.iter().enumerate() {
-            let mask: BooleanArray = (0..batch.num_rows())
-                .map(|row_idx| Some(survivors.contains(&(batch_idx, row_idx))))
-                .collect();
-            if mask.true_count() > 0 {
-                let filtered = filter_record_batch(batch, &mask)
-                    .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-                if filtered.num_rows() > 0 {
-                    result.push(filtered);
-                }
-            }
-        }
-        Ok(result)
-    }
-
-    /// Feed the completed segment's heap entries into the global K-sized heap.
-    fn update_global_heap(&mut self, seg_ord: SegmentOrdinal) {
-        if let Some(segment_heap) = self.segment_heaps.remove(&seg_ord) {
-            for owned_row in segment_heap.into_vec() {
-                Self::update_cutoff_heap_pair(&mut self.global_heap, (owned_row, seg_ord), self.k);
-            }
-        }
     }
 
     /// Same as `update_cutoff_heap` but for `(OwnedRow, SegmentOrdinal)` pairs.

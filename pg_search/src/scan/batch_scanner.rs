@@ -277,47 +277,42 @@ impl Scanner {
             (before, before - ids.len())
         };
 
-        // Apply segmented Top K ordinal thresholds before pre-filters and visibility.
-        if let Some(threshold_expr) = self
-            .segmented_thresholds
-            .as_ref()
-            .and_then(|t| t.get_threshold(segment_ord))
-        {
+        // Apply segmented Top K thresholds before pre-filters and visibility.
+        // Per-segment thresholds use ordinals (cheap, segment-local).
+        // The global threshold uses materialized strings (cross-segment, translated
+        // to per-segment ordinals by try_rewrite_binary). Both are applied when
+        // available: per-segment first, then global to catch rows that are good
+        // within their segment but bad globally.
+        if let Some(thresholds) = self.segmented_thresholds.as_ref() {
             let schema = self.schema();
-            let mut dyn_filters = Vec::new();
-            crate::scan::pre_filter::collect_filters(&threshold_expr, &schema, &mut dyn_filters);
 
-            let (scanned, pruned) = evaluate_pre_filters(
-                &dyn_filters,
-                &schema,
-                &mut ids,
-                &mut scores,
-                &mut memoized_columns,
-            );
-            self.pre_filter_rows_scanned += scanned;
-            self.pre_filter_rows_pruned += pruned;
-        }
+            if let Some(seg_expr) = thresholds.get_threshold(segment_ord) {
+                let mut dyn_filters = Vec::new();
+                crate::scan::pre_filter::collect_filters(&seg_expr, &schema, &mut dyn_filters);
+                let (scanned, pruned) = evaluate_pre_filters(
+                    &dyn_filters,
+                    &schema,
+                    &mut ids,
+                    &mut scores,
+                    &mut memoized_columns,
+                );
+                self.pre_filter_rows_scanned += scanned;
+                self.pre_filter_rows_pruned += pruned;
+            }
 
-        // Apply global threshold from SegmentedTopKExec (materialized string literals
-        // that try_rewrite_binary auto-translates to per-segment ordinal bounds).
-        if let Some(global_expr) = self
-            .segmented_thresholds
-            .as_ref()
-            .and_then(|t| t.get_global_threshold())
-        {
-            let schema = self.schema();
-            let mut dyn_filters = Vec::new();
-            crate::scan::pre_filter::collect_filters(&global_expr, &schema, &mut dyn_filters);
-
-            let (scanned, pruned) = evaluate_pre_filters(
-                &dyn_filters,
-                &schema,
-                &mut ids,
-                &mut scores,
-                &mut memoized_columns,
-            );
-            self.pre_filter_rows_scanned += scanned;
-            self.pre_filter_rows_pruned += pruned;
+            if let Some(global_expr) = thresholds.get_global_threshold() {
+                let mut dyn_filters = Vec::new();
+                crate::scan::pre_filter::collect_filters(&global_expr, &schema, &mut dyn_filters);
+                let (scanned, pruned) = evaluate_pre_filters(
+                    &dyn_filters,
+                    &schema,
+                    &mut ids,
+                    &mut scores,
+                    &mut memoized_columns,
+                );
+                self.pre_filter_rows_scanned += scanned;
+                self.pre_filter_rows_pruned += pruned;
+            }
         }
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and

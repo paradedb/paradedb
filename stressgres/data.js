@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773215570732,
+  "lastUpdate": 1773266692500,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4454,6 +4454,78 @@ window.BENCHMARK_DATA = {
             "value": 48.216844798086726,
             "unit": "median tps",
             "extra": "avg tps: 61.70451428362372, max tps: 310.18383148167374, count: 55093"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6c58d0c3cc2ae7482037709b9c89abf0ecb925d",
+          "message": "chore: Upgrade to `0.21.14` (#4339)\n\n## What\nUpgrade pg_search to 0.21.14.\n\n## Why\nNew patch release with a bug fix.\n\n## How\n- Bump workspace version to 0.21.14\n- Add changelog for 0.21.14\n- Update docs download URLs, upgrade instructions, and version\nreferences\n- Add SQL upgrade script from 0.21.13 to 0.21.14\n- Rename bridge SQL file to maintain upgrade path to 0.22.0\n\n## Changelog (0.21.x branch since v0.21.13)\n\n### Bug Fixes\n- fix: Pushdown errors in faceted queries with\n`paradedb.enable_filter_pushdown` disabled (#4335)\n\n## Tests\nN/A — version bump only.",
+          "timestamp": "2026-03-11T14:42:55-07:00",
+          "tree_id": "3a1186f55842443b9ad1b351f6488d5d325cc702",
+          "url": "https://github.com/paradedb/paradedb/commit/c6c58d0c3cc2ae7482037709b9c89abf0ecb925d"
+        },
+        "date": 1773266686536,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 135.47691914391845,
+            "unit": "median tps",
+            "extra": "avg tps: 134.96378323782457, max tps: 142.07108711920398, count: 55156"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 506.70317769073466,
+            "unit": "median tps",
+            "extra": "avg tps: 505.0322703965761, max tps: 612.9327429667309, count: 55156"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2889.144480146595,
+            "unit": "median tps",
+            "extra": "avg tps: 2875.175562730877, max tps: 2897.180712314951, count: 55156"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 491.185018772985,
+            "unit": "median tps",
+            "extra": "avg tps: 490.28448826744466, max tps: 592.2785241090428, count: 55156"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2972.7687107236115,
+            "unit": "median tps",
+            "extra": "avg tps: 2998.3210301387626, max tps: 3069.1556737210367, count: 110312"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 537.8383292288243,
+            "unit": "median tps",
+            "extra": "avg tps: 534.4786034005697, max tps: 566.9621575438326, count: 55156"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1935.0326820656367,
+            "unit": "median tps",
+            "extra": "avg tps: 1921.7867363208359, max tps: 1940.9816419753897, count: 55156"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 68.96136053592356,
+            "unit": "median tps",
+            "extra": "avg tps: 81.97880138987298, max tps: 313.17073995669267, count: 55156"
           }
         ]
       }

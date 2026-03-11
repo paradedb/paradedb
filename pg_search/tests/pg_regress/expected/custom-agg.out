@@ -9,41 +9,38 @@ CREATE TABLE logs (
     severity TEXT,
     category TEXT,
     response_time INT,
+    unindexed_metric INT,
     status_code INT,
     timestamp TIMESTAMP
 );
-INSERT INTO logs (description, severity, category, response_time, status_code, timestamp) VALUES
+INSERT INTO logs (description, severity, category, response_time, unindexed_metric, status_code, timestamp) VALUES
     -- Database errors
-    ('Database connection error', 'error', 'database', 150, 500, '2024-01-01 10:00:00'),
-    ('Invalid query syntax error', 'error', 'database', 50, 400, '2024-01-01 10:03:00'),
-    ('Database timeout error', 'critical', 'database', 3000, 503, '2024-01-01 10:05:00'),
-    ('Database deadlock detected', 'error', 'database', 200, 500, '2024-01-01 10:10:00'),
-    ('Database connection pool exhausted', 'critical', 'database', 5000, 503, '2024-01-01 10:15:00'),
-    ('Slow database query', 'warning', 'database', 2500, 200, '2024-01-01 10:20:00'),
-    
+    ('Database connection error', 'error', 'database', 150, 150, 500, '2024-01-01 10:00:00'),
+    ('Invalid query syntax error', 'error', 'database', 50, 151, 400, '2024-01-01 10:03:00'),
+    ('Database timeout error', 'critical', 'database', 3000, 152, 503, '2024-01-01 10:05:00'),
+    ('Database deadlock detected', 'error', 'database', 200, 153, 500, '2024-01-01 10:10:00'),
+    ('Database connection pool exhausted', 'critical', 'database', 5000, 154, 503, '2024-01-01 10:15:00'),
+    ('Slow database query', 'warning', 'database', 2500, 155, 200, '2024-01-01 10:20:00'),
     -- API errors
-    ('Failed to fetch data', 'error', 'api', 200, 404, '2024-01-01 10:01:00'),
-    ('API rate limit exceeded', 'warning', 'api', 100, 429, '2024-01-01 10:06:00'),
-    ('API authentication failed', 'error', 'api', 80, 401, '2024-01-01 10:11:00'),
-    ('API endpoint not found', 'error', 'api', 50, 404, '2024-01-01 10:16:00'),
-    ('API internal server error', 'critical', 'api', 1500, 500, '2024-01-01 10:21:00'),
-    
+    ('Failed to fetch data', 'error', 'api', 200, 156, 404, '2024-01-01 10:01:00'),
+    ('API rate limit exceeded', 'warning', 'api', 100, 157, 429, '2024-01-01 10:06:00'),
+    ('API authentication failed', 'error', 'api', 80, 158, 401, '2024-01-01 10:11:00'),
+    ('API endpoint not found', 'error', 'api', 50, 159, 404, '2024-01-01 10:16:00'),
+    ('API internal server error', 'critical', 'api', 1500, 160, 500, '2024-01-01 10:21:00'),
     -- Network errors
-    ('Timeout connecting to service', 'error', 'network', 5000, 503, '2024-01-01 10:02:00'),
-    ('Network connection refused', 'error', 'network', 100, 503, '2024-01-01 10:07:00'),
-    ('DNS resolution failed', 'error', 'network', 30, 503, '2024-01-01 10:12:00'),
-    ('Network timeout error', 'critical', 'network', 10000, 504, '2024-01-01 10:17:00'),
-    
+    ('Timeout connecting to service', 'error', 'network', 5000, 161, 503, '2024-01-01 10:02:00'),
+    ('Network connection refused', 'error', 'network', 100, 162, 503, '2024-01-01 10:07:00'),
+    ('DNS resolution failed', 'error', 'network', 30, 163, 503, '2024-01-01 10:12:00'),
+    ('Network timeout error', 'critical', 'network', 10000, 164, 504, '2024-01-01 10:17:00'),
     -- Application errors
-    ('Application crashed', 'critical', 'application', 0, 500, '2024-01-01 10:04:00'),
-    ('Memory allocation error', 'critical', 'application', 10, 500, '2024-01-01 10:08:00'),
-    ('Null pointer exception', 'error', 'application', 5, 500, '2024-01-01 10:13:00'),
-    ('Stack overflow error', 'critical', 'application', 2, 500, '2024-01-01 10:18:00'),
-    
+    ('Application crashed', 'critical', 'application', 0, 165, 500, '2024-01-01 10:04:00'),
+    ('Memory allocation error', 'critical', 'application', 10, 166, 500, '2024-01-01 10:08:00'),
+    ('Null pointer exception', 'error', 'application', 5, 167, 500, '2024-01-01 10:13:00'),
+    ('Stack overflow error', 'critical', 'application', 2, 168, 500, '2024-01-01 10:18:00'),
     -- Security errors
-    ('Unauthorized access attempt', 'warning', 'security', 20, 403, '2024-01-01 10:09:00'),
-    ('Invalid authentication token', 'error', 'security', 15, 401, '2024-01-01 10:14:00'),
-    ('Suspicious activity detected', 'critical', 'security', 25, 403, '2024-01-01 10:19:00');
+    ('Unauthorized access attempt', 'warning', 'security', 20, 169, 403, '2024-01-01 10:09:00'),
+    ('Invalid authentication token', 'error', 'security', 15, 170, 401, '2024-01-01 10:14:00'),
+    ('Suspicious activity detected', 'critical', 'security', 25, 171, 403, '2024-01-01 10:19:00');
 CREATE INDEX logs_idx ON logs USING bm25 (id, description, severity, category, response_time, status_code, timestamp)
 WITH (
     key_field = 'id',
@@ -86,8 +83,8 @@ SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                     QUERY PLAN                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
@@ -105,20 +102,20 @@ SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity |  category   | response_time | status_code |        timestamp         |             agg              
-----+----------------------------+----------+-------------+---------------+-------------+--------------------------+------------------------------
- 11 | API internal server error  | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 2101.714285714286}
- 19 | Stack overflow error       | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 2101.714285714286}
- 15 | Network timeout error      | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 2101.714285714286}
- 17 | Memory allocation error    | critical | application |            10 |         500 | Mon Jan 01 10:08:00 2024 | {"value": 2101.714285714286}
-  3 | Database timeout error     | critical | database    |          3000 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 2101.714285714286}
-  2 | Invalid query syntax error | error    | database    |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 2101.714285714286}
-  1 | Database connection error  | error    | database    |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2101.714285714286}
+ id |        description         | severity |  category   | response_time | unindexed_metric | status_code |        timestamp         |             agg              
+----+----------------------------+----------+-------------+---------------+------------------+-------------+--------------------------+------------------------------
+ 11 | API internal server error  | critical | api         |          1500 |              160 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 2101.714285714286}
+ 19 | Stack overflow error       | critical | application |             2 |              168 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 2101.714285714286}
+ 15 | Network timeout error      | critical | network     |         10000 |              164 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 2101.714285714286}
+ 17 | Memory allocation error    | critical | application |            10 |              166 |         500 | Mon Jan 01 10:08:00 2024 | {"value": 2101.714285714286}
+  3 | Database timeout error     | critical | database    |          3000 |              152 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 2101.714285714286}
+  2 | Invalid query syntax error | error    | database    |            50 |              151 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 2101.714285714286}
+  1 | Database connection error  | error    | database    |           150 |              150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2101.714285714286}
 (7 rows)
 
 -- Test 3: Mix custom and standard aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, 
+SELECT category,
        COUNT(*),
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
@@ -135,7 +132,7 @@ GROUP BY category;
      Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"severity"}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
 (7 rows)
 
-SELECT category, 
+SELECT category,
        COUNT(*),
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
@@ -151,7 +148,7 @@ GROUP BY category;
 
 -- Test 4: Custom agg with FILTER (extracted at planning time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
@@ -165,7 +162,7 @@ WHERE description @@@ 'error';
      Aggregate Definition: {"0":{"aggs":{"0":{"avg":{"field":"response_time","missing":null}}},"filter":{"query":{"range":{"field":"status_code","is_datetime":false,"lower_bound":{"included":500},"upper_bound":null}},"type":"FilterQuery"}}}
 (6 rows)
 
-SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
@@ -178,7 +175,7 @@ WHERE description @@@ 'error';
 -- NOTE: FILTER with window functions is currently not supported
 -- This test documents the current limitation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) 
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb)
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
@@ -186,7 +183,7 @@ ORDER BY timestamp DESC LIMIT 10;
 ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
 -- This query is expected to fail because FILTER with OVER is not yet supported
 -- The error message guides users to file an issue or use paradedb.all()
-SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) 
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb)
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
@@ -194,7 +191,7 @@ ORDER BY timestamp DESC LIMIT 10;
 ERROR:  pdb.agg() with FILTER clause is not currently supported. FILTER with window functions requires the 'WINDOW_AGG_FILTER_CLAUSE' feature flag to be enabled. Try removing the FILTER clause or use a standard aggregate function instead. See https://github.com/paradedb/paradedb/issues for more information.
 -- Test 6: EXPLAIN query to show custom agg is recognized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, 
+SELECT category,
        COUNT(*),
        pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
@@ -211,7 +208,7 @@ GROUP BY category;
      Aggregate Definition: {"grouped":{"aggs":{"0":{"max":{"field":"response_time","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
 (7 rows)
 
-SELECT category, 
+SELECT category,
        COUNT(*),
        pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
@@ -232,8 +229,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                     QUERY PLAN                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
@@ -252,18 +249,18 @@ ORDER BY timestamp DESC LIMIT 10;
 SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 ORDER BY timestamp DESC LIMIT 10;
- id |            description             | severity |  category   | response_time | status_code |        timestamp         |             agg              
-----+------------------------------------+----------+-------------+---------------+-------------+--------------------------+------------------------------
- 11 | API internal server error          | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 1274.409090909091}
-  6 | Slow database query                | warning  | database    |          2500 |         200 | Mon Jan 01 10:20:00 2024 | {"value": 1274.409090909091}
- 22 | Suspicious activity detected       | critical | security    |            25 |         403 | Mon Jan 01 10:19:00 2024 | {"value": 1274.409090909091}
- 19 | Stack overflow error               | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 1274.409090909091}
- 15 | Network timeout error              | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 1274.409090909091}
- 10 | API endpoint not found             | error    | api         |            50 |         404 | Mon Jan 01 10:16:00 2024 | {"value": 1274.409090909091}
-  5 | Database connection pool exhausted | critical | database    |          5000 |         503 | Mon Jan 01 10:15:00 2024 | {"value": 1274.409090909091}
- 21 | Invalid authentication token       | error    | security    |            15 |         401 | Mon Jan 01 10:14:00 2024 | {"value": 1274.409090909091}
- 18 | Null pointer exception             | error    | application |             5 |         500 | Mon Jan 01 10:13:00 2024 | {"value": 1274.409090909091}
- 14 | DNS resolution failed              | error    | network     |            30 |         503 | Mon Jan 01 10:12:00 2024 | {"value": 1274.409090909091}
+ id |            description             | severity |  category   | response_time | unindexed_metric | status_code |        timestamp         |             agg              
+----+------------------------------------+----------+-------------+---------------+------------------+-------------+--------------------------+------------------------------
+ 11 | API internal server error          | critical | api         |          1500 |              160 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 1274.409090909091}
+  6 | Slow database query                | warning  | database    |          2500 |              155 |         200 | Mon Jan 01 10:20:00 2024 | {"value": 1274.409090909091}
+ 22 | Suspicious activity detected       | critical | security    |            25 |              171 |         403 | Mon Jan 01 10:19:00 2024 | {"value": 1274.409090909091}
+ 19 | Stack overflow error               | critical | application |             2 |              168 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 1274.409090909091}
+ 15 | Network timeout error              | critical | network     |         10000 |              164 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 1274.409090909091}
+ 10 | API endpoint not found             | error    | api         |            50 |              159 |         404 | Mon Jan 01 10:16:00 2024 | {"value": 1274.409090909091}
+  5 | Database connection pool exhausted | critical | database    |          5000 |              154 |         503 | Mon Jan 01 10:15:00 2024 | {"value": 1274.409090909091}
+ 21 | Invalid authentication token       | error    | security    |            15 |              170 |         401 | Mon Jan 01 10:14:00 2024 | {"value": 1274.409090909091}
+ 18 | Null pointer exception             | error    | application |             5 |              167 |         500 | Mon Jan 01 10:13:00 2024 | {"value": 1274.409090909091}
+ 14 | DNS resolution failed              | error    | network     |            30 |              163 |         503 | Mon Jan 01 10:12:00 2024 | {"value": 1274.409090909091}
 (10 rows)
 
 -- Test 8: pdb.agg() with simple WHERE condition (not @@@)
@@ -274,8 +271,8 @@ SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE status_code >= 500
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                     QUERY PLAN                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
@@ -294,18 +291,18 @@ SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE status_code >= 500
 ORDER BY timestamp DESC LIMIT 10;
- id |            description             | severity |  category   | response_time | status_code |        timestamp         |              agg              
-----+------------------------------------+----------+-------------+---------------+-------------+--------------------------+-------------------------------
- 11 | API internal server error          | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 1922.8461538461538}
- 19 | Stack overflow error               | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 1922.8461538461538}
- 15 | Network timeout error              | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 1922.8461538461538}
-  5 | Database connection pool exhausted | critical | database    |          5000 |         503 | Mon Jan 01 10:15:00 2024 | {"value": 1922.8461538461538}
- 18 | Null pointer exception             | error    | application |             5 |         500 | Mon Jan 01 10:13:00 2024 | {"value": 1922.8461538461538}
- 14 | DNS resolution failed              | error    | network     |            30 |         503 | Mon Jan 01 10:12:00 2024 | {"value": 1922.8461538461538}
-  4 | Database deadlock detected         | error    | database    |           200 |         500 | Mon Jan 01 10:10:00 2024 | {"value": 1922.8461538461538}
- 17 | Memory allocation error            | critical | application |            10 |         500 | Mon Jan 01 10:08:00 2024 | {"value": 1922.8461538461538}
- 13 | Network connection refused         | error    | network     |           100 |         503 | Mon Jan 01 10:07:00 2024 | {"value": 1922.8461538461538}
-  3 | Database timeout error             | critical | database    |          3000 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 1922.8461538461538}
+ id |            description             | severity |  category   | response_time | unindexed_metric | status_code |        timestamp         |              agg              
+----+------------------------------------+----------+-------------+---------------+------------------+-------------+--------------------------+-------------------------------
+ 11 | API internal server error          | critical | api         |          1500 |              160 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 1922.8461538461538}
+ 19 | Stack overflow error               | critical | application |             2 |              168 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 1922.8461538461538}
+ 15 | Network timeout error              | critical | network     |         10000 |              164 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 1922.8461538461538}
+  5 | Database connection pool exhausted | critical | database    |          5000 |              154 |         503 | Mon Jan 01 10:15:00 2024 | {"value": 1922.8461538461538}
+ 18 | Null pointer exception             | error    | application |             5 |              167 |         500 | Mon Jan 01 10:13:00 2024 | {"value": 1922.8461538461538}
+ 14 | DNS resolution failed              | error    | network     |            30 |              163 |         503 | Mon Jan 01 10:12:00 2024 | {"value": 1922.8461538461538}
+  4 | Database deadlock detected         | error    | database    |           200 |              153 |         500 | Mon Jan 01 10:10:00 2024 | {"value": 1922.8461538461538}
+ 17 | Memory allocation error            | critical | application |            10 |              166 |         500 | Mon Jan 01 10:08:00 2024 | {"value": 1922.8461538461538}
+ 13 | Network connection refused         | error    | network     |           100 |              162 |         503 | Mon Jan 01 10:07:00 2024 | {"value": 1922.8461538461538}
+  3 | Database timeout error             | critical | database    |          3000 |              152 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 1922.8461538461538}
 (10 rows)
 
 -- Test 9: Error handling - invalid JSON with 'buckets' wrapper (should fail fast)
@@ -795,8 +792,8 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"max":{"field":"status_code"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
@@ -816,15 +813,15 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity |  category   | response_time | status_code |        timestamp         |         avg_response         |    max_status    
-----+----------------------------+----------+-------------+---------------+-------------+--------------------------+------------------------------+------------------
- 11 | API internal server error  | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
- 19 | Stack overflow error       | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
- 15 | Network timeout error      | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
- 17 | Memory allocation error    | critical | application |            10 |         500 | Mon Jan 01 10:08:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
-  3 | Database timeout error     | critical | database    |          3000 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
-  2 | Invalid query syntax error | error    | database    |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
-  1 | Database connection error  | error    | database    |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+ id |        description         | severity |  category   | response_time | unindexed_metric | status_code |        timestamp         |         avg_response         |    max_status    
+----+----------------------------+----------+-------------+---------------+------------------+-------------+--------------------------+------------------------------+------------------
+ 11 | API internal server error  | critical | api         |          1500 |              160 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+ 19 | Stack overflow error       | critical | application |             2 |              168 |         500 | Mon Jan 01 10:18:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+ 15 | Network timeout error      | critical | network     |         10000 |              164 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+ 17 | Memory allocation error    | critical | application |            10 |              166 |         500 | Mon Jan 01 10:08:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+  3 | Database timeout error     | critical | database    |          3000 |              152 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+  2 | Invalid query syntax error | error    | database    |            50 |              151 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
+  1 | Database connection error  | error    | database    |           150 |              150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2101.714285714286} | {"value": 504.0}
 (7 rows)
 
 -- Test 30: pdb.agg() window function with standard aggregates
@@ -835,8 +832,8 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
@@ -856,15 +853,15 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity |  category   | response_time | status_code |        timestamp         | total_count |                                                                                                     category_breakdown                                                                                                     
-----+----------------------------+----------+-------------+---------------+-------------+--------------------------+-------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- 11 | API internal server error  | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
- 19 | Stack overflow error       | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
- 15 | Network timeout error      | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
- 17 | Memory allocation error    | critical | application |            10 |         500 | Mon Jan 01 10:08:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  3 | Database timeout error     | critical | database    |          3000 |         503 | Mon Jan 01 10:05:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  2 | Invalid query syntax error | error    | database    |            50 |         400 | Mon Jan 01 10:03:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  1 | Database connection error  | error    | database    |           150 |         500 | Mon Jan 01 10:00:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ id |        description         | severity |  category   | response_time | unindexed_metric | status_code |        timestamp         | total_count |                                                                                                     category_breakdown                                                                                                     
+----+----------------------------+----------+-------------+---------------+------------------+-------------+--------------------------+-------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 11 | API internal server error  | critical | api         |          1500 |              160 |         500 | Mon Jan 01 10:21:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ 19 | Stack overflow error       | critical | application |             2 |              168 |         500 | Mon Jan 01 10:18:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ 15 | Network timeout error      | critical | network     |         10000 |              164 |         504 | Mon Jan 01 10:17:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+ 17 | Memory allocation error    | critical | application |            10 |              166 |         500 | Mon Jan 01 10:08:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | Database timeout error     | critical | database    |          3000 |              152 |         503 | Mon Jan 01 10:05:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  2 | Invalid query syntax error | error    | database    |            50 |              151 |         400 | Mon Jan 01 10:03:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  1 | Database connection error  | error    | database    |           150 |              150 |         500 | Mon Jan 01 10:00:00 2024 |           7 | {"buckets": [{"key": "database", "doc_count": 3}, {"key": "application", "doc_count": 2}, {"key": "api", "doc_count": 1}, {"key": "network", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (7 rows)
 
 -- Test 31: pdb.agg() window function with different ORDER BY
@@ -874,8 +871,8 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY response_time DESC LIMIT 5;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                     QUERY PLAN                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
@@ -894,13 +891,13 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY response_time DESC LIMIT 5;
- id |        description         | severity | category | response_time | status_code |        timestamp         |         avg_response         
-----+----------------------------+----------+----------+---------------+-------------+--------------------------+------------------------------
- 15 | Network timeout error      | critical | network  |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 2101.714285714286}
-  3 | Database timeout error     | critical | database |          3000 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 2101.714285714286}
- 11 | API internal server error  | critical | api      |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 2101.714285714286}
-  1 | Database connection error  | error    | database |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2101.714285714286}
-  2 | Invalid query syntax error | error    | database |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 2101.714285714286}
+ id |        description         | severity | category | response_time | unindexed_metric | status_code |        timestamp         |         avg_response         
+----+----------------------------+----------+----------+---------------+------------------+-------------+--------------------------+------------------------------
+ 15 | Network timeout error      | critical | network  |         10000 |              164 |         504 | Mon Jan 01 10:17:00 2024 | {"value": 2101.714285714286}
+  3 | Database timeout error     | critical | database |          3000 |              152 |         503 | Mon Jan 01 10:05:00 2024 | {"value": 2101.714285714286}
+ 11 | API internal server error  | critical | api      |          1500 |              160 |         500 | Mon Jan 01 10:21:00 2024 | {"value": 2101.714285714286}
+  1 | Database connection error  | error    | database |           150 |              150 |         500 | Mon Jan 01 10:00:00 2024 | {"value": 2101.714285714286}
+  2 | Invalid query syntax error | error    | database |            50 |              151 |         400 | Mon Jan 01 10:03:00 2024 | {"value": 2101.714285714286}
 (5 rows)
 
 -- =====================================================================
@@ -1210,7 +1207,7 @@ WHERE description @@@ 'error';
 -- Test 42: Range histogram with GROUP BY
 -- Facet response time buckets per category
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, 
+SELECT category,
        pdb.agg('{"range": {"field": "response_time", "ranges": [
            {"to": 100, "key": "fast"},
            {"from": 100, "to": 1000, "key": "medium"},
@@ -1231,7 +1228,7 @@ ORDER BY category;
      Aggregate Definition: {"grouped":{"aggs":{"0":{"range":{"field":"response_time","keyed":false,"ranges":[{"key":"fast","to":100.0},{"from":100.0,"key":"medium","to":1000.0},{"from":1000.0,"key":"slow"}]}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
-SELECT category, 
+SELECT category,
        pdb.agg('{"range": {"field": "response_time", "ranges": [
            {"to": 100, "key": "fast"},
            {"from": 100, "to": 1000, "key": "medium"},
@@ -1335,8 +1332,8 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
@@ -1359,15 +1356,15 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
- id |        description         | severity |  category   | response_time | status_code |        timestamp         |                                                                          response_time_distribution                                                                          
-----+----------------------------+----------+-------------+---------------+-------------+--------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- 11 | API internal server error  | critical | api         |          1500 |         500 | Mon Jan 01 10:21:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
- 19 | Stack overflow error       | critical | application |             2 |         500 | Mon Jan 01 10:18:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
- 15 | Network timeout error      | critical | network     |         10000 |         504 | Mon Jan 01 10:17:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
- 17 | Memory allocation error    | critical | application |            10 |         500 | Mon Jan 01 10:08:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
-  3 | Database timeout error     | critical | database    |          3000 |         503 | Mon Jan 01 10:05:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
-  2 | Invalid query syntax error | error    | database    |            50 |         400 | Mon Jan 01 10:03:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
-  1 | Database connection error  | error    | database    |           150 |         500 | Mon Jan 01 10:00:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+ id |        description         | severity |  category   | response_time | unindexed_metric | status_code |        timestamp         |                                                                          response_time_distribution                                                                          
+----+----------------------------+----------+-------------+---------------+------------------+-------------+--------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 11 | API internal server error  | critical | api         |          1500 |              160 |         500 | Mon Jan 01 10:21:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+ 19 | Stack overflow error       | critical | application |             2 |              168 |         500 | Mon Jan 01 10:18:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+ 15 | Network timeout error      | critical | network     |         10000 |              164 |         504 | Mon Jan 01 10:17:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+ 17 | Memory allocation error    | critical | application |            10 |              166 |         500 | Mon Jan 01 10:08:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+  3 | Database timeout error     | critical | database    |          3000 |              152 |         503 | Mon Jan 01 10:05:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+  2 | Invalid query syntax error | error    | database    |            50 |              151 |         400 | Mon Jan 01 10:03:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
+  1 | Database connection error  | error    | database    |           150 |              150 |         500 | Mon Jan 01 10:00:00 2024 | {"buckets": [{"to": 100.0, "key": "fast", "doc_count": 3}, {"to": 1000.0, "key": "medium", "from": 100.0, "doc_count": 1}, {"key": "slow", "from": 1000.0, "doc_count": 3}]}
 (7 rows)
 
 -- =====================================================================
@@ -1424,13 +1421,13 @@ SET paradedb.enable_custom_scan TO on;
 SET paradedb.enable_filter_pushdown TO off;
 EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
-WHERE response_time = 150
+WHERE unindexed_metric = 150
 ORDER BY timestamp DESC
 LIMIT 1;
 ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
-WHERE response_time = 150
+WHERE unindexed_metric = 150
 ORDER BY timestamp DESC
 LIMIT 1;
 ERROR:  pdb.agg() window functions cannot be used with this WHERE clause because some predicates may not be pushable to the index. To fix this, enable 'SET paradedb.enable_filter_pushdown = on' to allow filtering on all fields. Alternatively, ensure all WHERE predicates use indexed fields or remove non-indexed predicates.
@@ -1691,7 +1688,7 @@ WHERE description @@@ 'laptop OR keyboard';
 -- These run as SEPARATE, INDEPENDENT aggregations (not nested)
 -- Each pdb.agg() returns its own complete breakdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown
 FROM products
@@ -1706,7 +1703,7 @@ WHERE description @@@ 'laptop OR keyboard';
      Aggregate Definition: {"0":{"terms":{"field":"category"}},"1":{"terms":{"field":"brand"}}}
 (6 rows)
 
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown
 FROM products
@@ -1718,7 +1715,7 @@ WHERE description @@@ 'laptop OR keyboard';
 
 -- Test 57: Multiple pdb.agg() calls with different aggregation types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price
@@ -1734,7 +1731,7 @@ WHERE description @@@ 'laptop OR keyboard';
      Aggregate Definition: {"0":{"terms":{"field":"category"}},"1":{"terms":{"field":"brand"}},"2":{"avg":{"field":"price","missing":null}}}
 (6 rows)
 
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price
@@ -1748,7 +1745,7 @@ WHERE description @@@ 'laptop OR keyboard';
 -- Test 58: One GROUP BY column with pdb.agg() for sub-aggregation
 -- This groups by category, and within each category, gets brand breakdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     category,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     COUNT(*) AS count
@@ -1767,7 +1764,7 @@ ORDER BY category;
      Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"brand"}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
-SELECT 
+SELECT
     category,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     COUNT(*) AS count
@@ -1784,7 +1781,7 @@ ORDER BY category;
 -- Test 59: Multiple pdb.agg() with GROUP BY
 -- Each pdb.agg() is computed independently for each category group
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     category,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     pdb.agg('{"avg": {"field": "rating"}}'::jsonb) AS avg_rating,
@@ -1804,7 +1801,7 @@ ORDER BY category;
      Aggregate Definition: {"grouped":{"aggs":{"0":{"terms":{"field":"brand"}},"1":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
 (7 rows)
 
-SELECT 
+SELECT
     category,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     pdb.agg('{"avg": {"field": "rating"}}'::jsonb) AS avg_rating,
@@ -1902,7 +1899,7 @@ WHERE description @@@ 'laptop OR keyboard';
 -- Test 62: Multiple independent terms vs nested terms - showing the difference
 -- Independent: Each field gets its own top-level breakdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS categories,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brands,
     pdb.agg('{"terms": {"field": "rating"}}'::jsonb) AS ratings
@@ -1918,7 +1915,7 @@ WHERE description @@@ 'laptop OR keyboard';
      Aggregate Definition: {"0":{"terms":{"field":"category"}},"1":{"terms":{"field":"brand"}},"2":{"terms":{"field":"rating"}}}
 (6 rows)
 
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS categories,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brands,
     pdb.agg('{"terms": {"field": "rating"}}'::jsonb) AS ratings

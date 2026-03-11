@@ -143,6 +143,7 @@ pub unsafe fn term_with_operator(
         pg_sys::TEXTOID => make_query!(operator, field, term_str, String, value, false),
         pg_sys::VARCHAROID => make_query!(operator, field, term_str, String, value, false),
         pg_sys::UUIDOID => make_query!(operator, field, uuid, pgrx::datum::Uuid, value, false),
+        pg_sys::INETOID => make_query!(operator, field, inet, pgrx::Inet, value, false),
 
         pg_sys::DATEOID => make_query!(operator, field, date, pgrx::datum::Date, value, true),
         pg_sys::TIMEOID => make_query!(operator, field, time, pgrx::datum::Time, value, true),

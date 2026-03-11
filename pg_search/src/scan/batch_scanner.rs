@@ -298,6 +298,28 @@ impl Scanner {
             self.pre_filter_rows_pruned += pruned;
         }
 
+        // Apply global threshold from SegmentedTopKExec (materialized string literals
+        // that try_rewrite_binary auto-translates to per-segment ordinal bounds).
+        if let Some(global_expr) = self
+            .segmented_thresholds
+            .as_ref()
+            .and_then(|t| t.get_global_threshold())
+        {
+            let schema = self.schema();
+            let mut dyn_filters = Vec::new();
+            crate::scan::pre_filter::collect_filters(&global_expr, &schema, &mut dyn_filters);
+
+            let (scanned, pruned) = evaluate_pre_filters(
+                &dyn_filters,
+                &schema,
+                &mut ids,
+                &mut scores,
+                &mut memoized_columns,
+            );
+            self.pre_filter_rows_scanned += scanned;
+            self.pre_filter_rows_pruned += pruned;
+        }
+
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.
         if let Some(pre_filters) = pre_filters {

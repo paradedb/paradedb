@@ -23,13 +23,13 @@ LIMIT 25 OFFSET 0;
                                                                                                                             QUERY PLAN                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on test_table
+   ->  Custom Scan (ParadeDB Scan) on test_table
          Table: test_table
          Index: test_table_search_index
-         Exec Method: TopKScanExecState
+         Exec Method: TopNScanExecState
          Scores: false
-            TopK Order By: col_ts_1 desc, id desc
-            TopK Limit: 25
+            TopN Order By: col_ts_1 desc, id desc
+            TopN Limit: 25
          Tantivy Query: {"boolean":{"must":[{"term":{"field":"col_bool_1","value":true,"is_datetime":false}},{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"col_uuid_1","value":"00000000-0000-0000-0000-000000000001","is_datetime":false}}]}}
 (9 rows)
 

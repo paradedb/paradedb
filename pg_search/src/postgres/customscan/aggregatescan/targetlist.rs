@@ -24,6 +24,7 @@ use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_match
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::utils::strip_unnest_and_relabel;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
@@ -195,13 +196,15 @@ impl CustomScanClause<AggregateScan> for TargetList {
             unsafe {
                 let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
+                let (actual_expr, _) = strip_unnest_and_relabel(expr as *mut pg_sys::Node);
+
                 let maybe_field_name = if let Some((_, field_name)) =
-                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
+                    find_one_var_and_fieldname(var_context, actual_expr)
                 {
                     Some(field_name.into_inner())
                 } else {
                     find_matching_fast_field(
-                        expr as *mut pg_sys::Node,
+                        actual_expr,
                         &index_expressions,
                         schema.clone(),
                         heap_rti,

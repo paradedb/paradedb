@@ -5,18 +5,28 @@ CREATE TABLE documents.core
 (
     id          serial constraint pkey_core_id primary key,
     dwf_doid    bigint,
-    record_type varchar
+    record_type varchar,
+    author      character varying[]
 );
+CREATE UNIQUE INDEX idx_core_dwf_doid
+    ON documents.core (dwf_doid);
 CREATE INDEX idx_parade_core ON documents.core USING bm25 (
     id,
     dwf_doid,
-    (lower(record_type)::pdb.literal)
+    (lower(record_type)::pdb.literal),
+    (author::pdb.literal)
 ) WITH (
     key_field='id'
 );
+CREATE VIEW documents.documents_view
+AS
+SELECT core.id,
+       core.dwf_doid,
+       core.author
+FROM documents.core;
 -- Insert some dummy data so the query returns rows
-INSERT INTO documents.core (dwf_doid, record_type) VALUES (1, 'Type1');
-INSERT INTO documents.core (dwf_doid, record_type) VALUES (2, 'Type2');
+INSERT INTO documents.core (dwf_doid, record_type, author) VALUES (1, 'Type1', ARRAY['author1']);
+INSERT INTO documents.core (dwf_doid, record_type, author) VALUES (2, 'Type2', ARRAY['author2']);
 -- Enable the aggregate custom scan.
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- Explain and execute the repro query
@@ -58,6 +68,64 @@ OFFSET 0;
 -------+----------------
  type2 | {"value": 1.0}
  type1 | {"value": 1.0}
+(2 rows)
+
+-- Explain and execute the repro query without unnest.
+EXPLAIN
+SELECT author, pdb.agg('{"value_count": {"field": "dwf_doid"}}') FROM documents.documents_view
+WHERE dwf_doid @@@ pdb.all()
+GROUP BY author
+LIMIT 5 OFFSET 0;
+WARNING:  Aggregate Scan not used: grouping field author is an array, which requires UNNEST() to be used in GROUP BY (table: core)
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Limit  (cost=10.02..10.04 rows=1 width=64)
+   ->  GroupAggregate  (cost=10.02..10.04 rows=1 width=64)
+         Group Key: core.author
+         ->  Sort  (cost=10.02..10.03 rows=1 width=32)
+               Sort Key: core.author
+               ->  Custom Scan (ParadeDB Base Scan) on core  (cost=10.00..10.01 rows=1 width=32)
+                     Table: core
+                     Index: idx_parade_core
+                     Segment Count: 1
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"all":{"field":"dwf_doid"}}}}
+(12 rows)
+
+SELECT author, pdb.agg('{"value_count": {"field": "dwf_doid"}}') FROM documents.documents_view
+WHERE dwf_doid @@@ pdb.all()
+GROUP BY author
+LIMIT 5 OFFSET 0;
+WARNING:  Aggregate Scan not used: grouping field author is an array, which requires UNNEST() to be used in GROUP BY (table: core)
+ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+-- Explain and execute the repro query with unnest.
+EXPLAIN
+SELECT UNNEST(author), pdb.agg('{"value_count": {"field": "dwf_doid"}}') FROM documents.documents_view
+WHERE dwf_doid @@@ pdb.all()
+GROUP BY UNNEST(author)
+LIMIT 5 OFFSET 0;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.00..0.00 rows=1 width=64)
+   ->  Custom Scan (ParadeDB Aggregate Scan) on core  (cost=0.00..0.00 rows=0 width=64)
+         Index: idx_parade_core
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"dwf_doid"}}}}
+           Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"dwf_doid"}})
+           Group By: author
+           Limit: 5
+           Offset: 0
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"dwf_doid","missing":null}}},"terms":{"field":"author","segment_size":5,"size":5}}}
+(9 rows)
+
+SELECT UNNEST(author), pdb.agg('{"value_count": {"field": "dwf_doid"}}') FROM documents.documents_view
+WHERE dwf_doid @@@ pdb.all()
+GROUP BY UNNEST(author)
+LIMIT 5 OFFSET 0;
+ unnest  |      agg       
+---------+----------------
+ author1 | {"value": 1.0}
+ author2 | {"value": 1.0}
 (2 rows)
 
 -- Drop the schema and everything in it

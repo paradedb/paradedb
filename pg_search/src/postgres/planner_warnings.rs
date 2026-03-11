@@ -32,9 +32,8 @@ struct PlannerWarningState {
     /// Maps Category -> Generic warning message -> WarningData
     warnings: HashMap<String, HashMap<String, WarningData>>,
     /// Contexts (e.g., table aliases) that have successfully been planned in the current query planning phase.
-    /// Maps Category -> Set of successful contexts.
-    /// If a context is in this set, we suppress any future warnings for it in the same category.
-    successful_contexts: HashMap<String, BTreeSet<String>>,
+    /// If a context is in this set, we suppress any future warnings for it across all categories.
+    successful_contexts: BTreeSet<String>,
 }
 
 thread_local! {
@@ -129,15 +128,11 @@ pub fn add_detailed_planner_warning<
     PLANNER_STATE.with(|state| {
         let mut state = state.borrow_mut();
 
-        // Filter out contexts that have already been successfully planned for this category
-        let filtered_ctxs: Vec<String> =
-            if let Some(category_successes) = state.successful_contexts.get(&category_str) {
-                ctxs.into_iter()
-                    .filter(|c| !category_successes.contains(c))
-                    .collect()
-            } else {
-                ctxs
-            };
+        // Filter out contexts that have already been successfully planned
+        let filtered_ctxs: Vec<String> = ctxs
+            .into_iter()
+            .filter(|c| !state.successful_contexts.contains(c))
+            .collect();
 
         // If we originally had contexts, but all of them were filtered out because they were successful,
         // we should completely suppress this warning.
@@ -155,21 +150,19 @@ pub fn add_detailed_planner_warning<
     });
 }
 
-/// Mark contexts within a category as successful and clear any previous warnings for them.
+/// Mark contexts as successful and clear any previous warnings for them across all categories.
 /// This is used when a successful plan is found for a set of tables, invalidating previous
 /// warnings about why a plan couldn't be generated.
-pub fn mark_contexts_successful<S: AsRef<str>, C: ToWarningContexts>(category: S, contexts: C) {
+pub fn mark_contexts_successful<C: ToWarningContexts>(contexts: C) {
     let ctxs_to_remove = contexts.to_warning_contexts();
     if ctxs_to_remove.is_empty() {
         return;
     }
 
-    let category_str = category.as_ref().to_string();
-
     PLANNER_STATE.with(|state| {
         let mut state = state.borrow_mut();
 
-        if let Some(category_warnings) = state.warnings.get_mut(&category_str) {
+        for category_warnings in state.warnings.values_mut() {
             for warning_data in category_warnings.values_mut() {
                 for ctx in &ctxs_to_remove {
                     warning_data.contexts.remove(ctx);
@@ -181,8 +174,7 @@ pub fn mark_contexts_successful<S: AsRef<str>, C: ToWarningContexts>(category: S
             });
         }
 
-        let category_successes = state.successful_contexts.entry(category_str).or_default();
-        category_successes.extend(ctxs_to_remove);
+        state.successful_contexts.extend(ctxs_to_remove);
     });
 }
 

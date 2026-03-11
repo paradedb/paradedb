@@ -165,7 +165,7 @@ LIMIT 3;
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 005], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
-           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=50, rows_output=3, segments_seen=1]
+           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=50, rows_output=3, segments_flushed=1, segments_seen=1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=90, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=56% (50/90)]
            :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
            :             CooperativeExec
@@ -667,8 +667,8 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 5;
-                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=5.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
          Relation Tree: d INNER f
@@ -678,15 +678,15 @@ LIMIT 5;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1], metrics=[output_rows=5, output_bytes=288.0 B, output_batches=1]
            :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 00008], metrics=[output_rows=5, output_bytes=288.0 B, output_batches=1, row_replacements=5]
-           :     TantivyLookupExec: decode=[title], metrics=[output_rows=20, output_bytes=1152.0 B, output_batches=3]
-           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=5, metrics=[rows_input=30.00 K, rows_output=20, segments_seen=4]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=30.00 K, output_bytes=1854.4 KB, output_batches=5, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=50.00 K, build_mem_used=228, avg_fanout=100% (30.00 K/30.00 K), probe_hit_rate=24% (30.00 K/125.1 K)]
+           :     TantivyLookupExec: decode=[title], metrics=[output_rows=10, output_bytes=576.0 B, output_batches=2]
+           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=5, metrics=[rows_input=14.26 K, rows_output=10, segments_flushed=2, segments_seen=2]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=14.26 K, output_bytes=858.4 KB, output_batches=3, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=23.76 K, build_mem_used=228, avg_fanout=100% (14.26 K/14.26 K), probe_hit_rate=23% (14.26 K/61.29 K)]
            :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=3, output_bytes=104.0 B, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=50.00 K, output_bytes=1806.8 KB, output_batches=4]
+           :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=23.76 K, output_bytes=858.7 KB, output_batches=4]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=0, rows_scanned=50.00 K]
+           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=26.24 K, rows_scanned=50.00 K]
 (18 rows)
 
 SELECT f.id, f.title

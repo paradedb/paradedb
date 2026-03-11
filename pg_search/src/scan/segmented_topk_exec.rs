@@ -27,15 +27,34 @@
 //!   - State 2 (materialized): already-decoded strings/bytes — always kept.
 //!
 //! For States 0 and 1, a per-segment bounded heap of size K retains only the
-//! top rows, reducing input to `TantivyLookupExec` from N to at most
-//! `K * num_segments`.
+//! top rows per segment. When a segment boundary is detected, the completed
+//! segment's survivors are emitted immediately to `TantivyLookupExec`.
 //!
-//! The node uses `EmissionType::Both` — rows that bypass ordinal comparison
-//! (State 2 and NULL ordinals) are emitted immediately as pass-through batches.
-//! When a segment boundary is detected (a new `segment_ord` appears in the
-//! input), the previous segment is complete and its top-K survivors are emitted
-//! immediately. This enables incremental feeding of `SortExec(TopK)`,
-//! allowing its `DynamicFilterPhysicalExpr` to tighten between segments.
+//! ## Output bound
+//!
+//! The cutoff for each segment is the worst (K-th best) `OwnedRow` in that
+//! segment's heap. All rows with `OwnedRow <= cutoff` survive. When sort keys
+//! are unique, this is exactly K rows per segment. With ties at the boundary,
+//! all tied rows are conservatively retained:
+//!
+//!   survivors_s = K + (T_s - H_s)
+//!
+//! where `T_s` is the total number of rows in segment `s` sharing the cutoff
+//! value, and `H_s` is how many of those occupy heap slots (`H_s >= 1`).
+//! Total ordinal-comparable rows reaching `TantivyLookupExec`:
+//!
+//!   sum_s(survivors_s) <= K * S  (when no boundary ties)
+//!
+//! where `S` is the number of segments. Pass-through rows (State 2 and NULL
+//! ordinals) are emitted immediately and are not bounded by K.
+//!
+//! ## Streaming and the TopK feedback loop
+//!
+//! The node uses `EmissionType::Both` — pass-through rows are yielded
+//! immediately, and ordinal-comparable survivors are yielded at each segment
+//! boundary. This incremental emission is critical: `SortExec(TopK)` receives
+//! rows early and tightens its `DynamicFilterPhysicalExpr`, which is pushed
+//! down to the scanner and prunes rows from later segments at scan level.
 //! Without per-segment streaming, TopK receives zero rows until all input is
 //! consumed and its dynamic filter never activates during scanning.
 //!

@@ -25,7 +25,6 @@ mod scan_state;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
-use std::sync::Once;
 
 use crate::api::operator::estimate_selectivity;
 use crate::api::window_aggregate::window_agg_oid;
@@ -76,7 +75,7 @@ use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::filter_implied_predicates;
+use crate::postgres::utils::{filter_implied_predicates, is_unnest_func};
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -84,7 +83,7 @@ use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_S
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::extract_const_i64;
-use pgrx::{direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
+use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -365,25 +364,6 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
     false
 }
 
-/// Is the function identified by `funcid` an approved set-returning-function
-/// that is safe for our limit push-down optimization?
-fn is_limit_safe_srf(funcid: pg_sys::Oid) -> bool {
-    static mut UNNEST_OID: pg_sys::Oid = pg_sys::InvalidOid;
-    static APPROVE_SRF_ONCE: Once = Once::new();
-
-    unsafe {
-        APPROVE_SRF_ONCE.call_once(|| {
-            if let Some(oid) = direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"pg_catalog.unnest(anyarray)".into_datum()],
-            ) {
-                UNNEST_OID = oid;
-            }
-        });
-        funcid == UNNEST_OID && UNNEST_OID != pg_sys::InvalidOid
-    }
-}
-
 /// Check if the query's target list contains only set-returning functions (e.g. `unnest()`) which
 /// are safe for use with our LIMIT optimization, and if so, then return the LIMIT from the parse.
 ///
@@ -412,7 +392,7 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
         if !(*te).expr.is_null() && pg_sys::expression_returns_set((*te).expr.cast()) {
             // It's a set-returning function, is it one we approve of?
             if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                if is_limit_safe_srf((*func_expr).funcid) {
+                if is_unnest_func((*func_expr).funcid) {
                     found_limit_safe_srf = true;
                 } else {
                     // We don't recognize this SRF, and can't vouch for it.

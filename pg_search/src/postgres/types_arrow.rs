@@ -475,14 +475,15 @@ mod tests {
 
     #[pg_test]
     fn test_arrow_string_to_datum_text() {
+        Spi::run("CREATE EXTENSION IF NOT EXISTS citext;").unwrap();
+        let citext_oid = PgOid::from(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'citext'::regtype::oid")
+                .expect("SPI failed")
+                .expect("citext extension not installed"),
+        );
         proptest!(|(ref s in ".*")| {
             let oid_text = PgOid::from(PgBuiltInOids::TEXTOID.value());
             let oid_varchar = PgOid::from(PgBuiltInOids::VARCHAROID.value());
-            let citext_oid = PgOid::from(
-                Spi::get_one::<pg_sys::Oid>("SELECT 'citext'::regtype::oid")
-                    .expect("SPI failed")
-                    .expect("citext extension not installed"),
-            );
             test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_text, |s| s);
             test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_varchar, |s| s);
             test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), citext_oid, |s| s);
@@ -586,6 +587,7 @@ mod tests {
 
     #[pg_test]
     fn test_arrow_to_datum_nulls() {
+        Spi::run("CREATE EXTENSION IF NOT EXISTS citext;").unwrap();
         test_null_conversion(
             Int64Builder::with_capacity(1),
             PgOid::from(PgBuiltInOids::INT8OID.value()),

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::datetime::MICROSECONDS_IN_SECOND;
 
 use arrow_array::cast::AsArray;
@@ -77,17 +78,12 @@ pub fn arrow_array_to_datum(
                 }
 
                 PgOid::Custom(custom) => {
-                    let typename = unsafe {
-                        std::ffi::CStr::from_ptr(pg_sys::format_type_be(*custom))
-                            .to_string_lossy()
-                            .into_owned()
-                    };
-                    if typename.ends_with("citext") {
+                    if is_citext_oid(*custom) {
                         s.into_datum()
                     } else {
                         return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}"));
                     }
-                },
+                }
                 _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
             }
         }

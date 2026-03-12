@@ -17,6 +17,7 @@
 
 use pgrx::{pg_sys, FromDatum, IntoDatum};
 use std::ffi::CStr;
+use std::sync::OnceLock;
 
 /// Helper function to lookup a namespace's [`pg_sys::Oid`] (SQL schema) by name
 pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {
@@ -88,6 +89,21 @@ pub fn lookup_typoid(namespace: &CStr, typename: &CStr) -> Option<pg_sys::Oid> {
         );
         (typoid != pg_sys::InvalidOid).then_some(typoid)
     }
+}
+
+/// Returns the OID of the `citext` type, or `Oid::INVALID` if citext is not installed.
+/// The result is cached for the lifetime of the backend process.
+pub fn citext_oid() -> pg_sys::Oid {
+    static CITEXT_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
+    *CITEXT_OID.get_or_init(|| {
+        lookup_typoid(c"public", c"citext").unwrap_or(pg_sys::Oid::INVALID)
+    })
+}
+
+/// Returns `true` if `oid` is the OID of the `citext` type.
+pub fn is_citext_oid(oid: pg_sys::Oid) -> bool {
+    let cid = citext_oid();
+    cid != pg_sys::Oid::INVALID && oid == cid
 }
 
 /// Helper function to lookup a function's [`pg_sys::Oid`] by name, argument types, and namespace

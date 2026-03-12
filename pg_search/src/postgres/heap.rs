@@ -293,6 +293,35 @@ impl HeapFetchState {
     pub fn buffer_slot(&self) -> *mut pg_sys::BufferHeapTupleTableSlot {
         self.slot
     }
+
+    /// Wrapper around `table_index_fetch_tuple` that guards against stale ctids
+    /// referencing heap blocks truncated by VACUUM.
+    ///
+    /// Returns `false` if the block has been truncated or the tuple is not visible.
+    pub unsafe fn fetch_tuple(
+        &self,
+        ctid: &mut pg_sys::ItemPointerData,
+        snapshot: pg_sys::Snapshot,
+        call_again: &mut bool,
+        all_dead: &mut bool,
+    ) -> bool {
+        let blockno = pgrx::itemptr::item_pointer_get_block_number(ctid);
+        let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
+            (*self.scan).rel,
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+        );
+        if blockno >= nblocks {
+            return false;
+        }
+        pg_sys::table_index_fetch_tuple(
+            self.scan,
+            ctid,
+            snapshot,
+            self.slot(),
+            call_again,
+            all_dead,
+        )
+    }
 }
 
 crate::impl_safe_drop!(HeapFetchState, |self| {

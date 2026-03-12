@@ -372,10 +372,6 @@ impl BaseScanState {
     unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
         let heaprel = self.heaprel.as_ref().expect("should have a heap relation");
 
-        if !crate::postgres::utils::ctid_satisfies_nblocks(ctid, heaprel.as_ptr()) {
-            return None;
-        }
-
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
 
@@ -383,11 +379,9 @@ impl BaseScanState {
 
         let mut call_again = false;
         let mut all_dead = false;
-        if !pg_sys::table_index_fetch_tuple(
-            state.scan,
+        if !state.fetch_tuple(
             &mut ipd,
             pg_sys::GetActiveSnapshot(),
-            state.slot(),
             &mut call_again,
             &mut all_dead,
         ) {

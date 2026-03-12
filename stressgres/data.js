@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773337708054,
+  "lastUpdate": 1773338522798,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32672,6 +32672,60 @@ window.BENCHMARK_DATA = {
             "value": 16.167452699581776,
             "unit": "median tps",
             "extra": "avg tps: 16.0598385955277, max tps: 19.738754037340076, count: 55394"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b75f1dacbbc94861196826cf87090f2c88e6eeaf",
+          "message": "perf: tune scanner batch size for late materialization (#4343)\n\n# Ticket(s) Closed\n- Closes #4319\n\n## What\nReduce the scanner batch size when all string/byte columns are fully\ndeferred during late materialization, instead of using the default\nMAX_BATCH_SIZE (128k).\n\n## Why\nWhen all string/byte columns are deferred, the scan phase only touches\nlightweight numeric/primitive fast fields. Using a large batch size\ndesigned for expensive string dictionary lookups is unnecessary\noverhead. A smaller batch size (aligned with DataFusion's default of\n8192) reduces memory pressure and allows Top K to tighten its threshold\nmore frequently between batches.\n\n## How\nIn `Scanner::new`, compute whether all `Named` string/byte columns have\nbeen converted to `Deferred` by checking the `WhichFastField` types. If\nfully deferred, use `DEFERRED_BATCH_SIZE` (8_192) instead of\n`MAX_BATCH_SIZE` for the default batch size path. Explicitly passed\n`batch_size_hint` values are left untouched.\n\n## Tests\nExisting late materialization and join integration tests cover\ncorrectness.",
+          "timestamp": "2026-03-12T09:57:47-07:00",
+          "tree_id": "c8805c3527e3a4dd07b92e2dbad6bee9d28a3d71",
+          "url": "https://github.com/paradedb/paradedb/commit/b75f1dacbbc94861196826cf87090f2c88e6eeaf"
+        },
+        "date": 1773338516213,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.910742228543338,
+            "unit": "median tps",
+            "extra": "avg tps: 29.703045572135434, max tps: 30.57297561771818, count: 55583"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.61684400067728,
+            "unit": "median tps",
+            "extra": "avg tps: 272.1737200443835, max tps: 2779.0302712819876, count: 55583"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 702.955208034207,
+            "unit": "median tps",
+            "extra": "avg tps: 693.9836143020945, max tps: 1109.6565182268264, count: 55583"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 167.1827511781654,
+            "unit": "median tps",
+            "extra": "avg tps: 182.96052211525858, max tps: 974.2911346442926, count: 111166"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.20815166884789,
+            "unit": "median tps",
+            "extra": "avg tps: 16.202108808472776, max tps: 18.786392647592056, count: 55583"
           }
         ]
       }

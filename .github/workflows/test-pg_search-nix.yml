@@ -47,11 +47,4 @@ jobs:
       # compiling pg_search for every Postgres variant.
       - name: Verify Nix Cargo Hash
         run: |
-          cargo_deps_drv=$(nix eval --raw --impure --expr '
-            let
-              flake = builtins.getFlake (toString ./.);
-              system = builtins.currentSystem;
-              pkg = "pg_search-pg${builtins.getEnv "PG_MAJOR_VERSION"}";
-            in flake.packages.${system}.${pkg}.cargoDeps.drvPath
-          ')
-          nix build --no-link "$cargo_deps_drv"
+          nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps"

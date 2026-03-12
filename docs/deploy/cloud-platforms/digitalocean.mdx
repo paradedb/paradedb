@@ -12,11 +12,6 @@ canonical: https://docs.paradedb.com/deploy/cloud-platforms/digitalocean
   [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
 </Note>
 
-<<<<<<< Updated upstream
-[DigitalOcean](https://www.digitalocean.com) is a cloud platform that makes it easy to deploy and manage
-infrastructure. This guide walks through deploying ParadeDB Community as a
-[pg_search extension](/deploy/self-hosted/extension) on a DigitalOcean Droplet.
-=======
 [DigitalOcean](https://www.digitalocean.com) is a cloud platform for deploying and managing applications. This guide walks through
 deploying ParadeDB on a DigitalOcean Droplet using Docker. Docker packages PostgreSQL and `pg_search` together, so you don't need to install them manually.
 
@@ -24,114 +19,26 @@ deploying ParadeDB on a DigitalOcean Droplet using Docker. Docker packages Postg
 
 1. A DigitalOcean account
 2. Your local machine's public IPv4 address (used to restrict access to the Droplet)
->>>>>>> Stashed changes
 
 ## Create a Droplet
 
-Create a new Droplet from the DigitalOcean dashboard with the following settings:
+1. In the DigitalOcean console, create a new Droplet
+2. Select **Ubuntu 24.04 (LTS) x64** as the image
+3. Choose a plan size — see the [DigitalOcean sizing guide](https://docs.digitalocean.com/products/droplets/concepts/choosing-a-plan/) for recommendations
 
-- **Image**: Ubuntu 24.04 (LTS) x64
-- **Size**: See the [DigitalOcean plan guide](https://docs.digitalocean.com/products/droplets/concepts/choosing-a-plan/) for sizing recommendations
+Once the Droplet is running, SSH into it to complete the remaining steps.
 
-Once the Droplet is running, SSH into it to begin setup.
-
-## Configure Environment Variables
-
-Set the following variables to match your desired Postgres and ParadeDB versions. Replace `<YOUR_IP_ADDRESS>` with your
-local machine's IPv4 address (not the Droplet IP).
+## Install Docker
 
 ```bash
-PG=18
-VERSION="0.21.10"
-ALLOWED_CIDR="<YOUR_IP_ADDRESS>/32"
-DIST=noble
-ARCH="$(dpkg --print-architecture)"
+curl -fsSL https://get.docker.com | sh
 ```
 
-## Install Postgres and ParadeDB
-
-Add the PostgreSQL APT repository and install Postgres:
+## Install ParadeDB
 
 The `tag` query parameter pins the ParadeDB version. See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags.
 
 ```bash
-<<<<<<< Updated upstream
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl wget gnupg lsb-release jq ufw
-sudo install -d -m 0755 /usr/share/keyrings
-wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-  | sudo tee /usr/share/keyrings/postgresql.asc >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-  | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-
-sudo apt-get update
-sudo apt-get install -y "postgresql-${PG}"
-```
-
-Download and install the ParadeDB extension:
-
-```bash
-ASSET="postgresql-${PG}-pg-search_${VERSION}-1PARADEDB-${DIST}_${ARCH}.deb"
-URL="https://github.com/paradedb/paradedb/releases/download/v${VERSION}/${ASSET}"
-
-wget -O "${ASSET}" "${URL}"
-sudo apt-get install -y "./${ASSET}"
-```
-
-## Configure Postgres
-
-Configure Postgres to accept remote connections from your client IP:
-
-```bash
-sudo sed -i "s/^#\?listen_addresses\s*=.*/listen_addresses = '*'/" \
-  "/etc/postgresql/${PG}/main/postgresql.conf"
-sudo sed -i "s/^#\?port\s*=.*/port = 5432/" \
-  "/etc/postgresql/${PG}/main/postgresql.conf"
-
-echo "host all all ${ALLOWED_CIDR} scram-sha-256" \
-  | sudo tee -a "/etc/postgresql/${PG}/main/pg_hba.conf"
-
-sudo systemctl restart postgresql
-sudo systemctl enable postgresql
-```
-
-<Note>
-  This allows only the IP address specified in `ALLOWED_CIDR`. To whitelist
-  additional IP addresses, add them to `/etc/postgresql/{PG}/main/pg_hba.conf`.
-</Note>
-
-Verify that Postgres is running:
-
-```bash
-pg_lsclusters
-```
-
-If the status is not `online`, check the logs:
-
-```bash
-sudo tail -n 100 /var/log/postgresql/postgresql-${PG}-main.log
-```
-
-## Create a Database
-
-Replace the values of `APP_DB`, `APP_USER`, and `APP_PASSWORD` with your desired credentials:
-
-```bash
-export APP_DB="app_db"
-export APP_USER="app_user"
-export APP_PASSWORD="app_password"
-
-sudo --preserve-env=APP_DB,APP_USER,APP_PASSWORD -u postgres psql <<'SQL'
-\getenv app_db APP_DB
-\getenv app_user APP_USER
-\getenv app_password APP_PASSWORD
-
-CREATE ROLE :"app_user" WITH LOGIN PASSWORD :'app_password';
-CREATE DATABASE :"app_db" OWNER :"app_user";
-\connect :app_db
-CREATE EXTENSION pg_search;
-SQL
-=======
 curl -fsSL "https://paradedb.com/install.sh?tag=0.21.13-pg18" | sh
 ```
 
@@ -141,38 +48,24 @@ To ensure the container restarts automatically if the Droplet reboots:
 
 ```bash
 docker update --restart unless-stopped paradedb
->>>>>>> Stashed changes
 ```
 
 ## Configure Firewall
 
-In the DigitalOcean console, navigate to **Droplets** → your Droplet → **Networking** and create a firewall with the
-following inbound rule:
+In the DigitalOcean console, navigate to **Networking → Firewalls** and create a firewall with the following inbound rule:
 
-| Field    | Value                  |
-| -------- | ---------------------- |
-| Type     | Custom                 |
-| Protocol | TCP                    |
-| Port     | 5432                   |
-| Sources  | `<YOUR_IP_ADDRESS>/32` |
+| Type   | Protocol | Port   | Sources                |
+| ------ | -------- | ------ | ---------------------- |
+| Custom | TCP      | `5432` | `<YOUR_IP_ADDRESS>/32` |
 
-<<<<<<< Updated upstream
-Apply the firewall to your Droplet. All other settings can be left as default.
-=======
 Replace `<YOUR_IP_ADDRESS>` with your local machine's public IPv4 address (not the Droplet IP). To allow access from any IP, use `0.0.0.0/0` instead. Apply the firewall to your Droplet.
->>>>>>> Stashed changes
 
-## Connecting to ParadeDB
+## Connect to ParadeDB
 
-Once the firewall is applied, connect from your local machine:
+From your local machine:
 
 ```bash
-<<<<<<< Updated upstream
-psql postgres://<APP_USER>:<APP_PASSWORD>@<DROPLET_IP>:5432/<APP_DB>
-=======
 psql postgres://myuser:mypassword@<DROPLET_IP>:5432/paradedb
->>>>>>> Stashed changes
 ```
 
-Replace `<APP_USER>`, `<APP_PASSWORD>`, and `<APP_DB>` with the credentials configured above, and `<DROPLET_IP>` with
-your Droplet's IPv4 address from the DigitalOcean console.
+Replace `<DROPLET_IP>` with the public IPv4 address of your Droplet, found on the DigitalOcean console.

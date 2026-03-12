@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773308241323,
+  "lastUpdate": 1773335982241,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4598,6 +4598,78 @@ window.BENCHMARK_DATA = {
             "value": 52.180531854052106,
             "unit": "median tps",
             "extra": "avg tps: 65.87379902683382, max tps: 339.51321575940375, count: 55162"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b75f1dacbbc94861196826cf87090f2c88e6eeaf",
+          "message": "perf: tune scanner batch size for late materialization (#4343)\n\n# Ticket(s) Closed\n- Closes #4319\n\n## What\nReduce the scanner batch size when all string/byte columns are fully\ndeferred during late materialization, instead of using the default\nMAX_BATCH_SIZE (128k).\n\n## Why\nWhen all string/byte columns are deferred, the scan phase only touches\nlightweight numeric/primitive fast fields. Using a large batch size\ndesigned for expensive string dictionary lookups is unnecessary\noverhead. A smaller batch size (aligned with DataFusion's default of\n8192) reduces memory pressure and allows Top K to tighten its threshold\nmore frequently between batches.\n\n## How\nIn `Scanner::new`, compute whether all `Named` string/byte columns have\nbeen converted to `Deferred` by checking the `WhichFastField` types. If\nfully deferred, use `DEFERRED_BATCH_SIZE` (8_192) instead of\n`MAX_BATCH_SIZE` for the default batch size path. Explicitly passed\n`batch_size_hint` values are left untouched.\n\n## Tests\nExisting late materialization and join integration tests cover\ncorrectness.",
+          "timestamp": "2026-03-12T09:57:47-07:00",
+          "tree_id": "c8805c3527e3a4dd07b92e2dbad6bee9d28a3d71",
+          "url": "https://github.com/paradedb/paradedb/commit/b75f1dacbbc94861196826cf87090f2c88e6eeaf"
+        },
+        "date": 1773335976157,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 137.27502248018288,
+            "unit": "median tps",
+            "extra": "avg tps: 137.1313718964757, max tps: 145.73938181462262, count: 55073"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 507.36207961991573,
+            "unit": "median tps",
+            "extra": "avg tps: 508.00422700971035, max tps: 677.4828019226454, count: 55073"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2976.790163628574,
+            "unit": "median tps",
+            "extra": "avg tps: 2967.553023722821, max tps: 2984.4994613747544, count: 55073"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 471.776404922714,
+            "unit": "median tps",
+            "extra": "avg tps: 469.0333148327928, max tps: 490.1077697975008, count: 55073"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3017.9152296862394,
+            "unit": "median tps",
+            "extra": "avg tps: 3004.586718208601, max tps: 3070.107845945147, count: 110146"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 510.98642842123525,
+            "unit": "median tps",
+            "extra": "avg tps: 512.2114545045281, max tps: 598.5531996515473, count: 55073"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1778.9542974834046,
+            "unit": "median tps",
+            "extra": "avg tps: 1773.3820335481232, max tps: 1816.9530152173058, count: 55073"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 70.57274674129039,
+            "unit": "median tps",
+            "extra": "avg tps: 98.4807677904326, max tps: 842.1988802123689, count: 55073"
           }
         ]
       }

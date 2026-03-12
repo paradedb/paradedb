@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773306596734,
+  "lastUpdate": 1773307413194,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32168,6 +32168,60 @@ window.BENCHMARK_DATA = {
             "value": 16.088375275440683,
             "unit": "median tps",
             "extra": "avg tps: 15.926594695742953, max tps: 20.470260007920356, count: 55485"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ff67613e1f9a5337f8f15c53240a3ede957e2c7",
+          "message": "perf: push SegmentedTopKExec global threshold via DynamicFilterPhysicalExpr (#4334)\n\n## What\n\n`SegmentedTopKExec` now maintains a global K-sized heap across all\nsegments and publishes a cross-segment threshold as a\n`DynamicFilterPhysicalExpr`, pushed down through DataFusion's standard\nfilter pushdown mechanism. Previously only per-segment ordinal\nthresholds existed, so segment 1 couldn't benefit from what segment 0\nalready discovered.\n\n## Why\n\nPer-segment thresholds only prune within the segment that produced them.\nAfter seeing K great rows in segment 0, segment 1 still scanned all its\nrows from scratch. The global threshold converts the worst entry's\nordinals back to materialized strings (via `FFHelper::ord_to_str`) and\npublishes them as a dynamic filter. The scanner's `try_rewrite_binary`\nauto-translates these to per-segment ordinal bounds, pruning rows at\nscan level before they reach the join or SegmentedTopKExec.\n\nOn the 50K-row multi-segment benchmark (`ORDER BY title ASC LIMIT 5`),\n`rows_pruned` went from 20K to 24.48K and `rows_input` to\nSegmentedTopKExec dropped from 30K to 25.52K.\n\n## How\n\n- **`segmented_topk_exec.rs`**: Added a global heap +\n`DynamicFilterPhysicalExpr`. Implements\n`gather_filters_for_pushdown`/`handle_child_pushdown_result` to inject\nthe filter into DataFusion's pushdown path. Extracted\n`build_lexicographic_filter` so both per-segment and global thresholds\nshare the same filter-building logic. Removed the\n`SegmentedThresholds.global` side-channel.\n- **`filter_passthrough_exec.rs`** (new): Transparent `ExecutionPlan`\nwrapper that enables filter pushdown through nodes that don't support it\nnatively. Extracted from the private copy in `joinscan/planner.rs`.\n- **`segmented_topk_rule.rs`**: Wraps `SortPreservingMergeExec` nodes\nwith `FilterPassthroughExec` so the dynamic filter can reach\n`PgSearchScan` in SortMergeJoin plans.\n- **`tantivy_lookup_exec.rs`**: Added filter passthrough so filters flow\nthrough to children.\n- **`joinscan/scan_state.rs`**: Added a second `FilterPushdown(Post)`\npass after `SegmentedTopKRule`.\n- **`batch_scanner.rs`**: Removed global threshold side-channel;\nper-segment ordinal thresholds remain unchanged.\n\n## Results\n\n### HashJoin path (segmented_topk, 50K rows, `ORDER BY title ASC LIMIT\n5`)\n\n| Metric | before | after |\n|---|---|---|\n| PgSearchScan `rows_pruned` | 20K | 24.48K |\n| SegmentedTopKExec `rows_input` | 30K | 25.52K |\n| `dynamic_filters` on PgSearchScan | 2 | 3 |\n\n### SortMergeJoin path (join_sort_merge, 20K rows, `LIMIT 10`)\n\n| Metric | before | after |\n|---|---|---|\n| `rows_pruned` (ASC) | 0 | 1.81K |\n| `rows_pruned` (DESC) | 1.58K | 3.38K |\n| `rows_input` (ASC) | 20K | 18.19K |\n| `rows_input` (DESC) | 18.42K | 16.62K |\n\n## Tests\n\n- Added TEST 12 in `segmented_topk.sql`.",
+          "timestamp": "2026-03-12T01:19:29-07:00",
+          "tree_id": "c1c467d6e9b8fd07e85b5ad63ec8deb44787684c",
+          "url": "https://github.com/paradedb/paradedb/commit/0ff67613e1f9a5337f8f15c53240a3ede957e2c7"
+        },
+        "date": 1773307406688,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 28.800725672804298,
+            "unit": "median tps",
+            "extra": "avg tps: 28.77170760261453, max tps: 33.33844515417154, count: 55394"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 241.97329261002375,
+            "unit": "median tps",
+            "extra": "avg tps: 270.77198721906456, max tps: 2854.5416900104747, count: 55394"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 684.1180285159631,
+            "unit": "median tps",
+            "extra": "avg tps: 671.3288570485481, max tps: 847.0281438029102, count: 55394"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 159.54555759167005,
+            "unit": "median tps",
+            "extra": "avg tps: 178.4441136280731, max tps: 918.2185316030726, count: 110788"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.167452699581776,
+            "unit": "median tps",
+            "extra": "avg tps: 16.0598385955277, max tps: 19.738754037340076, count: 55394"
           }
         ]
       }

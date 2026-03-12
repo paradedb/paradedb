@@ -44,6 +44,10 @@ pub struct VisibilityChecker {
     // tracks our previous block visibility so we can elide checking again
     blockvis: (pg_sys::BlockNumber, bool),
 
+    /// Cached relation size (in blocks) at scan start. Used to cheaply skip
+    /// stale ctids pointing to pages truncated by a previous VACUUM.
+    nblocks: pg_sys::BlockNumber,
+
     pub heap_tuple_check_count: usize,
     pub invisible_tuple_count: usize,
 }
@@ -71,6 +75,10 @@ impl VisibilityChecker {
     /// `relation` and `snapshot`
     pub fn with_rel_and_snap(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) -> Self {
         unsafe {
+            let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
+                heaprel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+            );
             Self {
                 scan: pg_sys::table_index_fetch_begin(heaprel.as_ptr()),
                 snapshot,
@@ -79,6 +87,7 @@ impl VisibilityChecker {
                 bman: BufferManager::new(heaprel),
                 vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
                 blockvis: (pg_sys::InvalidBlockNumber, false),
+                nblocks,
                 heap_tuple_check_count: 0,
                 invisible_tuple_count: 0,
             }
@@ -101,7 +110,8 @@ impl VisibilityChecker {
     ) -> Option<T> {
         self.heap_tuple_check_count += 1;
         unsafe {
-            if !utils::ctid_satisfies_nblocks(ctid, (*self.scan).rel) {
+            let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+            if blockno >= self.nblocks {
                 self.invisible_tuple_count += 1;
                 return None;
             }
@@ -138,7 +148,8 @@ impl VisibilityChecker {
     /// Returns true if the tuple was found and visible, false otherwise.
     pub fn fetch_tuple_direct(&self, ctid: u64, slot: *mut pg_sys::TupleTableSlot) -> bool {
         unsafe {
-            if !utils::ctid_satisfies_nblocks(ctid, self.heaprel.as_ptr()) {
+            let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+            if blockno >= self.nblocks {
                 return false;
             }
 
@@ -212,20 +223,13 @@ impl VisibilityChecker {
             .collect();
         sorted_indices.sort_unstable_by_key(|(_, ctid)| *ctid);
 
-        let nblocks = unsafe {
-            pg_sys::RelationGetNumberOfBlocksInFork(
-                self.heaprel.as_ptr(),
-                pg_sys::ForkNumber::MAIN_FORKNUM,
-            )
-        };
-
         let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
         let mut current_block = pg_sys::InvalidBlockNumber;
 
         for (idx, mut ctid) in sorted_indices {
             let blockno = (ctid >> 16) as pg_sys::BlockNumber;
 
-            if blockno >= nblocks {
+            if blockno >= self.nblocks {
                 self.invisible_tuple_count += 1;
                 results[idx] = None;
                 continue;
@@ -270,6 +274,10 @@ pub struct HeapFetchState {
     // Hold a reference to the heap relation to keep it open for the lifetime of the scan.
     // The scan stores an internal pointer to the relation, so it must not be closed early.
     _heaprel: PgSearchRelation,
+
+    /// Cached relation size (in blocks) at scan start. Used to cheaply skip
+    /// stale ctids pointing to pages truncated by a previous VACUUM.
+    nblocks: pg_sys::BlockNumber,
 }
 
 impl HeapFetchState {
@@ -278,10 +286,15 @@ impl HeapFetchState {
         unsafe {
             let scan = pg_sys::table_index_fetch_begin(heaprel.as_ptr());
             let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
+            let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
+                heaprel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+            );
             Self {
                 scan,
                 slot: slot.cast(),
                 _heaprel: heaprel.clone(),
+                nblocks,
             }
         }
     }
@@ -312,11 +325,7 @@ impl HeapFetchState {
         all_dead: &mut bool,
     ) -> bool {
         let blockno = pgrx::itemptr::item_pointer_get_block_number(ctid);
-        let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
-            (*self.scan).rel,
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-        );
-        if blockno >= nblocks {
+        if blockno >= self.nblocks {
             return false;
         }
         pg_sys::table_index_fetch_tuple(

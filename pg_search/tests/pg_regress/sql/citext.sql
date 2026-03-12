@@ -202,4 +202,79 @@ SELECT id, content FROM citext_empty ORDER BY id;
 
 DROP TABLE citext_empty;
 
+-- ============================================================
+-- Test 8: citext RHS constant in @@@ operator
+-- (covers operator.rs: rewrite_rhs_to_search_query_input citext branch)
+-- ============================================================
+CREATE TABLE citext_rhs (
+    id   INT PRIMARY KEY,
+    name CITEXT
+);
+
+INSERT INTO citext_rhs (id, name) VALUES
+    (1, 'Hello World'),
+    (2, 'PostgreSQL');
+
+CREATE INDEX ON citext_rhs
+USING bm25 (id, name)
+WITH (key_field = 'id');
+
+-- RHS is explicitly cast to citext — hits the citext Const branch in operator.rs
+SELECT id FROM citext_rhs WHERE name @@@ 'hello'::citext ORDER BY id;
+SELECT id FROM citext_rhs WHERE name @@@ 'HELLO'::citext ORDER BY id;
+
+DROP TABLE citext_rhs;
+
+-- ============================================================
+-- Test 9: paradedb.term_with_operator with citext value
+-- (covers builder_fns/paradedb.rs: term_with_operator citext branch)
+-- ============================================================
+CREATE TABLE citext_term_op (
+    id   INT PRIMARY KEY,
+    name CITEXT
+);
+
+INSERT INTO citext_term_op (id, name) VALUES
+    (1, 'hello'),
+    (2, 'world'),
+    (3, 'postgres');
+
+CREATE INDEX ON citext_term_op
+USING bm25 (id, name)
+WITH (key_field = 'id');
+
+-- Passes a citext AnyElement to term_with_operator — hits the citext branch
+SELECT id FROM citext_term_op
+WHERE id @@@ paradedb.term_with_operator('name', '=', 'hello'::citext)
+ORDER BY id;
+
+DROP TABLE citext_term_op;
+
+-- ============================================================
+-- Test 10: Columnar execution returning citext fast-field values
+-- (covers types_arrow.rs: arrow_array_to_datum citext branch;
+--  covers types.rs: try_into_datum citext branch)
+-- ============================================================
+CREATE TABLE citext_columnar (
+    id   INT PRIMARY KEY,
+    name CITEXT
+);
+
+INSERT INTO citext_columnar (id, name) VALUES
+    (1, 'Alpha'),
+    (2, 'Beta'),
+    (3, 'Gamma');
+
+CREATE INDEX ON citext_columnar
+USING bm25 (id, name)
+WITH (key_field = 'id');
+
+-- Columnar exec projects the citext fast field directly from the index
+SET paradedb.enable_columnar_exec = true;
+SELECT id, name FROM citext_columnar WHERE name @@@ 'alpha' ORDER BY id;
+SELECT id, name FROM citext_columnar WHERE name @@@ 'beta'  ORDER BY id;
+RESET paradedb.enable_columnar_exec;
+
+DROP TABLE citext_columnar;
+
 \i common/common_cleanup.sql

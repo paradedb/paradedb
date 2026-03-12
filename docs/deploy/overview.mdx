@@ -4,7 +4,7 @@ description: Explore the different ways to deploy ParadeDB into production
 canonical: https://docs.paradedb.com/deploy/overview
 ---
 
-There are three ways to deploy ParadeDB: [self-hosting ParadeDB](/deploy/self-hosted/kubernetes), using a ParadeDB container in a [cloud platform](/deploy/cloud-platforms/render), or using [ParadeDB BYOC](/deploy/byoc) (Bring Your Own Cloud).
+There are three ways to deploy ParadeDB: [self-hosting ParadeDB](/deploy/self-hosted/kubernetes), using a ParadeDB container in a [cloud platform](#cloud-platforms), or using [ParadeDB BYOC](/deploy/byoc) (Bring Your Own Cloud).
 
 ## Self-Hosted ParadeDB
 
@@ -26,8 +26,10 @@ When you are ready to deploy in ParadeDB to production, [contact us](mailto:sale
 
 ## Cloud Platforms
 
-For hobby, development, or staging environments, ParadeDB Community can be deployed to cloud platforms with minimal setup:
+For hobby, development, or staging environments, ParadeDB Community can be deployed to cloud platforms with minimal setup. These all use Docker containers, which package PostgreSQL and `pg_search` together:
 
+- [DigitalOcean](/deploy/cloud-platforms/digitalocean) — Deploy on a DigitalOcean Droplet
+- [Railway](/deploy/cloud-platforms/railway) — One-click deploy to Railway
 - [Render](/deploy/cloud-platforms/render) — One-click deploy to Render
 - [DigitalOcean](/deploy/cloud-platforms/digitalocean) — Deploy on a DigitalOcean Droplet
 

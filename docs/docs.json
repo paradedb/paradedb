@@ -310,8 +310,9 @@
                   {
                     "group": "Cloud Platforms",
                     "pages": [
-                      "deploy/cloud-platforms/render",
-                      "deploy/cloud-platforms/digitalocean"
+                      "deploy/cloud-platforms/digitalocean",
+                      "deploy/cloud-platforms/railway",
+                      "deploy/cloud-platforms/render"
                     ]
                   },
                   "deploy/byoc",

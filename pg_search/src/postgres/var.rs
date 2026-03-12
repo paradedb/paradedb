@@ -18,6 +18,7 @@
 use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::customscan::operator_oid;
+use crate::postgres::catalog::is_citext_oid;
 use crate::nodecast;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
 use pgrx::pg_sys::{expression_tree_walker, CoerceViaIO, Const, OpExpr, RelabelType, Var};
@@ -398,8 +399,8 @@ pub unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> V
         return path;
     } else if is_a(node, T_Const) {
         let node = node as *mut Const;
-        if let PgOid::BuiltIn(oid) = PgOid::from((*node).consttype) {
-            match oid {
+        match PgOid::from((*node).consttype) {
+            PgOid::BuiltIn(oid) => match oid {
                 pg_sys::BuiltinOid::TEXTOID | pg_sys::BuiltinOid::VARCHAROID => {
                     if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
                         path.push(s);
@@ -412,20 +413,14 @@ pub unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> V
                         path.extend(array.iter().flatten());
                     }
                 }
-                other_oid => {
-                    let typename = unsafe {
-                        std::ffi::CStr::from_ptr(pg_sys::format_type_be(other_oid.value()))
-                            .to_string_lossy()
-                            .into_owned()
-                    };
-
-                    if typename.ends_with("citext") {
-                        if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
-                            path.push(s);
-                        }
-                    }
+                _ => {}
+            },
+            PgOid::Custom(custom) if is_citext_oid(custom) => {
+                if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
+                    path.push(s);
                 }
             }
+            _ => {}
         }
 
         return path;

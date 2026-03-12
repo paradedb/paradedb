@@ -35,6 +35,11 @@ use tantivy::{DocAddress, DocId, Score, SegmentOrdinal};
 /// be held in memory at a time.
 const MAX_BATCH_SIZE: usize = 128_000;
 
+/// The maximum number of rows to batch when all string/byte columns are
+/// deferred during late materialization. Aligned with DataFusion's default
+/// batch size, since we are not fetching string dictionaries during the scan phase.
+const DEFERRED_BATCH_SIZE: usize = 8_192;
+
 /// Compact `ids` and `scores` in-place based on a boolean mask.
 fn compact_with_mask(
     ids: &mut Vec<DocId>,
@@ -154,9 +159,29 @@ impl Scanner {
         which_fast_fields: Vec<WhichFastField>,
         table_oid: u32,
     ) -> Self {
+        let all_strings_deferred = !which_fast_fields.iter().any(|wff| {
+            matches!(
+                wff,
+                WhichFastField::Named(_, field_type) if matches!(
+                    field_type.arrow_data_type(),
+                    arrow_schema::DataType::Utf8View
+                        | arrow_schema::DataType::BinaryView
+                        | arrow_schema::DataType::LargeUtf8
+                        | arrow_schema::DataType::LargeBinary
+                )
+            )
+        });
+
+        let default_batch_size = if all_strings_deferred {
+            DEFERRED_BATCH_SIZE
+        } else {
+            MAX_BATCH_SIZE
+        };
+
         let batch_size = batch_size_hint
-            .unwrap_or(MAX_BATCH_SIZE)
-            .min(MAX_BATCH_SIZE);
+            .unwrap_or(default_batch_size)
+            .min(default_batch_size);
+
         Self {
             search_results,
             batch_size,

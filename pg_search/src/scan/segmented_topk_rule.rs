@@ -66,7 +66,7 @@ impl PhysicalOptimizerRule for SegmentedTopKRule {
     }
 
     fn schema_check(&self) -> bool {
-        false
+        true
     }
 
     fn optimize(
@@ -147,7 +147,7 @@ fn try_inject_below_lookup(
                     lookup
                         .deferred_fields()
                         .iter()
-                        .any(|d| d.field_name == col.name())
+                        .any(|d| d.col_idx == col.index())
                 } else {
                     false
                 }
@@ -168,22 +168,43 @@ fn try_inject_below_lookup(
                         if let Some(field) = lookup
                             .deferred_fields()
                             .iter()
-                            .find(|d| d.field_name == col.name())
+                            .find(|d| d.col_idx == col.index())
                         {
-                            if let Ok(idx) = input_schema.index_of(col.name()) {
-                                deferred_columns.push(
-                                    crate::scan::segmented_topk_exec::DeferredSortColumn {
-                                        sort_col_idx: idx,
-                                        ff_index: field.ff_index,
-                                    },
-                                );
-                            }
+                            deferred_columns.push(
+                                crate::scan::segmented_topk_exec::DeferredSortColumn {
+                                    sort_col_idx: col.index(),
+                                    canonical: field.canonical.clone(),
+                                },
+                            );
                         }
                     }
                 }
 
+                // If the sort requires deferred columns from multiple different indexes (tables),
+                // we cannot push the threshold down, because a single segment scanner cannot evaluate
+                // the threshold across multiple tables (it only sees its own base table).
+                // E.g. `ORDER BY f.title ASC, d.category DESC` is a multi-dimensional bound that
+                // spans across the HashJoin. We must gracefully fall back to a standard SortExec.
+                // TODO: Add support for SegmentedTopK executing the TopK, but without pushing down
+                // thresholds: see https://github.com/paradedb/paradedb/issues/4347
+                let first_indexrelid = deferred_columns.first().map(|d| d.canonical.indexrelid);
+                if let Some(id) = first_indexrelid {
+                    if deferred_columns
+                        .iter()
+                        .any(|d| d.canonical.indexrelid != id)
+                    {
+                        return Ok(None);
+                    }
+                }
+
+                let target_indexrelid = first_indexrelid.unwrap_or(0);
+                let ffhelper = match lookup.ffhelper(target_indexrelid) {
+                    Some(helper) => Arc::clone(helper),
+                    None => return Ok(None),
+                };
+
                 // The sort_exprs were extracted from SortExec, which is evaluated against
-                // a schema further up the plan (often after a ProjectionExec).
+                // a schema further up the plan (often after a ProjectionExec or AggregateExec).
                 // We must rewrite the Column expressions to match the input_schema of this node.
                 let mut rewritten_sort_exprs = Vec::with_capacity(sort_exprs.len());
                 for sort_expr in &sort_exprs {
@@ -204,6 +225,7 @@ fn try_inject_below_lookup(
                         options: sort_expr.options,
                     });
                 }
+
                 let rewritten_lex_ordering =
                     LexOrdering::new(rewritten_sort_exprs).unwrap_or(sort_exprs.clone());
 
@@ -213,7 +235,7 @@ fn try_inject_below_lookup(
                     Arc::clone(lookup_child),
                     rewritten_lex_ordering,
                     deferred_columns.clone(),
-                    Arc::clone(lookup.ffhelper()),
+                    Arc::clone(&ffhelper),
                     k,
                     Arc::clone(&thresholds),
                 ));
@@ -227,7 +249,7 @@ fn try_inject_below_lookup(
                     lookup_child.as_ref(),
                     &thresholds,
                     &deferred_columns,
-                    lookup.ffhelper(),
+                    &ffhelper,
                 );
 
                 // Rebuild TantivyLookupExec with the new child.
@@ -309,7 +331,7 @@ fn wire_thresholds_to_scan(
         let has_target = deferred_columns.iter().any(|sort_col| {
             scan.deferred_fields()
                 .iter()
-                .any(|d| d.ff_index == sort_col.ff_index)
+                .any(|d| d.canonical == sort_col.canonical)
         });
         if same_relation && has_target {
             scan.set_segmented_thresholds(Arc::clone(thresholds));

@@ -78,7 +78,7 @@
 //! natively.
 
 use crate::api::HashMap;
-use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
 use arrow_array::{
@@ -144,7 +144,7 @@ impl SegmentedThresholds {
 #[derive(Clone, Debug)]
 pub struct DeferredSortColumn {
     pub sort_col_idx: usize,
-    pub ff_index: usize,
+    pub canonical: CanonicalColumn,
 }
 
 pub struct SegmentedTopKExec {
@@ -704,7 +704,9 @@ impl SegmentedTopKState {
             let doc_ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
             let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; doc_ids.len()];
 
-            let col = self.ffhelper.column(seg_ord, deferred_col.ff_index);
+            let col = self
+                .ffhelper
+                .column(seg_ord, deferred_col.canonical.ff_index);
             match col {
                 FFType::Text(str_col) => {
                     str_col.ords().first_vals(&doc_ids, &mut term_ords);
@@ -716,7 +718,7 @@ impl SegmentedTopKState {
                     panic!(
                             "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \
                              — the optimizer should never plan this node for non-dictionary columns",
-                            deferred_col.ff_index
+                            deferred_col.canonical.ff_index
                         );
                 }
             }
@@ -890,7 +892,7 @@ impl SegmentedTopKState {
 
             let value = if let Some(deferred) = is_deferred {
                 let term_ord = arrays[i].as_any().downcast_ref::<UInt64Array>()?.value(0);
-                let col = self.ffhelper.column(seg_ord, deferred.ff_index);
+                let col = self.ffhelper.column(seg_ord, deferred.canonical.ff_index);
                 match col {
                     FFType::Text(str_col) => {
                         let mut s = String::new();

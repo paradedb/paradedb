@@ -531,6 +531,7 @@ LIMIT 5;
 -- =============================================================================
 -- TEST 11: ORDER BY containing two different string fields from different tables
 -- =============================================================================
+-- TODO: Does not get SegmentedTopK: see https://github.com/paradedb/paradedb/issues/4347
 SET paradedb.enable_segmented_topk = off;
 SELECT f.id, f.title, d.category
 FROM stk_files f
@@ -555,8 +556,8 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.id, f.title, d.category
    ->  Custom Scan (ParadeDB Join Scan)
@@ -568,17 +569,15 @@ LIMIT 5;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@4 as col_1, title@3 as col_2, category@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false]
-           :     TantivyLookupExec: decode=[title]
-           :       SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], k=5
-           :         TantivyLookupExec: decode=[category]
-           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
-           :             ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, category@2 as category]
-           :               CooperativeExec
-           :                 PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :             ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title, id@3 as id]
-           :               CooperativeExec
-           :                 PgSearchScan: segments=1, dynamic_filters=1, segmented_thresholds=true, query="all"
-(21 rows)
+           :     TantivyLookupExec: decode=[category, title]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
+           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, category@2 as category]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title, id@3 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(19 rows)
 
 SELECT f.id, f.title, d.category
 FROM stk_files f

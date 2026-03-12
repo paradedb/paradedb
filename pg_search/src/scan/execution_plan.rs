@@ -54,9 +54,9 @@ use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::query::SearchQueryInput;
+use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{collect_filters, PreFilter};
 use crate::scan::segmented_topk_exec::SegmentedThresholds;
-use crate::scan::tantivy_lookup_exec::DeferredField;
 use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -110,6 +110,7 @@ pub struct PgSearchScanPlan {
     metrics: ExecutionPlanMetricsSet,
     deferred_fields: Vec<DeferredField>,
     ffhelper_for_lookup: Option<Arc<FFHelper>>,
+    pub indexrelid: u32,
     /// Per-segment ordinal thresholds pushed from `SegmentedTopKExec` for
     /// early row pruning at the scanner level.
     segmented_thresholds: Mutex<Option<Arc<SegmentedThresholds>>>,
@@ -139,6 +140,7 @@ impl PgSearchScanPlan {
         sort_order: Option<&SortByField>,
         deferred_fields: Vec<DeferredField>,
         ffhelper_for_lookup: Option<Arc<FFHelper>>,
+        indexrelid: u32,
     ) -> Self {
         // Ensure we always return at least one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
@@ -176,6 +178,7 @@ impl PgSearchScanPlan {
             metrics: ExecutionPlanMetricsSet::new(),
             deferred_fields,
             ffhelper_for_lookup,
+            indexrelid,
             segmented_thresholds: Mutex::new(None),
         }
     }
@@ -198,12 +201,6 @@ impl PgSearchScanPlan {
 
     pub fn deferred_fields(&self) -> &[DeferredField] {
         &self.deferred_fields
-    }
-
-    pub fn ffhelper(&self) -> &Arc<FFHelper> {
-        self.ffhelper_for_lookup
-            .as_ref()
-            .expect("ffhelper_for_lookup must be Some when late materialization is active")
     }
 
     pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {
@@ -467,7 +464,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                     inner.0.set_batch_size(df_batch_size as usize);
                 }
             }
-
             let new_plan = Arc::new(PgSearchScanPlan {
                 states: Mutex::new(states),
                 partition_row_counts: self.partition_row_counts.clone(),
@@ -477,9 +473,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                 metrics: self.metrics.clone(),
                 deferred_fields: self.deferred_fields.clone(),
                 ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
+                indexrelid: self.indexrelid,
                 segmented_thresholds: Mutex::new(self.segmented_thresholds.lock().unwrap().clone()),
             });
-
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
                     .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
@@ -583,6 +579,7 @@ pub fn create_sorted_scan(
         Some(sort_order),
         Vec::new(),
         None,
+        0,
     ));
 
     // For a single segment, no merging is needed

@@ -101,6 +101,7 @@ mod tests {
             None,
             Vec::new(),
             None,
+            0,
         );
 
         let task_ctx = Arc::new(TaskContext::default());

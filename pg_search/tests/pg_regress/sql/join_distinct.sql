@@ -136,6 +136,14 @@ ORDER BY p.name
 -- With DISTINCT on s.name: collapses to 2 rows (GlobalSupply, TechCorp).
 
 -- Non-DISTINCT: expect 5 rows with TechCorp repeated
+EXPLAIN
+SELECT s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY s.name
+    LIMIT 20;
+
 SELECT s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id

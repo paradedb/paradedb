@@ -327,6 +327,7 @@ impl ExecutionPlan for SegmentedTopKExec {
             batches: Vec::new(),
             row_ordinals: Vec::new(),
             global_heap: BinaryHeap::new(),
+            last_published_global: None,
             rows_input,
             rows_output,
             segments_seen,
@@ -379,6 +380,14 @@ impl ExecutionPlan for SegmentedTopKExec {
         Some(self.metrics.clone_inner())
     }
 
+    /// Pushes `SegmentedTopKExec`'s own [`DynamicFilterPhysicalExpr`] (the global
+    /// threshold with materialized string literals) down to child nodes via
+    /// DataFusion's standard filter pushdown mechanism.
+    ///
+    /// This is only for the **global** threshold. Per-segment ordinal thresholds
+    /// are published through the [`SegmentedThresholds`] side-channel because
+    /// they use segment-local ordinals that can't be expressed as standard
+    /// `PhysicalExpr` on the scan's output schema.
     fn gather_filters_for_pushdown(
         &self,
         phase: FilterPushdownPhase,
@@ -434,11 +443,15 @@ struct SegmentedTopKState {
     /// (batch_idx, row_idx, seg_ord, row_data)
     row_ordinals: Vec<(usize, usize, SegmentOrdinal, OwnedRow)>,
 
-    /// Global K-sized max-heap across all completed segments.
+    /// Global K-sized max-heap across all segments.
     /// The worst entry (heap root) defines the global threshold.
     /// `SegmentOrdinal` is stored so we can look up the string for
     /// the worst entry's deferred ordinals via `FFHelper::ord_to_str`.
     global_heap: BinaryHeap<(OwnedRow, SegmentOrdinal)>,
+    /// Cache of the last published global heap root to avoid redundant
+    /// `ord_to_str` lookups and `DynamicFilterPhysicalExpr` updates when
+    /// the threshold hasn't changed.
+    last_published_global: Option<(OwnedRow, SegmentOrdinal)>,
 
     rows_input: Count,
     rows_output: Count,
@@ -548,9 +561,20 @@ impl SegmentedTopKState {
         // Update the dynamic filter with the global threshold (materialized strings).
         // This is pushed down through DataFusion's standard filter pushdown to the
         // scanner, where `try_rewrite_binary` translates it to per-segment ordinals.
+        // Skip if the global heap root hasn't changed since the last publish to avoid
+        // redundant ord_to_str lookups and filter updates.
         if self.global_heap.len() >= self.k {
-            if let Some(expr) = self.build_global_filter_expression() {
-                let _ = self.dynamic_filter.update(expr);
+            let current_worst = self.global_heap.peek().cloned();
+            let changed = match (&current_worst, &self.last_published_global) {
+                (Some(cur), Some(prev)) => cur != prev,
+                (Some(_), None) => true,
+                _ => false,
+            };
+            if changed {
+                if let Some(expr) = self.build_global_filter_expression() {
+                    let _ = self.dynamic_filter.update(expr);
+                    self.last_published_global = current_worst;
+                }
             }
         }
 

@@ -188,6 +188,10 @@ impl PgSearchScanPlan {
     /// `PhysicalExpr` on the scan's output schema. The global threshold
     /// (materialized string literals) is pushed down separately through
     /// DataFusion's standard `DynamicFilterPhysicalExpr` filter pushdown.
+    ///
+    /// TODO(https://github.com/paradedb/paradedb/issues/4257): Unify with dynamic filtering
+    /// once we have a proper extension type for deferred columns that the expression
+    /// framework can handle natively.
     pub fn set_segmented_thresholds(&self, thresholds: Arc<SegmentedThresholds>) {
         *self.segmented_thresholds.lock().unwrap() = Some(thresholds);
     }

@@ -252,6 +252,10 @@ impl Scanner {
         // to keep them aligned with `ids`.
         let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
 
+        // TODO(https://github.com/paradedb/paradedb/issues/4257): Unify `SegmentedThresholds`
+        // with the `DynamicFilterPhysicalExpr` infrastructure so that per-segment ordinal
+        // thresholds are also pushed down via the standard DataFusion filter push-down path
+        // rather than this side-channel.
         let evaluate_pre_filters = |filters: &[crate::scan::pre_filter::PreFilter],
                                     schema: &SchemaRef,
                                     ids: &mut Vec<DocId>,

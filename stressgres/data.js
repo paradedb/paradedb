@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773336840072,
+  "lastUpdate": 1773336848356,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19412,6 +19412,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.53577655405755, max segment_count: 127.0, count: 57929"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b75f1dacbbc94861196826cf87090f2c88e6eeaf",
+          "message": "perf: tune scanner batch size for late materialization (#4343)\n\n# Ticket(s) Closed\n- Closes #4319\n\n## What\nReduce the scanner batch size when all string/byte columns are fully\ndeferred during late materialization, instead of using the default\nMAX_BATCH_SIZE (128k).\n\n## Why\nWhen all string/byte columns are deferred, the scan phase only touches\nlightweight numeric/primitive fast fields. Using a large batch size\ndesigned for expensive string dictionary lookups is unnecessary\noverhead. A smaller batch size (aligned with DataFusion's default of\n8192) reduces memory pressure and allows Top K to tighten its threshold\nmore frequently between batches.\n\n## How\nIn `Scanner::new`, compute whether all `Named` string/byte columns have\nbeen converted to `Deferred` by checking the `WhichFastField` types. If\nfully deferred, use `DEFERRED_BATCH_SIZE` (8_192) instead of\n`MAX_BATCH_SIZE` for the default batch size path. Explicitly passed\n`batch_size_hint` values are left untouched.\n\n## Tests\nExisting late materialization and join integration tests cover\ncorrectness.",
+          "timestamp": "2026-03-12T09:57:47-07:00",
+          "tree_id": "c8805c3527e3a4dd07b92e2dbad6bee9d28a3d71",
+          "url": "https://github.com/paradedb/paradedb/commit/b75f1dacbbc94861196826cf87090f2c88e6eeaf"
+        },
+        "date": 1773336841845,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.922121271675792, max cpu: 42.857143, count: 57538"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 233.15079647091923, max mem: 234.81640625, count: 57538"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.45930655276464, max cpu: 33.300297, count: 57538"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.20234630266086, max mem: 176.0390625, count: 57538"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34405,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33665.28169209913, max block_count: 36279.0, count: 57538"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.41230143557301, max segment_count: 129.0, count: 57538"
           }
         ]
       }

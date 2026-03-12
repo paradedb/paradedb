@@ -23,21 +23,27 @@ USING bm25 (id, name)
 WITH (key_field = 'id');
 
 -- Basic search
-SELECT id, name FROM citext_basic WHERE name @@@ 'hello' ORDER BY id;
+SELECT id, name FROM citext_basic WHERE name ||| 'hello' ORDER BY id;
 
 -- Case-insensitive: same result regardless of query case
-SELECT id, name FROM citext_basic WHERE name @@@ 'HELLO' ORDER BY id;
-SELECT id, name FROM citext_basic WHERE name @@@ 'Hello' ORDER BY id;
+SELECT id, name FROM citext_basic WHERE name ||| 'HELLO' ORDER BY id;
+SELECT id, name FROM citext_basic WHERE name ||| 'Hello' ORDER BY id;
 
 -- Multiple results
-SELECT id, name FROM citext_basic WHERE name @@@ 'search' ORDER BY id;
+SELECT id, name FROM citext_basic WHERE name ||| 'search' ORDER BY id;
 
 -- No results
-SELECT id, name FROM citext_basic WHERE name @@@ 'nonexistent' ORDER BY id;
+SELECT id, name FROM citext_basic WHERE name ||| 'nonexistent' ORDER BY id;
 
 -- EXPLAIN to verify index is used
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id FROM citext_basic WHERE name @@@ 'hello' ORDER BY id;
+SELECT id FROM citext_basic WHERE name ||| 'hello' ORDER BY id;
+
+-- Top-K: same score regardless of query case
+SELECT id, name, pdb.score(id) > 0 AS has_score
+FROM citext_basic
+WHERE name ||| 'hello'
+ORDER BY pdb.score(id) DESC, id;
 
 DROP TABLE citext_basic;
 
@@ -61,7 +67,7 @@ USING bm25 (id, content)
 WITH (key_field = 'id');
 
 -- NULLs should not appear in search results
-SELECT id, content FROM citext_nulls WHERE content @@@ 'content' ORDER BY id;
+SELECT id, content FROM citext_nulls WHERE content ||| 'content' ORDER BY id;
 
 -- Verify NULLs are stored correctly (not searched, but fetchable)
 SELECT id, content FROM citext_nulls ORDER BY id;
@@ -88,10 +94,10 @@ USING bm25 (id, title, description)
 WITH (key_field = 'id');
 
 -- Search each column
-SELECT id, title FROM citext_multi WHERE title       @@@ 'apple'  ORDER BY id;
-SELECT id, title FROM citext_multi WHERE title       @@@ 'APPLE'  ORDER BY id;
-SELECT id, title FROM citext_multi WHERE description @@@ 'fruit'  ORDER BY id;
-SELECT id, title FROM citext_multi WHERE description @@@ 'FRUIT'  ORDER BY id;
+SELECT id, title FROM citext_multi WHERE title       ||| 'apple'  ORDER BY id;
+SELECT id, title FROM citext_multi WHERE title       ||| 'APPLE'  ORDER BY id;
+SELECT id, title FROM citext_multi WHERE description ||| 'fruit'  ORDER BY id;
+SELECT id, title FROM citext_multi WHERE description ||| 'FRUIT'  ORDER BY id;
 
 DROP TABLE citext_multi;
 
@@ -114,10 +120,10 @@ USING bm25 (id, text_col, citext_col)
 WITH (key_field = 'id');
 
 -- Both TEXT and CITEXT columns benefit from default tokenizer lowercasing
-SELECT id FROM citext_mixed WHERE text_col   @@@ 'apple'     ORDER BY id;
-SELECT id FROM citext_mixed WHERE citext_col @@@ 'banana'    ORDER BY id;
-SELECT id FROM citext_mixed WHERE citext_col @@@ 'BANANA'    ORDER BY id;
-SELECT id FROM citext_mixed WHERE citext_col @@@ 'Banana'    ORDER BY id;
+SELECT id FROM citext_mixed WHERE text_col   ||| 'apple'     ORDER BY id;
+SELECT id FROM citext_mixed WHERE citext_col ||| 'banana'    ORDER BY id;
+SELECT id FROM citext_mixed WHERE citext_col ||| 'BANANA'    ORDER BY id;
+SELECT id FROM citext_mixed WHERE citext_col ||| 'Banana'    ORDER BY id;
 
 DROP TABLE citext_mixed;
 
@@ -139,18 +145,29 @@ CREATE INDEX ON citext_queries
 USING bm25 (id, content)
 WITH (key_field = 'id');
 
--- paradedb.match() with citext
-SELECT id FROM citext_queries WHERE content @@@ paradedb.match('content', 'quick') ORDER BY id;
-SELECT id FROM citext_queries WHERE content @@@ paradedb.match('content', 'QUICK') ORDER BY id;
+-- ||| (match) with citext
+SELECT id FROM citext_queries WHERE content ||| 'quick' ORDER BY id;
+SELECT id FROM citext_queries WHERE content ||| 'QUICK' ORDER BY id;
 
--- paradedb.phrase() with citext
-SELECT id FROM citext_queries WHERE content @@@ paradedb.phrase('content', ARRAY['quick', 'brown']) ORDER BY id;
+-- ### (phrase) with citext
+SELECT id FROM citext_queries WHERE content ### 'quick brown' ORDER BY id;
 
--- paradedb.term() does an exact term lookup; terms are lowercased at index time by the
+-- === (exact term) does an exact term lookup; terms are lowercased at index time by the
 -- tokenizer, so lowercase queries match but uppercase/mixed-case queries do not
-SELECT id FROM citext_queries WHERE content @@@ paradedb.term('content', 'quick') ORDER BY id;
-SELECT id FROM citext_queries WHERE content @@@ paradedb.term('content', 'QUICK') ORDER BY id;
-SELECT id FROM citext_queries WHERE content @@@ paradedb.term('content', 'Quick') ORDER BY id;
+SELECT id FROM citext_queries WHERE content === 'quick' ORDER BY id;
+SELECT id FROM citext_queries WHERE content === 'QUICK' ORDER BY id;
+SELECT id FROM citext_queries WHERE content === 'Quick' ORDER BY id;
+
+-- Same BM25 score for 'quick' and 'QUICK' via ||| (both match since tokenizer lowercases)
+SELECT id, pdb.score(id) > 0 AS has_score
+FROM citext_queries
+WHERE content ||| 'quick'
+ORDER BY pdb.score(id) DESC, id;
+
+SELECT id, pdb.score(id) > 0 AS has_score
+FROM citext_queries
+WHERE content ||| 'QUICK'
+ORDER BY pdb.score(id) DESC, id;
 
 DROP TABLE citext_queries;
 
@@ -172,9 +189,9 @@ CREATE INDEX ON citext_unicode
 USING bm25 (id, name)
 WITH (key_field = 'id');
 
-SELECT id, name FROM citext_unicode WHERE name @@@ 'naïve'   ORDER BY id;
-SELECT id, name FROM citext_unicode WHERE name @@@ 'résumé'  ORDER BY id;
-SELECT id, name FROM citext_unicode WHERE name @@@ 'café'    ORDER BY id;
+SELECT id, name FROM citext_unicode WHERE name ||| 'naïve'   ORDER BY id;
+SELECT id, name FROM citext_unicode WHERE name ||| 'résumé'  ORDER BY id;
+SELECT id, name FROM citext_unicode WHERE name ||| 'café'    ORDER BY id;
 
 DROP TABLE citext_unicode;
 
@@ -195,7 +212,7 @@ CREATE INDEX ON citext_empty
 USING bm25 (id, content)
 WITH (key_field = 'id');
 
-SELECT id, content FROM citext_empty WHERE content @@@ 'content' ORDER BY id;
+SELECT id, content FROM citext_empty WHERE content ||| 'content' ORDER BY id;
 
 -- Verify stored values come back correctly
 SELECT id, content FROM citext_empty ORDER BY id;
@@ -225,12 +242,12 @@ WITH (key_field = 'id');
 
 -- GROUP BY on citext column — aggregatescan calls try_into_datum with citext OID
 SELECT category, COUNT(*) FROM citext_agg
-WHERE category @@@ 'alpha OR beta OR gamma'
+WHERE category ||| 'alpha beta gamma'
 GROUP BY category
 ORDER BY category;
 
 SELECT category, SUM(value) FROM citext_agg
-WHERE category @@@ 'alpha OR beta'
+WHERE category ||| 'alpha beta'
 GROUP BY category
 ORDER BY category;
 
@@ -253,9 +270,9 @@ CREATE INDEX ON citext_rhs
 USING bm25 (id, name)
 WITH (key_field = 'id');
 
--- RHS is explicitly cast to citext — hits the citext Const branch in operator.rs
-SELECT id FROM citext_rhs WHERE name @@@ 'hello'::citext ORDER BY id;
-SELECT id FROM citext_rhs WHERE name @@@ 'HELLO'::citext ORDER BY id;
+-- Case-insensitive match via v2 operator
+SELECT id FROM citext_rhs WHERE name ||| 'hello' ORDER BY id;
+SELECT id FROM citext_rhs WHERE name ||| 'HELLO' ORDER BY id;
 
 DROP TABLE citext_rhs;
 
@@ -304,10 +321,54 @@ WITH (key_field = 'id');
 
 -- Columnar exec projects the citext fast field directly from the index
 SET paradedb.enable_columnar_exec = true;
-SELECT id, name FROM citext_columnar WHERE name @@@ 'alpha' ORDER BY id;
-SELECT id, name FROM citext_columnar WHERE name @@@ 'beta'  ORDER BY id;
+SELECT id, name FROM citext_columnar WHERE name ||| 'alpha' ORDER BY id;
+SELECT id, name FROM citext_columnar WHERE name ||| 'beta'  ORDER BY id;
 RESET paradedb.enable_columnar_exec;
 
 DROP TABLE citext_columnar;
+
+-- ============================================================
+-- Test 12: Term matching and Top-K ordering with citext case variants
+-- ============================================================
+CREATE TABLE citext_topk (
+    id      INT PRIMARY KEY,
+    content CITEXT
+);
+
+INSERT INTO citext_topk (id, content) VALUES
+    (1, 'quick quick quick'),              -- reference row: all lowercase
+    -- three rows with identical token content, just different casing — must score identically
+    (2, 'quick quick quick quick fox'),    -- lowercase
+    (3, 'QUICK QUICK QUICK QUICK FOX'),    -- uppercase
+    (4, 'QUICK QUICK qUicK QUicK FOX'),   -- wildly mixed-case
+    -- phrase-match target and non-match
+    (5, 'Quick Brown Fox'),               -- mixed-case, for phrase test
+    (6, 'brown fox');                     -- no 'quick' → not returned
+
+CREATE INDEX ON citext_topk
+USING bm25 (id, content)
+WITH (key_field = 'id');
+
+-- ||| (match): lowercase and UPPERCASE queries must return the same rows in the same Top-K order
+-- rows 2, 3, 4 have identical token content at different case — their scores must be equal
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM citext_topk
+WHERE content ||| 'quick'
+ORDER BY pdb.score(id) DESC, id;
+
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM citext_topk
+WHERE content ||| 'QUICK'
+ORDER BY pdb.score(id) DESC, id;
+
+-- === (exact term): only lowercase matches (terms are stored lowercased at index time)
+SELECT id FROM citext_topk WHERE content === 'quick' ORDER BY id;
+SELECT id FROM citext_topk WHERE content === 'QUICK' ORDER BY id;  -- expects 0 rows
+
+-- ### (phrase): case-insensitive phrase matching
+SELECT id FROM citext_topk WHERE content ### 'quick brown' ORDER BY id;
+SELECT id FROM citext_topk WHERE content ### 'QUICK BROWN' ORDER BY id;
+
+DROP TABLE citext_topk;
 
 \i common/common_cleanup.sql

@@ -744,12 +744,10 @@ where
                 String::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs text value must not be NULL"),
             ),
-            other if is_citext_oid(other) => {
-                RHSValue::Text(
-                    String::from_datum((*const_).constvalue, (*const_).constisnull)
-                        .expect("rhs text value must not be NULL"),
-                )
-            }
+            other if is_citext_oid(other) => RHSValue::Text(
+                String::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs text value must not be NULL"),
+            ),
             // these arrays are only supported by the === operator
             pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => RHSValue::TextArray(
                 Vec::<String>::from_datum((*const_).constvalue, (*const_).constisnull)

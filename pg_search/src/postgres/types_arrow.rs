@@ -623,10 +623,8 @@ mod tests {
                 .expect("SPI failed")
                 .expect("citext extension not installed"),
         );
-        test_null_conversion(
-            StringViewBuilder::with_capacity(1),
-            citext_oid,
-            |b| b.append_null(),
-        );
+        test_null_conversion(StringViewBuilder::with_capacity(1), citext_oid, |b| {
+            b.append_null()
+        });
     }
 }

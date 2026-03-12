@@ -49,6 +49,14 @@ impl PushdownField {
         var: *mut pg_sys::Node,
         indexrel: &PgSearchRelation,
     ) -> Option<Self> {
+        Self::try_new_with_context(VarContext::from_planner(root), var, indexrel)
+    }
+
+    pub unsafe fn try_new_with_context(
+        context: VarContext,
+        var: *mut pg_sys::Node,
+        indexrel: &PgSearchRelation,
+    ) -> Option<Self> {
         let schema = indexrel.schema().ok()?;
         let mut var = var;
 
@@ -65,9 +73,7 @@ impl PushdownField {
         let heaprel = indexrel
             .heap_relation()
             .expect("index should have a heap relation");
-        if let Some(field_name) =
-            field_name_from_node(VarContext::from_planner(root), &heaprel, indexrel, var)
-        {
+        if let Some(field_name) = field_name_from_node(context, &heaprel, indexrel, var) {
             let search_field = schema.search_field(field_name.root())?;
             // an indexed expression could have more than one var, but we only need to check the first one
             // since they all come from the same relation and we use `varno` to determine if the field is in the same rti
@@ -112,22 +118,6 @@ impl PushdownField {
     }
 }
 
-macro_rules! pushdown {
-    ($attname:expr, $opexpr:expr, $operator:expr, $field:ident, $field_is_array:ident, $root:ident, $indexrel:ident) => {{
-        make_opexpr($attname, $opexpr, $operator, $field, $field_is_array).map(|funcexpr| {
-            if !is_complex(funcexpr.cast()) {
-                Qual::PushdownExpr { funcexpr }
-            } else {
-                let context = PlannerContext::from_planner($root);
-                Qual::Expr {
-                    node: funcexpr.cast(),
-                    expr_desc: deparse_expr(Some(&context), $indexrel, funcexpr.cast()),
-                }
-            }
-        })
-    }};
-}
-
 static JSONB_EXISTS_OPOID: OnceLock<pg_sys::Oid> = OnceLock::new();
 
 /// Take a Postgres [`pg_sys::OpExpr`] pointer that is **not** of our `@@@` operator and try  to
@@ -135,8 +125,8 @@ static JSONB_EXISTS_OPOID: OnceLock<pg_sys::Oid> = OnceLock::new();
 ///
 /// Returns `Some(Qual)` if we were able to convert it, `None` if not.
 #[rustfmt::skip]
-pub unsafe fn try_pushdown_inner(
-    root: *mut pg_sys::PlannerInfo,
+pub unsafe fn try_build_pushdown_qual(
+    context: &PlannerContext,
     rti: pg_sys::Index,
     opexpr: OpExpr,
     indexrel: &PgSearchRelation,
@@ -144,6 +134,10 @@ pub unsafe fn try_pushdown_inner(
     let args = opexpr.args();
     let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
+    let opexpr_node = match &opexpr {
+        OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
+        OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
+    };
 
     // If the RHS contains correlated PARAM_EXEC nodes (parameters which depend on an outer
     // relation), we can't push it down because the parameters need runtime evaluation with
@@ -151,17 +145,23 @@ pub unsafe fn try_pushdown_inner(
     //
     // Uncorrelated PARAM_EXEC nodes will result in Qual::Expr and Qual::PostgresExpr nodes, which
     // are evaluated in BeginCustomScan.
-    if contains_correlated_param(root, rhs) {
-        return None;
+    if let Some(root) = context.planner_info() {
+        if contains_correlated_param(root, rhs) {
+            return None;
+        }
     }
 
-    // JSONB ? operator: construct field path from LHS + RHS key
+    if let Some(qual) = try_build_const_bool_qual(opexpr_node) {
+        return Some(qual);
+    }
+
+    // JSONB ? operator: construct field path from LHS + RHS key.
     if opexpr.opno() == *JSONB_EXISTS_OPOID.get_or_init(|| operator_oid("?(jsonb,text)")) {
-        return try_pushdown_jsonb_exists(root, rti, lhs, rhs, indexrel);
+        return try_pushdown_jsonb_exists(context, rti, lhs, rhs, indexrel);
     }
 
-    // if <field> is an array, 'literal' = ANY(<field>) the value appears on the lhs
-    // in all other pushdown scenarios, the value is on the rhs
+    // If <field> is an array, 'literal' = ANY(<field>) puts the value on the lhs.
+    // In all other pushdown scenarios, the value is on the rhs.
     let (maybe_field, maybe_value, field_is_array) = if is_a(lhs, T_Const)
         && nodecast!(Var, T_Var, rhs)
             .is_some_and(|var| pg_sys::type_is_array(unsafe { (*var).vartype }))
@@ -170,49 +170,59 @@ pub unsafe fn try_pushdown_inner(
     } else {
         (lhs, rhs, false)
     };
-    let pushdown = PushdownField::try_new(root, maybe_field, indexrel)?;
+
+    let pushdown = PushdownField::try_new_with_context(context.var_context(), maybe_field, indexrel)?;
     let search_field = pushdown.search_field();
 
     match lookup_operator(opexpr.opno()) {
         Some(pgsearch_operator) => {
             // can't push down tokenized text (but NumericBytes fields are stored as text with raw tokenizer)
-            if (search_field.is_text() || opexpr.is_text_binary()) && !search_field.is_keyword() && !search_field.is_numeric_bytes() {
+            if (search_field.is_text() || opexpr.is_text_binary())
+                && !search_field.is_keyword()
+                && !search_field.is_numeric_bytes()
+            {
                 return None;
             }
 
-            // tantivy doesn't support JSON range if JSON is not fast
+            // Tantivy doesn't support JSON range if JSON is not fast.
             if search_field.is_json() && !search_field.is_fast() && pgsearch_operator.is_range() {
                 return None;
             }
 
-            // tantivy doesn't support JSON exists if JSON is not fast, and our `<>` pushdown uses exists
+            // Tantivy doesn't support JSON exists if JSON is not fast, and our `<>` pushdown uses exists.
             if search_field.is_json() && !search_field.is_fast() && pgsearch_operator.is_neq() {
                 return None;
             }
 
-            // the `opexpr` is one we can pushdown
+            // The `opexpr` is one we can push down.
             if pushdown.varno() == rti {
-                let pushed_down_qual = pushdown!(
+                let pushed_down_funcexpr = make_opexpr(
                     &pushdown.attname(),
                     opexpr,
                     pgsearch_operator,
                     maybe_value,
                     field_is_array,
-                    root,
-                    indexrel
                 )?;
-                // and it's in this RTI, so we can use it directly
-                Some(pushed_down_qual)
+                // It's in this RTI, so we can use it directly.
+                if !is_complex(pushed_down_funcexpr.cast()) {
+                    Some(Qual::PushdownExpr { funcexpr: pushed_down_funcexpr })
+                } else {
+                    Some(Qual::Expr {
+                        node: pushed_down_funcexpr.cast(),
+                        expr_desc: deparse_expr(
+                            Some(context),
+                            indexrel,
+                            pushed_down_funcexpr.cast(),
+                        ),
+                    })
+                }
             } else {
-                // it's not in this RTI, which means it's in some other table due to a join, so
-                // we need to indicate an arbitrary external var
+                // It's not in this RTI, which means it's in some other table due to a join, so
+                // we need to indicate an arbitrary external var.
                 Some(Qual::ExternalVar)
             }
-        },
-        None => {
-            // TODO:  support other types of OpExprs
-            None
         }
+        None => None,
     }
 }
 
@@ -223,7 +233,7 @@ pub unsafe fn try_pushdown_inner(
 ///
 /// Returns `None` if pushdown not possible (field not indexed, not JSON, or not fast).
 unsafe fn try_pushdown_jsonb_exists(
-    root: *mut pg_sys::PlannerInfo,
+    context: &PlannerContext,
     rti: pg_sys::Index,
     lhs: *mut pg_sys::Node,
     rhs: *mut pg_sys::Node,
@@ -234,7 +244,7 @@ unsafe fn try_pushdown_jsonb_exists(
     let key = String::from_datum((*rhs_const).constvalue, false)?;
 
     // Build field path: extract JSON path from LHS and append the key
-    let mut path = find_json_path(&VarContext::from_planner(root), lhs);
+    let mut path = find_json_path(&context.var_context(), lhs);
     if path.is_empty() {
         return None;
     }
@@ -260,6 +270,29 @@ unsafe fn try_pushdown_jsonb_exists(
             search_field: Some(search_field),
         },
     })
+}
+
+/// Converts trivial bool expressions like `WHERE 1 = 1` to `Qual::All`
+unsafe fn try_build_const_bool_qual(node: *mut pg_sys::Node) -> Option<Qual> {
+    if node.is_null() || pg_sys::exprType(node) != pg_sys::BOOLOID || is_complex(node) {
+        return None;
+    }
+
+    let expr_state = pg_sys::ExecInitExpr(node.cast(), std::ptr::null_mut());
+    let expr_context = pg_sys::CreateStandaloneExprContext();
+    let mut is_null = false;
+    let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
+    pg_sys::FreeExprContext(expr_context, false);
+
+    if is_null {
+        None
+    } else {
+        match bool::from_datum(datum, false) {
+            Some(true) => Some(Qual::All),
+            Some(false) => Some(Qual::Not(Box::new(Qual::All))),
+            None => None,
+        }
+    }
 }
 
 unsafe fn term_with_operator_procid() -> pg_sys::Oid {

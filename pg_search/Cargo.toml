@@ -80,6 +80,7 @@ datafusion = { version = "52.0.0", default-features = false }
 datafusion-proto = { version = "52.0.0", default-features = false }
 futures = "0.3"
 async-stream = "0.3.6"
+prost = "0.14.3"
 
 [dev-dependencies]
 pgrx-tests.workspace = true

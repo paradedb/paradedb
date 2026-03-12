@@ -17,7 +17,7 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -29,7 +29,7 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use tantivy::index::SegmentId;
 
-use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
@@ -40,15 +40,17 @@ use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
-use crate::scan::tantivy_lookup_exec::DeferredField;
+use crate::scan::late_materialization::DeferredField;
 use crate::scan::Scanner;
+
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PgSearchTableProvider {
     scan_info: ScanInfo,
     fields: Vec<WhichFastField>,
     #[serde(skip)]
-    schema: OnceLock<SchemaRef>,
+    schema: std::sync::OnceLock<SchemaRef>,
     is_parallel: bool,
     /// Parallel state is skipped during serialization because it's a raw pointer
     /// to shared memory that is only valid in the current process. It is
@@ -60,6 +62,26 @@ pub struct PgSearchTableProvider {
     /// re-injected by the `PgSearchExtensionCodec` during deserialization.
     #[serde(skip)]
     expr_context: Option<*mut pg_sys::ExprContext>,
+
+    /// A lifecycle toggle that dictates what schema is exposed to DataFusion.
+    ///
+    /// - **Phase 1 (false) - SQL Planning:** During initial plan construction (`joinscan`),
+    ///   this provider must expose a standard relational schema (i.e. `Utf8View` for strings)
+    ///   so that DataFusion's SQL expression builder and `TypeCoercion` pass don't panic
+    ///   when trying to apply normal string functions/sorts to a `Union` type.
+    ///
+    /// - **Phase 2 (true) - Logical Optimization:** Once the plan is structurally validated,
+    ///   our `LateMaterializationRule` flips this to `true` (via interior mutability).
+    ///   The provider immediately begins returning the physical `Union` schema. The rule
+    ///   then updates the `TableScan.projected_schema` to match, allowing the `Union`
+    ///   types to legally bubble up to our `LateMaterializeNode` anchor.
+    ///
+    /// Note: `AtomicBool` does not implement `Serialize`/`Deserialize`. By skipping it,
+    /// Serde initializes it using `AtomicBool::default()` (which is `false`) on the receiving
+    /// parallel workers. This perfectly mirrors the lifecycle, as the optimizer rule will
+    /// subsequently run locally on the worker and organically flip it back to `true`.
+    #[serde(skip)]
+    late_materialization_active: AtomicBool,
 }
 
 unsafe impl Send for PgSearchTableProvider {}
@@ -75,11 +97,18 @@ impl PgSearchTableProvider {
         Self {
             scan_info,
             fields,
-            schema: OnceLock::new(),
+            schema: std::sync::OnceLock::new(),
             is_parallel,
             parallel_state,
             expr_context: None,
+            late_materialization_active: AtomicBool::new(false),
         }
+    }
+
+    /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
+    pub fn enable_late_materialization_schema(&self) {
+        self.late_materialization_active
+            .store(true, Ordering::Relaxed);
     }
 
     pub(crate) fn is_parallel(&self) -> bool {
@@ -112,24 +141,58 @@ impl PgSearchTableProvider {
                         field_type.arrow_data_type(),
                         arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
                     );
-                    *wff = WhichFastField::Deferred(name.clone(), *field_type, is_bytes);
+                    let cloned_name = name.clone();
+                    let cloned_type = *field_type;
+                    *wff = WhichFastField::Deferred(cloned_name, cloned_type, is_bytes);
                 }
             }
         }
     }
 
+    pub fn deferred_fields(&self) -> Vec<DeferredField> {
+        let mut deferred = Vec::new();
+        for (ff_index, wff) in self.fields.iter().enumerate() {
+            if let WhichFastField::Deferred(name, _, is_bytes) = wff {
+                deferred.push(DeferredField {
+                    column: datafusion::common::Column::from_name(name.clone()),
+                    is_bytes: *is_bytes,
+                    ff_index,
+                });
+            }
+        }
+        deferred
+    }
+
     fn get_schema(&self) -> SchemaRef {
-        self.schema
-            .get_or_init(|| crate::index::fast_fields_helper::build_arrow_schema(&self.fields))
-            .clone()
+        if self.late_materialization_active.load(Ordering::Relaxed) {
+            crate::index::fast_fields_helper::build_arrow_schema(&self.fields)
+        } else {
+            self.schema
+                .get_or_init(|| {
+                    let logical_fields: Vec<_> = self
+                        .fields
+                        .iter()
+                        .map(|wff| {
+                            if let WhichFastField::Deferred(name, ty, _) = wff {
+                                WhichFastField::Named(name.clone(), *ty)
+                            } else {
+                                wff.clone()
+                            }
+                        })
+                        .collect();
+                    crate::index::fast_fields_helper::build_arrow_schema(&logical_fields)
+                })
+                .clone()
+        }
     }
 
     fn projected_fields_and_schema(
         &self,
         projection: Option<&Vec<usize>>,
     ) -> Result<(Vec<WhichFastField>, SchemaRef)> {
+        let schema = crate::index::fast_fields_helper::build_arrow_schema(&self.fields);
         match projection {
-            None => Ok((self.fields.clone(), self.get_schema())),
+            None => Ok((self.fields.clone(), schema)),
             Some(indices) => {
                 let mut fields = Vec::with_capacity(indices.len());
                 for &idx in indices {
@@ -141,7 +204,7 @@ impl PgSearchTableProvider {
                     })?;
                     fields.push(field.clone());
                 }
-                let schema = build_arrow_schema(&fields);
+                let schema = Arc::new(schema.project(indices)?);
                 Ok((fields, schema))
             }
         }
@@ -206,19 +269,6 @@ impl PgSearchTableProvider {
             ffhelper.clone(),
             Box::new(visibility.clone()) as Box<VisibilityChecker>,
         )
-    }
-    pub fn deferred_fields(&self) -> Vec<DeferredField> {
-        let mut deferred = Vec::new();
-        for (ff_index, wff) in self.fields.iter().enumerate() {
-            if let WhichFastField::Deferred(name, _, is_bytes) = wff {
-                deferred.push(DeferredField {
-                    field_name: name.clone(),
-                    is_bytes: *is_bytes,
-                    ff_index,
-                });
-            }
-        }
-        deferred
     }
     /// Creates a PgSearchScanPlan from a list of segments.
     fn create_scan(

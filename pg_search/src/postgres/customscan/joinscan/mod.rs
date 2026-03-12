@@ -181,15 +181,12 @@ use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
-use crate::scan::PgSearchExtensionCodec;
+use crate::scan::codec::{deserialize_logical_plan, serialize_logical_plan};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
-use datafusion_proto::bytes::{
-    logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
-};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
 use std::ffi::{c_void, CStr};
@@ -861,11 +858,8 @@ impl CustomScan for JoinScan {
                 ))
                 .expect("Failed to build DataFusion logical plan");
             private_data.logical_plan = Some(
-                logical_plan_to_bytes_with_extension_codec(
-                    &logical_plan,
-                    &PgSearchExtensionCodec::default(),
-                )
-                .expect("Failed to serialize DataFusion logical plan"),
+                serialize_logical_plan(&logical_plan)
+                    .expect("Failed to serialize DataFusion logical plan"),
             );
 
             // Convert PrivateData back to a list and preserve the restrictlist
@@ -1034,13 +1028,11 @@ impl CustomScan for JoinScan {
                 .build()
                 .expect("Failed to create tokio runtime");
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let logical_plan = logical_plan_from_bytes_with_extension_codec(
+            let logical_plan = deserialize_logical_plan(
                 logical_plan,
                 &ctx.task_ctx(),
-                &PgSearchExtensionCodec {
-                    parallel_state: None,
-                    expr_context: Some(expr_context.as_ptr()),
-                },
+                None,
+                Some(expr_context.as_ptr()),
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
@@ -1112,14 +1104,11 @@ impl CustomScan for JoinScan {
 
                 // Deserialize the logical plan
                 let ctx = create_session_context();
-                let codec = PgSearchExtensionCodec {
-                    parallel_state: state.custom_state().parallel_state,
-                    expr_context: Some(state.runtime_context),
-                };
-                let logical_plan = logical_plan_from_bytes_with_extension_codec(
+                let logical_plan = deserialize_logical_plan(
                     plan_bytes,
                     &ctx.task_ctx(),
-                    &codec,
+                    state.custom_state().parallel_state,
+                    Some(state.runtime_context),
                 )
                 .expect("Failed to deserialize logical plan");
 

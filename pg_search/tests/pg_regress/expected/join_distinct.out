@@ -142,6 +142,35 @@ ORDER BY p.name
 -- Without DISTINCT: s.name shows TechCorp 4 times + GlobalSupply once = 5 rows.
 -- With DISTINCT on s.name: collapses to 2 rows (GlobalSupply, TechCorp).
 -- Non-DISTINCT: expect 5 rows with TechCorp repeated
+EXPLAIN
+SELECT s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY s.name
+    LIMIT 20;
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..11.00 rows=20 width=32)
+   ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=20 width=32)
+         Relation Tree: s INNER p
+         Join Cond: p.supplier_id = s.id
+         Limit: 20
+         Order By: s.name asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[name@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=20), expr=[name@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     TantivyLookupExec: decode=[name]
+           :       SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=20
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, name@2 as name]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
+           :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
 SELECT s.name AS supplier_name
 FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id

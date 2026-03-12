@@ -26,14 +26,26 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Pla
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct DeferredField {
-    pub field_name: String,
+/// Tracks a deferred column inside DataFusion's physical execution plan.
+///
+/// Unlike the logical `DeferredField` which uses qualified column names, this struct
+/// identifies the column strictly by its `usize` index within the physical `RecordBatch`.
+/// This is necessary because DataFusion physical schemas (`arrow_schema::Schema`) drop
+/// all relation qualifiers.
+///
+/// The `display_name` is preserved purely for `EXPLAIN` rendering and debugging; it should
+/// never be used for matching columns in the physical plan.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PhysicalDeferredField {
+    /// The positional index of the column in the physical Arrow schema
+    pub col_idx: usize,
+    /// A human-readable name used purely for `EXPLAIN` formatting
+    pub display_name: String,
     pub is_bytes: bool,
     pub ff_index: usize,
 }
 
-impl DeferredField {
+impl PhysicalDeferredField {
     pub fn output_data_type(&self) -> DataType {
         if self.is_bytes {
             DataType::BinaryView
@@ -45,7 +57,7 @@ impl DeferredField {
 
 pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
-    deferred_fields: Vec<DeferredField>,
+    deferred_fields: Vec<PhysicalDeferredField>,
     decoders: Vec<DecoderInfo>,
     ffhelper: Arc<FFHelper>,
     properties: PlanProperties,
@@ -64,7 +76,7 @@ impl std::fmt::Debug for TantivyLookupExec {
 impl TantivyLookupExec {
     pub fn new(
         input: Arc<dyn ExecutionPlan>,
-        deferred_fields: Vec<DeferredField>,
+        deferred_fields: Vec<PhysicalDeferredField>,
         ffhelper: Arc<FFHelper>,
     ) -> Result<Self> {
         let (output_schema, decoders) =
@@ -86,7 +98,7 @@ impl TantivyLookupExec {
         })
     }
 
-    pub fn deferred_fields(&self) -> &[DeferredField] {
+    pub fn deferred_fields(&self) -> &[PhysicalDeferredField] {
         &self.deferred_fields
     }
 
@@ -104,7 +116,7 @@ pub struct DecoderInfo {
 
 fn build_schema_and_decoders(
     input_schema: SchemaRef,
-    deferred: &[DeferredField],
+    deferred: &[PhysicalDeferredField],
 ) -> Result<(SchemaRef, Vec<DecoderInfo>)> {
     let mut fields: Vec<Field> = Vec::with_capacity(input_schema.fields().len());
     let mut decoders = Vec::new();
@@ -114,24 +126,24 @@ fn build_schema_and_decoders(
     // This pairs the first "description" in the schema with the first "description"
     // in the deferred pool, removing it so the second one pairs correctly.
     for (col_idx, field) in input_schema.fields().iter().enumerate() {
-        let name = field.name();
         let is_union = matches!(field.data_type(), DataType::Union(_, _));
 
         if is_union {
-            if let Some(pos) = deferred_pool.iter().position(|d| &d.field_name == name) {
+            if let Some(pos) = deferred_pool.iter().position(|d| d.col_idx == col_idx) {
                 let d = deferred_pool.remove(pos);
-                fields.push(Field::new(&d.field_name, d.output_data_type(), true));
+                fields.push(Field::new(field.name(), d.output_data_type(), true));
                 decoders.push(DecoderInfo {
                     col_idx,
                     is_bytes: d.is_bytes,
                     ff_index: d.ff_index,
                 });
-                continue;
+            } else {
+                fields.push(field.as_ref().clone());
             }
+        } else {
+            // Pass through fields that are not unions or not in our deferred pool
+            fields.push(field.as_ref().clone());
         }
-
-        // Pass through fields that are not unions or not in our deferred pool
-        fields.push(field.as_ref().clone());
     }
 
     Ok((Arc::new(Schema::new(fields)), decoders))
@@ -144,7 +156,7 @@ impl DisplayAs for TantivyLookupExec {
             "TantivyLookupExec: decode=[{}]",
             self.deferred_fields
                 .iter()
-                .map(|d| d.field_name.as_str())
+                .map(|d| d.display_name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -217,22 +229,13 @@ impl ExecutionPlan for TantivyLookupExec {
 
     fn gather_filters_for_pushdown(
         &self,
-        phase: FilterPushdownPhase,
+        _phase: FilterPushdownPhase,
         parent_filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &datafusion::common::config::ConfigOptions,
     ) -> Result<FilterDescription> {
-        if !matches!(phase, FilterPushdownPhase::Post) {
-            return Ok(FilterDescription::all_unsupported(
-                &parent_filters,
-                &self.children(),
-            ));
-        }
-        Ok(
-            FilterDescription::new().with_child(ChildFilterDescription::from_child(
-                &parent_filters,
-                &self.input,
-            )?),
-        )
+        // ChildFilterDescription::from_child automatically reassigns indices if names match
+        let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?;
+        Ok(FilterDescription::new().with_child(child_desc))
     }
 
     fn handle_child_pushdown_result(

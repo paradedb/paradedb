@@ -54,9 +54,9 @@ use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::query::SearchQueryInput;
+use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{collect_filters, PreFilter};
 use crate::scan::segmented_topk_exec::SegmentedThresholds;
-use crate::scan::tantivy_lookup_exec::DeferredField;
 use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -198,12 +198,6 @@ impl PgSearchScanPlan {
 
     pub fn deferred_fields(&self) -> &[DeferredField] {
         &self.deferred_fields
-    }
-
-    pub fn ffhelper(&self) -> &Arc<FFHelper> {
-        self.ffhelper_for_lookup
-            .as_ref()
-            .expect("ffhelper_for_lookup must be Some when late materialization is active")
     }
 
     pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {

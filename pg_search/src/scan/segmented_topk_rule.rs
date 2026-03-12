@@ -66,7 +66,7 @@ impl PhysicalOptimizerRule for SegmentedTopKRule {
     }
 
     fn schema_check(&self) -> bool {
-        false
+        true
     }
 
     fn optimize(
@@ -147,7 +147,7 @@ fn try_inject_below_lookup(
                     lookup
                         .deferred_fields()
                         .iter()
-                        .any(|d| d.field_name == col.name())
+                        .any(|d| d.col_idx == col.index())
                 } else {
                     false
                 }
@@ -168,22 +168,20 @@ fn try_inject_below_lookup(
                         if let Some(field) = lookup
                             .deferred_fields()
                             .iter()
-                            .find(|d| d.field_name == col.name())
+                            .find(|d| d.col_idx == col.index())
                         {
-                            if let Ok(idx) = input_schema.index_of(col.name()) {
-                                deferred_columns.push(
-                                    crate::scan::segmented_topk_exec::DeferredSortColumn {
-                                        sort_col_idx: idx,
-                                        ff_index: field.ff_index,
-                                    },
-                                );
-                            }
+                            deferred_columns.push(
+                                crate::scan::segmented_topk_exec::DeferredSortColumn {
+                                    sort_col_idx: col.index(),
+                                    ff_index: field.ff_index,
+                                },
+                            );
                         }
                     }
                 }
 
                 // The sort_exprs were extracted from SortExec, which is evaluated against
-                // a schema further up the plan (often after a ProjectionExec).
+                // a schema further up the plan (often after a ProjectionExec or AggregateExec).
                 // We must rewrite the Column expressions to match the input_schema of this node.
                 let mut rewritten_sort_exprs = Vec::with_capacity(sort_exprs.len());
                 for sort_expr in &sort_exprs {
@@ -204,6 +202,7 @@ fn try_inject_below_lookup(
                         options: sort_expr.options,
                     });
                 }
+
                 let rewritten_lex_ordering =
                     LexOrdering::new(rewritten_sort_exprs).unwrap_or(sort_exprs.clone());
 

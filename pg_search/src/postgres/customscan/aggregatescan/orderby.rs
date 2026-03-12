@@ -18,7 +18,10 @@
 use crate::api::{HashSet, OrderByFeature, OrderByInfo};
 use crate::customscan::builders::custom_path::{CustomPathBuilder, OrderByStyle};
 use crate::customscan::CustomScan;
-use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::{
+    AggregateScan, CustomScanBuildError, CustomScanClause,
+};
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::orderby::{
     extract_pathkey_styles_with_sortability_check, PathKeyInfo,
 };
@@ -75,9 +78,10 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
         args: &Self::Args,
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
-    ) -> Option<Self> {
+    ) -> Result<Self, CustomScanBuildError> {
         let parse = args.root().parse;
-        let schema = index.schema().ok()?;
+        let schema = index.schema().expect("could not get index schema");
+        let index_expressions = index.index_expressions();
 
         let sort_clause =
             unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
@@ -89,12 +93,13 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
                     let expr = pg_sys::get_sortgroupclause_expr(sort_clause, (*parse).targetList);
                     let var_context = VarContext::from_planner(args.root);
                     if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
-                        Some(field_name)
+                        Some(field_name.into_inner())
                     } else {
-                        None
+                        find_matching_fast_field(expr, &index_expressions, schema.clone(), heap_rti)
+                            .map(|ff| ff.name())
                     }
                 })
-                .collect::<HashSet<_>>()
+                .collect::<HashSet<String>>()
         };
 
         let pathkeys = unsafe {
@@ -111,7 +116,7 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
             .into_iter()
             .filter(|info| {
                 if let OrderByFeature::Field(field_name) = &info.feature {
-                    sort_fields.contains(field_name)
+                    sort_fields.contains(field_name.as_ref())
                 } else {
                     false
                 }
@@ -121,10 +126,13 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
         let has_orderby = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
 
         if unsafe { !(*parse).groupClause.is_null() } && orderby_info.len() != sort_clause.len() {
-            return None;
+            return Err(
+                "could not extract all ORDER BY clauses (fields might not be sortable or fast)"
+                    .into(),
+            );
         }
 
-        Some(Self {
+        Ok(Self {
             pathkeys: Some(pathkeys),
             orderby_info,
             has_orderby,

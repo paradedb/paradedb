@@ -48,14 +48,14 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 ----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name
-   ->  Custom Scan (ParadeDB Scan) on public.items
+   ->  Custom Scan (ParadeDB Base Scan) on public.items
          Output: id, name
          Table: items
          Index: items_bm25_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -71,14 +71,14 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
    ->  Gather Merge
          Output: id, name
          Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.items
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.items
                Output: id, name
                Table: items
                Index: items_bm25_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 10
+                  TopK Order By: id asc
+                  TopK Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
@@ -94,18 +94,18 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
    ->  Gather Merge
          Output: id, name
          Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.items
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.items
                Output: id, name
                Table: items
                Index: items_bm25_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 10
+                  TopK Order By: id asc
+                  TopK Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
--- Test 4: TopN query with ORDER BY score and LIMIT
+-- Test 4: Top K query with ORDER BY score and LIMIT
 -- With high threshold, parallel should be disabled for 10000 rows
 SET paradedb.min_rows_per_worker = 300000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -117,14 +117,14 @@ LIMIT 10;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, (paradedb.score(id))
-   ->  Custom Scan (ParadeDB Scan) on public.items
+   ->  Custom Scan (ParadeDB Base Scan) on public.items
          Output: id, name, paradedb.score(id)
          Table: items
          Index: items_bm25_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc
-            TopN Limit: 10
+            TopK Order By: pdb.score() desc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
 (11 rows)
 
@@ -179,14 +179,14 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
    ->  Gather Merge
          Output: id, name
          Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.items
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.items
                Output: id, name
                Table: items
                Index: items_bm25_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 10
+                  TopK Order By: id asc
+                  TopK Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
@@ -205,14 +205,14 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 ----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name
-   ->  Custom Scan (ParadeDB Scan) on public.items
+   ->  Custom Scan (ParadeDB Base Scan) on public.items
          Output: id, name
          Table: items
          Index: items_bm25_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 

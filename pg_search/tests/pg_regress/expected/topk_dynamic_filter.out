@@ -1,10 +1,10 @@
--- Test for TopK dynamic filter pushdown through DataFusion
+-- Test for Top K dynamic filter pushdown through DataFusion
 -- This test verifies that SortExec(TopK) propagates a DynamicFilterPhysicalExpr
 -- down to PgSearchScan, enabling row pruning at the scan level for ORDER BY ... LIMIT queries.
 -- Pruning occurs from two sources:
 --   1) HashJoin dynamic filter: after building the hash table, HashJoinExec pushes
 --      min/max bounds of join keys to the probe side, pruning rows that can't match.
---   2) TopK dynamic filter: after processing initial batches, SortExec pushes
+--   2) Top K dynamic filter: after processing initial batches, SortExec pushes
 --      the K-th threshold to leaf scans, pruning rows that can't make the top K.
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
@@ -65,23 +65,21 @@ LIMIT 3;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -115,23 +113,21 @@ LIMIT 3;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -161,23 +157,21 @@ LIMIT 3;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 14], metrics=[output_rows=3, output_bytes=72.0 B, output_batches=1, row_replacements=3]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4], metrics=[output_rows=6, output_bytes=192.0 KB, output_batches=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=6, build_mem_used=89, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id], metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4], metrics=[output_rows=6, output_bytes=192.0 KB, output_batches=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=6, build_mem_used=89, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id], metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=0, rows_scanned=1]
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id], metrics=[output_rows=6, output_bytes=160.0 B, output_batches=1]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=24, rows_scanned=30]
-(18 rows)
+(16 rows)
 
 -- =============================================================================
 -- TEST 3: ORDER BY DESC + LIMIT
@@ -195,23 +189,21 @@ LIMIT 2;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 2
          Order By: p.id desc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=2), expr=[id@2 DESC], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -241,23 +233,21 @@ LIMIT 2;
    Output: p.id, p.name, p.price, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 2
          Order By: p.price asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=2), expr=[price@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, price@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, price@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
@@ -288,23 +278,21 @@ LIMIT 5;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 5
          Order By: p.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"global","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -327,7 +315,7 @@ LIMIT 5;
 -- becomes a semi join. The build side (suppliers filtered by BM25) restricts
 -- join keys, and the probe side (products) benefits from pre-materialization
 -- filtering: the HashJoin dynamic filter prunes products by supplier_id range,
--- and the TopK dynamic filter prunes by the sort column (name).
+-- and the Top K dynamic filter prunes by the sort column (name).
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price
@@ -345,23 +333,21 @@ LIMIT 3;
    Output: p.id, p.name, p.price
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_3@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, p.price
 FROM products p
@@ -398,7 +384,7 @@ WARNING:  JoinScan not used: query must have a LIMIT clause
          Output: p.id, p.name, s.name
          Inner Unique: true
          Hash Cond: (p.supplier_id = s.id)
-         ->  Custom Scan (ParadeDB Scan) on public.products p
+         ->  Custom Scan (ParadeDB Base Scan) on public.products p
                Output: p.id, p.name, p.supplier_id
                Table: products
                Index: products_bm25_idx
@@ -468,7 +454,7 @@ CREATE TABLE bench_files (
 );
 -- 200 files, each randomly referencing a document.
 -- document_id cycles: file 1 → doc-01, file 2 → doc-02, ..., file 20 → doc-20, file 21 → doc-01, etc.
--- Titles are 'File Title NNN' so they sort nicely and TopK can tighten thresholds.
+-- Titles are 'File Title NNN' so they sort nicely and Top K can tighten thresholds.
 INSERT INTO bench_files (document_id, title, content)
 SELECT
     'doc-' || LPAD(((i - 1) % 20 + 1)::TEXT, 2, '0'),
@@ -482,7 +468,7 @@ WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "k
 -- ----- TEST 8a: Wide-range build side -----
 -- The subquery matches PROJECT_ALPHA documents scattered across doc-01..doc-19.
 -- The HashJoin pushes documentId >= 'doc-01' AND documentId <= 'doc-19' which
--- covers nearly all documents. TopK on title LIMIT 3 is the only useful filter.
+-- covers nearly all documents. Top K on title LIMIT 3 is the only useful filter.
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT f.id, f.title
 FROM bench_files f
@@ -491,29 +477,27 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                             QUERY PLAN                                                                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-         Join Type: Inner
-         Relation 0: bench_documents (d)
-         Relation 1: bench_files (f)
+         Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 007], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
-           :       SegmentedTopKExec: sort_col=title, k=3, direction=ASC, metrics=[rows_input=70, rows_output=3, segments_seen=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=70, output_bytes=128.9 KB, output_batches=1, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=190, build_mem_used=424, avg_fanout=100% (70/70), probe_hit_rate=37% (70/190)]
-           :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=7, output_bytes=232.0 B, output_batches=1]
+           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=70, rows_output=3, segments_seen=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=70, output_bytes=128.9 KB, output_batches=1, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, build_mem_used=424, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id], metrics=[output_rows=7, output_bytes=232.0 B, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=190, output_bytes=7.0 KB, output_batches=1]
+           :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=70, output_bytes=2.6 KB, output_batches=1]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=10, rows_scanned=200]
-(20 rows)
+           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=130, rows_scanned=200]
+(18 rows)
 
 SELECT f.id, f.title
 FROM bench_files f
@@ -532,7 +516,7 @@ LIMIT 3;
 -- ----- TEST 8b: Narrow-range build side -----
 -- The subquery matches only 'doc-01' (the only document with 'intro' in its title).
 -- The HashJoin pushes documentId >= 'doc-01' AND documentId <= 'doc-01', which
--- is perfectly selective: only files referencing doc-01 survive. Combined with TopK,
+-- is perfectly selective: only files referencing doc-01 survive. Combined with Top K,
 -- this should show significant pruning.
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT f.id, f.title
@@ -546,25 +530,23 @@ LIMIT 3;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-         Join Type: Inner
-         Relation 0: bench_documents (d)
-         Relation 1: bench_files (f)
+         Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 041], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
-           :       SegmentedTopKExec: sort_col=title, k=3, direction=ASC, metrics=[rows_input=10, rows_output=3, segments_seen=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=10, output_bytes=128.1 KB, output_batches=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, build_mem_used=105, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
-           :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=1, output_bytes=32.0 B, output_batches=1]
+           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=10, rows_output=3, segments_seen=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=10, output_bytes=128.1 KB, output_batches=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, build_mem_used=105, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id], metrics=[output_rows=1, output_bytes=32.0 B, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"intro","lenient":null,"conjunction_mode":null}}}}
            :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=10, output_bytes=378.0 B, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=190, rows_scanned=200]
-(20 rows)
+(18 rows)
 
 SELECT f.id, f.title
 FROM bench_files f

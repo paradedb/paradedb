@@ -144,10 +144,10 @@ impl Scanner {
     /// `MAX_BATCH_SIZE`.
     ///
     /// Note: `batch_size_hint` should only be provided when we have a very good idea of how
-    /// many total rows will be requested (e.g. `LIMIT` queries where `MixedFastFieldExecState`
+    /// many total rows will be requested (e.g. `LIMIT` queries where `ColumnarExecState`
     /// is the top-level node). In all other cases (e.g. `JoinScan`, `TableProvider`), it
     /// should be `None` to allow the default batch size to be used, which is optimized for
-    /// mixed fast field string lookups.
+    /// columnar string lookups.
     pub fn new(
         search_results: MultiSegmentSearchResults,
         batch_size_hint: Option<usize>,
@@ -223,11 +223,13 @@ impl Scanner {
         }
     }
 
-    /// Fetch the next batch of results, applying visibility checks and
+    /// Fetch the next batch of results, applying visibility checks,
+    /// dynamic `SegmentedThresholds` (for Top K queries), and
     /// pre-materialization filters.
     ///
     /// `pre_filters` are applied after visibility checks but *before* column
-    /// materialization, allowing string-column filters to operate on cheap
+    /// materialization, allowing string-column filters (including dynamically
+    /// generated lexicographical thresholds) to operate natively on cheap
     /// term ordinals rather than requiring expensive dictionary lookups.
     pub fn next(
         &mut self,
@@ -250,78 +252,64 @@ impl Scanner {
         // to keep them aligned with `ids`.
         let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
 
-        // Apply segmented top-K ordinal thresholds before pre-filters and visibility.
-        if let Some(ref seg_thresholds) = self.segmented_thresholds {
-            if let Some(threshold) = seg_thresholds.get_threshold(segment_ord) {
-                let ff_idx = seg_thresholds.ff_index();
-
-                ensure_column_fetched(&mut memoized_columns, ffhelper, segment_ord, ff_idx, &ids);
-
-                if let Some(ords) = memoized_columns[ff_idx]
-                    .as_ref()
-                    .and_then(|a| a.as_any().downcast_ref::<UInt64Array>())
-                {
-                    let descending = seg_thresholds.descending();
-                    let mask: BooleanArray = ords
-                        .iter()
-                        .map(|maybe_ord| {
-                            let ord = maybe_ord
-                                .unwrap_or(crate::index::fast_fields_helper::NULL_TERM_ORDINAL);
-                            Some(
-                                if ord == crate::index::fast_fields_helper::NULL_TERM_ORDINAL {
-                                    true // NULLs always survive
-                                } else if descending {
-                                    ord >= threshold // keep ties for compound sort correctness
-                                } else {
-                                    ord <= threshold // keep ties for compound sort correctness
-                                },
-                            )
-                        })
-                        .collect();
-
-                    let before = ids.len();
-                    compact_with_mask(&mut ids, &mut scores, &mut memoized_columns, &mask);
-                    self.pre_filter_rows_scanned += before;
-                    self.pre_filter_rows_pruned += before - ids.len();
+        // TODO(https://github.com/paradedb/paradedb/issues/4257): Unify `SegmentedThresholds`
+        // with the `DynamicFilterPhysicalExpr` infrastructure so that thresholds are pushed down
+        // via the standard DataFusion filter push-down path rather than this side-channel.
+        let evaluate_pre_filters = |filters: &[crate::scan::pre_filter::PreFilter],
+                                    schema: &SchemaRef,
+                                    ids: &mut Vec<DocId>,
+                                    scores: &mut Vec<Score>,
+                                    memoized_columns: &mut Vec<Option<ArrayRef>>|
+         -> (usize, usize) {
+            let before = ids.len();
+            for pre_filter in filters {
+                if ids.is_empty() {
+                    break;
                 }
+                for &ff_index in &pre_filter.required_columns {
+                    ensure_column_fetched(memoized_columns, ffhelper, segment_ord, ff_index, ids);
+                }
+                let mask = pre_filter
+                    .apply_arrow(ffhelper, segment_ord, memoized_columns, schema, ids.len())
+                    .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
+                compact_with_mask(ids, scores, memoized_columns, &mask);
             }
+            (before, before - ids.len())
+        };
+
+        // Apply segmented Top K ordinal thresholds before pre-filters and visibility.
+        if let Some(threshold_expr) = self
+            .segmented_thresholds
+            .as_ref()
+            .and_then(|t| t.get_threshold(segment_ord))
+        {
+            let schema = self.schema();
+            let mut dyn_filters = Vec::new();
+            crate::scan::pre_filter::collect_filters(&threshold_expr, &schema, &mut dyn_filters);
+
+            let (scanned, pruned) = evaluate_pre_filters(
+                &dyn_filters,
+                &schema,
+                &mut ids,
+                &mut scores,
+                &mut memoized_columns,
+            );
+            self.pre_filter_rows_scanned += scanned;
+            self.pre_filter_rows_pruned += pruned;
         }
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.
         if let Some(pre_filters) = pre_filters {
-            let before = ids.len();
-            for pre_filter in pre_filters.filters {
-                if ids.is_empty() {
-                    break;
-                }
-
-                for &ff_index in &pre_filter.required_columns {
-                    ensure_column_fetched(
-                        &mut memoized_columns,
-                        ffhelper,
-                        segment_ord,
-                        ff_index,
-                        &ids,
-                    );
-                }
-
-                // Apply filter
-                let mask = pre_filter
-                    .apply_arrow(
-                        ffhelper,
-                        segment_ord,
-                        &memoized_columns,
-                        pre_filters.schema,
-                        ids.len(),
-                    )
-                    .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
-
-                // Compact state
-                compact_with_mask(&mut ids, &mut scores, &mut memoized_columns, &mask);
-            }
-            self.pre_filter_rows_scanned += before;
-            self.pre_filter_rows_pruned += before - ids.len();
+            let (scanned, pruned) = evaluate_pre_filters(
+                pre_filters.filters,
+                pre_filters.schema,
+                &mut ids,
+                &mut scores,
+                &mut memoized_columns,
+            );
+            self.pre_filter_rows_scanned += scanned;
+            self.pre_filter_rows_pruned += pruned;
         }
 
         // Batch lookup the ctids and visibility check them.

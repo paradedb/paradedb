@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 CALL paradedb.create_bm25_test_table(
         schema_name => 'public',
         table_name => 'mock_items'
@@ -26,7 +26,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
 );
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.mock_items
+ Custom Scan (ParadeDB Base Scan) on public.mock_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: mock_items
    Index: idx_mock_items
@@ -55,7 +55,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
 );
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.mock_items
+ Custom Scan (ParadeDB Base Scan) on public.mock_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: mock_items
    Index: idx_mock_items
@@ -85,7 +85,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
 );
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.mock_items
+ Custom Scan (ParadeDB Base Scan) on public.mock_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: mock_items
    Index: idx_mock_items
@@ -114,7 +114,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ p
 );
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.mock_items
+ Custom Scan (ParadeDB Base Scan) on public.mock_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: mock_items
    Index: idx_mock_items
@@ -165,7 +165,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ p
 );
                                                                                             QUERY PLAN                                                                                             
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.mock_items
+ Custom Scan (ParadeDB Base Scan) on public.mock_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: mock_items
    Index: idx_mock_items
@@ -234,7 +234,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE descript
 );
                                                                                                                        QUERY PLAN                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.mock_items
+ Custom Scan (ParadeDB Base Scan) on public.mock_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: mock_items
    Index: idx_mock_items

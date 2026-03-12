@@ -6,64 +6,146 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/minmax
 
 `min` and `max` return the smallest and largest values of a column, respectively.
 
+SQL's `MIN`/`MAX` syntax is supported in beta. To enable it, first run:
+
+```sql SQL
+SET paradedb.enable_aggregate_custom_scan TO on;
+```
+
+## Min
+
+The `min` aggregation returns the smallest value in a field.
+
 <CodeGroup>
-```sql Min
+```sql SQL
 SELECT pdb.agg('{"min": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
-```sql Max
-SELECT pdb.agg('{"max": {"field": "rating"}}') FROM mock_items
-WHERE id @@@ pdb.all();
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"min": {"field": "rating"}}'))
 ```
 
 </CodeGroup>
 
-<CodeGroup>
-```ini Expected Response (Min)
+```ini Expected Response
       agg
 ----------------
  {"value": 1.0}
 (1 row)
 ```
 
-```ini Expected Response (Max)
+See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.MinAggregation.html) for all available options.
+
+### SQL Min Syntax
+
+With `paradedb.enable_aggregate_custom_scan` enabled, the following query is equivalent to the above and is executed in the same way.
+
+<CodeGroup>
+```sql SQL
+SELECT MIN(rating) FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```python Django
+from django.db.models import Min
+from paradedb import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(min_rating=Min('rating'))
+```
+
+</CodeGroup>
+
+By default, `MIN` ignores null values. Use `COALESCE` to include them in the final result:
+
+<CodeGroup>
+```sql SQL
+SELECT MIN(COALESCE(rating, 0)) FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```python Django
+from django.db.models import Min, Value
+from django.db.models.functions import Coalesce
+from paradedb import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(min_rating=Min(Coalesce('rating', Value(0))))
+```
+
+</CodeGroup>
+
+## Max
+
+The `max` aggregation returns the largest value in a field.
+
+<CodeGroup>
+```sql SQL
+SELECT pdb.agg('{"max": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"max": {"field": "rating"}}'))
+```
+
+</CodeGroup>
+
+```ini Expected Response
       agg
 ----------------
  {"value": 5.0}
 (1 row)
 ```
 
-</CodeGroup>
+### SQL Max Syntax
 
-See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.MinAggregation.html) for all available options.
-
-## SQL Min/Max Syntax
-
-SQL's `MIN`/`MAX` syntax is supported in beta. To enable it, first run
-
-```sql
-SET paradedb.enable_aggregate_custom_scan TO on;
-```
-
-With this feature enabled, the following query is equivalent to the above and is executed in the same way.
+With `paradedb.enable_aggregate_custom_scan` enabled, the following query is equivalent to the above and is executed in the same way.
 
 <CodeGroup>
-```sql Min
-SELECT MIN(rating) FROM mock_items
-WHERE id @@@ pdb.all();
-```
-
-```sql Max
+```sql SQL
 SELECT MAX(rating) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
+```python Django
+from django.db.models import Max
+from paradedb import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(max_rating=Max('rating'))
+```
+
 </CodeGroup>
 
-By default, `MIN`/`MAX` ignore null values. Use `COALESCE` to include them in the final sum:
+By default, `MAX` ignores null values. Use `COALESCE` to include them in the final result:
 
-```sql
-SELECT MIN(COALESCE(rating, 0)) FROM mock_items
+<CodeGroup>
+```sql SQL
+SELECT MAX(COALESCE(rating, 0)) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from django.db.models import Max, Value
+from django.db.models.functions import Coalesce
+from paradedb import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(max_rating=Max(Coalesce('rating', Value(0))))
+```
+
+</CodeGroup>

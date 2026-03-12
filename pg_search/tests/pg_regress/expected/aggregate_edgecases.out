@@ -35,14 +35,14 @@ LIMIT 1;
    ->  Gather Merge
          Output: (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"size":50000,"field":"data"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), id
          Workers Planned: 1
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.large_agg_test
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on public.large_agg_test
                Output: pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"size":50000,"field":"data"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), id
                Table: large_agg_test
                Index: large_agg_test_idx
-               Exec Method: TopNScanExecState
+               Exec Method: TopKScanExecState
                Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 1
+                  TopK Order By: id asc
+                  TopK Limit: 1
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}
 (15 rows)
@@ -143,14 +143,14 @@ LIMIT 1;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"value_count":{"field":"id"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), id
-   ->  Custom Scan (ParadeDB Scan) on public.delete_agg_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.delete_agg_test
          Output: pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"value_count":{"field":"id"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), id
          Table: delete_agg_test
          Index: delete_agg_test_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 1
+            TopK Order By: id asc
+            TopK Limit: 1
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
 (12 rows)

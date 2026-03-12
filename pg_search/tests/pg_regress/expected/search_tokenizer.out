@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- Test search_tokenizer: use a different tokenizer at search time vs index time.
 --
 -- The iconic use case is autocomplete:
@@ -34,7 +34,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, title FROM autocomplete WHER
  Sort
    Output: id, title
    Sort Key: autocomplete.id
-   ->  Custom Scan (ParadeDB Scan) on public.autocomplete
+   ->  Custom Scan (ParadeDB Base Scan) on public.autocomplete
          Output: id, title
          Table: autocomplete
          Index: idx_autocomplete
@@ -58,7 +58,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, title FROM autocomplete WHER
  Sort
    Output: id, title
    Sort Key: autocomplete.id
-   ->  Custom Scan (ParadeDB Scan) on public.autocomplete
+   ->  Custom Scan (ParadeDB Base Scan) on public.autocomplete
          Output: id, title
          Table: autocomplete
          Index: idx_autocomplete
@@ -85,7 +85,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, title FROM autocomplete WHER
  Sort
    Output: id, title
    Sort Key: autocomplete.id
-   ->  Custom Scan (ParadeDB Scan) on public.autocomplete
+   ->  Custom Scan (ParadeDB Base Scan) on public.autocomplete
          Output: id, title
          Table: autocomplete
          Index: idx_autocomplete
@@ -127,7 +127,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, title FROM autocomplete_plai
  Sort
    Output: id, title
    Sort Key: autocomplete_plain.id
-   ->  Custom Scan (ParadeDB Scan) on public.autocomplete_plain
+   ->  Custom Scan (ParadeDB Base Scan) on public.autocomplete_plain
          Output: id, title
          Table: autocomplete_plain
          Index: idx_autocomplete_plain
@@ -172,7 +172,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, description FROM case_test W
  Sort
    Output: id, description
    Sort Key: case_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.case_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.case_test
          Output: id, description
          Table: case_test
          Index: idx_case_test
@@ -217,7 +217,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, content FROM combined_test W
  Sort
    Output: id, content
    Sort Key: combined_test.id
-   ->  Custom Scan (ParadeDB Scan) on public.combined_test
+   ->  Custom Scan (ParadeDB Base Scan) on public.combined_test
          Output: id, content
          Table: combined_test
          Index: idx_combined

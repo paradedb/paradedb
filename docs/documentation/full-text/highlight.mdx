@@ -20,12 +20,25 @@ search query.
 `pdb.snippet(<column>)` can be added to any query where an `@@@` operator is present. `pdb.snippet` returns the single best snippet, sorted by relevance score.
 The following query generates highlighted snippets against the `description` field.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT id, pdb.snippet(description)
 FROM mock_items
 WHERE description ||| 'shoes'
 LIMIT 5;
 ```
+
+```python Django
+from paradedb import Match, ParadeDB, Snippet
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('shoes', operator='OR'))
+).annotate(
+    snippet=Snippet('description')
+).values('id', 'snippet')[:5]
+```
+
+</CodeGroup>
 
 <ParamField body="start_tag" default="<b>">
   The leading indicator around the highlighted region.
@@ -40,23 +53,49 @@ LIMIT 5;
 
 By default, `<b></b>` encloses the snippet. This can be configured with `start_tag` and `end_tag`:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT id, pdb.snippet(description, start_tag => '<i>', end_tag => '</i>')
 FROM mock_items
 WHERE description ||| 'shoes'
 LIMIT 5;
 ```
 
+```python Django
+from paradedb import Match, ParadeDB, Snippet
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('shoes', operator='OR'))
+).annotate(
+    snippet=Snippet('description', start_sel='<i>', stop_sel='</i>')
+).values('id', 'snippet')[:5]
+```
+
+</CodeGroup>
+
 ## Multiple Snippets
 
 `pdb.snippets(<column>)` returns an array of snippets, allowing you to retrieve multiple highlighted matches from a document. This is particularly useful when a document has several relevant matches spread throughout its content.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15)
 FROM mock_items
 WHERE description ||| 'artistic vase'
 LIMIT 5;
 ```
+
+```python Django
+from paradedb import Match, ParadeDB, Snippets
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('artistic vase', operator='OR'))
+).annotate(
+    snippets=Snippets('description', max_num_chars=15)
+).values('id', 'snippets')[:5]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
  id |                snippets
@@ -94,21 +133,47 @@ You can control the number and order of snippets returned using the `limit`, `of
 
 For example, to get only the first snippet:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1)
 FROM mock_items
 WHERE description ||| 'running'
 LIMIT 5;
 ```
 
+```python Django
+from paradedb import Match, ParadeDB, Snippets
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running', operator='OR'))
+).annotate(
+    snippets=Snippets('description', max_num_chars=15, limit=1)
+).values('id', 'snippets')[:5]
+```
+
+</CodeGroup>
+
 To get the second snippet (by skipping the first one):
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1, "offset" => 1)
 FROM mock_items
 WHERE description ||| 'running'
 LIMIT 5;
 ```
+
+```python Django
+from paradedb import Match, ParadeDB, Snippets
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running', operator='OR'))
+).annotate(
+    snippets=Snippets('description', max_num_chars=15, limit=1, offset=1)
+).values('id', 'snippets')[:5]
+```
+
+</CodeGroup>
 
 ### Sorting Snippets
 
@@ -116,23 +181,50 @@ Snippets can be sorted either by their relevance score (`'score'`) or their posi
 
 To sort snippets by their appearance in the document:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15, sort_by => 'position')
 FROM mock_items
 WHERE description ||| 'artistic vase'
 LIMIT 5;
 ```
 
+```python Django
+from paradedb import Match, ParadeDB, Snippets
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('artistic vase', operator='OR'))
+).annotate(
+    snippets=Snippets('description', max_num_chars=15, sort_by='position')
+).values('id', 'snippets')[:5]
+```
+
+</CodeGroup>
+
 ## Byte Offsets
 
 `pdb.snippet_positions(<column>)` returns the byte offsets in the original text where the snippets would appear. It returns a two-dimensional integer array where each nested pair is `[start, end)`: the first value is the byte index of the first highlighted byte, and the second value is the byte index immediately after the last highlighted byte.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT id, pdb.snippet(description), pdb.snippet_positions(description)
 FROM mock_items
 WHERE description ||| 'shoes'
 LIMIT 5;
 ```
+
+```python Django
+from paradedb import Match, ParadeDB, Snippet, SnippetPositions
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('shoes', operator='OR'))
+).annotate(
+    snippet=Snippet('description'),
+    snippet_positions=SnippetPositions('description')
+).values('id', 'snippet', 'snippet_positions')[:5]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
  id |          snippet           | snippet_positions

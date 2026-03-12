@@ -69,8 +69,8 @@
           mkForPg =
             version:
             pkgs.callPackage ./nix/pg_search.nix {
+              inherit self;
               postgresql = pkgs."postgresql_${toString version}";
-              inherit (pkgs) cargo-pgrx;
             };
         in
         (builtins.listToAttrs (
@@ -147,9 +147,6 @@
 
       # A Nixpkgs overlay that adds a Fenix-based Rust toolchain
       overlays.default = final: prev: {
-        # standardizes the cargo-pgrx version
-        cargo-pgrx = final.cargo-pgrx_0_16_1;
-
         rustToolchain =
           with inputs.fenix.packages.${prev.stdenv.hostPlatform.system};
           combine (

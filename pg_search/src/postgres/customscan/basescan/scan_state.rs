@@ -317,14 +317,14 @@ impl BaseScanState {
 
     pub fn limit(&self) -> Option<usize> {
         match &self.exec_method_type {
-            ExecMethodType::TopN { limit, .. } => Some(*limit),
+            ExecMethodType::TopK { limit, .. } => Some(*limit),
             _ => None,
         }
     }
 
     pub fn orderby_info(&self) -> &Option<Vec<OrderByInfo>> {
         match &self.exec_method_type {
-            ExecMethodType::TopN { orderby_info, .. } => orderby_info,
+            ExecMethodType::TopK { orderby_info, .. } => orderby_info,
             _ => &None,
         }
     }

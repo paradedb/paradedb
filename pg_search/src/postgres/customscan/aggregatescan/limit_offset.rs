@@ -16,29 +16,16 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::gucs;
-use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::{
+    AggregateScan, CustomScanBuildError, CustomScanClause,
+};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
-use pgrx::{pg_sys, FromDatum};
+use pgrx::pg_sys;
 
-#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct LimitOffsetClause {
-    limit: Option<u32>,
-    offset: Option<u32>,
-}
-
-impl LimitOffsetClause {
-    pub fn limit(&self) -> Option<u32> {
-        self.limit
-    }
-    pub fn offset(&self) -> Option<u32> {
-        self.offset
-    }
-}
-
-impl CustomScanClause<AggregateScan> for LimitOffsetClause {
+impl CustomScanClause<AggregateScan> for LimitOffset {
     type Args = <AggregateScan as CustomScan>::Args;
 
     fn add_to_custom_path(
@@ -66,31 +53,18 @@ impl CustomScanClause<AggregateScan> for LimitOffsetClause {
         args: &Self::Args,
         _heap_rti: pg_sys::Index,
         _index: &PgSearchRelation,
-    ) -> Option<Self> {
+    ) -> Result<Self, CustomScanBuildError> {
         let parse = args.root().parse;
-        let (limit, offset) = unsafe {
-            let limit_count = (*parse).limitCount;
-            let offset_count = (*parse).limitOffset;
-            let extract_const = |node: *mut pg_sys::Node| -> Option<u32> {
-                let const_node = nodecast!(Const, T_Const, node);
-                if let Some(const_node) = const_node {
-                    u32::from_datum((*const_node).constvalue, (*const_node).constisnull)
-                } else {
-                    None
-                }
-            };
-
-            (extract_const(limit_count), extract_const(offset_count))
-        };
+        let limit_offset = unsafe { LimitOffset::from_parse(parse) };
 
         unsafe {
             if !(*parse).groupClause.is_null()
-                && limit.unwrap_or(0) + offset.unwrap_or(0) > gucs::max_term_agg_buckets() as u32
+                && limit_offset.fetch().unwrap_or(0) > gucs::max_term_agg_buckets() as usize
             {
-                return None;
+                return Err("limit + offset exceeds max_term_agg_buckets".into());
             }
         }
 
-        Some(LimitOffsetClause { limit, offset })
+        Ok(limit_offset)
     }
 }

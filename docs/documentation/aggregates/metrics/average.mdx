@@ -6,10 +6,21 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/average
 
 The following query computes the average value over a specific field:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"avg": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"avg": {"field": "rating"}}'))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
               agg
@@ -30,14 +41,39 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 
 With this feature enabled, the following query is equivalent to the above and is executed in the same way.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT AVG(rating) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
+```python Django
+from django.db.models import Avg
+from paradedb import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(avg_rating=Avg('rating'))
+```
+
+</CodeGroup>
+
 By default, `AVG` ignores null values. Use `COALESCE` to include them in the final average:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT AVG(COALESCE(rating, 0)) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from django.db.models import Avg, Value
+from django.db.models.functions import Coalesce
+from paradedb import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(avg_rating=Avg(Coalesce('rating', Value(0))))
+```
+
+</CodeGroup>

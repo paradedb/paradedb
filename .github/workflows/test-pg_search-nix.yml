@@ -26,9 +26,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-pg_search-nix:
-    name: Test pg_search Builds with Determinate Nix
+  nix-cargo-hash-check:
+    name: Verify Nix Cargo Hash
     runs-on: ubuntu-latest
+    env:
+      PG_MAJOR_VERSION: "18"
 
     steps:
       - name: Checkout Git Repository
@@ -41,17 +43,8 @@ jobs:
       - name: Use Magic Nix Cache Action
         uses: DeterminateSystems/magic-nix-cache-action@main
 
-      # https://nix.dev/manual/nix/latest/command-ref/new-cli/nix3-flake-check
-      - name: Run Flake Checks
-        run: nix flake check
-
-      # If this step fails due to an incorrect hash in flake.nix, the error will
-      # provide the correct hash
-      - name: Build pg_search for Nix
+      # Build only cargo deps to surface cargoHash mismatches quickly, without
+      # compiling pg_search for every Postgres variant.
+      - name: Verify Nix Cargo Hash
         run: |
-          system=$(nix eval --raw --impure --expr builtins.currentSystem)
-          nix flake show --json 2>/dev/null \
-            | jq -r --arg s "$system" '.packages[$s] | keys[] | ".#\(.)"' \
-            | xargs -L1 nix build
-
-          echo "All pg_search packages built successfully."
+          nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps"

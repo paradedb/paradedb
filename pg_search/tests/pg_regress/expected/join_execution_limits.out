@@ -1,0 +1,481 @@
+-- Test for the JoinScan Custom Scan planning
+-- System constraints, memory enforcement, hints, and concurrency/visibility.
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+-- Load the pg_search extension
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Make sure the GUC is enabled
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- TEST 1: Memory Limit Enforcement (Expect OOM)
+-- =============================================================================
+-- Save current work_mem and set very small value to trigger OOM
+-- Note: This verifies that we enforce memory limits and error out because spilling is not implemented
+SET work_mem = '64kB';
+-- Create larger dataset to potentially trigger memory limit
+DROP TABLE IF EXISTS large_orders CASCADE;
+DROP TABLE IF EXISTS large_suppliers CASCADE;
+CREATE TABLE large_suppliers (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    country TEXT
+);
+CREATE TABLE large_orders (
+    id SERIAL PRIMARY KEY,
+    supplier_id INTEGER,
+    description TEXT
+);
+-- Insert suppliers
+INSERT INTO large_suppliers (name, country)
+SELECT 
+    'Supplier ' || i,
+    CASE WHEN i % 3 = 0 THEN 'USA' WHEN i % 3 = 1 THEN 'UK' ELSE 'Germany' END
+FROM generate_series(1, 100) i;
+-- Insert enough orders to potentially exceed small work_mem
+INSERT INTO large_orders (supplier_id, description)
+SELECT 
+    (i % 100) + 1,
+    CASE WHEN i % 5 = 0 THEN 'wireless product order' ELSE 'regular product order' END
+FROM generate_series(1, 1000) i;
+-- Note: large_orders.supplier_id must be a fast field for the join key
+CREATE INDEX large_orders_bm25_idx ON large_orders USING bm25 (id, description, supplier_id)
+WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
+CREATE INDEX large_suppliers_bm25_idx ON large_suppliers USING bm25 (id, name, country) WITH (key_field = 'id');
+-- This query may fall back to nested loop due to small work_mem
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT lo.id, lo.description, ls.name AS supplier_name
+FROM large_orders lo
+JOIN large_suppliers ls ON lo.supplier_id = ls.id
+WHERE lo.description @@@ 'wireless'
+ORDER BY lo.id
+LIMIT 10;
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: lo.id, lo.description, ls.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: lo.id, lo.description, ls.name
+         Relation Tree: ls INNER lo
+         Join Cond: lo.supplier_id = ls.id
+         Limit: 10
+         Order By: lo.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT lo.id, lo.description, ls.name AS supplier_name
+FROM large_orders lo
+JOIN large_suppliers ls ON lo.supplier_id = ls.id
+WHERE lo.description @@@ 'wireless'
+ORDER BY lo.id
+LIMIT 10;
+ERROR:  JoinScan: Out of memory! Query exceeded work_mem limit of 65536 bytes.
+-- Reset work_mem
+RESET work_mem;
+-- =============================================================================
+-- TEST 2: Memory Limit Enforcement (Expect OOM)
+-- =============================================================================
+-- Verify JoinScan handles memory overflow by erroring out (OOM)
+-- Note: This is a functional test to ensure we don't crash when memory is exceeded.
+-- Since spilling is not implemented, we expect an OOM error.
+DROP TABLE IF EXISTS mem_test_products CASCADE;
+DROP TABLE IF EXISTS mem_test_suppliers CASCADE;
+CREATE TABLE mem_test_suppliers (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    info TEXT
+);
+CREATE TABLE mem_test_products (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    supplier_id INTEGER
+);
+-- Insert enough data to potentially stress the hash table
+-- (actual overflow depends on work_mem setting)
+INSERT INTO mem_test_suppliers
+SELECT i, 'Supplier ' || i, 'Contact info for supplier ' || i
+FROM generate_series(1, 100) AS i;
+INSERT INTO mem_test_products
+SELECT i, 
+       'Product ' || i,
+       CASE WHEN i % 3 = 0 THEN 'wireless product' ELSE 'wired product' END,
+       (i % 100) + 1
+FROM generate_series(1, 500) AS i;
+-- Note: mem_test_products.supplier_id must be a fast field for the join key
+CREATE INDEX mem_test_products_bm25_idx ON mem_test_products 
+    USING bm25 (id, name, description, supplier_id)
+    WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
+CREATE INDEX mem_test_suppliers_bm25_idx ON mem_test_suppliers
+    USING bm25 (id, name, info) WITH (key_field = 'id');
+-- Run with constrained work_mem to test memory handling
+-- Note: 64 is the minimum work_mem in PostgreSQL (KB)
+SET work_mem = '64kB';
+-- This query should still work correctly, whether using hash join or nested loop
+SELECT COUNT(*) AS match_count
+FROM mem_test_products p
+JOIN mem_test_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+LIMIT 100;
+WARNING:  JoinScan not used: queries with aggregate functions are not supported
+ match_count 
+-------------
+         166
+(1 row)
+
+-- Verify actual results are correct
+SELECT p.name, s.name AS supplier_name
+FROM mem_test_products p
+JOIN mem_test_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 5;
+ERROR:  JoinScan: Out of memory! Query exceeded work_mem limit of 65536 bytes.
+RESET work_mem;
+-- =============================================================================
+-- TEST 3: Large result set (functional, not performance)
+-- =============================================================================
+-- Verify JoinScan handles larger result sets correctly
+-- This is a functional test, not a benchmark
+DROP TABLE IF EXISTS large_items CASCADE;
+DROP TABLE IF EXISTS large_categories CASCADE;
+CREATE TABLE large_categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT
+);
+CREATE TABLE large_items (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    content TEXT,
+    category_id INTEGER
+);
+-- Insert 50 categories
+INSERT INTO large_categories
+SELECT i, 'Category ' || i, 'Description for category ' || i
+FROM generate_series(1, 50) AS i;
+-- Insert 1000 items distributed across categories
+INSERT INTO large_items (name, content, category_id)
+SELECT 
+    'Item ' || i,
+    CASE 
+        WHEN i % 5 = 0 THEN 'wireless product with bluetooth'
+        WHEN i % 7 = 0 THEN 'cable product with usb connector'
+        ELSE 'standard product item'
+    END,
+    (i % 50) + 1
+FROM generate_series(1, 1000) AS i;
+-- Note: large_items.category_id must be a fast field for the join key
+CREATE INDEX large_items_bm25_idx ON large_items USING bm25 (id, name, content, category_id)
+WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
+CREATE INDEX large_categories_bm25_idx ON large_categories USING bm25 (id, name, description) WITH (key_field = 'id');
+-- Query with larger LIMIT to test larger result sets
+SELECT COUNT(*) AS wireless_count
+FROM large_items li
+JOIN large_categories lc ON li.category_id = lc.id
+WHERE li.content @@@ 'wireless'
+LIMIT 500;
+WARNING:  JoinScan not used: queries with aggregate functions are not supported
+ wireless_count 
+----------------
+            200
+(1 row)
+
+-- Verify first few results
+SELECT li.name, lc.name AS category_name
+FROM large_items li
+JOIN large_categories lc ON li.category_id = lc.id
+WHERE li.content @@@ 'wireless'
+ORDER BY li.id
+LIMIT 5;
+  name   | category_name 
+---------+---------------
+ Item 5  | Category 6
+ Item 10 | Category 11
+ Item 15 | Category 16
+ Item 20 | Category 21
+ Item 25 | Category 26
+(5 rows)
+
+-- =============================================================================
+-- TEST 4: Visibility after multiple UPDATEs
+-- =============================================================================
+-- Verify JoinScan handles visibility correctly after multiple UPDATE cycles
+-- Note: True concurrent update testing requires multiple connections,
+-- which is not possible in a single regression test. This tests sequential
+-- UPDATE visibility instead.
+DROP TABLE IF EXISTS update_test_items CASCADE;
+DROP TABLE IF EXISTS update_test_refs CASCADE;
+CREATE TABLE update_test_refs (
+    id INTEGER PRIMARY KEY,
+    ref_name TEXT
+);
+CREATE TABLE update_test_items (
+    id INTEGER PRIMARY KEY,
+    content TEXT,
+    ref_id INTEGER,
+    version INTEGER DEFAULT 1
+);
+INSERT INTO update_test_refs VALUES (1, 'Ref A'), (2, 'Ref B'), (3, 'Ref C');
+INSERT INTO update_test_items (id, content, ref_id) VALUES
+(101, 'wireless device alpha', 1),
+(102, 'wired device beta', 2),
+(103, 'wireless device gamma', 3);
+-- Note: update_test_items.ref_id must be a fast field for the join key
+CREATE INDEX update_items_bm25_idx ON update_test_items USING bm25 (id, content, ref_id)
+WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
+CREATE INDEX update_refs_bm25_idx ON update_test_refs USING bm25 (id, ref_name) WITH (key_field = 'id');
+-- Initial query
+SELECT i.id, i.content, r.ref_name, i.version
+FROM update_test_items i
+JOIN update_test_refs r ON i.ref_id = r.id
+WHERE i.content @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+ id  |        content        | ref_name | version 
+-----+-----------------------+----------+---------
+ 101 | wireless device alpha | Ref A    |       1
+ 103 | wireless device gamma | Ref C    |       1
+(2 rows)
+
+-- First UPDATE cycle
+UPDATE update_test_items SET version = 2 WHERE content LIKE '%wireless%';
+-- Query after first update - should still find wireless items
+SELECT i.id, i.content, r.ref_name, i.version
+FROM update_test_items i
+JOIN update_test_refs r ON i.ref_id = r.id
+WHERE i.content @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+ id  |        content        | ref_name | version 
+-----+-----------------------+----------+---------
+ 101 | wireless device alpha | Ref A    |       2
+ 103 | wireless device gamma | Ref C    |       2
+(2 rows)
+
+-- Second UPDATE cycle - change content
+UPDATE update_test_items SET content = 'updated wireless device', version = 3 WHERE id = 101;
+-- Query after content update
+SELECT i.id, i.content, r.ref_name, i.version
+FROM update_test_items i
+JOIN update_test_refs r ON i.ref_id = r.id
+WHERE i.content @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+ id  |         content         | ref_name | version 
+-----+-------------------------+----------+---------
+ 101 | updated wireless device | Ref A    |       3
+ 103 | wireless device gamma   | Ref C    |       2
+(2 rows)
+
+-- Third UPDATE cycle - change ref_id (join key)
+UPDATE update_test_items SET ref_id = 2, version = 4 WHERE id = 103;
+-- Query after join key update
+SELECT i.id, i.content, r.ref_name, i.version
+FROM update_test_items i
+JOIN update_test_refs r ON i.ref_id = r.id
+WHERE i.content @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+ id  |         content         | ref_name | version 
+-----+-------------------------+----------+---------
+ 101 | updated wireless device | Ref A    |       3
+ 103 | wireless device gamma   | Ref B    |       4
+(2 rows)
+
+-- =============================================================================
+-- TEST 5: Execution hints - small build side (nested loop preference)
+-- =============================================================================
+-- This test verifies that execution hints work for very small joins.
+-- When estimated_build_rows < 10, the planner hints to prefer nested loop
+-- to avoid hash table overhead.
+DROP TABLE IF EXISTS tiny_products CASCADE;
+DROP TABLE IF EXISTS tiny_refs CASCADE;
+CREATE TABLE tiny_refs (
+    id INTEGER PRIMARY KEY,
+    name TEXT
+);
+CREATE TABLE tiny_products (
+    id INTEGER PRIMARY KEY,
+    ref_id INTEGER,
+    description TEXT
+);
+-- Very small build side (only 3 rows)
+INSERT INTO tiny_refs VALUES (1, 'Ref A'), (2, 'Ref B'), (3, 'Ref C');
+INSERT INTO tiny_products VALUES
+(101, 1, 'wireless device alpha'),
+(102, 2, 'wired device beta'),
+(103, 1, 'wireless device gamma');
+-- Note: tiny_products.ref_id must be a fast field for the join key
+CREATE INDEX tiny_products_bm25_idx ON tiny_products USING bm25 (id, description, ref_id)
+WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
+CREATE INDEX tiny_refs_bm25_idx ON tiny_refs USING bm25 (id, name) WITH (key_field = 'id');
+-- Query with very small build side - should work correctly regardless of algorithm
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT tp.id, tp.description, tr.name
+FROM tiny_products tp
+JOIN tiny_refs tr ON tp.ref_id = tr.id
+WHERE tp.description @@@ 'wireless'
+ORDER BY tp.id
+LIMIT 10;
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: tp.id, tp.description, tr.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: tp.id, tp.description, tr.name
+         Relation Tree: tr INNER tp
+         Join Cond: tp.ref_id = tr.id
+         Limit: 10
+         Order By: tp.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, ref_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, ref_id@1 as ref_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT tp.id, tp.description, tr.name
+FROM tiny_products tp
+JOIN tiny_refs tr ON tp.ref_id = tr.id
+WHERE tp.description @@@ 'wireless'
+ORDER BY tp.id
+LIMIT 10;
+ id  |      description      | name  
+-----+-----------------------+-------
+ 101 | wireless device alpha | Ref A
+ 103 | wireless device gamma | Ref A
+(2 rows)
+
+-- =============================================================================
+-- TEST 6: Execution hints - verify hash table pre-sizing (functional test)
+-- =============================================================================
+-- This test verifies that the execution hints system works with larger datasets.
+-- The planner should estimate build rows and pass hints to the executor.
+DROP TABLE IF EXISTS hint_test_products CASCADE;
+DROP TABLE IF EXISTS hint_test_categories CASCADE;
+CREATE TABLE hint_test_categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT
+);
+CREATE TABLE hint_test_products (
+    id INTEGER PRIMARY KEY,
+    category_id INTEGER,
+    description TEXT
+);
+-- Medium-sized build side (50 rows)
+INSERT INTO hint_test_categories
+SELECT i, 'Category ' || i
+FROM generate_series(1, 50) i;
+-- Products referencing categories
+INSERT INTO hint_test_products
+SELECT i, (i % 50) + 1, 
+    CASE WHEN i % 3 = 0 THEN 'wireless product' ELSE 'standard product' END
+FROM generate_series(1, 200) i;
+-- Note: hint_test_products.category_id must be a fast field for the join key
+CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING bm25 (id, description, category_id)
+WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
+CREATE INDEX hint_test_categories_bm25_idx ON hint_test_categories USING bm25 (id, name) WITH (key_field = 'id');
+-- Query that exercises hash table with medium build side
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT hp.id, hp.description, hc.name AS category_name
+FROM hint_test_products hp
+JOIN hint_test_categories hc ON hp.category_id = hc.id
+WHERE hp.description @@@ 'wireless'
+ORDER BY hp.id
+LIMIT 20;
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: hp.id, hp.description, hc.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: hp.id, hp.description, hc.name
+         Relation Tree: hc INNER hp
+         Join Cond: hp.category_id = hc.id
+         Limit: 20
+         Order By: hp.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=20), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT hp.id, hp.description, hc.name AS category_name
+FROM hint_test_products hp
+JOIN hint_test_categories hc ON hp.category_id = hc.id
+WHERE hp.description @@@ 'wireless'
+ORDER BY hp.id
+LIMIT 20;
+ id |   description    | category_name 
+----+------------------+---------------
+  3 | wireless product | Category 4
+  6 | wireless product | Category 7
+  9 | wireless product | Category 10
+ 12 | wireless product | Category 13
+ 15 | wireless product | Category 16
+ 18 | wireless product | Category 19
+ 21 | wireless product | Category 22
+ 24 | wireless product | Category 25
+ 27 | wireless product | Category 28
+ 30 | wireless product | Category 31
+ 33 | wireless product | Category 34
+ 36 | wireless product | Category 37
+ 39 | wireless product | Category 40
+ 42 | wireless product | Category 43
+ 45 | wireless product | Category 46
+ 48 | wireless product | Category 49
+ 51 | wireless product | Category 2
+ 54 | wireless product | Category 5
+ 57 | wireless product | Category 8
+ 60 | wireless product | Category 11
+(20 rows)
+
+-- Verify count is correct
+SELECT COUNT(*) AS wireless_count
+FROM hint_test_products hp
+JOIN hint_test_categories hc ON hp.category_id = hc.id
+WHERE hp.description @@@ 'wireless';
+WARNING:  JoinScan not used: queries with aggregate functions are not supported
+ wireless_count 
+----------------
+             66
+(1 row)
+
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+DROP TABLE IF EXISTS large_orders CASCADE;
+DROP TABLE IF EXISTS large_suppliers CASCADE;
+DROP TABLE IF EXISTS mem_test_products CASCADE;
+DROP TABLE IF EXISTS mem_test_suppliers CASCADE;
+DROP TABLE IF EXISTS large_items CASCADE;
+DROP TABLE IF EXISTS large_categories CASCADE;
+DROP TABLE IF EXISTS update_test_items CASCADE;
+DROP TABLE IF EXISTS update_test_refs CASCADE;
+DROP TABLE IF EXISTS tiny_products CASCADE;
+DROP TABLE IF EXISTS tiny_refs CASCADE;
+DROP TABLE IF EXISTS hint_test_products CASCADE;
+DROP TABLE IF EXISTS hint_test_categories CASCADE;
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_join_custom_scan;

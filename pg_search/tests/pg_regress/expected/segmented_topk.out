@@ -1,4 +1,4 @@
--- Test for SegmentedTopKExec: per-segment Top-K pruning using term ordinals.
+-- Test for SegmentedTopKExec: per-segment Top K pruning using term ordinals.
 -- Verifies that SegmentedTopKExec is injected below TantivyLookupExec for
 -- ORDER BY <deferred_string_column> LIMIT K queries, and that results are correct.
 SET max_parallel_workers_per_gather = 0;
@@ -40,7 +40,7 @@ SELECT
     'file content for item ' || i
 FROM generate_series(1, 100) AS i;
 CREATE INDEX stk_documents_bm25_idx ON stk_documents USING bm25 (id, category)
-WITH (key_field = 'id');
+WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
 CREATE INDEX stk_files_bm25_idx ON stk_files USING bm25 (id, document_id, title, content)
 WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
 SET paradedb.enable_join_custom_scan = on;
@@ -61,25 +61,23 @@ LIMIT 3;
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
-         Join Type: Inner
-         Relation 0: stk_documents (d)
-         Relation 1: stk_files (f)
+         Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
-           :       SegmentedTopKExec: sort_col=title, k=3, direction=ASC
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4]
-           :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
+           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title]
            :             CooperativeExec
            :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
-(22 rows)
+(20 rows)
 
 SELECT f.id, f.title
 FROM stk_files f
@@ -112,25 +110,23 @@ LIMIT 3;
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
-         Join Type: Inner
-         Relation 0: stk_documents (d)
-         Relation 1: stk_files (f)
+         Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title desc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[title@2 DESC], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
-           :       SegmentedTopKExec: sort_col=title, k=3, direction=DESC
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4]
-           :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
+           :       SegmentedTopKExec: expr=[title@2 DESC], k=3
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title]
            :             CooperativeExec
            :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
-(22 rows)
+(20 rows)
 
 SELECT f.id, f.title
 FROM stk_files f
@@ -157,29 +153,27 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC
 LIMIT 3;
-                                                                                                                                                                            QUERY PLAN                                                                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                            QUERY PLAN                                                                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-         Join Type: Inner
-         Relation 0: stk_documents (d)
-         Relation 1: stk_files (f)
+         Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 005], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1, row_replacements=3]
            :     TantivyLookupExec: decode=[title], metrics=[output_rows=3, output_bytes=152.0 B, output_batches=1]
-           :       SegmentedTopKExec: sort_col=title, k=3, direction=ASC, metrics=[rows_input=50, rows_output=3, segments_seen=1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=90, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=56% (50/90)]
-           :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
+           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST], k=3, metrics=[rows_input=50, rows_output=3, segments_seen=1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=50, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=100% (50/50)]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id], metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
-           :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=90, output_bytes=3.3 KB, output_batches=1]
+           :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=10, rows_scanned=100]
-(20 rows)
+           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=50, rows_scanned=100]
+(18 rows)
 
 -- =============================================================================
 -- TEST 4: K > total rows — no pruning, all rows survive
@@ -278,23 +272,21 @@ LIMIT 3;
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
-         Join Type: Inner
-         Relation 0: stk_documents (d)
-         Relation 1: stk_files (f)
+         Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.id asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(20 rows)
+(18 rows)
 
 -- =============================================================================
 -- TEST 7: No LIMIT — SegmentedTopKExec should NOT appear
@@ -320,11 +312,11 @@ WARNING:  JoinScan not used: query must have a LIMIT clause
                Output: f.id, f.document_id, f.title, f.content
          ->  Hash
                Output: d.id
-               ->  Custom Scan (ParadeDB Scan) on public.stk_documents d
+               ->  Custom Scan (ParadeDB Base Scan) on public.stk_documents d
                      Output: d.id
                      Table: stk_documents
                      Index: stk_documents_bm25_idx
-                     Exec Method: MixedFastFieldExecState
+                     Exec Method: ColumnarExecState
                      Fast Fields: id
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
@@ -348,24 +340,22 @@ LIMIT 3;
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
-         Join Type: Inner
-         Relation 0: stk_documents (d)
-         Relation 1: stk_files (f)
+         Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4]
-           :         ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4]
+           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(21 rows)
+(19 rows)
 
 -- Verify results are the same with optimization disabled
 SELECT f.id, f.title
@@ -384,24 +374,22 @@ LIMIT 3;
 
 RESET paradedb.enable_segmented_topk;
 -- =============================================================================
--- TEST 9: Compound sort correctness (known limitation)
+-- TEST 9: Compound sort correctness
 --
--- SegmentedTopKExec only considers the primary sort column's ordinal.
--- When many rows share the same ordinal, the heap keeps the first K arrivals
--- (by doc_id order), ignoring tiebreaker columns. With a tiebreaker that
--- wants the opposite end (e.g. id DESC), the wrong rows may survive.
---
--- This test documents the issue: the optimization-on result may differ from
--- the optimization-off result when duplicates exceed K.
+-- SegmentedTopKExec correctly evaluates tiebreaker columns.
+-- This test verifies that optimization ON returns the same ground truth result
+-- as optimization OFF when heavy duplicates exist on the primary sort column.
 -- =============================================================================
--- Insert 30 files with identical titles to create heavy duplicates.
--- All reference the same document so they pass the join filter.
+-- Insert 30 files with partially identical titles to create duplicate groups.
+-- We round-robin across the 5 PROJECT_ALPHA documents so d.category varies.
+-- Titles are grouped by 'Group A' through 'Group E' (6 rows per group)
+-- Content is zero-padded to ensure clean alphabetic sorting.
 TRUNCATE stk_files;
 INSERT INTO stk_files (document_id, title, content)
 SELECT
-    'doc-01',
-    'Identical Title',
-    'dup content ' || i
+    'doc-' || LPAD(((i - 1) % 5 * 2 + 1)::TEXT, 2, '0'),
+    'Group ' || CHR(65 + ((i - 1) / 6)::INT) || ' Title',
+    'content ' || LPAD(i::TEXT, 2, '0')
 FROM generate_series(1, 30) AS i;
 -- Reference result: optimization OFF — this is the ground truth.
 SET paradedb.enable_segmented_topk = off;
@@ -412,19 +400,16 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
- id  |      title      
------+-----------------
- 130 | Identical Title
- 129 | Identical Title
- 128 | Identical Title
- 127 | Identical Title
- 126 | Identical Title
+ id  |     title     
+-----+---------------
+ 106 | Group A Title
+ 105 | Group A Title
+ 104 | Group A Title
+ 103 | Group A Title
+ 102 | Group A Title
 (5 rows)
 
 -- Same query with optimization ON.
--- Because all 30 rows share the same title ordinal and K=5, the heap keeps
--- only the first 5 arrivals (lowest doc_ids → lowest ids). The tiebreaker
--- (id DESC) wants the highest ids, so the result may differ.
 SET paradedb.enable_segmented_topk = on;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT f.id, f.title
@@ -440,25 +425,23 @@ LIMIT 5;
    Output: f.id, f.title
    ->  Custom Scan (ParadeDB Join Scan)
          Output: f.id, f.title
-         Join Type: Inner
-         Relation 0: stk_documents (d)
-         Relation 1: stk_files (f)
+         Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 5
          Order By: f.title asc, f.id desc
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           : ProjectionExec: expr=[id@3 as col_1, title@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, id@3 DESC], preserve_partitioning=[false]
            :     TantivyLookupExec: decode=[title]
-           :       SegmentedTopKExec: sort_col=title, k=5, direction=ASC
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4, id@5]
-           :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
+           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, id@3 DESC], k=5
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, id@5]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title, id@3 as id]
            :             CooperativeExec
            :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
-(22 rows)
+(20 rows)
 
 SELECT f.id, f.title
 FROM stk_files f
@@ -467,16 +450,151 @@ WHERE f.document_id IN (
 )
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
- id  |      title      
------+-----------------
- 130 | Identical Title
- 129 | Identical Title
- 128 | Identical Title
- 127 | Identical Title
- 126 | Identical Title
+ id  |     title     
+-----+---------------
+ 106 | Group A Title
+ 105 | Group A Title
+ 104 | Group A Title
+ 103 | Group A Title
+ 102 | Group A Title
 (5 rows)
 
-RESET paradedb.enable_segmented_topk;
+-- =============================================================================
+-- TEST 10: ORDER BY containing two different string fields from the same table
+-- =============================================================================
+SET paradedb.enable_segmented_topk = off;
+SELECT f.id, f.title, f.content
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.content DESC
+LIMIT 5;
+ id  |     title     |  content   
+-----+---------------+------------
+ 106 | Group A Title | content 06
+ 105 | Group A Title | content 05
+ 104 | Group A Title | content 04
+ 103 | Group A Title | content 03
+ 102 | Group A Title | content 02
+(5 rows)
+
+SET paradedb.enable_segmented_topk = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.title, f.content
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.content DESC
+LIMIT 5;
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.id, f.title, f.content
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.id, f.title, f.content
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 5
+         Order By: f.title asc, f.content desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, content@3 as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=5), expr=[title@2 ASC NULLS LAST, content@3 DESC], preserve_partitioning=[false]
+           :     TantivyLookupExec: decode=[title, content]
+           :       SegmentedTopKExec: expr=[title@2 ASC NULLS LAST, content@3 DESC], k=5
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4, content@5]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title, content@3 as content]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
+(20 rows)
+
+SELECT f.id, f.title, f.content
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.content DESC
+LIMIT 5;
+ id  |     title     |  content   
+-----+---------------+------------
+ 106 | Group A Title | content 06
+ 105 | Group A Title | content 05
+ 104 | Group A Title | content 04
+ 103 | Group A Title | content 03
+ 102 | Group A Title | content 02
+(5 rows)
+
+-- =============================================================================
+-- TEST 11: ORDER BY containing two different string fields from different tables
+-- =============================================================================
+SET paradedb.enable_segmented_topk = off;
+SELECT f.id, f.title, d.category
+FROM stk_files f
+JOIN stk_documents d ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.title ASC, d.category DESC, f.id ASC
+LIMIT 5;
+ id  |     title     |             category              
+-----+---------------+-----------------------------------
+ 102 | Group A Title | PROJECT_ALPHA roadmap planning
+ 105 | Group A Title | PROJECT_ALPHA resource allocation
+ 104 | Group A Title | PROJECT_ALPHA milestone tracker
+ 103 | Group A Title | PROJECT_ALPHA feedback notes
+ 101 | Group A Title | PROJECT_ALPHA design review
+(5 rows)
+
+SET paradedb.enable_segmented_topk = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.title, d.category
+FROM stk_files f
+JOIN stk_documents d ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.title ASC, d.category DESC, f.id ASC
+LIMIT 5;
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: f.id, f.title, d.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: f.id, f.title, d.category
+         Relation Tree: d INNER f
+         Join Cond: f.document_id = d.id
+         Limit: 5
+         Order By: f.title asc, d.category desc, f.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@4 as col_1, title@3 as col_2, category@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=5), expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], preserve_partitioning=[false]
+           :     TantivyLookupExec: decode=[title]
+           :       SegmentedTopKExec: expr=[title@3 ASC NULLS LAST, category@1 DESC, id@4 ASC NULLS LAST], k=5
+           :         TantivyLookupExec: decode=[category]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, category@2, ctid_1@3, title@5, id@6]
+           :             ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, category@2 as category]
+           :               CooperativeExec
+           :                 PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :             ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title, id@3 as id]
+           :               CooperativeExec
+           :                 PgSearchScan: segments=1, dynamic_filters=1, segmented_thresholds=true, query="all"
+(21 rows)
+
+SELECT f.id, f.title, d.category
+FROM stk_files f
+JOIN stk_documents d ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.title ASC, d.category DESC, f.id ASC
+LIMIT 5;
+ id  |     title     |             category              
+-----+---------------+-----------------------------------
+ 102 | Group A Title | PROJECT_ALPHA roadmap planning
+ 105 | Group A Title | PROJECT_ALPHA resource allocation
+ 104 | Group A Title | PROJECT_ALPHA milestone tracker
+ 103 | Group A Title | PROJECT_ALPHA feedback notes
+ 101 | Group A Title | PROJECT_ALPHA design review
+(5 rows)
+
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================

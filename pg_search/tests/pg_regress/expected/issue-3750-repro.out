@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- Create the table structure from the issue
 DROP TABLE IF EXISTS places;
 CREATE TABLE places (
@@ -65,7 +65,7 @@ WHERE name &&& 'assist wireless';
          Workers Planned: 3
          ->  Partial Aggregate
                Output: PARTIAL count(*)
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.places
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.places
                      Table: places
                      Index: places_parade_idx
                      Exec Method: NormalScanExecState
@@ -98,7 +98,7 @@ WHERE name &&& 'assist wireless' AND country_code = 'us';
          Workers Planned: 3
          ->  Partial Aggregate
                Output: PARTIAL count(*)
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.places
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.places
                      Table: places
                      Index: places_parade_idx
                      Exec Method: NormalScanExecState
@@ -161,7 +161,7 @@ WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all
          Workers Planned: 3
          ->  Partial Aggregate
                Output: PARTIAL count(*)
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.places
+               ->  Parallel Custom Scan (ParadeDB Base Scan) on public.places
                      Table: places
                      Index: places_parade_idx
                      Exec Method: NormalScanExecState

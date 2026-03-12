@@ -86,7 +86,7 @@ fn joins_return_correct_results(mut conn: PgConnection) -> Result<(), sqlx::Erro
         let (pg_search_plan,) =
             format!("EXPLAIN (ANALYZE, FORMAT JSON) {pg_search}").fetch_one::<(Value,)>(&mut conn);
         eprintln!("pg_search_plan: {pg_search_plan:#?}");
-        assert!(format!("{pg_search_plan:?}").contains("ParadeDB Scan"));
+        assert!(format!("{pg_search_plan:?}").contains("ParadeDB Base Scan"));
 
         let pg_search = pg_search.fetch_result::<RowType>(&mut conn)?;
         let postgres = postgres.fetch_result::<RowType>(&mut conn)?;

@@ -35,7 +35,7 @@
 //! ```
 //!
 //! The rule walks the plan tree top-down. When it finds a `SortExec` with
-//! `fetch` (TopK mode), it searches its descendants for a `TantivyLookupExec`.
+//! `fetch` (Top K mode), it searches its descendants for a `TantivyLookupExec`.
 //! If the primary sort key matches one of the deferred string/bytes fields,
 //! it injects a `SegmentedTopKExec` as the new child of `TantivyLookupExec`.
 
@@ -44,6 +44,7 @@ use std::sync::Arc;
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::Result;
 use datafusion::physical_expr::expressions::Column;
+use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::ExecutionPlan;
@@ -104,7 +105,7 @@ fn rewrite_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> 
     Ok(plan)
 }
 
-/// If `plan` is a `SortExec(TopK)` sorting by a deferred column, inject
+/// If `plan` is a `SortExec(TopK)` sorting by at least one deferred column, inject
 /// `SegmentedTopKExec` below the `TantivyLookupExec` in its subtree.
 fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
     let Some(sort_exec) = plan.as_any().downcast_ref::<SortExec>() else {
@@ -115,17 +116,10 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
         return Ok(plan);
     };
 
-    // Extract the primary sort key's column name and direction.
     let sort_exprs = sort_exec.expr();
-    let first_sort = &sort_exprs[0];
-    let Some(col) = first_sort.expr.as_any().downcast_ref::<Column>() else {
-        return Ok(plan);
-    };
-    let sort_col_name = col.name();
-    let descending = first_sort.options.descending;
 
     // Walk down from SortExec to find TantivyLookupExec.
-    match try_inject_below_lookup(&plan, sort_col_name, k, descending)? {
+    match try_inject_below_lookup(&plan, sort_exprs.clone(), k)? {
         Some(rewritten) => Ok(rewritten),
         None => Ok(plan),
     }
@@ -136,54 +130,97 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
 /// as its new child and rebuild the plan tree up to `plan`.
 fn try_inject_below_lookup(
     plan: &Arc<dyn ExecutionPlan>,
-    sort_col_name: &str,
+    sort_exprs: LexOrdering,
     k: usize,
-    descending: bool,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
     let children = plan.children();
 
     for (child_idx, child) in children.iter().enumerate() {
         if let Some(lookup) = child.as_any().downcast_ref::<TantivyLookupExec>() {
-            // Check if the sort column is one of the deferred fields.
-            let matching_field = lookup
-                .deferred_fields()
-                .iter()
-                .find(|d| d.field_name == sort_col_name);
+            // Check if ANY sort column is one of the deferred fields.
+            // If so, we will inject SegmentedTopKExec and collect all deferred
+            // fields in the sort expressions to pass them down.
+            let has_deferred_sort_col = sort_exprs.iter().any(|expr| {
+                if let Some(col) = expr.expr.as_any().downcast_ref::<Column>() {
+                    lookup
+                        .deferred_fields()
+                        .iter()
+                        .any(|d| d.field_name == col.name())
+                } else {
+                    false
+                }
+            });
 
-            if let Some(field) = matching_field {
-                // Found a match. Inject SegmentedTopKExec below TantivyLookupExec.
+            if has_deferred_sort_col {
                 let lookup_child = &lookup.children()[0];
-
-                // Resolve the sort column index in the pre-lookup schema.
                 let input_schema = lookup_child.schema();
-                let sort_col_idx = match input_schema.column_with_name(sort_col_name) {
-                    Some((idx, _)) => idx,
-                    None => return Ok(None),
-                };
 
-                let thresholds = Arc::new(SegmentedThresholds::new(descending, field.ff_index));
+                // Collect all deferred columns found in the sort expressions.
+                let mut deferred_columns = Vec::new();
+                for expr in &sort_exprs {
+                    if let Some(col) = expr.expr.as_any().downcast_ref::<Column>() {
+                        if let Some(field) = lookup
+                            .deferred_fields()
+                            .iter()
+                            .find(|d| d.field_name == col.name())
+                        {
+                            if let Ok(idx) = input_schema.index_of(col.name()) {
+                                deferred_columns.push(
+                                    crate::scan::segmented_topk_exec::DeferredSortColumn {
+                                        sort_col_idx: idx,
+                                        ff_index: field.ff_index,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // The sort_exprs were extracted from SortExec, which is evaluated against
+                // a schema further up the plan (often after a ProjectionExec).
+                // We must rewrite the Column expressions to match the input_schema of this node.
+                let mut rewritten_sort_exprs = Vec::with_capacity(sort_exprs.len());
+                for sort_expr in &sort_exprs {
+                    use datafusion::common::tree_node::{Transformed, TreeNode};
+                    let rewritten_expr = sort_expr.expr.clone().transform(|node| {
+                        if let Some(col) = node.as_any().downcast_ref::<Column>() {
+                            if let Ok(new_idx) = input_schema.index_of(col.name()) {
+                                let new_col = Column::new(col.name(), new_idx);
+                                return Ok(Transformed::yes(
+                                    Arc::new(new_col) as Arc<dyn PhysicalExpr>
+                                ));
+                            }
+                        }
+                        Ok(Transformed::no(node))
+                    })?;
+                    rewritten_sort_exprs.push(PhysicalSortExpr {
+                        expr: rewritten_expr.data,
+                        options: sort_expr.options,
+                    });
+                }
+                let rewritten_lex_ordering =
+                    LexOrdering::new(rewritten_sort_exprs).unwrap_or(sort_exprs.clone());
+
+                let thresholds = Arc::new(SegmentedThresholds::new());
 
                 let segmented_topk = Arc::new(SegmentedTopKExec::new(
                     Arc::clone(lookup_child),
-                    sort_col_name.to_string(),
-                    sort_col_idx,
-                    field.ff_index,
+                    rewritten_lex_ordering,
+                    deferred_columns.clone(),
                     Arc::clone(lookup.ffhelper()),
                     k,
-                    descending,
-                    field.is_bytes,
                     Arc::clone(&thresholds),
                 ));
 
                 // Wire thresholds to the PgSearchScanPlan in the subtree.
-                // We match by both column name AND FFHelper identity to ensure
+                // We match by both deferred column presence AND FFHelper identity to ensure
                 // we only wire to the scan for the same relation (in joins,
                 // multiple PgSearchScanPlans exist but only one shares the
                 // same Arc<FFHelper> as the TantivyLookupExec).
                 wire_thresholds_to_scan(
                     lookup_child.as_ref(),
                     &thresholds,
-                    sort_col_name,
+                    &deferred_columns,
                     lookup.ffhelper(),
                 );
 
@@ -199,7 +236,7 @@ fn try_inject_below_lookup(
         }
 
         // Recurse into intermediate nodes (ProjectionExec, CoalescePartitionsExec, etc.)
-        if let Some(rewritten) = try_inject_below_lookup(child, sort_col_name, k, descending)? {
+        if let Some(rewritten) = try_inject_below_lookup(child, sort_exprs.clone(), k)? {
             let mut new_children: Vec<Arc<dyn ExecutionPlan>> =
                 children.iter().map(|c| Arc::clone(c)).collect();
             new_children[child_idx] = rewritten;
@@ -214,29 +251,36 @@ fn try_inject_below_lookup(
 /// thresholds into it. This handles both direct children and plans behind
 /// intermediate nodes like `SortPreservingMergeExec`.
 ///
-/// Matching is done by both `sort_col_name` (the column must be in the scan's
-/// deferred fields) and `expected_ffhelper` (`Arc` pointer equality ensures we
+/// Matching is done by both ensuring that at least one deferred sort column belongs
+/// to the scan's deferred fields, and `expected_ffhelper` (`Arc` pointer equality ensures we
 /// wire to the scan for the same relation, not a different table in a join).
 fn wire_thresholds_to_scan(
     plan: &dyn ExecutionPlan,
     thresholds: &Arc<SegmentedThresholds>,
-    sort_col_name: &str,
+    deferred_columns: &[crate::scan::segmented_topk_exec::DeferredSortColumn],
     expected_ffhelper: &Arc<FFHelper>,
 ) {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
         let same_relation = scan
             .ffhelper_if_deferred()
             .is_some_and(|ff| Arc::ptr_eq(ff, expected_ffhelper));
-        let has_target = scan
-            .deferred_fields()
-            .iter()
-            .any(|d| d.field_name == sort_col_name);
+        // Check if ANY deferred column in the sort expressions belongs to this scan
+        let has_target = deferred_columns.iter().any(|sort_col| {
+            scan.deferred_fields()
+                .iter()
+                .any(|d| d.ff_index == sort_col.ff_index)
+        });
         if same_relation && has_target {
             scan.set_segmented_thresholds(Arc::clone(thresholds));
         }
         return;
     }
     for child in plan.children() {
-        wire_thresholds_to_scan(child.as_ref(), thresholds, sort_col_name, expected_ffhelper);
+        wire_thresholds_to_scan(
+            child.as_ref(),
+            thresholds,
+            deferred_columns,
+            expected_ffhelper,
+        );
     }
 }

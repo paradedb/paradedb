@@ -27,15 +27,16 @@ pub const SCORE_COL_NAME: &str = "score";
 /// Describes which relation a column comes from and its original attribute number.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OutputColumnInfo {
+    /// Plan position of the source in `join_clause.plan.sources()`.
+    /// This is stable for the built plan and avoids RTI collisions across subquery roots.
+    pub plan_position: usize,
     /// The range table index of the source base relation.
-    #[serde(default)]
     pub rti: pg_sys::Index,
     /// The original attribute number in the source relation (1-indexed).
     /// Set to 0 for non-Var expressions (like functions).
     pub original_attno: i16,
     /// True if this column is a paradedb.score() function call.
     /// The score will be extracted from the DataFusion result batch during execution.
-    #[serde(default)]
     pub is_score: bool,
 }
 

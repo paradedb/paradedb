@@ -1,4 +1,4 @@
--- Test for SegmentedTopKExec: per-segment Top-K pruning using term ordinals.
+-- Test for SegmentedTopKExec: per-segment Top K pruning using term ordinals.
 -- Verifies that SegmentedTopKExec is injected below TantivyLookupExec for
 -- ORDER BY <deferred_string_column> LIMIT K queries, and that results are correct.
 
@@ -49,7 +49,7 @@ SELECT
 FROM generate_series(1, 100) AS i;
 
 CREATE INDEX stk_documents_bm25_idx ON stk_documents USING bm25 (id, category)
-WITH (key_field = 'id');
+WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
 
 CREATE INDEX stk_files_bm25_idx ON stk_files USING bm25 (id, document_id, title, content)
 WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
@@ -188,25 +188,23 @@ LIMIT 3;
 RESET paradedb.enable_segmented_topk;
 
 -- =============================================================================
--- TEST 9: Compound sort correctness (known limitation)
+-- TEST 9: Compound sort correctness
 --
--- SegmentedTopKExec only considers the primary sort column's ordinal.
--- When many rows share the same ordinal, the heap keeps the first K arrivals
--- (by doc_id order), ignoring tiebreaker columns. With a tiebreaker that
--- wants the opposite end (e.g. id DESC), the wrong rows may survive.
---
--- This test documents the issue: the optimization-on result may differ from
--- the optimization-off result when duplicates exceed K.
+-- SegmentedTopKExec correctly evaluates tiebreaker columns.
+-- This test verifies that optimization ON returns the same ground truth result
+-- as optimization OFF when heavy duplicates exist on the primary sort column.
 -- =============================================================================
 
--- Insert 30 files with identical titles to create heavy duplicates.
--- All reference the same document so they pass the join filter.
+-- Insert 30 files with partially identical titles to create duplicate groups.
+-- We round-robin across the 5 PROJECT_ALPHA documents so d.category varies.
+-- Titles are grouped by 'Group A' through 'Group E' (6 rows per group)
+-- Content is zero-padded to ensure clean alphabetic sorting.
 TRUNCATE stk_files;
 INSERT INTO stk_files (document_id, title, content)
 SELECT
-    'doc-01',
-    'Identical Title',
-    'dup content ' || i
+    'doc-' || LPAD(((i - 1) % 5 * 2 + 1)::TEXT, 2, '0'),
+    'Group ' || CHR(65 + ((i - 1) / 6)::INT) || ' Title',
+    'content ' || LPAD(i::TEXT, 2, '0')
 FROM generate_series(1, 30) AS i;
 
 -- Reference result: optimization OFF — this is the ground truth.
@@ -221,9 +219,6 @@ ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
 
 -- Same query with optimization ON.
--- Because all 30 rows share the same title ordinal and K=5, the heap keeps
--- only the first 5 arrivals (lowest doc_ids → lowest ids). The tiebreaker
--- (id DESC) wants the highest ids, so the result may differ.
 SET paradedb.enable_segmented_topk = on;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -243,7 +238,68 @@ WHERE f.document_id IN (
 ORDER BY f.title ASC, f.id DESC
 LIMIT 5;
 
-RESET paradedb.enable_segmented_topk;
+-- =============================================================================
+-- TEST 10: ORDER BY containing two different string fields from the same table
+-- =============================================================================
+
+SET paradedb.enable_segmented_topk = off;
+
+SELECT f.id, f.title, f.content
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.content DESC
+LIMIT 5;
+
+SET paradedb.enable_segmented_topk = on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.title, f.content
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.content DESC
+LIMIT 5;
+
+SELECT f.id, f.title, f.content
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC, f.content DESC
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 11: ORDER BY containing two different string fields from different tables
+-- =============================================================================
+
+SET paradedb.enable_segmented_topk = off;
+
+SELECT f.id, f.title, d.category
+FROM stk_files f
+JOIN stk_documents d ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.title ASC, d.category DESC, f.id ASC
+LIMIT 5;
+
+SET paradedb.enable_segmented_topk = on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.id, f.title, d.category
+FROM stk_files f
+JOIN stk_documents d ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.title ASC, d.category DESC, f.id ASC
+LIMIT 5;
+
+SELECT f.id, f.title, d.category
+FROM stk_files f
+JOIN stk_documents d ON f.document_id = d.id
+WHERE d.category @@@ 'PROJECT_ALPHA'
+ORDER BY f.title ASC, d.category DESC, f.id ASC
+LIMIT 5;
 
 -- =============================================================================
 -- CLEANUP

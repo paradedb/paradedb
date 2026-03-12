@@ -59,7 +59,7 @@ fn generates_custom_scan_for_or(mut conn: PgConnection) {
 
     assert_eq!(
         plan.get("Custom Plan Provider"),
-        Some(&Value::String(String::from("ParadeDB Scan")))
+        Some(&Value::String(String::from("ParadeDB Base Scan")))
     );
 }
 
@@ -76,7 +76,7 @@ fn generates_custom_scan_for_and(mut conn: PgConnection) {
     let plan = plan.pointer("/0/Plan").unwrap();
     assert_eq!(
         plan.get("Custom Plan Provider"),
-        Some(&Value::String(String::from("ParadeDB Scan")))
+        Some(&Value::String(String::from("ParadeDB Base Scan")))
     );
 }
 
@@ -206,7 +206,7 @@ explain (analyze, format json) select * from paradedb.bm25_search where metadata
     );
     assert_eq!(path.get("Scores"), Some(&Value::Bool(false)));
     assert_eq!(
-        path.get("   TopN Limit"),
+        path.get("   TopK Limit"),
         Some(&Value::Number(Number::from(1)))
     );
 }
@@ -227,7 +227,7 @@ explain (analyze, format json) select pdb.score(id), * from paradedb.bm25_search
     );
     assert_eq!(path.get("Scores"), Some(&Value::Bool(true)));
     assert_eq!(
-        path.get("   TopN Limit"),
+        path.get("   TopK Limit"),
         Some(&Value::Number(Number::from(1)))
     );
 }
@@ -555,7 +555,7 @@ fn without_operator_guc(mut conn: PgConnection) {
         let (plan,) = format!("EXPLAIN (FORMAT JSON) {query_string}").fetch_one::<(Value,)>(conn);
         eprintln!("{query_string}");
         eprintln!("{plan:#?}");
-        format!("{plan:?}").contains("ParadeDB Scan")
+        format!("{plan:?}").contains("ParadeDB Base Scan")
     }
 
     for custom_scan_without_operator in [true, false] {
@@ -591,7 +591,7 @@ fn without_operator_guc(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn top_n_matches(mut conn: PgConnection) {
+fn top_k_matches(mut conn: PgConnection) {
     r#"
         DROP TABLE IF EXISTS test;
         CREATE TABLE test (
@@ -709,7 +709,7 @@ fn stable_limit_and_offset(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn top_n_is_exhausted(mut conn: PgConnection) {
+fn top_k_is_exhausted(mut conn: PgConnection) {
     r#"
         CREATE TABLE exhausted (id SERIAL8 NOT NULL PRIMARY KEY, message TEXT, severity INTEGER);
         CREATE INDEX exhausted_idx ON exhausted USING bm25 (id, message, severity) WITH (key_field = 'id');
@@ -735,7 +735,7 @@ fn top_n_is_exhausted(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn top_n_completes_issue2511(mut conn: PgConnection) {
+fn top_k_completes_issue2511(mut conn: PgConnection) {
     r#"
         drop table if exists loop;
         create table loop (id serial8 not null primary key, message text) with (autovacuum_enabled = false);

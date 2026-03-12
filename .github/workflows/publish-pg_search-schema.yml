@@ -2,8 +2,7 @@
 #
 # Publish pg_search Schema
 # Generates the full pg_search SQL schema via `cargo pgrx schema` and uploads it as a
-# release asset. Once uploaded, notifies ORM wrapper repos via repository_dispatch so they
-# can run compatibility checks against the new version.
+# release asset.
 
 name: Publish pg_search Schema
 
@@ -32,9 +31,6 @@ jobs:
         shell: bash -eo pipefail {0}
     env:
       pg_version: 18
-      # ORM repos to notify on new releases — add new repos here
-      ORM_REPOS: |
-        paradedb/django-paradedb
 
     steps:
       - name: Checkout Git Repository
@@ -49,6 +45,8 @@ jobs:
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
@@ -86,19 +84,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
         run: gh release upload v${{ steps.version.outputs.version }} pg_search.schema.sql --clobber
-
-      - name: Notify ORM Repos of New Release
-        env:
-          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-        run: |
-          while IFS= read -r repo; do
-            repo=$(echo "$repo" | xargs)  # trim whitespace
-            [ -z "$repo" ] && continue
-            echo "Dispatching to $repo..."
-            gh api "repos/$repo/dispatches" \
-              --field event_type=paradedb-release \
-              --field "client_payload[version]=${{ steps.version.outputs.version }}"
-          done <<< "$ORM_REPOS"
 
       - name: Notify Slack on Failure
         if: failure()

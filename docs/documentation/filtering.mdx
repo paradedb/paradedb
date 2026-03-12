@@ -7,11 +7,23 @@ canonical: https://docs.paradedb.com/documentation/filtering
 Adding filters to text search is as simple as using PostgreSQL's built-in `WHERE` clauses and operators.
 For instance, the following query filters out results that do not meet `rating > 2`.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2;
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR')),
+    rating__gt=2
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 ## Filter Pushdown
 
@@ -87,11 +99,23 @@ Filter pushdown is currently supported for the following combinations of types a
 
 Suppose we have a text filter that looks for an exact string match like `category = 'Footwear'`:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ 'shoes' AND category = 'Footwear';
 ```
+
+```python Django
+from paradedb import ParadeDB, Term
+
+MockItem.objects.filter(
+    description=ParadeDB(Term('shoes')),
+    category='Footwear'
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer:
 
@@ -103,8 +127,20 @@ WITH (key_field = 'id');
 
 Pushdown of set filters over text fields also requires the literal tokenizer:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');
 ```
+
+```python Django
+from paradedb import ParadeDB, Term
+
+MockItem.objects.filter(
+    description=ParadeDB(Term('shoes')),
+    category__in=['Footwear', 'Apparel']
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>

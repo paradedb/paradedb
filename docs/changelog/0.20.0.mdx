@@ -27,7 +27,7 @@ A massive thank you to our external contributors for this release:
 
 ParadeDB 0.20 introduces powerful [search aggregation capabilities](/documentation/aggregates/overview) through the new `pdb.agg()` function. This function can be used in two ways to push analytics down into the Tantivy index for optimal performance.
 
-The first is as a **window function** for fast faceting alongside TopN queries:
+The first is as a **window function** for fast faceting alongside Top K queries:
 
 ```sql
 SELECT
@@ -67,7 +67,7 @@ As a reminder the v2 API has the following improvements:
 
 - Index creation using SQL rather than JSON blobs
 - Tokenizers as Postgres types
-- Columnar fast fields by default for all non-text and literal tokenized types, removing the need to configure manually.
+- Columnar storage by default for all non-text and literal tokenized types, removing the need to configure manually.
 - Improved SQL query API, optimizing for both developer experience AND ORM integration
 
 Most of the v2 API was introduced in 0.19.x, but the following additions have been made:

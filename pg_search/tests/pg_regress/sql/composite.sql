@@ -44,11 +44,11 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
 
 ------------------------------------------------------------
--- TEST: MixedFastFieldExecState with ROW expression fields
+-- TEST: ColumnarExecState with ROW expression fields
 ------------------------------------------------------------
 
-SET paradedb.enable_mixed_fast_field_exec = true;
-SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.columnar_exec_column_threshold = 100;
 
 -- Composite type using pdb.literal to enable fast fields
 CREATE TYPE fast_article_search AS (
@@ -79,8 +79,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
 SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
 
-RESET paradedb.enable_mixed_fast_field_exec;
-RESET paradedb.mixed_fast_field_exec_column_threshold;
+RESET paradedb.enable_columnar_exec;
+RESET paradedb.columnar_exec_column_threshold;
 
 ------------------------------------------------------------
 -- TEST: Composite type with more than 32 fields
@@ -906,11 +906,11 @@ WHERE id @@@ pdb.parse('description:wireless')
 ORDER BY id;
 
 ------------------------------------------------------------
--- TEST: TopN Scan (ORDER BY with LIMIT)
+-- TEST: Top K Scan (ORDER BY with LIMIT)
 ------------------------------------------------------------
-\echo '=== TEST: TopN Scan ==='
+\echo '=== TEST: Top K Scan ==='
 
--- Basic TopN with EXPLAIN
+-- Basic Top K with EXPLAIN
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test
@@ -918,14 +918,14 @@ WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
 ORDER BY rating DESC, id
 LIMIT 3;
 
--- Execute TopN query
+-- Execute Top K query
 SELECT id, name, rating
 FROM smoke_test
 WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
 ORDER BY rating DESC, id
 LIMIT 3;
 
--- TopN with score ordering
+-- Top K with score ordering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test
@@ -990,7 +990,7 @@ ORDER BY count DESC, category;
 ------------------------------------------------------------
 \echo '=== TEST: pdb.agg() Window Function ==='
 
--- pdb.agg with terms aggregation (requires TopN query)
+-- pdb.agg with terms aggregation (requires Top K query)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, category,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as category_facets
@@ -1005,7 +1005,7 @@ WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 3;
 
--- pdb.agg with avg aggregation (requires TopN query)
+-- pdb.agg with avg aggregation (requires Top K query)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating,
        pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER () as avg_rating
@@ -1147,12 +1147,12 @@ ORDER BY id;
 ------------------------------------------------------------
 \echo '=== TEST: EXPLAIN Plans ==='
 
--- NormalScanExecState / MixedFastFieldExecState - basic search
+-- NormalScanExecState / ColumnarExecState - basic search
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM smoke_test
 WHERE id @@@ pdb.parse('name:Shoes');
 
--- TopNScanExecState - search with ORDER BY score DESC and LIMIT
+-- TopKScanExecState - search with ORDER BY score DESC and LIMIT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test
@@ -1160,7 +1160,7 @@ WHERE id @@@ pdb.parse('description:shoes OR description:keyboard')
 ORDER BY score DESC, id
 LIMIT 3;
 
--- TopNScanExecState - search with ORDER BY fast field and LIMIT
+-- TopKScanExecState - search with ORDER BY fast field and LIMIT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test
@@ -1173,7 +1173,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics');
 
--- Verify TopN with pdb.agg window function
+-- Verify Top K with pdb.agg window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as facets
@@ -1251,11 +1251,11 @@ SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY
 SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
 
 ------------------------------------------------------------
--- TEST: TopN queries with pdb functions on composite fields
+-- TEST: Top K queries with pdb functions on composite fields
 ------------------------------------------------------------
-\echo '=== TEST: TopN with pdb functions on composite fields ==='
+\echo '=== TEST: Top K with pdb functions on composite fields ==='
 
--- TopN with pdb.term() on composite field, ORDER BY score
+-- Top K with pdb.term() on composite field, ORDER BY score
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('shoes')
@@ -1264,7 +1264,7 @@ SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('shoes')
 ORDER BY score DESC, id LIMIT 3;
 
--- TopN with pdb.match() on composite field, ORDER BY rating (fast field)
+-- Top K with pdb.match() on composite field, ORDER BY rating (fast field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test WHERE description @@@ pdb.match('wireless OR shoes')
@@ -1273,7 +1273,7 @@ SELECT id, name, rating
 FROM smoke_test WHERE description @@@ pdb.match('wireless OR shoes')
 ORDER BY rating DESC, id LIMIT 3;
 
--- TopN with pdb.regex() on composite field
+-- Top K with pdb.regex() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE description @@@ pdb.regex('.*boot.*')
@@ -1282,7 +1282,7 @@ SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE description @@@ pdb.regex('.*boot.*')
 ORDER BY score DESC, id LIMIT 2;
 
--- TopN with multiple composite field conditions
+-- Top K with multiple composite field conditions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')

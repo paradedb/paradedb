@@ -56,6 +56,10 @@ pub struct PgSearchTableProvider {
     /// if `is_parallel` is true.
     #[serde(skip)]
     parallel_state: Option<*mut ParallelScanState>,
+    /// Postgres expression context, skipped during serialization and
+    /// re-injected by the `PgSearchExtensionCodec` during deserialization.
+    #[serde(skip)]
+    expr_context: Option<*mut pg_sys::ExprContext>,
 }
 
 unsafe impl Send for PgSearchTableProvider {}
@@ -74,6 +78,7 @@ impl PgSearchTableProvider {
             schema: OnceLock::new(),
             is_parallel,
             parallel_state,
+            expr_context: None,
         }
     }
 
@@ -84,6 +89,10 @@ impl PgSearchTableProvider {
     pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
         assert!(self.is_parallel);
         self.parallel_state = parallel_state;
+    }
+
+    pub(crate) fn set_expr_context(&mut self, expr_context: Option<*mut pg_sys::ExprContext>) {
+        self.expr_context = expr_context;
     }
     pub fn try_enable_late_materialization(
         &mut self,
@@ -499,7 +508,7 @@ impl TableProvider for PgSearchTableProvider {
             query.clone(),
             self.scan_info.score_needed,
             mvcc_style,
-            None,
+            self.expr_context.and_then(std::ptr::NonNull::new),
             None,
         )
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;

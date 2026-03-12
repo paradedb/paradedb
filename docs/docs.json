@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.21.10",
+        "version": "v0.21.14",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -111,7 +111,7 @@
                         "pages": [
                           "documentation/sorting/score",
                           "documentation/sorting/boost",
-                          "documentation/sorting/topn"
+                          "documentation/sorting/topk"
                         ]
                       },
                       "documentation/filtering",
@@ -326,6 +326,10 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.21.14",
+                  "changelog/0.21.13",
+                  "changelog/0.21.12",
+                  "changelog/0.21.11",
                   "changelog/0.21.10",
                   "changelog/0.21.9",
                   "changelog/0.21.8",
@@ -447,7 +451,7 @@
     "links": [
       {
         "label": "Community",
-        "href": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw"
+        "href": "https://paradedb.com/slack"
       },
       {
         "label": "Blog",
@@ -496,7 +500,7 @@
   "footer": {
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
-      "slack": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw",
+      "slack": "https://paradedb.com/slack",
       "twitter": "https://twitter.com/paradedb"
     }
   },

@@ -18,14 +18,14 @@
 //! Shared utilities for analyzing sort expressions in `ORDER BY` clauses.
 //!
 //! This module is shared between custom scans (BaseScan, AggregateScan) and the planner hook
-//! to ensure that TopN compatibility validation logic is consistent across the codebase.
+//! to ensure that Top K compatibility validation logic is consistent across the codebase.
 //!
 //! This sharing is required to workaround <https://github.com/paradedb/paradedb/issues/3455>,
 //! ensuring that we only replace window functions with ParadeDB placeholders
-//! when we are certain that the query can be executed as a TopN query.
+//! when we are certain that the query can be executed as a Top K query.
 
 use crate::api::FieldName;
-use crate::index::reader::index::MAX_TOPN_FEATURES;
+use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::score_funcoids;
@@ -47,10 +47,10 @@ pub enum SortExpressionType {
     Raw,
 }
 
-/// Reason why pathkeys cannot be used for TopN execution
+/// Reason why pathkeys cannot be used for Top K execution
 #[derive(Debug, Clone)]
 pub enum UnusableReason {
-    /// ORDER BY has too many columns (more than MAX_TOPN_FEATURES)
+    /// ORDER BY has too many columns (more than MAX_TOPK_FEATURES)
     TooManyColumns { count: usize, max: usize },
     /// Only a prefix of the ORDER BY columns can be pushed down
     PrefixOnly { matched: usize },
@@ -217,7 +217,7 @@ unsafe fn find_target_entry_by_ref(
 /// Returns PathKeyInfo indicating whether any PathKeys existed at all, and if so, whether they
 /// might be usable via fast fields.
 ///
-/// This function must be kept in sync with `validate_topn_compatibility` below.
+/// This function must be kept in sync with `validate_topk_compatibility` below.
 pub unsafe fn extract_pathkey_styles_with_sortability_check<F1, F2>(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
@@ -308,7 +308,7 @@ where
     PathKeyInfo::UsableAll(pathkey_styles)
 }
 
-/// Check if the query is a valid TopN query compatible with ParadeDB execution.
+/// Check if the query is a valid Top K query compatible with ParadeDB execution.
 ///
 /// Ensures that:
 /// 1. The query has both ORDER BY and LIMIT clauses.
@@ -319,19 +319,19 @@ where
 ///
 /// This function must be kept in sync with [`extract_pathkey_styles_with_sortability_check`]
 /// above to ensure that queries accepted here can be executed by the custom scan.
-pub unsafe fn validate_topn_compatibility(parse: *mut pg_sys::Query) -> bool {
+pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
     if parse.is_null() || (*parse).sortClause.is_null() || (*parse).limitCount.is_null() {
         return false;
     }
 
     let sort_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
-    if sort_list.len() > MAX_TOPN_FEATURES {
+    if sort_list.len() > MAX_TOPK_FEATURES {
         return false;
     }
 
     let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
-    // We need to identify the single relation that this TopN query targets
+    // We need to identify the single relation that this Top K query targets
     // Tuple: (varno, relid, schema)
     let mut target_relation_info: Option<(pg_sys::Index, pg_sys::Oid, SearchIndexSchema)> = None;
 

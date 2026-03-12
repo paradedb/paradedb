@@ -30,7 +30,7 @@
 //! The core strategy is **late materialization**:
 //! 1. Execute the search and join using ONLY the index (fast fields).
 //! 2. Apply sorting and limits on the joined index data.
-//! 3. Only access the PostgreSQL heap (materialize) for the final result rows (top N).
+//! 3. Only access the PostgreSQL heap (materialize) for the final result rows (Top K).
 //!
 //! This strategy requires that all data needed for the join, filter, and sort phases
 //! resides in fast fields, and that the result set size is small enough (via LIMIT)
@@ -149,7 +149,7 @@ mod privdat;
 mod scan_state;
 mod translator;
 
-use self::build::JoinCSClause;
+use self::build::{CtidColumn, JoinCSClause, RelNode, RelationAlias};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::memory::PanicOnOOMMemoryPool;
 use self::planning::{
@@ -174,6 +174,8 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
@@ -225,12 +227,13 @@ impl ParallelQueryCapable for JoinScan {
         let query = source.scan_info.query.clone();
 
         let index_rel = PgSearchRelation::open(index_relid);
+        let expr_context = crate::postgres::utils::ExprContextGuard::new();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query,
             false,
             MvccSatisfies::Snapshot,
-            None,
+            std::ptr::NonNull::new(expr_context.as_ptr()),
             None,
         )
         .expect("Failed to open reader for DSM initialization");
@@ -323,45 +326,42 @@ impl CustomScan for JoinScan {
             let innerrel = args.innerrel;
             let extra = args.extra;
 
-            let (mut source_candidates, mut join_keys) =
+            let (outer_node, mut join_keys) =
                 if let Some(res) = collect_join_sources(root, outerrel) {
                     res
                 } else {
                     return Vec::new();
                 };
-            let (inner_candidates, inner_keys) =
-                if let Some(res) = collect_join_sources(root, innerrel) {
-                    res
-                } else {
-                    return Vec::new();
-                };
-            let outer_source_count = source_candidates.len();
-            let inner_source_count = inner_candidates.len();
+            let (inner_node, inner_keys) = if let Some(res) = collect_join_sources(root, innerrel) {
+                res
+            } else {
+                return Vec::new();
+            };
 
-            source_candidates.extend(inner_candidates);
             join_keys.extend(inner_keys);
 
-            // Calculate estimates to decide which table to partition
-            for source in &mut source_candidates {
-                source.estimate_rows();
-            }
+            let mut all_sources = outer_node.sources();
+            all_sources.extend(inner_node.sources());
 
             // Collect aliases for warnings
-            let aliases: Vec<String> = source_candidates
+            let aliases: Vec<String> = all_sources
                 .iter()
-                .enumerate()
-                .map(|(i, s)| s.execution_alias(i))
+                .map(|s| {
+                    RelationAlias::new(s.scan_info.alias.as_deref())
+                        .warning_context(s.scan_info.heaprelid)
+                })
                 .collect();
 
             // A join is "potentially interesting" if at least one side has a BM25 index and a search predicate.
             // We use this flag to decide whether to emit user-friendly warnings explaining why the JoinScan
             // wasn't chosen (e.g., missing LIMIT, missing fast fields). If the user hasn't tried to search,
             // we don't want to spam them with warnings about standard Postgres joins.
-            let is_interesting = source_candidates
-                .iter()
-                .any(|s| s.has_bm25_index() && s.has_search_predicate());
+            let is_interesting = all_sources.iter().any(|s| s.scan_info.has_search_predicate);
 
-            if source_candidates.iter().any(|s| !s.has_bm25_index()) {
+            if all_sources
+                .iter()
+                .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
+            {
                 if is_interesting {
                     Self::add_planner_warning(
                         "JoinScan not used: all join sources must have a BM25 index",
@@ -371,17 +371,18 @@ impl CustomScan for JoinScan {
                 return Vec::new();
             }
 
-            let mut sources = Vec::with_capacity(source_candidates.len());
-            for candidate in source_candidates {
-                match build::JoinSource::try_from(candidate) {
-                    Ok(source) => sources.push(source),
-                    Err(e) => {
-                        if is_interesting {
-                            Self::add_planner_warning(format!("JoinScan not used: {e}"), &aliases);
-                        }
-                        return Vec::new();
-                    }
+            // TODO: Add support for Aggregate functions
+            // Bail out if the query has aggregates — LIMIT applies to aggregate
+            // output not to the rows feeding the aggregate, so pushing LIMIT into
+            // DataFusion would produce wrong results until we add support for Agg functions
+            if (*(*root).parse).hasAggs {
+                if is_interesting {
+                    Self::add_planner_warning(
+                        "JoinScan not used: queries with aggregate functions are not supported",
+                        (),
+                    );
                 }
+                return Vec::new();
             }
 
             // TODO(join-types): Currently only INNER JOIN is supported.
@@ -395,26 +396,12 @@ impl CustomScan for JoinScan {
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
             // The current "Partition Outer / Replicate Inner" strategy is incorrect for Right/Full joins.
-            if jointype != pg_sys::JoinType::JOIN_INNER && jointype != pg_sys::JoinType::JOIN_SEMI {
-                let is_user_visible_jointype = jointype <= pg_sys::JoinType::JOIN_ANTI;
-                if is_interesting && is_user_visible_jointype {
-                    Self::add_planner_warning(
-                            format!(
-                                "JoinScan not used: only INNER/SEMI JOIN is currently supported, got {:?}",
-                                jointype
-                            ),
-                            &aliases,
-                        );
-                }
-                return Vec::new();
-            }
 
             // JoinScan requires a LIMIT clause. This restriction exists because we gain a
             // significant benefit from using the column store when it enables late-materialization
             // of heap tuples _after_ the join has run.
-            let limit = if (*root).limit_tuples > -1.0 {
-                Some((*root).limit_tuples as usize)
-            } else {
+            let limit_offset = LimitOffset::from_root(root);
+            if limit_offset.limit.is_none() {
                 if is_interesting {
                     Self::add_planner_warning(
                         "JoinScan not used: query must have a LIMIT clause",
@@ -422,8 +409,9 @@ impl CustomScan for JoinScan {
                     );
                 }
                 return Vec::new();
-            };
-            let join_conditions = extract_join_conditions(extra, &sources);
+            }
+
+            let join_conditions = extract_join_conditions(extra, &all_sources);
 
             // Require equi-join keys for JoinScan.
             // Without equi-join keys, we'd have a cross join requiring O(N*M) comparisons
@@ -439,61 +427,36 @@ impl CustomScan for JoinScan {
                 return Vec::new();
             }
 
-            // Check if all ORDER BY columns are fast fields
-            // JoinScan requires fast field access for efficient sorting
-            if !order_by_columns_are_fast_fields(root, &sources) {
+            // Detect DISTINCT and validate columns are fast fields
+            let has_distinct = !(*(*root).parse).distinctClause.is_null();
+            if has_distinct && !distinct_columns_are_fast_fields(root, &all_sources) {
                 if is_interesting {
                     Self::add_planner_warning(
-                        "JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index",
-                        (),
+                        "JoinScan not used: all DISTINCT columns must be fast fields in the BM25 index",
+                        &aliases,
                     );
                 }
                 return Vec::new();
             }
 
-            let mut join_clause = JoinCSClause::new()
-                .with_join_type(jointype.into())
-                .with_limit(limit);
-            join_clause.sources = sources;
-
-            // The current parallel strategy partitions exactly one source and replicates all
-            // others. For SEMI JOIN correctness, the partitioned source must be the left side.
-            // We currently enforce a conservative subset: binary base-table joins only.
-            if jointype == pg_sys::JoinType::JOIN_SEMI {
-                if outer_source_count != 1 || inner_source_count != 1 {
-                    if is_interesting {
-                        Self::add_planner_warning(
-                            "JoinScan not used: SEMI JOIN currently supports only binary base-table joins",
-                            &aliases,
-                        );
-                    }
-                    return Vec::new();
+            // Check if all ORDER BY columns are fast fields
+            // JoinScan requires fast field access for efficient sorting
+            if !order_by_columns_are_fast_fields(root, &all_sources) {
+                if is_interesting {
+                    Self::add_planner_warning(
+                        "JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index",
+                        &aliases,
+                    );
                 }
-
-                let partitioning_idx = join_clause.partitioning_source_index();
-                if partitioning_idx != 0 {
-                    if is_interesting {
-                        Self::add_planner_warning(
-                            "JoinScan not used: SEMI JOIN requires the left side to be the largest source",
-                            &aliases,
-                        );
-                    }
-                    return Vec::new();
-                }
+                return Vec::new();
             }
 
             // Validate ONLY the new keys added at this level (the recursive ones were validated during collection)
             for jk in &join_conditions.equi_keys {
                 // All equi-join key columns must be fast fields in their respective BM25 indexes
                 // We need to find the source for each RTI involved in the join key
-                let outer_source = join_clause
-                    .sources
-                    .iter()
-                    .find(|s| s.contains_rti(jk.outer_rti));
-                let inner_source = join_clause
-                    .sources
-                    .iter()
-                    .find(|s| s.contains_rti(jk.inner_rti));
+                let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
+                let inner_source = all_sources.iter().find(|s| s.contains_rti(jk.inner_rti));
 
                 match (outer_source, inner_source) {
                     (Some(outer), Some(inner)) => {
@@ -519,20 +482,54 @@ impl CustomScan for JoinScan {
                 }
             }
 
-            // Add collected keys first
-            join_clause.join_keys = join_keys;
             // Add current level keys
-            join_clause.join_keys.extend(join_conditions.equi_keys);
+            join_keys.extend(join_conditions.equi_keys.clone());
+
+            let parsed_jointype = match build::JoinType::try_from(jointype) {
+                Ok(jt) => jt,
+                Err(e) => {
+                    Self::add_planner_warning(e.to_string(), ());
+                    return Vec::new();
+                }
+            };
+
+            let plan = RelNode::Join(Box::new(build::JoinNode {
+                join_type: parsed_jointype,
+                left: outer_node,
+                right: inner_node,
+                equi_keys: join_conditions.equi_keys,
+                filter: None,
+            }));
+
+            let unsupported = plan.unsupported_join_types();
+            if !unsupported.is_empty() {
+                if is_interesting {
+                    Self::add_detailed_planner_warning(
+                        "JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported",
+                        &aliases,
+                        unsupported
+                            .iter()
+                            .map(|t| t.to_string().to_uppercase())
+                            .collect::<Vec<_>>(),
+                    );
+                }
+                return Vec::new();
+            }
+
+            let mut join_clause = JoinCSClause::new(plan)
+                .with_limit(limit_offset.limit)
+                .with_offset(limit_offset.offset)
+                .with_distinct(has_distinct);
 
             // Determine ordering side index
             let ordering_idx = join_clause.ordering_side_index();
             let score_pathkey = if let Some(side) = join_clause.ordering_side() {
-                extract_score_pathkey(root, side)
+                extract_score_pathkey(root, &side)
             } else {
                 None
             };
 
-            for (i, source) in join_clause.sources.iter_mut().enumerate() {
+            for (i, source) in join_clause.plan.sources_mut().into_iter().enumerate() {
                 // Check if paradedb.score() is used anywhere in the query for each side.
                 // This includes ORDER BY, SELECT list, or any other expression.
                 // We need to check ALL sides because:
@@ -553,6 +550,24 @@ impl CustomScan for JoinScan {
                 }
             }
 
+            let current_sources = join_clause.plan.sources();
+
+            // The current parallel strategy partitions exactly one source and replicates all
+            // others. For SEMI JOIN correctness, the partitioned source must be the left side.
+            // We currently enforce a conservative subset: binary base-table joins only.
+            if jointype == pg_sys::JoinType::JOIN_SEMI {
+                let partitioning_idx = join_clause.partitioning_source_index();
+                if partitioning_idx != 0 {
+                    if is_interesting {
+                        Self::add_planner_warning(
+                            "JoinScan not used: SEMI JOIN requires the left side to be the largest source",
+                            &aliases,
+                        );
+                    }
+                    return Vec::new();
+                }
+            }
+
             // Extract join-level predicates (search predicates and heap conditions)
             // This builds an expression tree that can reference:
             // - Predicate nodes: Tantivy search queries
@@ -562,7 +577,7 @@ impl CustomScan for JoinScan {
                 match extract_join_level_conditions(
                     root,
                     extra,
-                    &join_clause.sources,
+                    &current_sources,
                     &join_conditions.other_conditions,
                     join_clause.clone(),
                 ) {
@@ -578,10 +593,14 @@ impl CustomScan for JoinScan {
                     }
                 };
 
+            let current_sources_after_cond = join_clause.plan.sources();
+
             // Check if this is a valid join for JoinScan
             // We need at least one side with a BM25 index AND a search predicate,
             // OR successfully extracted join-level predicates.
-            let has_side_predicate = join_clause.sources.iter().any(|s| s.has_search_predicate());
+            let has_side_predicate = current_sources_after_cond
+                .iter()
+                .any(|s| s.has_search_predicate());
             let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
 
             if !has_side_predicate && !has_join_level_predicates {
@@ -594,14 +613,26 @@ impl CustomScan for JoinScan {
             // the predicate extraction returns None and JoinScan won't be proposed.
 
             // Extract ORDER BY info for DataFusion execution
-            let order_by = extract_orderby(root, &join_clause.sources, ordering_idx);
+            let output_rtis = join_clause.plan.output_rtis();
+            let order_by = match extract_orderby(root, &current_sources_after_cond, &output_rtis) {
+                Some(ob) => ob,
+                None => {
+                    if is_interesting {
+                        Self::add_planner_warning(
+                            "JoinScan not used: ORDER BY column is not available in the joined output schema",
+                            &aliases,
+                        );
+                    }
+                    return Vec::new();
+                }
+            };
             join_clause = join_clause.with_order_by(order_by);
 
             // Use simple fixed costs since we force the path anyway.
             // Cost estimation is deferred to DataFusion integration.
             let startup_cost = crate::DEFAULT_STARTUP_COST;
             let total_cost = startup_cost + 1.0;
-            let mut result_rows = limit.map(|l| l as f64).unwrap_or(1000.0);
+            let mut result_rows = limit_offset.limit.map(|l| l as f64).unwrap_or(1000.0);
 
             // Calculate parallel workers based on the largest source, which we will partition.
             let (segment_count, row_estimate) = {
@@ -622,7 +653,7 @@ impl CustomScan for JoinScan {
                 // We pass `contains_correlated_param = false` for now (TODO: check this).
                 compute_nworkers(
                     declares_sorted_output,
-                    limit.map(|l| l as f64),
+                    limit_offset.limit.map(|l| l as f64),
                     row_estimate,
                     segment_count,
                     false,
@@ -657,7 +688,7 @@ impl CustomScan for JoinScan {
 
                 let processes = processes as u64;
                 let partitioning_idx = join_clause.partitioning_source_index();
-                for (idx, source) in join_clause.sources.iter_mut().enumerate() {
+                for (idx, source) in join_clause.plan.sources_mut().into_iter().enumerate() {
                     if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
                         if idx == partitioning_idx {
                             source.scan_info.estimated_rows_per_worker = Some(n / processes);
@@ -667,7 +698,7 @@ impl CustomScan for JoinScan {
                     }
                 }
             } else {
-                for source in join_clause.sources.iter_mut() {
+                for source in join_clause.plan.sources_mut() {
                     if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
                         source.scan_info.estimated_rows_per_worker = Some(n);
                     }
@@ -705,7 +736,7 @@ impl CustomScan for JoinScan {
             // We successfully created a JoinScan path for these tables, so we can clear any
             // "failure" warnings that might have been generated for them (e.g. from failed
             // attempts with different join orders or conditions).
-            Self::clear_planner_warnings_for_contexts(&aliases);
+            Self::mark_contexts_successful(&aliases);
 
             vec![custom_path]
         }
@@ -717,6 +748,7 @@ impl CustomScan for JoinScan {
 
         // Get best_path before builder is consumed
         let best_path = builder.args().best_path;
+        let root = builder.args().root;
 
         let mut node = builder.build();
 
@@ -745,25 +777,39 @@ impl CustomScan for JoinScan {
             for te in original_entries.iter_ptr() {
                 if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
                     let var = (*te).expr as *mut pg_sys::Var;
-                    // Determine if this column comes from outer or inner relation
+                    let rti = (*var).varno as pg_sys::Index;
+                    let attno = (*var).varattno;
+                    let plan_position = private_data
+                        .join_clause
+                        .plan_position(root.into(), rti, attno)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Failed to resolve output Var to plan_position (rti={}, attno={})",
+                                rti, attno
+                            )
+                        });
                     output_columns.push(privdat::OutputColumnInfo {
-                        rti: (*var).varno as pg_sys::Index,
-                        original_attno: (*var).varattno,
+                        plan_position,
+                        rti,
+                        original_attno: attno,
                         is_score: false,
                     });
                 } else {
                     let mut is_score = false;
                     let mut rti = 0;
-                    for source in &private_data.join_clause.sources {
+                    let mut plan_position = 0usize;
+                    for source in private_data.join_clause.plan.sources() {
                         if expr_uses_scores_from_source((*te).expr.cast(), source) {
                             // This expression contains paradedb.score()
                             is_score = true;
                             rti = get_score_func_rti((*te).expr.cast()).unwrap_or(0);
+                            plan_position = source.plan_position;
                             break;
                         }
                     }
                     // Non-Var, non-score expression - mark as null (attno = 0)
                     output_columns.push(privdat::OutputColumnInfo {
+                        plan_position,
                         rti,
                         original_attno: 0,
                         is_score,
@@ -853,61 +899,85 @@ impl CustomScan for JoinScan {
         explainer: &mut Explainer,
     ) {
         let join_clause = &state.custom_state().join_clause;
-        explainer.add_text("Join Type", join_clause.join_type.to_string());
+        explainer.add_text("Relation Tree", join_clause.plan.explain());
 
         let mut base_relations = Vec::new();
         join_clause.collect_base_relations(&mut base_relations);
 
-        for (i, base) in base_relations.iter().enumerate() {
-            let rel_name = PgSearchRelation::open(base.heaprelid).name().to_string();
-            let alias = base.alias.as_ref().unwrap_or(&rel_name);
-            explainer.add_text(
-                &format!("Relation {}", i),
-                if alias != &rel_name {
-                    format!("{} ({})", rel_name, alias)
-                } else {
-                    rel_name
-                },
-            );
+        fn collect_join_cond_strings(node: &RelNode, acc: &mut Vec<String>) {
+            match node {
+                RelNode::Scan(_) => {}
+                RelNode::Filter(filter) => collect_join_cond_strings(&filter.input, acc),
+                RelNode::Join(join) => {
+                    for jk in &join.equi_keys {
+                        let ((left_source, left_attno), (right_source, right_attno)) = jk
+                            .resolve_against(&join.left, &join.right)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",
+                                    jk.outer_rti, jk.inner_rti
+                                )
+                            });
+
+                        let (outer_source, outer_attno, inner_source, inner_attno) =
+                            if join.left.contains_rti(jk.outer_rti)
+                                && join.right.contains_rti(jk.inner_rti)
+                            {
+                                (left_source, left_attno, right_source, right_attno)
+                            } else {
+                                (right_source, right_attno, left_source, left_attno)
+                            };
+
+                        let outer_alias =
+                            RelationAlias::new(outer_source.scan_info.alias.as_deref())
+                                .display(outer_source.plan_position);
+                        let inner_alias =
+                            RelationAlias::new(inner_source.scan_info.alias.as_deref())
+                                .display(inner_source.plan_position);
+
+                        acc.push(format!(
+                            "{} = {}",
+                            get_attname_safe(
+                                Some(outer_source.scan_info.heaprelid),
+                                outer_attno,
+                                &outer_alias
+                            ),
+                            get_attname_safe(
+                                Some(inner_source.scan_info.heaprelid),
+                                inner_attno,
+                                &inner_alias
+                            )
+                        ));
+                    }
+
+                    collect_join_cond_strings(&join.left, acc);
+                    collect_join_cond_strings(&join.right, acc);
+                }
+            }
         }
 
-        if !join_clause.join_keys.is_empty() {
-            let keys_str: Vec<_> = join_clause
-                .join_keys
-                .iter()
-                .map(|k| {
-                    let (outer_relid, outer_alias_name) = join_clause
-                        .sources
-                        .iter()
-                        .enumerate()
-                        .find(|(_, s)| s.contains_rti(k.outer_rti))
-                        .map(|(i, s)| (Some(s.scan_info.heaprelid), s.execution_alias(i)))
-                        .expect("Outer source not found");
-
-                    let (inner_relid, inner_alias_name) = join_clause
-                        .sources
-                        .iter()
-                        .enumerate()
-                        .find(|(_, s)| s.contains_rti(k.inner_rti))
-                        .map(|(i, s)| (Some(s.scan_info.heaprelid), s.execution_alias(i)))
-                        .expect("Inner source not found");
-
-                    format!(
-                        "{} = {}",
-                        get_attname_safe(outer_relid, k.outer_attno, &outer_alias_name),
-                        get_attname_safe(inner_relid, k.inner_attno, &inner_alias_name)
-                    )
-                })
-                .collect();
+        let mut keys_str = Vec::new();
+        collect_join_cond_strings(&join_clause.plan, &mut keys_str);
+        if !keys_str.is_empty() {
             explainer.add_text("Join Cond", keys_str.join(", "));
         }
 
-        if let Some(ref expr) = join_clause.join_level_expr {
+        if let Some(expr) = join_clause.plan.join_level_expr() {
             explainer.add_text("Join Predicate", format_join_level_expr(expr, join_clause));
         }
 
-        if let Some(limit) = join_clause.limit {
+        if let Some(limit) = join_clause.limit_offset.limit {
             explainer.add_text("Limit", limit.to_string());
+        }
+
+        if let Some(offset) = join_clause.limit_offset.offset {
+            if offset > 0 {
+                explainer.add_text("Offset", offset.to_string());
+            }
+        }
+
+        if join_clause.has_distinct {
+            explainer.add_text("Distinct", "true");
         }
 
         if !join_clause.order_by.is_empty() {
@@ -963,10 +1033,14 @@ impl CustomScan for JoinScan {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
+            let expr_context = crate::postgres::utils::ExprContextGuard::new();
             let logical_plan = logical_plan_from_bytes_with_extension_codec(
                 logical_plan,
                 &ctx.task_ctx(),
-                &PgSearchExtensionCodec::default(),
+                &PgSearchExtensionCodec {
+                    parallel_state: None,
+                    expr_context: Some(expr_context.as_ptr()),
+                },
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
@@ -982,13 +1056,17 @@ impl CustomScan for JoinScan {
 
     fn begin_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        _estate: *mut pg_sys::EState,
+        estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
         if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
             unsafe {
+                let planstate = state.planstate();
+                pg_sys::ExecAssignExprContext(estate, planstate);
+
                 state.custom_state_mut().max_memory = (pg_sys::work_mem as usize) * 1024;
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
+                state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             }
         }
     }
@@ -1006,18 +1084,16 @@ impl CustomScan for JoinScan {
                 let join_clause = state.custom_state().join_clause.clone();
                 let snapshot = state.csstate.ss.ps.state.as_ref().unwrap().es_snapshot;
 
-                let mut base_relations = Vec::new();
-                join_clause.collect_base_relations(&mut base_relations);
-                for base in base_relations {
-                    let rti = base.heap_rti;
-                    let heaprelid = base.heaprelid;
+                let plan_sources = join_clause.plan.sources();
+                for (plan_position, source) in plan_sources.iter().enumerate() {
+                    let heaprelid = source.scan_info.heaprelid;
                     let heaprel = PgSearchRelation::open(heaprelid);
                     let visibility_checker =
                         VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
                     let fetch_slot =
                         pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
                     state.custom_state_mut().relations.insert(
-                        rti,
+                        plan_position,
                         scan_state::RelationState {
                             _heaprel: heaprel,
                             visibility_checker,
@@ -1038,6 +1114,7 @@ impl CustomScan for JoinScan {
                 let ctx = create_session_context();
                 let codec = PgSearchExtensionCodec {
                     parallel_state: state.custom_state().parallel_state,
+                    expr_context: Some(state.runtime_context),
                 };
                 let logical_plan = logical_plan_from_bytes_with_extension_codec(
                     plan_bytes,
@@ -1074,13 +1151,12 @@ impl CustomScan for JoinScan {
 
                 let schema = plan.schema();
                 for (i, field) in schema.fields().iter().enumerate() {
-                    if let Some(stripped) = field.name().strip_prefix("ctid_") {
-                        if let Ok(rti) = stripped.parse::<pg_sys::Index>() {
-                            if let Some(rel_state) =
-                                state.custom_state_mut().relations.get_mut(&rti)
-                            {
-                                rel_state.ctid_col_idx = Some(i);
-                            }
+                    if let Ok(ctid_col) = CtidColumn::try_from(field.name().as_str()) {
+                        let plan_position = ctid_col.plan_position();
+                        if let Some(rel_state) =
+                            state.custom_state_mut().relations.get_mut(&plan_position)
+                        {
+                            rel_state.ctid_col_idx = Some(i);
                         }
                     }
                 }
@@ -1152,16 +1228,18 @@ impl JoinScan {
     ) -> Option<*mut pg_sys::TupleTableSlot> {
         let result_slot = state.custom_state().result_slot?;
         let output_columns = state.custom_state().output_columns.clone();
-        let mut fetched_rtis = crate::api::HashSet::default();
+        let mut fetched_sources = crate::api::HashSet::default();
 
         // Fetch tuples for all RTIs referenced in the output columns
         for col_info in &output_columns {
-            if col_info.rti != 0 && !fetched_rtis.contains(&col_info.rti) {
-                let rti = col_info.rti;
+            if col_info.rti != 0 && !fetched_sources.contains(&col_info.plan_position) {
                 // Get the CTID for this RTI from the DataFusion result batch
                 let ctid = {
                     let batch = state.custom_state().current_batch.as_ref()?;
-                    let rel_state = state.custom_state().relations.get(&rti)?;
+                    let rel_state = state
+                        .custom_state()
+                        .relations
+                        .get(&col_info.plan_position)?;
                     let ctid_col = batch.column(rel_state.ctid_col_idx?);
                     ctid_col
                         .as_any()
@@ -1170,7 +1248,10 @@ impl JoinScan {
                         .value(row_idx)
                 };
                 // Fetch the tuple from the heap using the CTID
-                let rel_state = state.custom_state_mut().relations.get_mut(&rti)?;
+                let rel_state = state
+                    .custom_state_mut()
+                    .relations
+                    .get_mut(&col_info.plan_position)?;
                 if !rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)
@@ -1179,7 +1260,7 @@ impl JoinScan {
                 }
                 // Make sure slots have all attributes deformed
                 pg_sys::slot_getallattrs(rel_state.fetch_slot);
-                fetched_rtis.insert(rti);
+                fetched_sources.insert(col_info.plan_position);
             }
         }
         // Get the result tuple descriptor from the result slot
@@ -1224,7 +1305,10 @@ impl JoinScan {
                 continue;
             }
             // Determine which slot to read from based on RTI
-            let rel_state = state.custom_state().relations.get(&col_info.rti)?;
+            let rel_state = state
+                .custom_state()
+                .relations
+                .get(&col_info.plan_position)?;
             let source_slot = rel_state.fetch_slot;
             let original_attno = col_info.original_attno;
             // Get the attribute value from the source slot using the original attribute number

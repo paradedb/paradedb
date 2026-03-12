@@ -46,8 +46,10 @@ LIMIT 5 OFFSET 6;
          Tantivy Query: {"with_index":{"query":"all"}}
            Applies to Aggregates: COUNT(*)
            Group By: rating
+           Limit: 5
+           Offset: 6
            Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
-(7 rows)
+(9 rows)
 
 -- Ordering on a non grouping column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -56,6 +58,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating, id
 ORDER BY rating, id
 LIMIT 5 OFFSET 5;
+WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column (table: products)
                             QUERY PLAN                             
 -------------------------------------------------------------------
  Limit
@@ -63,10 +66,10 @@ LIMIT 5 OFFSET 5;
          Sort Key: rating, id
          ->  HashAggregate
                Group Key: id
-               ->  Custom Scan (ParadeDB Scan) on products
+               ->  Custom Scan (ParadeDB Base Scan) on products
                      Table: products
                      Index: products_idx
-                     Exec Method: MixedFastFieldExecState
+                     Exec Method: ColumnarExecState
                      Fast Fields: id, rating
                      Scores: false
                      Full Index Scan: true

@@ -104,7 +104,7 @@ Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg18 with your version of Postgres, if different (i.e. --pg17, etc.)
-cargo install --locked cargo-pgrx --version 0.16.1
+cargo install --locked cargo-pgrx --version 0.17.0
 
 # macOS arm64
 cargo pgrx init --pg18=/opt/homebrew/opt/postgresql@18/bin/pg_config
@@ -194,17 +194,11 @@ CREATE EXTENSION pg_search;
 
 ### Testing
 
-We use `cargo test` as our runner for `pg_search` tests.
+This section covers the **unit tests** located in the `pg_search/src` directory. For a complete overview of ParadeDB's testing infrastructure (which includes integration tests, client property tests, and pg regress tests), please see the [Testing section in `CONTRIBUTING.md`](../CONTRIBUTING.md#testing).
 
-The tests require a `DATABASE_URL` envirobnment variable to be set. The easiest way to do this is to create a `.env` file with the following contents.
+Unit tests can be run using `cargo test -p pg_search -- a_specific_method_to_run`. These tests sometimes (if marked `#[pg_test]`) run inside the Postgres process, which allows them to use all of Postgres APIs via `pgrx`. There is no need to pre-install the extension for these: the `#[pg_test]` annotation on the test will re-install the extension automatically.
 
-```env
-DATABASE_URL=postgres://USER_NAME@localhost:PORT/pg_search
-```
-
-USER_NAME should be replaced with your system user name. (eg: output of `whoami`)
-
-PORT should be replaced with 28800 + your postgres version. (eg: 28818 for Postgres 18)
+_Note: For **pg regress tests**, please refer to [pg_search/tests/pg_regress/README.md](tests/pg_regress/README.md). For **integration tests** and **client property tests**, please refer to [tests/README.md](../tests/README.md)._
 
 ## License
 

@@ -182,6 +182,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_aggregates)
                                          QUERY PLAN                                          
 ---------------------------------------------------------------------------------------------
  GroupAggregate
@@ -190,7 +191,7 @@ ORDER BY category;
    ->  Sort
          Output: ((metadata ->> 'category'::text)), metadata
          Sort Key: ((json_test_aggregates.metadata ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
                Output: (metadata ->> 'category'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
@@ -206,6 +207,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_aggregates)
  category | total_price 
 ----------+-------------
           |        3285
@@ -220,6 +222,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_aggregates)
                                             QUERY PLAN                                            
 --------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -228,7 +231,7 @@ ORDER BY brand;
    ->  Sort
          Output: ((metadata ->> 'brand'::text)), metadata
          Sort Key: ((json_test_aggregates.metadata ->> 'brand'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
                Output: (metadata ->> 'brand'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
@@ -245,6 +248,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_aggregates)
   brand  |       avg_price       | item_count 
 ---------+-----------------------+------------
  Apple   | 1149.0000000000000000 |          2
@@ -262,6 +266,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_aggregates)
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -270,7 +275,7 @@ ORDER BY category;
    ->  Sort
          Output: ((metadata ->> 'category'::text)), metadata
          Sort Key: ((json_test_aggregates.metadata ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
                Output: (metadata ->> 'category'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
@@ -288,6 +293,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'category'
 ORDER BY category;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_aggregates)
  category | min_price | max_price | item_count 
 ----------+-----------+-----------+------------
           |        89 |      1299 |          5
@@ -305,6 +311,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_aggregates)
                                                                                                                  QUERY PLAN                                                                                                                 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -313,7 +320,7 @@ ORDER BY brand;
    ->  Sort
          Output: ((metadata ->> 'brand'::text)), metadata
          Sort Key: ((json_test_aggregates.metadata ->> 'brand'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_aggregates
                Output: (metadata ->> 'brand'::text), metadata
                Table: json_test_aggregates
                Index: idx_json_aggregates
@@ -333,6 +340,7 @@ FROM json_test_aggregates
 WHERE id @@@ paradedb.exists('metadata.price')
 GROUP BY metadata->>'brand'
 ORDER BY brand;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_aggregates)
   brand  | item_count | total_value |       avg_price       | min_price | max_price 
 ---------+------------+-------------+-----------------------+-----------+-----------
  Apple   |          2 |        2298 | 1149.0000000000000000 |       999 |      1299
@@ -798,6 +806,7 @@ WHERE id @@@ paradedb.exists('document.source.system')
   AND id @@@ paradedb.exists('document.metrics.category')
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_complex)
                                                                                               QUERY PLAN                                                                                              
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -806,7 +815,7 @@ ORDER BY source_system, metric_category;
    ->  Sort
          Output: (((document -> 'source'::text) ->> 'system'::text)), (((document -> 'metrics'::text) ->> 'category'::text)), document
          Sort Key: (((json_test_complex.document -> 'source'::text) ->> 'system'::text)), (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_complex
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_complex
                Output: ((document -> 'source'::text) ->> 'system'::text), ((document -> 'metrics'::text) ->> 'category'::text), document
                Table: json_test_complex
                Index: idx_json_complex
@@ -825,6 +834,7 @@ WHERE id @@@ paradedb.exists('document.source.system')
   AND id @@@ paradedb.exists('document.metrics.category')
 GROUP BY document->'source'->>'system', document->'metrics'->>'category'
 ORDER BY source_system, metric_category;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_complex)
  source_system | metric_category | count |      avg_score      
 ---------------+-----------------+-------+---------------------
  billing       | A               |     1 | 95.0000000000000000
@@ -845,6 +855,7 @@ FROM json_test_complex
 WHERE id @@@ paradedb.exists('document.metrics.score')
 GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_complex)
                                                                                                                                                                        QUERY PLAN                                                                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -853,7 +864,7 @@ ORDER BY metric_category;
    ->  Sort
          Output: (((document -> 'metrics'::text) ->> 'category'::text)), document
          Sort Key: (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_complex
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_complex
                Output: ((document -> 'metrics'::text) ->> 'category'::text), document
                Table: json_test_complex
                Index: idx_json_complex
@@ -873,6 +884,7 @@ FROM json_test_complex
 WHERE id @@@ paradedb.exists('document.metrics.score')
 GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_complex)
  metric_category | total_records | total_score |      avg_score      | min_score | max_score 
 -----------------+---------------+-------------+---------------------+-----------+-----------
  A               |             2 |         180 | 90.0000000000000000 |        85 |        95
@@ -1144,6 +1156,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('order_details.category')
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_multi_subfields)
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1152,7 +1165,7 @@ ORDER BY department, product_category;
    ->  Sort
          Output: ((user_profile ->> 'department'::text)), ((order_details ->> 'category'::text)), order_details
          Sort Key: ((json_test_multi_subfields.user_profile ->> 'department'::text)), ((json_test_multi_subfields.order_details ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_multi_subfields
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_multi_subfields
                Output: (user_profile ->> 'department'::text), (order_details ->> 'category'::text), order_details
                Table: json_test_multi_subfields
                Index: idx_json_multi_subfields
@@ -1172,6 +1185,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
   AND id @@@ paradedb.exists('order_details.category')
 GROUP BY user_profile->>'department', order_details->>'category'
 ORDER BY department, product_category;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_multi_subfields)
  department  | product_category | order_count | total_quantity 
 -------------+------------------+-------------+----------------
  Engineering | electronics      |           3 |              9
@@ -1197,6 +1211,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
 GROUP BY user_profile->>'department', user_profile->>'location', 
          order_details->>'product', order_details->>'category'
 ORDER BY department, location, product;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_multi_subfields)
                                                                                                                                          QUERY PLAN                                                                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1205,7 +1220,7 @@ ORDER BY department, location, product;
    ->  Sort
          Output: ((user_profile ->> 'department'::text)), ((user_profile ->> 'location'::text)), ((order_details ->> 'product'::text)), ((order_details ->> 'category'::text)), order_details
          Sort Key: ((json_test_multi_subfields.user_profile ->> 'department'::text)), ((json_test_multi_subfields.user_profile ->> 'location'::text)), ((json_test_multi_subfields.order_details ->> 'product'::text)), ((json_test_multi_subfields.order_details ->> 'category'::text))
-         ->  Custom Scan (ParadeDB Scan) on public.json_test_multi_subfields
+         ->  Custom Scan (ParadeDB Base Scan) on public.json_test_multi_subfields
                Output: (user_profile ->> 'department'::text), (user_profile ->> 'location'::text), (order_details ->> 'product'::text), (order_details ->> 'category'::text), order_details
                Table: json_test_multi_subfields
                Index: idx_json_multi_subfields
@@ -1229,6 +1244,7 @@ WHERE id @@@ paradedb.exists('user_profile.department')
 GROUP BY user_profile->>'department', user_profile->>'location', 
          order_details->>'product', order_details->>'category'
 ORDER BY department, location, product;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_test_multi_subfields)
  department  | location | product |  category   | order_count |       avg_price       | total_quantity 
 -------------+----------+---------+-------------+-------------+-----------------------+----------------
  Engineering | NYC      | mouse   | electronics |           1 |   25.0000000000000000 |              5

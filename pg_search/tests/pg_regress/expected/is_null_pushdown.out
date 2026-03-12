@@ -21,7 +21,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM products WHERE deleted_at IS NOT NULL AND id @@@ paradedb.all();
                                                 QUERY PLAN                                                
 ----------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.products
+ Custom Scan (ParadeDB Base Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
    Index: idx_products_bm25
@@ -42,7 +42,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM products WHERE deleted_at IS NULL AND id @@@ paradedb.all();
                                                                      QUERY PLAN                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.products
+ Custom Scan (ParadeDB Base Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
    Index: idx_products_bm25
@@ -75,7 +75,7 @@ WHERE deleted_at IS NULL
   AND id @@@ paradedb.all();
                                                                                                     QUERY PLAN                                                                                                     
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.products
+ Custom Scan (ParadeDB Base Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
    Index: idx_products_bm25
@@ -111,7 +111,7 @@ WHERE deleted_at IS NULL
   AND id @@@ paradedb.all();
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on public.products
+ Custom Scan (ParadeDB Base Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
    Index: idx_products_bm25_partial

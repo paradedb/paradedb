@@ -15,8 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_query_input_opoid;
-use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::{
+    AggregateScan, CustomScanBuildError, CustomScanClause,
+};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_path::{restrict_info, RestrictInfoType};
 use crate::postgres::customscan::qual_inspect::{
@@ -62,22 +63,22 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         args: &Self::Args,
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
-    ) -> Option<Self> {
+    ) -> Result<Self, CustomScanBuildError> {
         // We can't handle HAVING yet
         if args.root().hasHavingQual {
-            return None;
+            return Err("HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206)".into());
         }
 
         let (restrict_info, ri_type) = restrict_info(args.input_rel());
         if matches!(ri_type, RestrictInfoType::Join) {
             // This relation is a join, or has no restrictions (WHERE clause predicates), so there's no need
             // for us to do anything.
-            return None;
+            return Err("relation is a join".into());
         }
 
         let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
         if !has_where_clause {
-            return Some(SearchQueryClause {
+            return Ok(SearchQueryClause {
                 query: SearchQueryInput::All,
                 uses_our_operator: false,
             });
@@ -95,7 +96,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
 
             if has_correlation && !crate::gucs::enable_filter_pushdown() {
                 // Can't handle correlation without HeapFilter support
-                return None;
+                return Err("correlated subqueries require paradedb.enable_filter_pushdown".into());
             }
         }
 
@@ -105,21 +106,23 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         let filtered_restrict_info =
             unsafe { filter_implied_predicates(index.rd_indpred, &restrict_info) };
 
-        let quals = unsafe {
+        let quals = match unsafe {
             extract_quals(
                 &PlannerContext::from_planner(args.root),
                 heap_rti,
                 filtered_restrict_info.as_ptr().cast(),
-                anyelement_query_input_opoid(),
                 ri_type,
                 index,
                 false,
                 &mut where_qual_state,
                 true,
-            )?
+            )
+        } {
+            Some(q) => q,
+            None => return Err("could not extract search query from quals".into()),
         };
 
-        Some(SearchQueryClause {
+        Ok(SearchQueryClause {
             query: SearchQueryInput::from(&quals),
             uses_our_operator: where_qual_state.uses_our_operator,
         })

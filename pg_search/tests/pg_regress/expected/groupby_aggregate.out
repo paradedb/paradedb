@@ -480,6 +480,7 @@ SELECT category, COUNT(DISTINCT rating), SUM(price)
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category;
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678) (table: products)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -488,7 +489,7 @@ GROUP BY category;
    ->  Sort
          Output: category, rating, price
          Sort Key: products.category, products.rating
-         ->  Custom Scan (ParadeDB Scan) on public.products
+         ->  Custom Scan (ParadeDB Base Scan) on public.products
                Output: category, rating, price
                Table: products
                Index: products_idx
@@ -502,6 +503,7 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678) (table: products)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     2 | 2529.96

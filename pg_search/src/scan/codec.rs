@@ -35,6 +35,8 @@ use crate::scan::table_provider::PgSearchTableProvider;
 pub struct PgSearchExtensionCodec {
     /// Shared state for parallel scans, containing the list of segments to be processed.
     pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    /// Postgres expression context, needed for heap filtering.
+    pub expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -136,6 +138,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         if provider.is_parallel() {
             provider.set_parallel_state(self.parallel_state);
         }
+        provider.set_expr_context(self.expr_context);
         Ok(Arc::new(provider))
     }
 
@@ -157,6 +160,29 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             DataFusionError::Internal(format!("Failed to serialize PgSearchTableProvider: {e}"))
         })?;
         buf.extend_from_slice(&bytes);
+        Ok(())
+    }
+
+    fn try_decode_udaf(
+        &self,
+        name: &str,
+        _buf: &[u8],
+    ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
+        match name {
+            "min" => Ok(datafusion::functions_aggregate::min_max::min_udaf()),
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "LogicalExtensionCodec is not provided for aggregate function {name}"
+            ))),
+        }
+    }
+
+    fn try_encode_udaf(
+        &self,
+        node: &datafusion::logical_expr::AggregateUDF,
+        buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        // Built-in aggregates are looked up by name on decode, no state to serialize
+        buf.extend_from_slice(node.name().as_bytes());
         Ok(())
     }
 

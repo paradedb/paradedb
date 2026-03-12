@@ -1,13 +1,12 @@
 {
+  self,
   buildPgrxExtension,
   cargo-pgrx,
-  fetchFromGitHub,
   fetchurl,
   lib,
   nix-update-script,
   pkg-config,
   postgresql,
-  stdenv,
 }:
 
 let
@@ -59,19 +58,13 @@ in
 buildPgrxExtension (finalAttrs: {
   pname = "pg_search";
   version = rootCargoToml.workspace.package.version;
-
-  src = fetchFromGitHub {
-    owner = "paradedb";
-    repo = "paradedb";
-    tag = "v${finalAttrs.version}";
-    hash = "sha256-gvQOfyFU8SVtAJTGw0EuRatfDVZRqpv7WhIqYYZYbgc=";
-  };
+  src = self;
 
   # This hash needs to change any time the Rust dependencies are updated.
   # If maintainers forget to do so, Nix will throw an error message that begins
   # like this and then provides the correct new hash:
-  # error: hash mismatch in fixed-output derivation '/nix/store/7kdyfnwwfni20qzfr849fz3g4a1ssc50-pg_search-0.21.10-vendor-staging.drv'
-  cargoHash = "sha256-NRrDmswQ+oiVNeIbhfhDA7k4wOxotTLsOuT7WMewX6Y=";
+  # error: hash mismatch in fixed-output derivation '/nix/store/7kdyfnwwfni20qzfr849fz3g4a1ssc50-pg_search-0.21.13-vendor-staging.drv'
+  cargoHash = "sha256-66EAVHhY2heb0PzCsTQOlIPfFgyT2HH/nkDIm+sWOgc=";
 
   inherit cargo-pgrx postgresql;
 

@@ -9,9 +9,9 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
--- Explicitly enable mixed fast field sorted paths for this test suite
-SET paradedb.enable_mixed_fast_field_sort = true;
+SET paradedb.enable_columnar_exec = true;
+-- Explicitly enable columnar sorted paths for this test suite
+SET paradedb.enable_columnar_sort = true;
 -- =============================================================================
 -- MAIN TEST TABLE: sorted_scan_test
 -- Used for most sorted index tests (pathkey, projection, LIMIT, aggregates, etc.)
@@ -62,10 +62,10 @@ WHERE content @@@ 'searchable'
 ORDER BY priority DESC NULLS LAST;
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on sorted_scan_test
+ Custom Scan (ParadeDB Base Scan) on sorted_scan_test
    Table: sorted_scan_test
    Index: sorted_scan_test_idx
-   Exec Method: MixedFastFieldExecState
+   Exec Method: ColumnarExecState
    Fast Fields: id, priority
    Order By: priority DESC
    Scores: false
@@ -81,10 +81,10 @@ ORDER BY priority DESC;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority DESC
-   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
+   ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
@@ -99,10 +99,10 @@ ORDER BY priority ASC NULLS FIRST;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority NULLS FIRST
-   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
+   ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
@@ -114,10 +114,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, priority FROM sorted_sca
 WHERE content @@@ 'searchable';
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on sorted_scan_test
+ Custom Scan (ParadeDB Base Scan) on sorted_scan_test
    Table: sorted_scan_test
    Index: sorted_scan_test_idx
-   Exec Method: MixedFastFieldExecState
+   Exec Method: ColumnarExecState
    Fast Fields: id, priority
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
@@ -182,10 +182,10 @@ ORDER BY priority DESC NULLS LAST, id ASC;
    ->  Incremental Sort
          Sort Key: priority DESC NULLS LAST, id
          Presorted Key: priority
-         ->  Parallel Custom Scan (ParadeDB Scan) on sorted_scan_test
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on sorted_scan_test
                Table: sorted_scan_test
                Index: sorted_scan_test_idx
-               Exec Method: MixedFastFieldExecState
+               Exec Method: ColumnarExecState
                Fast Fields: id, priority
                Order By: priority DESC
                Scores: false
@@ -201,10 +201,10 @@ ORDER BY priority DESC NULLS LAST;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 2
-   ->  Parallel Custom Scan (ParadeDB Scan) on sorted_scan_test
+   ->  Parallel Custom Scan (ParadeDB Base Scan) on sorted_scan_test
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, priority
          Order By: priority DESC
          Scores: false
@@ -230,10 +230,10 @@ ORDER BY priority DESC NULLS LAST, id ASC;
  Incremental Sort
    Sort Key: priority DESC NULLS LAST, id
    Presorted Key: priority
-   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
+   ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, priority
          Order By: priority DESC
          Scores: false
@@ -250,10 +250,10 @@ ORDER BY id ASC, priority DESC NULLS LAST;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id, priority DESC NULLS LAST
-   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
+   ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, priority
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
@@ -289,7 +289,7 @@ ORDER BY value ASC NULLS FIRST;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: value NULLS FIRST
-   ->  Custom Scan (ParadeDB Scan) on asc_sort_test
+   ->  Custom Scan (ParadeDB Base Scan) on asc_sort_test
          Table: asc_sort_test
          Index: asc_sort_test_idx
          Exec Method: NormalScanExecState
@@ -306,7 +306,7 @@ ORDER BY value ASC;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: value
-   ->  Custom Scan (ParadeDB Scan) on asc_sort_test
+   ->  Custom Scan (ParadeDB Base Scan) on asc_sort_test
          Table: asc_sort_test
          Index: asc_sort_test_idx
          Exec Method: NormalScanExecState
@@ -345,7 +345,7 @@ ORDER BY priority DESC NULLS LAST;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: priority DESC NULLS LAST
-   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
+   ->  Custom Scan (ParadeDB Base Scan) on sorted_scan_test
          Table: sorted_scan_test
          Index: sorted_scan_test_idx
          Exec Method: NormalScanExecState
@@ -991,7 +991,7 @@ SELECT id, value FROM mod_test WHERE content @@@ 'item' ORDER BY value DESC NULL
 DROP TABLE mod_test CASCADE;
 -- =============================================================================
 -- SECTION 10: EXECUTION METHOD VERIFICATION
--- Verifies MixedFastFieldExec is used and Sort node is eliminated
+-- Verifies ColumnarExec is used and Sort node is eliminated
 -- =============================================================================
 \echo '=== SECTION 10: Execution Method Verification ==='
 === SECTION 10: Execution Method Verification ===
@@ -1016,10 +1016,10 @@ WHERE content @@@ 'searchable'
 ORDER BY fast_field DESC NULLS LAST;
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on exec_method_test
+ Custom Scan (ParadeDB Base Scan) on exec_method_test
    Table: exec_method_test
    Index: exec_method_test_idx
-   Exec Method: MixedFastFieldExecState
+   Exec Method: ColumnarExecState
    Fast Fields: fast_field, id
    Order By: fast_field DESC
    Scores: false
@@ -1035,7 +1035,7 @@ ORDER BY fast_field DESC NULLS LAST;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: fast_field DESC NULLS LAST
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_test_idx
          Exec Method: NormalScanExecState
@@ -1043,9 +1043,9 @@ ORDER BY fast_field DESC NULLS LAST;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (8 rows)
 
-\echo 'Test 10.3: With enable_mixed_fast_field_exec OFF - should add Sort node'
-Test 10.3: With enable_mixed_fast_field_exec OFF - should add Sort node
-SET paradedb.enable_mixed_fast_field_exec = false;
+\echo 'Test 10.3: With enable_columnar_exec OFF - should add Sort node'
+Test 10.3: With enable_columnar_exec OFF - should add Sort node
+SET paradedb.enable_columnar_exec = false;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT id, fast_field FROM exec_method_test
 WHERE content @@@ 'searchable'
 ORDER BY fast_field DESC NULLS LAST;
@@ -1053,7 +1053,7 @@ ORDER BY fast_field DESC NULLS LAST;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: fast_field DESC NULLS LAST
-   ->  Custom Scan (ParadeDB Scan) on exec_method_test
+   ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_test_idx
          Exec Method: NormalScanExecState
@@ -1061,7 +1061,7 @@ ORDER BY fast_field DESC NULLS LAST;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (8 rows)
 
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 DROP TABLE exec_method_test CASCADE;
 -- =============================================================================
 -- SECTION 11: AGGREGATES WITH SORTED INDEX
@@ -1220,10 +1220,10 @@ ORDER BY value DESC;
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: value DESC
-   ->  Custom Scan (ParadeDB Scan) on no_sortby_test
+   ->  Custom Scan (ParadeDB Base Scan) on no_sortby_test
          Table: no_sortby_test
          Index: no_sortby_test_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, value
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
@@ -1288,10 +1288,10 @@ ORDER BY priority DESC NULLS LAST;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 4
-   ->  Parallel Custom Scan (ParadeDB Scan) on parallel_sorted_test
+   ->  Parallel Custom Scan (ParadeDB Base Scan) on parallel_sorted_test
          Table: parallel_sorted_test
          Index: parallel_sorted_test_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, priority
          Order By: priority DESC
          Scores: false
@@ -1349,10 +1349,10 @@ ORDER BY priority DESC NULLS LAST, id ASC;
    ->  Incremental Sort
          Sort Key: priority DESC NULLS LAST, id
          Presorted Key: priority
-         ->  Parallel Custom Scan (ParadeDB Scan) on parallel_sorted_test
+         ->  Parallel Custom Scan (ParadeDB Base Scan) on parallel_sorted_test
                Table: parallel_sorted_test
                Index: parallel_sorted_test_idx
-               Exec Method: MixedFastFieldExecState
+               Exec Method: ColumnarExecState
                Fast Fields: id, priority
                Order By: priority DESC
                Scores: false
@@ -1459,4 +1459,4 @@ DROP TABLE lazy_checkout_test CASCADE;
 DROP TABLE IF EXISTS sorted_scan_test CASCADE;
 \echo '=== All sorted index scan tests completed ==='
 === All sorted index scan tests completed ===
-RESET paradedb.enable_mixed_fast_field_sort;
+RESET paradedb.enable_columnar_sort;

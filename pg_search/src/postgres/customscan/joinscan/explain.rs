@@ -23,6 +23,7 @@
 
 use super::build::{JoinCSClause, JoinLevelExpr};
 
+use crate::customscan::joinscan::RelationAlias;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::deparse::node_to_string_fallback;
 use pgrx::pg_sys;
@@ -65,14 +66,19 @@ pub(super) fn get_attname_safe(
 pub(super) fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) -> String {
     match expr {
         JoinLevelExpr::SingleTablePredicate {
-            source_idx,
+            plan_position,
             predicate_idx,
         } => {
-            let label = if let Some(source) = join_clause.sources.get(*source_idx) {
-                source.execution_alias(*source_idx)
-            } else {
-                format!("source_{}", source_idx)
-            };
+            let label = join_clause
+                .plan
+                .sources()
+                .iter()
+                .find(|source| source.plan_position == *plan_position)
+                .map(|source| {
+                    RelationAlias::new(source.scan_info.alias.as_deref())
+                        .display(source.plan_position)
+                })
+                .unwrap_or_else(|| RelationAlias::new(None).display(*plan_position));
             if let Some(pred) = join_clause.join_level_predicates.get(*predicate_idx) {
                 format!("{}:{}", label, pred.query.explain_format())
             } else {

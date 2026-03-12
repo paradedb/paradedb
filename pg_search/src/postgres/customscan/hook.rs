@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::agg_funcoid;
-use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::operator::anyelement_search_opoids;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
 use crate::nodecast;
@@ -25,7 +25,7 @@ use crate::postgres::customscan::basescan::projections::window_agg;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, Flags, RestrictInfoType,
 };
-use crate::postgres::customscan::orderby::validate_topn_compatibility;
+use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::{
     CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
@@ -346,9 +346,9 @@ static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
 ///    `grouping_planner()` runs, we prevent PostgreSQL from creating `WindowAgg`
 ///    plan nodes that would try to execute our placeholder functions.
 ///
-/// 2. **Enables TopN Integration**: Our custom scan can detect the placeholder
-///    functions in the target list and handle them during `TopN` execution,
-///    combining window aggregates with top-N result collection in a single pass.
+/// 2. **Enables Top K Integration**: Our custom scan can detect the placeholder
+///    functions in the target list and handle them during `Top K` execution,
+///    combining window aggregates with Top K result collection in a single pass.
 ///
 /// 3. **Simpler Integration**: The replacement happens once, early, and the rest
 ///    of the planning process sees our placeholder functions as regular function
@@ -441,7 +441,6 @@ pub unsafe fn try_extract_quals_from_query(
             &context,
             rti,
             quals_node,
-            anyelement_query_input_opoid(),
             RestrictInfoType::BaseRelation,
             &bm25_index,
             false, // Don't convert external to special qual
@@ -466,7 +465,7 @@ pub unsafe fn try_extract_quals_from_query(
 /// Check if we should replace window functions in this query.
 ///
 /// Returns `true` if:
-/// - Query has window functions AND is a TopN query (ORDER BY + LIMIT)
+/// - Query has window functions AND is a Top K query (ORDER BY + LIMIT)
 /// - Query uses `pdb.agg()` OR any ParadeDB search operator (`@@@`, `|||`, `&&&`, `===`, `###`, proximity)
 /// - WHERE clause can be handled (or no WHERE clause)
 ///
@@ -511,14 +510,14 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
         return false;
     }
 
-    // STRICT CHECK: Validate TopN compatibility
+    // STRICT CHECK: Validate Top K compatibility
     // If we're going to replace window functions with pdb.window_agg(), we MUST ensure
-    // that the query can actually be executed as a TopN query on the index.
+    // that the query can actually be executed as a Top K query on the index.
     // Otherwise, we'll crash later when basescan falls back to Normal execution.
-    if !unsafe { validate_topn_compatibility(parse) } {
+    if !unsafe { validate_topk_compatibility(parse) } {
         if has_paradedb_agg_current_level {
             pgrx::error!(
-                "pdb.agg() window functions require a valid TopN query (ORDER BY and LIMIT) where all \
+                "pdb.agg() window functions require a valid Top K query (ORDER BY and LIMIT) where all \
                  ORDER BY columns are indexed and sortable (fast fields). Ensure you are sorting by \
                  indexed columns of a single table with a BM25 index."
             );
@@ -689,8 +688,7 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
 unsafe fn query_has_search_operator(parse: *mut pg_sys::Query) -> bool {
     // We still need to check for the @@@(anyelement, searchqueryinput) variant
     // because it's the most common and we want fast-path for it
-    let searchqueryinput_opno = anyelement_query_input_opoid();
-    let target_ops = [searchqueryinput_opno];
+    let target_ops = anyelement_search_opoids();
 
     // Helper closure to check if expression contains our operators
     let contains_search_op = |node: *mut pg_sys::Node| -> bool {
@@ -822,13 +820,13 @@ unsafe fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
 /// - `recursive`: If true, recursively checks subqueries and CTEs. If false, only checks current level.
 ///
 /// When `recursive = false`: Used for per-level validation and error messages (e.g., checking if
-/// a specific query level meets TopN requirements).
+/// a specific query level meets Top K requirements).
 ///
 /// When `recursive = true`: Used for global feature enablement (e.g., deciding if aggregate
 /// custom scan should be enabled for the entire query tree).
 ///
 /// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
-unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool) -> bool {
+pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool) -> bool {
     let paradedb_agg_oid = agg_funcoid().to_u32();
     let window_agg_proc_oid = window_agg_oid();
 
@@ -963,7 +961,7 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
         for rte in rtable.iter_ptr() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
                 // For subqueries, check if they should have window functions replaced
-                // Each subquery is independent and may have its own TopN context
+                // Each subquery is independent and may have its own Top K context
                 if should_replace_window_functions((*rte).subquery) {
                     replace_windowfuncs_recursively((*rte).subquery);
                 }
@@ -978,7 +976,7 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
             if !(*cte).ctequery.is_null() {
                 let cte_query = (*cte).ctequery.cast::<pg_sys::Query>();
                 // For CTEs, check if they should have window functions replaced
-                // Each CTE is independent and may have its own TopN context
+                // Each CTE is independent and may have its own Top K context
                 if should_replace_window_functions(cte_query) {
                     replace_windowfuncs_recursively(cte_query);
                 }

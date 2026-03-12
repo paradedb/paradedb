@@ -35,7 +35,7 @@ ORDER BY score DESC;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on partial_test
+   ->  Custom Scan (ParadeDB Base Scan) on partial_test
          Table: partial_test
          Index: partial_test_idx
          Exec Method: NormalScanExecState
@@ -67,7 +67,7 @@ ORDER BY score DESC;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on partial_test
+   ->  Custom Scan (ParadeDB Base Scan) on partial_test
          Table: partial_test
          Index: partial_test_idx
          Exec Method: NormalScanExecState
@@ -99,7 +99,7 @@ ORDER BY rating DESC;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC
-   ->  Custom Scan (ParadeDB Scan) on partial_test
+   ->  Custom Scan (ParadeDB Base Scan) on partial_test
          Table: partial_test
          Index: partial_test_idx
          Exec Method: NormalScanExecState
@@ -149,13 +149,13 @@ ORDER BY rating LIMIT 20;
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on test_partial_index
+   ->  Custom Scan (ParadeDB Base Scan) on test_partial_index
          Table: test_partial_index
          Index: partial_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: rating asc
-            TopN Limit: 20
+            TopK Order By: rating asc
+            TopK Limit: 20
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -218,13 +218,13 @@ ORDER BY rating LIMIT 20;
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on test_partial_index
+   ->  Custom Scan (ParadeDB Base Scan) on test_partial_index
          Table: test_partial_index
          Index: partial_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: rating asc
-            TopN Limit: 20
+            TopK Order By: rating asc
+            TopK Limit: 20
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -252,13 +252,13 @@ ORDER BY rating LIMIT 20;
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on test_partial_index
+   ->  Custom Scan (ParadeDB Base Scan) on test_partial_index
          Table: test_partial_index
          Index: partial_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: rating asc
-            TopN Limit: 20
+            TopK Order By: rating asc
+            TopK Limit: 20
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 

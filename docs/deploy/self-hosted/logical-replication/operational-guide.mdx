@@ -78,6 +78,28 @@ LIMIT 10;
 
 ## Day-2 Operations
 
+### Choose Publication and Subscription Boundaries
+
+For large or high-churn production tables, use one publication and one
+subscription per large table, or group only small related tables together.
+
+This gives each subscription its own leader apply worker. A publication per
+table alone does not provide that isolation.
+
+If you split replication this way, size the replication worker settings for the
+number of subscriptions you plan to run:
+
+- On the publisher, set `max_replication_slots` to at least the number of
+  subscriptions plus some reserve, and set `max_wal_senders` at least that high
+  plus any physical replicas.
+- On the subscriber, set `max_active_replication_origins` and
+  `max_logical_replication_workers` to at least the number of subscriptions plus
+  reserve for table synchronization workers. `max_worker_processes` must also be
+  high enough to accommodate those logical replication workers and any other
+  background workers used by the system.
+- `max_sync_workers_per_subscription` controls initial-copy parallelism when a
+  subscription is created or refreshed.
+
 ### Add New Tables
 
 When you want ParadeDB to index a new table:

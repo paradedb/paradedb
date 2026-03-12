@@ -221,9 +221,8 @@ impl TantivyValue {
             },
             PgOid::Custom(custom) => {
                 if is_citext_oid(*custom) {
-                    let array: pgrx::Array<Datum> =
-                        pgrx::Array::from_datum(datum, false)
-                            .ok_or(TantivyValueError::DatumDeref)?;
+                    let array: pgrx::Array<Datum> = pgrx::Array::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?;
                     return array
                         .iter()
                         .flatten()
@@ -346,8 +345,7 @@ impl TantivyValue {
             PgOid::Custom(custom) => {
                 if is_citext_oid(*custom) {
                     return TantivyValue::try_from(
-                        String::from_datum(datum, false)
-                            .ok_or(TantivyValueError::DatumDeref)?,
+                        String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
                     );
                 }
                 Err(TantivyValueError::UnsupportedOid(oid.value()))

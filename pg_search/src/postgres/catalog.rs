@@ -95,9 +95,7 @@ pub fn lookup_typoid(namespace: &CStr, typename: &CStr) -> Option<pg_sys::Oid> {
 /// The result is cached for the lifetime of the backend process.
 pub fn citext_oid() -> pg_sys::Oid {
     static CITEXT_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
-    *CITEXT_OID.get_or_init(|| {
-        lookup_typoid(c"public", c"citext").unwrap_or(pg_sys::Oid::INVALID)
-    })
+    *CITEXT_OID.get_or_init(|| lookup_typoid(c"public", c"citext").unwrap_or(pg_sys::Oid::INVALID))
 }
 
 /// Returns `true` if `oid` is the OID of the `citext` type.

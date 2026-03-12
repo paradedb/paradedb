@@ -18,8 +18,8 @@
 use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::customscan::operator_oid;
-use crate::postgres::catalog::is_citext_oid;
 use crate::nodecast;
+use crate::postgres::catalog::is_citext_oid;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
 use pgrx::pg_sys::{expression_tree_walker, CoerceViaIO, Const, OpExpr, RelabelType, Var};
 use pgrx::PgOid;

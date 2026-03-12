@@ -193,6 +193,11 @@ pub fn create_session_context() -> SessionContext {
     builder = builder.with_physical_optimizer_rule(Arc::new(
         crate::scan::segmented_topk_rule::SegmentedTopKRule,
     ));
+    // Run a second FilterPushdown(Post) pass so that filters from nodes injected
+    // by SegmentedTopKRule (e.g. SegmentedTopKExec's DynamicFilterPhysicalExpr)
+    // are pushed down through TantivyLookupExec to PgSearchScan.
+    builder =
+        builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
     let state = builder.build();
     SessionContext::new_with_state(state)
 }

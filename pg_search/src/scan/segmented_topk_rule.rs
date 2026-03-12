@@ -47,11 +47,13 @@ use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::sorts::sort::SortExec;
+use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::ExecutionPlan;
 
 use crate::gucs;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::scan::execution_plan::PgSearchScanPlan;
+use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
 use crate::scan::segmented_topk_exec::{SegmentedThresholds, SegmentedTopKExec};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 
@@ -153,6 +155,10 @@ fn try_inject_below_lookup(
 
             if has_deferred_sort_col {
                 let lookup_child = &lookup.children()[0];
+                // Wrap blocking nodes (e.g. SortPreservingMergeExec) so that
+                // the second FilterPushdown(Post) pass can push
+                // SegmentedTopKExec's DynamicFilterPhysicalExpr down to PgSearchScan.
+                let lookup_child = &wrap_blocking_nodes(Arc::clone(lookup_child))?;
                 let input_schema = lookup_child.schema();
 
                 // Collect all deferred columns found in the sort expressions.
@@ -245,6 +251,41 @@ fn try_inject_below_lookup(
     }
 
     Ok(None)
+}
+
+/// Recursively wrap `SortPreservingMergeExec` nodes with [`FilterPassthroughExec`]
+/// so that dynamic filters from `SegmentedTopKExec` can be pushed through them
+/// during the `FilterPushdown(Post)` pass.
+///
+/// Other DataFusion built-in nodes in the path (`ProjectionExec`, `CooperativeExec`)
+/// already implement filter passthrough natively.
+fn wrap_blocking_nodes(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
+    let children = plan.children();
+    if children.is_empty() {
+        return Ok(plan);
+    }
+
+    let mut changed = false;
+    let mut new_children = Vec::with_capacity(children.len());
+    for child in &children {
+        let new_child = wrap_blocking_nodes(Arc::clone(child))?;
+        if !Arc::ptr_eq(child, &new_child) {
+            changed = true;
+        }
+        new_children.push(new_child);
+    }
+
+    let plan = if changed {
+        plan.with_new_children(new_children)?
+    } else {
+        plan
+    };
+
+    if plan.as_any().is::<SortPreservingMergeExec>() {
+        return Ok(Arc::new(FilterPassthroughExec::new(plan)));
+    }
+
+    Ok(plan)
 }
 
 /// Walk the plan tree to find a `PgSearchScanPlan` and wire the shared

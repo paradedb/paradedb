@@ -531,6 +531,7 @@ LIMIT 5;
 -- =============================================================================
 -- TEST 11: ORDER BY containing two different string fields from different tables
 -- =============================================================================
+-- TODO: Does not get SegmentedTopK: see https://github.com/paradedb/paradedb/issues/4347
 SET paradedb.enable_segmented_topk = off;
 SELECT f.id, f.title, d.category
 FROM stk_files f

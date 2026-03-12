@@ -185,6 +185,8 @@ fn try_inject_below_lookup(
                 // the threshold across multiple tables (it only sees its own base table).
                 // E.g. `ORDER BY f.title ASC, d.category DESC` is a multi-dimensional bound that
                 // spans across the HashJoin. We must gracefully fall back to a standard SortExec.
+                // TODO: Add support for SegmentedTopK executing the TopK, but without pushing down
+                // thresholds: see https://github.com/paradedb/paradedb/issues/4347
                 let first_indexrelid = deferred_columns.first().map(|d| d.canonical.indexrelid);
                 if let Some(id) = first_indexrelid {
                     if deferred_columns

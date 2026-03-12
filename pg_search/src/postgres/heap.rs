@@ -297,6 +297,12 @@ impl HeapFetchState {
     /// Wrapper around `table_index_fetch_tuple` that guards against stale ctids
     /// referencing heap blocks truncated by VACUUM.
     ///
+    /// The BM25 `ambulkdelete` correctly removes dead ctids from the index, but only
+    /// when VACUUM actually runs. Between VACUUM cycles, the index may still contain
+    /// ctids pointing to pages that a *previous* VACUUM truncated. The normal scan path
+    /// (top-K) rarely hits these because it fetches few results, but the heap_filter
+    /// path fetches ALL matching documents, making truncated-block hits likely.
+    ///
     /// Returns `false` if the block has been truncated or the tuple is not visible.
     pub unsafe fn fetch_tuple(
         &self,

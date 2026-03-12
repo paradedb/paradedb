@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773308233568,
+  "lastUpdate": 1773308241323,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -53540,6 +53540,186 @@ window.BENCHMARK_DATA = {
             "value": 33.03125,
             "unit": "median mem",
             "extra": "avg mem: 32.373029953062094, max mem: 33.453125, count: 53901"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ff67613e1f9a5337f8f15c53240a3ede957e2c7",
+          "message": "perf: push SegmentedTopKExec global threshold via DynamicFilterPhysicalExpr (#4334)\n\n## What\n\n`SegmentedTopKExec` now maintains a global K-sized heap across all\nsegments and publishes a cross-segment threshold as a\n`DynamicFilterPhysicalExpr`, pushed down through DataFusion's standard\nfilter pushdown mechanism. Previously only per-segment ordinal\nthresholds existed, so segment 1 couldn't benefit from what segment 0\nalready discovered.\n\n## Why\n\nPer-segment thresholds only prune within the segment that produced them.\nAfter seeing K great rows in segment 0, segment 1 still scanned all its\nrows from scratch. The global threshold converts the worst entry's\nordinals back to materialized strings (via `FFHelper::ord_to_str`) and\npublishes them as a dynamic filter. The scanner's `try_rewrite_binary`\nauto-translates these to per-segment ordinal bounds, pruning rows at\nscan level before they reach the join or SegmentedTopKExec.\n\nOn the 50K-row multi-segment benchmark (`ORDER BY title ASC LIMIT 5`),\n`rows_pruned` went from 20K to 24.48K and `rows_input` to\nSegmentedTopKExec dropped from 30K to 25.52K.\n\n## How\n\n- **`segmented_topk_exec.rs`**: Added a global heap +\n`DynamicFilterPhysicalExpr`. Implements\n`gather_filters_for_pushdown`/`handle_child_pushdown_result` to inject\nthe filter into DataFusion's pushdown path. Extracted\n`build_lexicographic_filter` so both per-segment and global thresholds\nshare the same filter-building logic. Removed the\n`SegmentedThresholds.global` side-channel.\n- **`filter_passthrough_exec.rs`** (new): Transparent `ExecutionPlan`\nwrapper that enables filter pushdown through nodes that don't support it\nnatively. Extracted from the private copy in `joinscan/planner.rs`.\n- **`segmented_topk_rule.rs`**: Wraps `SortPreservingMergeExec` nodes\nwith `FilterPassthroughExec` so the dynamic filter can reach\n`PgSearchScan` in SortMergeJoin plans.\n- **`tantivy_lookup_exec.rs`**: Added filter passthrough so filters flow\nthrough to children.\n- **`joinscan/scan_state.rs`**: Added a second `FilterPushdown(Post)`\npass after `SegmentedTopKRule`.\n- **`batch_scanner.rs`**: Removed global threshold side-channel;\nper-segment ordinal thresholds remain unchanged.\n\n## Results\n\n### HashJoin path (segmented_topk, 50K rows, `ORDER BY title ASC LIMIT\n5`)\n\n| Metric | before | after |\n|---|---|---|\n| PgSearchScan `rows_pruned` | 20K | 24.48K |\n| SegmentedTopKExec `rows_input` | 30K | 25.52K |\n| `dynamic_filters` on PgSearchScan | 2 | 3 |\n\n### SortMergeJoin path (join_sort_merge, 20K rows, `LIMIT 10`)\n\n| Metric | before | after |\n|---|---|---|\n| `rows_pruned` (ASC) | 0 | 1.81K |\n| `rows_pruned` (DESC) | 1.58K | 3.38K |\n| `rows_input` (ASC) | 20K | 18.19K |\n| `rows_input` (DESC) | 18.42K | 16.62K |\n\n## Tests\n\n- Added TEST 12 in `segmented_topk.sql`.",
+          "timestamp": "2026-03-12T01:19:29-07:00",
+          "tree_id": "c1c467d6e9b8fd07e85b5ad63ec8deb44787684c",
+          "url": "https://github.com/paradedb/paradedb/commit/0ff67613e1f9a5337f8f15c53240a3ede957e2c7"
+        },
+        "date": 1773308235297,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.957829619985559, max cpu: 9.393347, count: 53912"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 50.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.433418551296555, max mem: 56.2890625, count: 53912"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.543961466762836, max cpu: 4.5933013, count: 53912"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 32.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.59939418056277, max mem: 32.9765625, count: 53912"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.134158,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.72373841927584, max cpu: 18.786694, count: 53912"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 54.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.7597848983065, max mem: 59.91796875, count: 53912"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.921924635674019, max cpu: 9.257474, count: 53912"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 50.625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.70882511662524, max mem: 56.5859375, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.606908372129836, max cpu: 9.195402, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 33.117350453632774, max mem: 38.2890625, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1100,
+            "unit": "median pages",
+            "extra": "avg pages: 1110.0002411336993, max pages: 1837.0, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.59375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.671876883857026, max relation_size:MB: 14.3515625, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.265618044220211, max segment_count: 20.0, count: 53912"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5411544,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.186540377467181, max cpu: 4.5540795, count: 53912"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.98157551600293, max mem: 29.93359375, count: 53912"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.179510522232292, max cpu: 4.6021094, count: 53912"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.077962626015545, max mem: 30.33984375, count: 53912"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.6371451881985255, max cpu: 27.324476, count: 53912"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 48.375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.40671596478984, max mem: 54.2421875, count: 53912"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.0000322620421847032, max replication_lag:MB: 0.20034027099609375, count: 53912"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.154209063411468, max cpu: 13.859479, count: 107824"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 48.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.778328934768695, max mem: 54.8125, count: 107824"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6955340299177846, max cpu: 4.5845275, count: 53912"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 31.932653922712014, max mem: 32.71875, count: 53912"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.221854286133094, max cpu: 4.610951, count: 53912"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 32.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.14542745875222, max mem: 33.23828125, count: 53912"
           }
         ]
       }

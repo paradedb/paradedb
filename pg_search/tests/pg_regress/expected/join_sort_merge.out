@@ -381,7 +381,7 @@ LIMIT 10;
            :           SegmentedTopKExec: expr=[val@4 ASC NULLS LAST], k=10, metrics=[rows_input=18.19 K, rows_output=20, segments_seen=2]
            :             SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=18.19 K, output_bytes=999.0 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=38.19 K, peak_mem_used=1.20 M]
            :               SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
-           :                 ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=2]
+           :                 ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
            :                   CooperativeExec
            :                     PgSearchScan: segments=2, query="all"
            :               SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=18.19 K, output_bytes=1012.7 KB, output_batches=3]

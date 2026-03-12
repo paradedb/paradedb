@@ -6,7 +6,9 @@ canonical: https://docs.paradedb.com/deploy/self-hosted/logical-replication/conf
 
 <Note>
   This section assumes that you have successfully completed the [getting
-  started](/deploy/self-hosted/logical-replication/getting-started) guide.
+  started](/deploy/self-hosted/logical-replication/getting-started) guide and
+  reviewed the [Logical Replication Operational
+  Guide](/deploy/self-hosted/logical-replication/operational-guide).
 </Note>
 
 ## Schema Changes
@@ -15,7 +17,7 @@ ParadeDB leverages PostgreSQL’s built-in logical replication to provide flexib
 
 ```sql
 -- On Publisher
-ALTER TABLE mock_items ADD COLUMN num_stock;
+ALTER TABLE mock_items ADD COLUMN num_stock int;
 INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating, num_stock)
 VALUES ('Green running shoes', 'Footwear', true, '14:00:00', '2024-07-09', '{}', '2024-07-09 14:00:00', 2, 900);
 
@@ -23,21 +25,25 @@ VALUES ('Green running shoes', 'Footwear', true, '14:00:00', '2024-07-09', '{}',
 ERROR: logical replication target relation "public.mock_items" is missing some replicated columns
 ```
 
-To work around this, pause the subscription on the subscriber, manually apply the schema changes, then resume the subscription:
+In practice, you should version-control your schema changes and apply them on
+both the publisher and ParadeDB in a coordinated rollout using your existing
+migration runner or framework tooling. For the safe migration sequence,
+subscriber-first additive DDL, and incident handling, see the [Logical
+Replication Operational
+Guide](/deploy/self-hosted/logical-replication/operational-guide).
 
-```sql
--- On Subscriber
-ALTER SUBSCRIPTION mock_items_sub DISABLE;
-ALTER TABLE entries ADD COLUMN num_stock int;
-ALTER SUBSCRIPTION mock_items_sub ENABLE;
-```
-
-If new tables are added and your publication is not `FOR ALL TABLES`, add them to the publication manually:
+If you want a new table to replicate to ParadeDB, that table must be included
+in the publication. Publications created with `FOR ALL TABLES` include new
+tables automatically, and publications created with `FOR TABLES IN SCHEMA ...`
+include new tables created in those schemas automatically. If your publication
+was created from an explicit table list, new tables will not replicate until
+you add them manually. If you do not want a table replicated to ParadeDB, leave
+it out of the publication.
 
 ```sql
 -- On Publisher
-ALTER PUBLICATION mock_items_pub ADD TABLE newly_added_table;
+ALTER PUBLICATION marketplace_pub ADD TABLE newly_added_table;
 
 -- On Subscriber
-ALTER SUBSCRIPTION mock_items_sub REFRESH PUBLICATION;
+ALTER SUBSCRIPTION marketplace_sub REFRESH PUBLICATION;
 ```

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773306588587,
+  "lastUpdate": 1773306596734,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28666,6 +28666,108 @@ window.BENCHMARK_DATA = {
             "value": 162.70703125,
             "unit": "median mem",
             "extra": "avg mem: 180.3240718691443, max mem: 221.15625, count: 56035"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ff67613e1f9a5337f8f15c53240a3ede957e2c7",
+          "message": "perf: push SegmentedTopKExec global threshold via DynamicFilterPhysicalExpr (#4334)\n\n## What\n\n`SegmentedTopKExec` now maintains a global K-sized heap across all\nsegments and publishes a cross-segment threshold as a\n`DynamicFilterPhysicalExpr`, pushed down through DataFusion's standard\nfilter pushdown mechanism. Previously only per-segment ordinal\nthresholds existed, so segment 1 couldn't benefit from what segment 0\nalready discovered.\n\n## Why\n\nPer-segment thresholds only prune within the segment that produced them.\nAfter seeing K great rows in segment 0, segment 1 still scanned all its\nrows from scratch. The global threshold converts the worst entry's\nordinals back to materialized strings (via `FFHelper::ord_to_str`) and\npublishes them as a dynamic filter. The scanner's `try_rewrite_binary`\nauto-translates these to per-segment ordinal bounds, pruning rows at\nscan level before they reach the join or SegmentedTopKExec.\n\nOn the 50K-row multi-segment benchmark (`ORDER BY title ASC LIMIT 5`),\n`rows_pruned` went from 20K to 24.48K and `rows_input` to\nSegmentedTopKExec dropped from 30K to 25.52K.\n\n## How\n\n- **`segmented_topk_exec.rs`**: Added a global heap +\n`DynamicFilterPhysicalExpr`. Implements\n`gather_filters_for_pushdown`/`handle_child_pushdown_result` to inject\nthe filter into DataFusion's pushdown path. Extracted\n`build_lexicographic_filter` so both per-segment and global thresholds\nshare the same filter-building logic. Removed the\n`SegmentedThresholds.global` side-channel.\n- **`filter_passthrough_exec.rs`** (new): Transparent `ExecutionPlan`\nwrapper that enables filter pushdown through nodes that don't support it\nnatively. Extracted from the private copy in `joinscan/planner.rs`.\n- **`segmented_topk_rule.rs`**: Wraps `SortPreservingMergeExec` nodes\nwith `FilterPassthroughExec` so the dynamic filter can reach\n`PgSearchScan` in SortMergeJoin plans.\n- **`tantivy_lookup_exec.rs`**: Added filter passthrough so filters flow\nthrough to children.\n- **`joinscan/scan_state.rs`**: Added a second `FilterPushdown(Post)`\npass after `SegmentedTopKRule`.\n- **`batch_scanner.rs`**: Removed global threshold side-channel;\nper-segment ordinal thresholds remain unchanged.\n\n## Results\n\n### HashJoin path (segmented_topk, 50K rows, `ORDER BY title ASC LIMIT\n5`)\n\n| Metric | before | after |\n|---|---|---|\n| PgSearchScan `rows_pruned` | 20K | 24.48K |\n| SegmentedTopKExec `rows_input` | 30K | 25.52K |\n| `dynamic_filters` on PgSearchScan | 2 | 3 |\n\n### SortMergeJoin path (join_sort_merge, 20K rows, `LIMIT 10`)\n\n| Metric | before | after |\n|---|---|---|\n| `rows_pruned` (ASC) | 0 | 1.81K |\n| `rows_pruned` (DESC) | 1.58K | 3.38K |\n| `rows_input` (ASC) | 20K | 18.19K |\n| `rows_input` (DESC) | 18.42K | 16.62K |\n\n## Tests\n\n- Added TEST 12 in `segmented_topk.sql`.",
+          "timestamp": "2026-03-12T01:19:29-07:00",
+          "tree_id": "c1c467d6e9b8fd07e85b5ad63ec8deb44787684c",
+          "url": "https://github.com/paradedb/paradedb/commit/0ff67613e1f9a5337f8f15c53240a3ede957e2c7"
+        },
+        "date": 1773306590690,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.059038560502546446, max background_merging: 2.0, count: 56353"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.701939723016283, max cpu: 9.67742, count: 56353"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 25.531288263269037, max mem: 25.53515625, count: 56353"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.045940206619251, max cpu: 28.944725, count: 56353"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 183.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 180.46841076007487, max mem: 187.78125, count: 56353"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 57549,
+            "unit": "median block_count",
+            "extra": "avg block_count: 57331.10482139372, max block_count: 57549.0, count: 56353"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.77404929639948, max segment_count: 58.0, count: 56353"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.650559171943024, max cpu: 9.467456, count: 56353"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 120.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 110.94982326806026, max mem: 137.12890625, count: 56353"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.160743527810889, max cpu: 32.74854, count: 56353"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 216.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 214.4254589235489, max mem: 225.1171875, count: 56353"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.814731423186657, max cpu: 33.7011, count: 56353"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 181.30617158802548, max mem: 221.01953125, count: 56353"
           }
         ]
       }

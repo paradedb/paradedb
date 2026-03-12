@@ -15,28 +15,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
-use datafusion::common::{Column, Result};
-use datafusion::logical_expr::{Extension, LogicalPlan};
-use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use std::collections::HashSet;
-
-use crate::scan::deferred_encode::extract_materialized_type_from_union;
-use crate::scan::table_provider::PgSearchTableProvider;
-
-use datafusion::common::DFSchemaRef;
-use datafusion::logical_expr::{Expr, UserDefinedLogicalNodeCore};
 use std::fmt::{self, Debug};
+use std::sync::Arc;
 
+use crate::index::fast_fields_helper::CanonicalColumn;
 use crate::index::fast_fields_helper::FFHelper;
+use crate::scan::deferred_encode::extract_materialized_type_from_union;
 use crate::scan::execution_plan::PgSearchScanPlan;
+use crate::scan::table_provider::PgSearchTableProvider;
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+
 use async_trait::async_trait;
-use datafusion::common::DataFusionError;
+use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
+use datafusion::common::{Column, DFSchemaRef, DataFusionError, Result};
 use datafusion::execution::context::SessionState;
+use datafusion::logical_expr::{Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore};
+use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
-use std::sync::Arc;
 
 /// `LateMaterializationRule` is a logical optimizer rule that delays the decoding of
 /// string/bytes dictionaries (from Tantivy's fast fields) for as long as logically possible.
@@ -505,18 +502,19 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
 
 pub struct LateMaterializePlanner;
 
-fn extract_ff_helper(plan: &Arc<dyn ExecutionPlan>) -> Option<Arc<FFHelper>> {
+fn extract_ff_helper(
+    plan: &Arc<dyn ExecutionPlan>,
+    helpers: &mut std::collections::HashMap<u32, Arc<FFHelper>>,
+) {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
-        return scan.ffhelper_if_deferred().cloned();
-    }
-
-    for child in plan.children() {
-        if let Some(helper) = extract_ff_helper(child) {
-            return Some(helper);
+        if let Some(ff) = scan.ffhelper_if_deferred() {
+            helpers.insert(scan.indexrelid, ff.clone());
         }
     }
 
-    None
+    for child in plan.children() {
+        extract_ff_helper(child, helpers);
+    }
 }
 
 #[async_trait]
@@ -532,11 +530,14 @@ impl ExtensionPlanner for LateMaterializePlanner {
         if let Some(mat_node) = node.as_any().downcast_ref::<LateMaterializeNode>() {
             let input_exec = Arc::clone(&physical_inputs[0]);
 
-            let ff_helper = extract_ff_helper(&input_exec).ok_or_else(|| {
-                DataFusionError::Plan(
+            let mut ff_helpers = std::collections::HashMap::new();
+            extract_ff_helper(&input_exec, &mut ff_helpers);
+
+            if ff_helpers.is_empty() {
+                return Err(DataFusionError::Plan(
                     "Could not find PgSearchScanPlan beneath LateMaterializeNode".into(),
-                )
-            })?;
+                ));
+            }
 
             let child_logical_schema = mat_node.input.schema();
             let mut physical_deferred_fields = Vec::with_capacity(mat_node.deferred_fields.len());
@@ -548,12 +549,12 @@ impl ExtensionPlanner for LateMaterializePlanner {
                         col_idx,
                         display_name: deferred.column.name.clone(),
                         is_bytes: deferred.is_bytes,
-                        ff_index: deferred.ff_index,
+                        canonical: deferred.canonical.clone(),
                     },
                 );
             }
 
-            let exec = TantivyLookupExec::new(input_exec, physical_deferred_fields, ff_helper)?;
+            let exec = TantivyLookupExec::new(input_exec, physical_deferred_fields, ff_helpers)?;
 
             Ok(Some(Arc::new(exec)))
         } else {
@@ -583,9 +584,8 @@ pub struct DeferredField {
     #[serde(with = "column_serde")]
     pub column: Column,
     pub is_bytes: bool,
-    pub ff_index: usize,
+    pub canonical: CanonicalColumn,
 }
-
 mod column_serde {
     use datafusion::common::Column;
     use serde::{Deserialize, Deserializer, Serializer};

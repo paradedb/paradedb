@@ -29,7 +29,7 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use tantivy::index::SegmentId;
 
-use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
@@ -156,7 +156,10 @@ impl PgSearchTableProvider {
                 deferred.push(DeferredField {
                     column: datafusion::common::Column::from_name(name.clone()),
                     is_bytes: *is_bytes,
-                    ff_index,
+                    canonical: CanonicalColumn {
+                        indexrelid: self.scan_info.indexrelid.to_u32(),
+                        ff_index,
+                    },
                 });
             }
         }
@@ -291,7 +294,7 @@ impl PgSearchTableProvider {
 
         let deferred = self.deferred_fields();
 
-        let maybe_ff = if deferred.is_empty() {
+        let ffhelper_opt = if deferred.is_empty() {
             None
         } else {
             Some(ffhelper.clone())
@@ -303,7 +306,8 @@ impl PgSearchTableProvider {
             query_for_display,
             actual_sort_order,
             deferred,
-            maybe_ff,
+            ffhelper_opt,
+            self.scan_info.indexrelid.to_u32(),
         )))
     }
 

@@ -110,6 +110,7 @@ pub struct PgSearchScanPlan {
     metrics: ExecutionPlanMetricsSet,
     deferred_fields: Vec<DeferredField>,
     ffhelper_for_lookup: Option<Arc<FFHelper>>,
+    pub indexrelid: u32,
     /// Per-segment ordinal thresholds pushed from `SegmentedTopKExec` for
     /// early row pruning at the scanner level.
     segmented_thresholds: Mutex<Option<Arc<SegmentedThresholds>>>,
@@ -139,6 +140,7 @@ impl PgSearchScanPlan {
         sort_order: Option<&SortByField>,
         deferred_fields: Vec<DeferredField>,
         ffhelper_for_lookup: Option<Arc<FFHelper>>,
+        indexrelid: u32,
     ) -> Self {
         // Ensure we always return at least one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
@@ -176,6 +178,7 @@ impl PgSearchScanPlan {
             metrics: ExecutionPlanMetricsSet::new(),
             deferred_fields,
             ffhelper_for_lookup,
+            indexrelid,
             segmented_thresholds: Mutex::new(None),
         }
     }
@@ -461,7 +464,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                     inner.0.set_batch_size(df_batch_size as usize);
                 }
             }
-
             let new_plan = Arc::new(PgSearchScanPlan {
                 states: Mutex::new(states),
                 partition_row_counts: self.partition_row_counts.clone(),
@@ -471,9 +473,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                 metrics: self.metrics.clone(),
                 deferred_fields: self.deferred_fields.clone(),
                 ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
+                indexrelid: self.indexrelid,
                 segmented_thresholds: Mutex::new(self.segmented_thresholds.lock().unwrap().clone()),
             });
-
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
                     .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
@@ -577,6 +579,7 @@ pub fn create_sorted_scan(
         Some(sort_order),
         Vec::new(),
         None,
+        0,
     ));
 
     // For a single segment, no merging is needed

@@ -2,7 +2,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::index::fast_fields_helper::{
-    ords_to_bytes_array, ords_to_string_array, FFHelper, FFType,
+    ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
 };
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
@@ -42,7 +42,7 @@ pub struct PhysicalDeferredField {
     /// A human-readable name used purely for `EXPLAIN` formatting
     pub display_name: String,
     pub is_bytes: bool,
-    pub ff_index: usize,
+    pub canonical: CanonicalColumn,
 }
 
 impl PhysicalDeferredField {
@@ -55,11 +55,13 @@ impl PhysicalDeferredField {
     }
 }
 
+use std::collections::HashMap;
+
 pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
     deferred_fields: Vec<PhysicalDeferredField>,
     decoders: Vec<DecoderInfo>,
-    ffhelper: Arc<FFHelper>,
+    ffhelpers: HashMap<u32, Arc<FFHelper>>,
     properties: PlanProperties,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -77,7 +79,7 @@ impl TantivyLookupExec {
     pub fn new(
         input: Arc<dyn ExecutionPlan>,
         deferred_fields: Vec<PhysicalDeferredField>,
-        ffhelper: Arc<FFHelper>,
+        ffhelpers: HashMap<u32, Arc<FFHelper>>,
     ) -> Result<Self> {
         let (output_schema, decoders) =
             build_schema_and_decoders(input.schema(), &deferred_fields)?;
@@ -92,7 +94,7 @@ impl TantivyLookupExec {
             input,
             deferred_fields,
             decoders,
-            ffhelper,
+            ffhelpers,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
         })
@@ -102,8 +104,8 @@ impl TantivyLookupExec {
         &self.deferred_fields
     }
 
-    pub fn ffhelper(&self) -> &Arc<FFHelper> {
-        &self.ffhelper
+    pub fn ffhelper(&self, indexrelid: u32) -> Option<&Arc<FFHelper>> {
+        self.ffhelpers.get(&indexrelid)
     }
 }
 
@@ -111,7 +113,7 @@ impl TantivyLookupExec {
 pub struct DecoderInfo {
     pub col_idx: usize,
     pub is_bytes: bool,
-    pub ff_index: usize,
+    pub canonical: CanonicalColumn,
 }
 
 fn build_schema_and_decoders(
@@ -135,7 +137,7 @@ fn build_schema_and_decoders(
                 decoders.push(DecoderInfo {
                     col_idx,
                     is_bytes: d.is_bytes,
-                    ff_index: d.ff_index,
+                    canonical: d.canonical,
                 });
             } else {
                 fields.push(field.as_ref().clone());
@@ -191,7 +193,7 @@ impl ExecutionPlan for TantivyLookupExec {
         Ok(Arc::new(TantivyLookupExec::new(
             children.remove(0),
             self.deferred_fields.clone(),
-            Arc::clone(&self.ffhelper),
+            self.ffhelpers.clone(),
         )?))
     }
 
@@ -203,7 +205,7 @@ impl ExecutionPlan for TantivyLookupExec {
         let mut input_stream = self.input.execute(partition, context)?;
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         let decoders = self.decoders.clone();
-        let ffhelper = Arc::clone(&self.ffhelper);
+        let ffhelpers = self.ffhelpers.clone();
         let schema = self.properties.eq_properties.schema().clone();
 
         let stream_gen = async_stream::try_stream! {
@@ -211,7 +213,7 @@ impl ExecutionPlan for TantivyLookupExec {
             while let Some(batch_res) = input_stream.next().await {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let result = match batch_res {
-                    Ok(batch) => enrich_batch(batch, &decoders, &ffhelper, &schema),
+                    Ok(batch) => enrich_batch(batch, &decoders, &ffhelpers, &schema),
                     Err(e) => Err(e),
                 };
                 timer.done();
@@ -251,7 +253,7 @@ impl ExecutionPlan for TantivyLookupExec {
 fn enrich_batch(
     batch: RecordBatch,
     decoders: &[DecoderInfo],
-    ffhelper: &FFHelper,
+    ffhelpers: &std::collections::HashMap<u32, Arc<FFHelper>>,
     schema: &SchemaRef,
 ) -> Result<RecordBatch> {
     let num_rows = batch.num_rows();
@@ -269,11 +271,20 @@ fn enrich_batch(
                 ))
             })?;
 
+        let ffhelper = ffhelpers
+            .get(&decoder.canonical.indexrelid)
+            .ok_or_else(|| {
+                DataFusionError::Execution(format!(
+                    "missing FFHelper for relation ID {}",
+                    decoder.canonical.indexrelid
+                ))
+            })?;
+
         // Replace the raw UnionArray with the decoded String/Binary array
         output_columns[decoder.col_idx] = materialize_deferred_column(
             ffhelper,
             union_array,
-            decoder.ff_index,
+            decoder.canonical.ff_index,
             decoder.is_bytes,
             num_rows,
         )?;

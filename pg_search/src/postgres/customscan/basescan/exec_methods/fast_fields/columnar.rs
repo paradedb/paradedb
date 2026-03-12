@@ -429,6 +429,11 @@ impl ColumnarExecState {
             None,
             Vec::new(),
             None,
+            state
+                .indexrel
+                .as_ref()
+                .map(|r| r.oid().to_u32())
+                .unwrap_or(0),
         );
 
         let task_ctx = Arc::new(TaskContext::default());

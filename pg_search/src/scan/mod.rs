@@ -19,6 +19,7 @@ pub mod batch_scanner;
 pub mod codec;
 pub mod deferred_encode;
 pub mod execution_plan;
+pub mod filter_passthrough_exec;
 pub mod filter_pushdown;
 pub mod info;
 pub mod late_materialization_rule;

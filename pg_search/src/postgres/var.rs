@@ -398,8 +398,8 @@ pub unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> V
         return path;
     } else if is_a(node, T_Const) {
         let node = node as *mut Const;
-        match PgOid::from((*node).consttype) {
-            PgOid::BuiltIn(oid) => match oid {
+        if let PgOid::BuiltIn(oid) = PgOid::from((*node).consttype) {
+            match oid {
                 pg_sys::BuiltinOid::TEXTOID | pg_sys::BuiltinOid::VARCHAROID => {
                     if let Some(s) = String::from_datum((*node).constvalue, (*node).constisnull) {
                         path.push(s);
@@ -413,8 +413,7 @@ pub unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> V
                     }
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
 
         return path;

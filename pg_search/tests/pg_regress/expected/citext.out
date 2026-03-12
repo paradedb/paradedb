@@ -322,7 +322,48 @@ SELECT id, content FROM citext_empty ORDER BY id;
 
 DROP TABLE citext_empty;
 -- ============================================================
--- Test 8: citext RHS constant in @@@ operator
+-- Test 8: Aggregate scan over a citext column
+-- (covers types.rs: try_into_datum citext branch via aggregatescan)
+-- ============================================================
+CREATE TABLE citext_agg (
+    id      INT PRIMARY KEY,
+    category CITEXT,
+    value    INT
+);
+INSERT INTO citext_agg (id, category, value) VALUES
+    (1, 'Alpha', 10),
+    (2, 'Beta',  20),
+    (3, 'Alpha', 30),
+    (4, 'Gamma', 40),
+    (5, 'Beta',  50);
+CREATE INDEX ON citext_agg
+USING bm25 (id, category, value)
+WITH (key_field = 'id');
+-- GROUP BY on citext column — aggregatescan calls try_into_datum with citext OID
+SELECT category, COUNT(*) FROM citext_agg
+WHERE category @@@ 'alpha OR beta OR gamma'
+GROUP BY category
+ORDER BY category;
+ category | count 
+----------+-------
+ Alpha    |     2
+ Beta     |     2
+ Gamma    |     1
+(3 rows)
+
+SELECT category, SUM(value) FROM citext_agg
+WHERE category @@@ 'alpha OR beta'
+GROUP BY category
+ORDER BY category;
+ category | sum 
+----------+-----
+ Alpha    |  40
+ Beta     |  70
+(2 rows)
+
+DROP TABLE citext_agg;
+-- ============================================================
+-- Test 9: citext RHS constant in @@@ operator
 -- (covers operator.rs: rewrite_rhs_to_search_query_input citext branch)
 -- ============================================================
 CREATE TABLE citext_rhs (
@@ -350,7 +391,7 @@ SELECT id FROM citext_rhs WHERE name @@@ 'HELLO'::citext ORDER BY id;
 
 DROP TABLE citext_rhs;
 -- ============================================================
--- Test 9: paradedb.term_with_operator with citext value
+-- Test 10: paradedb.term_with_operator with citext value
 -- (covers builder_fns/paradedb.rs: term_with_operator citext branch)
 -- ============================================================
 CREATE TABLE citext_term_op (
@@ -375,9 +416,8 @@ ORDER BY id;
 
 DROP TABLE citext_term_op;
 -- ============================================================
--- Test 10: Columnar execution returning citext fast-field values
--- (covers types_arrow.rs: arrow_array_to_datum citext branch;
---  covers types.rs: try_into_datum citext branch)
+-- Test 11: Columnar execution returning citext fast-field values
+-- (covers types_arrow.rs: arrow_array_to_datum citext branch)
 -- ============================================================
 CREATE TABLE citext_columnar (
     id   INT PRIMARY KEY,

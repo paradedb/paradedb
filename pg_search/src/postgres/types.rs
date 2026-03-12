@@ -219,18 +219,6 @@ impl TantivyValue {
                 }
                 _ => Err(TantivyValueError::UnsupportedJsonOid(oid.value())),
             },
-            PgOid::Custom(custom) => {
-                if is_citext_oid(*custom) {
-                    let array: pgrx::Array<Datum> = pgrx::Array::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?;
-                    return array
-                        .iter()
-                        .flatten()
-                        .map(|element| Self::try_from_datum(element, oid))
-                        .collect();
-                }
-                Err(TantivyValueError::UnsupportedArrayOid(oid.value()))
-            }
             _ => Err(TantivyValueError::InvalidOid),
         }
     }

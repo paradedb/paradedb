@@ -469,11 +469,6 @@ mod tests {
     }
 
     #[pg_test]
-    fn ensure_citext_extension() {
-        Spi::run("CREATE EXTENSION IF NOT EXISTS citext;").unwrap();
-    }
-
-    #[pg_test]
     fn test_arrow_string_to_datum_text() {
         Spi::run("CREATE EXTENSION IF NOT EXISTS citext;").unwrap();
         let citext_oid = PgOid::from(

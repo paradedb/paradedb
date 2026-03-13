@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773361002750,
+  "lastUpdate": 1773361855078,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15778,6 +15778,42 @@ window.BENCHMARK_DATA = {
             "value": 5.289008749775546,
             "unit": "median tps",
             "extra": "avg tps: 4.757285264604468, max tps: 5.928392668892504, count: 57538"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f8c5c827bcf3c3f09402915b810f680d4307443d",
+          "message": "chore: Move late materialization to a logical `OptimizerRule` (#4342)\n\n# Ticket(s) Closed\n\n- Closes #4324\n\n## What\n\nThis change moves the planning of our late materialization\n`TantivyLookupExec` from a `PhysicalOptimizerRule` to a logical\n`OptimizerRule`.\n\n## Why\n\nIn order to use a `PhysicalOptimizerRule` to install TantivyLookupExec,\nwe needed to lie about the schema of the deferred/union column, and\ndeclare that it was still string or bytes. We needed to disable schema\nchecking:\n```rust\nfn schema_check(&self) -> bool {\n    // Disabled because this rule temporarily changes column types\n    // (Utf8View -> UnionArray) between PgSearchScan and TantivyLookupExec.\n    // The final output schema is correct after TantivyLookupExec restores types.\n    false\n}\n```\n\nThis worked on DataFusion 52, but was fragile... and DataFusion 53\nintroduced additional schema checking in Projection nodes, which noticed\nthe difference and blocked upgrading.\n\n## How\n\n`impl OptimizerRule for LateMaterializationRule` looks for\n`PgSearchTableProvider` implementations which have string/bytes columns,\nand enables late materialization with\n`enable_late_materialization_schema`. This changes the schema that the\nnode declares to a schema which includes the Union. See the notes around\n`enable_late_materialization_schema` which explain why we need to use\nmutability here.\n\nWe then bubble this schema modification up through the plan, and look\nfor a node that will force the column(s) to be materialized\n(`should_anchor`): as before, we can bubble up past logical plan nodes\nwhich don't actually execute expressions on the deferred columns\n(adjusting their schemas as we go). When we find a logical node which\n_does_ need to execute expressions on the deferred column(s), we insert\nour logical `LateMaterializeNode` immediately below it.\n\nFinally, we use `impl ExtensionPlanner for LateMaterializePlanner` to\nconvert the logical `LateMaterializeNode` into a physical\n`TantivyLookupExec` node.\n\nBecause they do not need to make schema modifications and operate in a\nlocalized fashion, our `SegmentedTopK` and `SortMergeJoinEnforcer` rules\ncan remain physical optimizer rules.\n\n## Tests\n\nExisting tests all pass.\n\nAdditionally, I've validated that this unblocks the DataFusion 53\nupgrade.",
+          "timestamp": "2026-03-12T16:54:33-07:00",
+          "tree_id": "83e4d2115c3043e951a0bc64a617996c157f065f",
+          "url": "https://github.com/paradedb/paradedb/commit/f8c5c827bcf3c3f09402915b810f680d4307443d"
+        },
+        "date": 1773361848932,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.704201501450864,
+            "unit": "median tps",
+            "extra": "avg tps: 6.589562681988901, max tps: 9.978489463753592, count: 57788"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.329429935991965,
+            "unit": "median tps",
+            "extra": "avg tps: 4.786317950606267, max tps: 5.994912225810643, count: 57788"
           }
         ]
       }

@@ -88,7 +88,7 @@ MockItem.objects.filter(
 
 ```ruby Rails
 MockItem.search(:description)
-        .near_regex("sl.*", anchor: "shoes", distance: 1)
+        .near(ParadeDB.regex_term("sl.*"), anchor: "shoes", distance: 1)
         .select(:description, :rating, :category)
 ```
 
@@ -115,7 +115,7 @@ MockItem.objects.filter(
 
 ```ruby Rails
 MockItem.search(:description)
-        .near_regex("sl.*", anchor: "shoes", distance: 1, max_expansions: 100)
+        .near(ParadeDB.regex_term("sl.*", max_expansions: 100), anchor: "shoes", distance: 1)
         .select(:description, :rating, :category)
 ```
 
@@ -167,8 +167,8 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-# rails-paradedb does not currently expose mixed regex + prox_array composition.
-MockItem.where("description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## 'shoes')")
+MockItem.search(:description)
+        .near(ParadeDB.regex_term("sl.*"), "white", anchor: "shoes", distance: 1)
         .select(:description, :rating, :category)
 ```
 

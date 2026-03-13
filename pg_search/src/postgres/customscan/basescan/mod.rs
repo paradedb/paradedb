@@ -63,7 +63,7 @@ use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::qual_inspect::{
-    extract_join_predicates, extract_quals, is_unhandled_clause, optimize_quals_with_heap_expr,
+    extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
     PlannerContext, Qual, QualExtractState,
 };
 use crate::postgres::customscan::score_funcoids;
@@ -260,7 +260,7 @@ impl BaseScan {
                     attempt_pushdown,
                 ) {
                     partial_quals.push(qual);
-                } else if !is_unhandled_clause(ri.cast()) {
+                } else if !is_subplan(ri.cast()) {
                     all_skipped_are_subplans = false;
                 }
             }
@@ -1009,7 +1009,7 @@ impl CustomScan for BaseScan {
             let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
             let mut unhandled_quals = PgList::<pg_sys::Node>::new();
             for clause in clauses.iter_ptr() {
-                if is_unhandled_clause(clause) {
+                if is_subplan(clause) {
                     // Strip RestrictInfo wrapper if present — plan.qual needs bare expressions
                     let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
                         let ri = clause as *mut pg_sys::RestrictInfo;

@@ -553,20 +553,20 @@ pub struct QualExtractState {
 
 /// Check if a clause contains node types that extract_quals cannot handle
 /// (e.g., SubPlan from RLS policies) and thus needs plan.qual evaluation.
-pub unsafe fn is_unhandled_clause(node: *mut pg_sys::Node) -> bool {
+pub unsafe fn is_subplan(node: *mut pg_sys::Node) -> bool {
     if node.is_null() {
         return false;
     }
     match (*node).type_ {
         pg_sys::NodeTag::T_RestrictInfo => {
             let ri = node as *mut pg_sys::RestrictInfo;
-            is_unhandled_clause((*ri).clause.cast())
+            is_subplan((*ri).clause.cast())
         }
         pg_sys::NodeTag::T_SubPlan | pg_sys::NodeTag::T_AlternativeSubPlan => true,
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = node as *mut pg_sys::BoolExpr;
             let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            let result = args.iter_ptr().any(|arg| is_unhandled_clause(arg));
+            let result = args.iter_ptr().any(|arg| is_subplan(arg));
             result
         }
         _ => false,

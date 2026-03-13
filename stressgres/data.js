@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773372095458,
+  "lastUpdate": 1773372103460,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30016,6 +30016,108 @@ window.BENCHMARK_DATA = {
             "value": 162.87890625,
             "unit": "median mem",
             "extra": "avg mem: 181.40380128206556, max mem: 221.3046875, count: 56096"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "212998a4ad6eb7a4adeb1dcaa4bb231b2dc105e6",
+          "message": "chore: Upgrade to DataFusion ~53. (#4351)\n\n## What\n\nUpgrade to what will become DataFusion `53` by building atop\n`branch-53`.\n\n## Why\n\nIn order to make it easier to backport changes to `0.22.x`, and\nhopefully give that branch a longer life than it might have otherwise.\n\n## How\n\n* Removed the deprecated `statistics` method from `PgSearchScanPlan`.\n* Changed the `properties` field to be wrapped in an\n`Arc<PlanProperties>` and updated the method signature to return\n`&Arc<PlanProperties>`.\n* Derived `Debug` for `PhysicalOptimizerRule` implementations.\n\n## Tests\n\nThere are many plan changes. But having triaged them, they seem to be\nprimarily that:\n* ~All files were impacted by\nhttps://github.com/apache/datafusion/pull/20192, which was a bugfix for\nhttps://github.com/apache/datafusion/issues/20213 : hash joins were\nallowing TopK filters to be pushed down on _both_ sides of the join\n(incorrectly!) if column names were aligned. Consequently, many\n`dynamic_filters` counts dropped.\n* A few files lost their `GlobalLimitExec` in favor of\nhttps://github.com/apache/datafusion/pull/20228, which pushes the limit\ninto a hash join.\n* Some others were just impacted by metrics changes.",
+          "timestamp": "2026-03-12T19:29:07-07:00",
+          "tree_id": "35e9e3b3a1a8493a79bdb4c4460be6eda3d7451b",
+          "url": "https://github.com/paradedb/paradedb/commit/212998a4ad6eb7a4adeb1dcaa4bb231b2dc105e6"
+        },
+        "date": 1773372097153,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07798883079002597, max background_merging: 2.0, count: 56226"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.793708635748945, max cpu: 9.687184, count: 56226"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 28.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.69184171357557, max mem: 28.76171875, count: 56226"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.995363767438456, max cpu: 32.589718, count: 56226"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 185.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 179.96985491587523, max mem: 185.31640625, count: 56226"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51449,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51306.31218653292, max block_count: 51449.0, count: 56226"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.186177213388824, max segment_count: 56.0, count: 56226"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.603153734533076, max cpu: 23.928215, count: 56226"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 142.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 127.12059277236065, max mem: 156.58984375, count: 56226"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.786288953581207, max cpu: 9.638554, count: 56226"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.48215134290632, max mem: 168.78515625, count: 56226"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.724504609002576, max cpu: 33.83686, count: 56226"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 181.52771050370382, max mem: 221.421875, count: 56226"
           }
         ]
       }

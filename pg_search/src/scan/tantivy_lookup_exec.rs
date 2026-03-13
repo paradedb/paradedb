@@ -28,10 +28,10 @@ use tantivy::{DocId, SegmentOrdinal};
 
 /// Tracks a deferred column inside DataFusion's physical execution plan.
 ///
-/// Unlike the logical `DeferredField` which uses qualified column names, this struct
+/// Unlike the logical `DeferredField` which uses the base column's string name, this struct
 /// identifies the column strictly by its `usize` index within the physical `RecordBatch`.
 /// This is necessary because DataFusion physical schemas (`arrow_schema::Schema`) drop
-/// all relation qualifiers.
+/// all relation qualifiers and names are no longer used for strict identity.
 ///
 /// The `display_name` is preserved purely for `EXPLAIN` rendering and debugging; it should
 /// never be used for matching columns in the physical plan.

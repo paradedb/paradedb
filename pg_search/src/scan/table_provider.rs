@@ -137,13 +137,9 @@ impl PgSearchTableProvider {
                         | arrow_schema::DataType::LargeBinary
                 );
                 if is_string_or_bytes && !required_early_columns.contains(name.as_str()) {
-                    let is_bytes = matches!(
-                        field_type.arrow_data_type(),
-                        arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
-                    );
                     let cloned_name = name.clone();
                     let cloned_type = *field_type;
-                    *wff = WhichFastField::Deferred(cloned_name, cloned_type, is_bytes);
+                    *wff = WhichFastField::Deferred(cloned_name, cloned_type);
                 }
             }
         }
@@ -152,10 +148,14 @@ impl PgSearchTableProvider {
     pub fn deferred_fields(&self) -> Vec<DeferredField> {
         let mut deferred = Vec::new();
         for (ff_index, wff) in self.fields.iter().enumerate() {
-            if let WhichFastField::Deferred(name, _, is_bytes) = wff {
+            if let WhichFastField::Deferred(name, field_type) = wff {
+                let is_bytes = matches!(
+                    field_type.arrow_data_type(),
+                    arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+                );
                 deferred.push(DeferredField {
-                    column: datafusion::common::Column::from_name(name.clone()),
-                    is_bytes: *is_bytes,
+                    name: name.clone(),
+                    is_bytes,
                     canonical: CanonicalColumn {
                         indexrelid: self.scan_info.indexrelid.to_u32(),
                         ff_index,
@@ -176,7 +176,7 @@ impl PgSearchTableProvider {
                         .fields
                         .iter()
                         .map(|wff| {
-                            if let WhichFastField::Deferred(name, ty, _) = wff {
+                            if let WhichFastField::Deferred(name, ty) = wff {
                                 WhichFastField::Named(name.clone(), *ty)
                             } else {
                                 wff.clone()

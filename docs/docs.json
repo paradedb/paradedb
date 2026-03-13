@@ -291,19 +291,20 @@
                       "deploy/self-hosted/docker",
                       "deploy/self-hosted/extension",
                       {
-                        "group": "Logical Replication",
-                        "pages": [
-                          "deploy/self-hosted/logical-replication/getting-started",
-                          "deploy/self-hosted/logical-replication/configuration",
-                          "deploy/self-hosted/logical-replication/multi-database"
-                        ]
-                      },
-                      {
                         "group": "High Availability",
                         "pages": [
                           "deploy/self-hosted/high-availability/configuration"
                         ]
                       }
+                    ]
+                  },
+                  {
+                    "group": "Logical Replication",
+                    "pages": [
+                      "deploy/self-hosted/logical-replication/getting-started",
+                      "deploy/self-hosted/logical-replication/operational-guide",
+                      "deploy/self-hosted/logical-replication/configuration",
+                      "deploy/self-hosted/logical-replication/multi-database"
                     ]
                   },
                   "deploy/byoc",

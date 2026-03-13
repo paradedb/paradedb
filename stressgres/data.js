@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773442995335,
+  "lastUpdate": 1773443825785,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34688,6 +34688,60 @@ window.BENCHMARK_DATA = {
             "value": 14.07377879728167,
             "unit": "median tps",
             "extra": "avg tps: 14.065023038941057, max tps: 20.56918175856672, count: 55812"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53b9d11709c7373d7e2283e6a1cf125e5f3a194b",
+          "message": "fix: RLS policies that get planned as `SubPlan`s (#4354)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe handled certain RLS policies that got planned as plain function\ncalls, but our heap filter pushdown doesn't have support for subplans\n(which other policies can get written to).\n\n## Why\n\n## How\n\n## Tests\nSee new regression test.",
+          "timestamp": "2026-03-13T15:14:11-07:00",
+          "tree_id": "0b41638786d46dd550a4a72c2cee1738c2020c77",
+          "url": "https://github.com/paradedb/paradedb/commit/53b9d11709c7373d7e2283e6a1cf125e5f3a194b"
+        },
+        "date": 1773443819731,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.32692302170787,
+            "unit": "median tps",
+            "extra": "avg tps: 29.995352531961053, max tps: 31.96108748878624, count: 55526"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.94936417339906,
+            "unit": "median tps",
+            "extra": "avg tps: 271.7414185827103, max tps: 2763.7617196452047, count: 55526"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 566.3109504204976,
+            "unit": "median tps",
+            "extra": "avg tps: 552.0869456722025, max tps: 1027.8087570068094, count: 55526"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 167.30599297139582,
+            "unit": "median tps",
+            "extra": "avg tps: 179.7667587067349, max tps: 1145.6880441769977, count: 111052"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.750816427928982,
+            "unit": "median tps",
+            "extra": "avg tps: 15.610752620545846, max tps: 20.73790139944958, count: 55526"
           }
         ]
       }

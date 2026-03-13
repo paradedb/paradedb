@@ -62,6 +62,20 @@ pub struct PgSearchTableProvider {
     /// re-injected by the `PgSearchExtensionCodec` during deserialization.
     #[serde(skip)]
     expr_context: Option<*mut pg_sys::ExprContext>,
+    /// Position of this source in the non-partitioning source list (0-based), or `None`
+    /// if this is the partitioning source or a serial scan.
+    ///
+    /// This is serialized so that the `PgSearchExtensionCodec` can look up and inject the
+    /// correct canonical segment IDs (`canonical_segment_ids`) during plan deserialization
+    /// in both the leader and parallel workers.
+    non_partitioning_index: Option<usize>,
+    /// Canonical segment IDs for replicated-parallel execution.
+    ///
+    /// When `Some`, `scan()` uses `MvccSatisfies::ParallelWorker(ids)` instead of
+    /// `MvccSatisfies::Snapshot`.  Injected by the `PgSearchExtensionCodec` based on
+    /// `non_partitioning_index`; `None` for the partitioning source and serial scans.
+    #[serde(skip)]
+    canonical_segment_ids: Option<crate::api::HashSet<SegmentId>>,
 
     /// A lifecycle toggle that dictates what schema is exposed to DataFusion.
     ///
@@ -101,6 +115,8 @@ impl PgSearchTableProvider {
             is_parallel,
             parallel_state,
             expr_context: None,
+            non_partitioning_index: None,
+            canonical_segment_ids: None,
             late_materialization_active: AtomicBool::new(false),
         }
     }
@@ -118,6 +134,24 @@ impl PgSearchTableProvider {
     pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
         assert!(self.is_parallel);
         self.parallel_state = parallel_state;
+    }
+
+    /// Mark this provider as a non-partitioning source at position `idx` in the
+    /// non-partitioning source list.  The `PgSearchExtensionCodec` uses this index to
+    /// inject the correct canonical segment IDs during plan deserialization.
+    pub(crate) fn set_non_partitioning_index(&mut self, idx: usize) {
+        self.non_partitioning_index = Some(idx);
+    }
+
+    /// Return the position of this provider in the non-partitioning source list, or `None`.
+    pub(crate) fn non_partitioning_index(&self) -> Option<usize> {
+        self.non_partitioning_index
+    }
+
+    /// Inject the canonical segment IDs for this replicated-parallel provider.
+    /// Called by `PgSearchExtensionCodec::try_decode_table_provider` in workers.
+    pub(crate) fn set_canonical_segment_ids(&mut self, ids: crate::api::HashSet<SegmentId>) {
+        self.canonical_segment_ids = Some(ids);
     }
 
     pub(crate) fn set_expr_context(&mut self, expr_context: Option<*mut pg_sys::ExprContext>) {
@@ -542,8 +576,24 @@ impl TableProvider for PgSearchTableProvider {
         // Convert pushed-down filters to SearchQueryInput and combine with base query
         let query = self.combine_query_with_filters(base_query, filters);
 
-        // Determine MVCC strategy based on whether we are running in parallel mode
-        let mvcc_style = if let Some(parallel_state) = self.parallel_state {
+        // Determine MVCC strategy based on whether we are running in parallel mode.
+        //
+        // For the partitioning source (`parallel_state` is Some):
+        //   - Leader: Snapshot (claims segments dynamically; its own snapshot is the source
+        //             of truth for which segments exist).
+        //   - Workers: ParallelWorker(partitioning_segment_ids) – frozen set from leader.
+        //
+        // For non-partitioning / replicated sources (`canonical_segment_ids` is Some):
+        //   - Both leader and workers use ParallelWorker(canonical_ids) so that every
+        //     participant opens exactly the same frozen segment set, preventing DocAddress
+        //     mismatches when late materialization stores (segment_ord, doc_id) pairs.
+        //
+        // Serial scans (both fields None): Snapshot.
+        let mvcc_style = if let Some(ids) = self.canonical_segment_ids.clone() {
+            // Non-partitioning source in a parallel join scan: use the frozen segment list
+            // that the leader snapshotted and wrote to shared memory.
+            MvccSatisfies::ParallelWorker(ids)
+        } else if let Some(parallel_state) = self.parallel_state {
             unsafe {
                 if pg_sys::ParallelWorkerNumber == -1 {
                     // Leader only sees snapshot-visible segments

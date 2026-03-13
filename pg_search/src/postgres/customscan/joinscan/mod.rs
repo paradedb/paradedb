@@ -181,7 +181,9 @@ use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
-use crate::scan::codec::{deserialize_logical_plan, serialize_logical_plan};
+use crate::scan::codec::{
+    deserialize_logical_plan, deserialize_logical_plan_parallel, serialize_logical_plan,
+};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
@@ -200,13 +202,16 @@ impl ParallelQueryCapable for JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
     ) -> pg_sys::Size {
-        // We only partition the largest source
         let join_clause = &state.custom_state().join_clause;
-        let source = join_clause.partitioning_source();
-        let segment_count = source.scan_info.segment_count;
+        let partitioning_idx = join_clause.partitioning_source_index();
+        let sources = join_clause.plan.sources();
+
+        // Collect planning-time segment counts for all sources (safe upper bound:
+        // merges can only reduce the segment count before initialization).
+        let all_nsegments: Vec<usize> = sources.iter().map(|s| s.scan_info.segment_count).collect();
 
         // JoinScan doesn't currently support aggregates in the scan
-        ParallelScanState::size_of(segment_count, &[], false)
+        ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false)
     }
 
     fn initialize_dsm_custom_scan(
@@ -217,34 +222,69 @@ impl ParallelQueryCapable for JoinScan {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
 
-        // Initialize shared state with segments from the largest source
-        let join_clause = &state.custom_state().join_clause;
-        let source = join_clause.partitioning_source();
-        let index_relid = source.scan_info.indexrelid;
-        let query = source.scan_info.query.clone();
+        let join_clause = state.custom_state().join_clause.clone();
+        let sources = join_clause.plan.sources();
+        let partitioning_idx = join_clause.partitioning_source_index();
 
-        let index_rel = PgSearchRelation::open(index_relid);
-        let expr_context = crate::postgres::utils::ExprContextGuard::new();
-        let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query,
+        // Compute planning-time payload capacity from plan's segment counts,
+        // matching what estimate_dsm used. This is the upper bound for the assertion
+        // in create_and_populate, since execution-time counts may be lower due to merges.
+        let all_nsegments_planning: Vec<usize> =
+            sources.iter().map(|s| s.scan_info.segment_count).collect();
+        let capacity = ParallelScanState::payload_capacity_of(
+            &all_nsegments_planning,
+            partitioning_idx,
+            &[],
             false,
-            MvccSatisfies::Snapshot,
-            std::ptr::NonNull::new(expr_context.as_ptr()),
-            None,
-        )
-        .expect("Failed to open reader for DSM initialization");
+        );
+
+        let expr_context = crate::postgres::utils::ExprContextGuard::new();
+
+        // Open ALL sources with Snapshot visibility, in ascending sources() order.
+        // The leader captures a single frozen segment list for every source so that
+        // all workers see identical segment ordinals (required for DocAddress consistency).
+        let rels: Vec<PgSearchRelation> = sources
+            .iter()
+            .map(|s| PgSearchRelation::open(s.scan_info.indexrelid))
+            .collect();
+
+        let readers: Vec<SearchIndexReader> = sources
+            .iter()
+            .zip(rels.iter())
+            .map(|(s, rel)| {
+                SearchIndexReader::open_with_context(
+                    rel,
+                    s.scan_info.query.clone(),
+                    false,
+                    MvccSatisfies::Snapshot,
+                    std::ptr::NonNull::new(expr_context.as_ptr()),
+                    None,
+                )
+                .expect("Failed to open reader for DSM initialization")
+            })
+            .collect();
+
+        let all_sources: Vec<&[tantivy::SegmentReader]> =
+            readers.iter().map(|r| r.segment_readers()).collect();
 
         let args = crate::postgres::ParallelScanArgs {
-            segment_readers: reader.segment_readers(),
-            query: vec![], // We don't need to pass query bytes for JoinScan (handled by plan)
+            all_sources,
+            partitioning_source_idx: partitioning_idx,
+            query: vec![], // JoinScan passes query via PrivateData, not shared state
             with_aggregates: false,
         };
 
         unsafe {
+            (*pscan_state).set_dsm_payload_capacity(capacity);
             (*pscan_state).create_and_populate(args);
-            state.custom_state_mut().parallel_state = Some(pscan_state);
         }
+
+        // Read the canonical non-partitioning segment ID sets from shared memory.
+        // The leader uses these in exec_custom_scan to inject them into the codec.
+        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
+
+        state.custom_state_mut().parallel_state = Some(pscan_state);
+        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
     }
 
     fn reinitialize_dsm_custom_scan(
@@ -273,6 +313,13 @@ impl ParallelQueryCapable for JoinScan {
         unsafe {
             (*pscan_state).wait_for_initialization();
         }
+
+        // Read the canonical non-partitioning segment ID sets that the leader wrote to
+        // shared memory.  These are used in exec_custom_scan to ensure every worker opens
+        // each replicated source with MvccSatisfies::ParallelWorker, which pins the
+        // visible segment list to exactly what the leader snapshotted.
+        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
+        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
 
         // We don't need to deserialize query from parallel state for JoinScan
         // because the full plan (including query) is serialized in PrivateData
@@ -1104,11 +1151,12 @@ impl CustomScan for JoinScan {
 
                 // Deserialize the logical plan
                 let ctx = create_session_context();
-                let logical_plan = deserialize_logical_plan(
+                let logical_plan = deserialize_logical_plan_parallel(
                     plan_bytes,
                     &ctx.task_ctx(),
                     state.custom_state().parallel_state,
                     Some(state.runtime_context),
+                    state.custom_state().non_partitioning_segments.clone(),
                 )
                 .expect("Failed to deserialize logical plan");
 

@@ -60,6 +60,7 @@ use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
+use tantivy::index::SegmentId;
 
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
@@ -150,6 +151,15 @@ pub struct JoinScanState {
     /// `initialize_worker_custom_scan` (in a worker), and then consumed in
     /// `exec_custom_scan` to initialize the DataFusion execution plan.
     pub parallel_state: Option<*mut ParallelScanState>,
+
+    /// Canonical segment ID sets for non-partitioning sources, in the same order the
+    /// sources appear in `join_clause.plan.sources()` (partitioning source excluded).
+    ///
+    /// Populated by `initialize_dsm_custom_scan` (leader) or `initialize_worker_custom_scan`
+    /// (worker) and injected into `PgSearchExtensionCodec` at execution time so that
+    /// non-partitioning `PgSearchTableProvider`s open each index with
+    /// `MvccSatisfies::ParallelWorker`, ensuring all workers see identical segments.
+    pub non_partitioning_segments: Vec<crate::api::HashSet<SegmentId>>,
 }
 
 impl JoinScanState {
@@ -270,8 +280,28 @@ fn build_relnode_df<'a>(
             RelNode::Scan(source) => {
                 let is_parallel = source.scan_info.heap_rti == partitioning_rti;
                 let plan_position = source.plan_position;
+
+                // Compute the position of this source among non-partitioning sources so that
+                // PgSearchExtensionCodec can inject the correct canonical segment IDs.
+                let np_idx = if !is_parallel {
+                    let partitioning_plan_idx = join_clause.partitioning_source_index();
+                    // Count non-partitioning sources that appear before this one in plan order.
+                    let np_pos = join_clause
+                        .plan
+                        .sources()
+                        .iter()
+                        .enumerate()
+                        .take(plan_position)
+                        .filter(|(i, _)| *i != partitioning_plan_idx)
+                        .count();
+                    Some(np_pos)
+                } else {
+                    None
+                };
+
                 let mut df =
-                    build_source_df(ctx, source, plan_position, join_clause, is_parallel).await?;
+                    build_source_df(ctx, source, plan_position, join_clause, is_parallel, np_idx)
+                        .await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 df = df.alias(&alias)?;
@@ -678,6 +708,7 @@ fn build_source_df<'a>(
     plan_position: usize,
     join_clause: &'a JoinCSClause,
     is_parallel: bool,
+    np_idx: Option<usize>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = source.scan_info.clone();
@@ -705,6 +736,12 @@ fn build_source_df<'a>(
 
         let mut provider =
             PgSearchTableProvider::new(scan_info.clone(), fields.clone(), None, is_parallel);
+
+        // Mark non-partitioning sources so the PgSearchExtensionCodec can inject the
+        // correct canonical segment IDs when the logical plan is deserialized in workers.
+        if let Some(idx) = np_idx {
+            provider.set_non_partitioning_index(idx);
+        }
 
         if let Some(ref sort_order) = scan_info.sort_order {
             required_early.insert(sort_order.field_name.as_ref().to_string());

@@ -111,11 +111,9 @@ impl HeapFieldFilter {
 
         let mut call_again = false;
         let mut all_dead = false;
-        if !pg_sys::table_index_fetch_tuple(
-            heap_fetch_state.scan,
-            ctid,
+        if !heap_fetch_state.fetch_tuple(
+            &mut *ctid,
             pg_sys::GetActiveSnapshot(),
-            heap_fetch_state.slot(),
             &mut call_again,
             &mut all_dead,
         ) {

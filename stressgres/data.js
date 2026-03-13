@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773362714004,
+  "lastUpdate": 1773362722128,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29566,6 +29566,108 @@ window.BENCHMARK_DATA = {
             "value": 162.73828125,
             "unit": "median mem",
             "extra": "avg mem: 181.5638777569096, max mem: 221.09765625, count: 55973"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f8c5c827bcf3c3f09402915b810f680d4307443d",
+          "message": "chore: Move late materialization to a logical `OptimizerRule` (#4342)\n\n# Ticket(s) Closed\n\n- Closes #4324\n\n## What\n\nThis change moves the planning of our late materialization\n`TantivyLookupExec` from a `PhysicalOptimizerRule` to a logical\n`OptimizerRule`.\n\n## Why\n\nIn order to use a `PhysicalOptimizerRule` to install TantivyLookupExec,\nwe needed to lie about the schema of the deferred/union column, and\ndeclare that it was still string or bytes. We needed to disable schema\nchecking:\n```rust\nfn schema_check(&self) -> bool {\n    // Disabled because this rule temporarily changes column types\n    // (Utf8View -> UnionArray) between PgSearchScan and TantivyLookupExec.\n    // The final output schema is correct after TantivyLookupExec restores types.\n    false\n}\n```\n\nThis worked on DataFusion 52, but was fragile... and DataFusion 53\nintroduced additional schema checking in Projection nodes, which noticed\nthe difference and blocked upgrading.\n\n## How\n\n`impl OptimizerRule for LateMaterializationRule` looks for\n`PgSearchTableProvider` implementations which have string/bytes columns,\nand enables late materialization with\n`enable_late_materialization_schema`. This changes the schema that the\nnode declares to a schema which includes the Union. See the notes around\n`enable_late_materialization_schema` which explain why we need to use\nmutability here.\n\nWe then bubble this schema modification up through the plan, and look\nfor a node that will force the column(s) to be materialized\n(`should_anchor`): as before, we can bubble up past logical plan nodes\nwhich don't actually execute expressions on the deferred columns\n(adjusting their schemas as we go). When we find a logical node which\n_does_ need to execute expressions on the deferred column(s), we insert\nour logical `LateMaterializeNode` immediately below it.\n\nFinally, we use `impl ExtensionPlanner for LateMaterializePlanner` to\nconvert the logical `LateMaterializeNode` into a physical\n`TantivyLookupExec` node.\n\nBecause they do not need to make schema modifications and operate in a\nlocalized fashion, our `SegmentedTopK` and `SortMergeJoinEnforcer` rules\ncan remain physical optimizer rules.\n\n## Tests\n\nExisting tests all pass.\n\nAdditionally, I've validated that this unblocks the DataFusion 53\nupgrade.",
+          "timestamp": "2026-03-12T16:54:33-07:00",
+          "tree_id": "83e4d2115c3043e951a0bc64a617996c157f065f",
+          "url": "https://github.com/paradedb/paradedb/commit/f8c5c827bcf3c3f09402915b810f680d4307443d"
+        },
+        "date": 1773362715723,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07734954363947519, max background_merging: 2.0, count: 56096"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.669507876210028, max cpu: 9.467456, count: 56096"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.830953298809185, max mem: 27.83984375, count: 56096"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.935812757198322, max cpu: 28.346458, count: 56096"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 188.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 185.9289838374171, max mem: 188.421875, count: 56096"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51457,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51316.974650598975, max block_count: 51457.0, count: 56096"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.05590416428979, max segment_count: 56.0, count: 56096"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.633023111177215, max cpu: 28.015566, count: 56096"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 145.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 124.8851139397194, max mem: 162.08203125, count: 56096"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.753859432355594, max cpu: 23.210833, count: 56096"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 186.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 180.02315241394217, max mem: 186.3671875, count: 56096"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.672399539117496, max cpu: 33.267326, count: 56096"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 181.40380128206556, max mem: 221.3046875, count: 56096"
           }
         ]
       }

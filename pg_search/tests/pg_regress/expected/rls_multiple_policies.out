@@ -85,7 +85,7 @@ SELECT id, title, pdb.score(id) AS score,
 FROM documents
 WHERE title ||| 'sheriff'
 ORDER BY id;
- id |             title              |   score    |                snippet                
+ id |             title              |   score    |                snippet
 ----+--------------------------------+------------+---------------------------------------
   1 | sheriff department los angeles | 0.35667497 | <b>sheriff</b> department los angeles
   3 | sheriff office county records  | 0.35667497 | <b>sheriff</b> office county records
@@ -95,7 +95,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id)
 FROM documents
 WHERE title ||| 'sheriff';
-                                                                                                                                                                 QUERY PLAN                                                                                                                                                                 
+                                                                                                                                                                 QUERY PLAN
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on documents
    Table: documents
@@ -126,7 +126,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id)
 FROM documents
 WHERE title ||| 'sheriff';
-                                                                                                                                                                 QUERY PLAN                                                                                                                                                                 
+                                                                                                                                                                 QUERY PLAN
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on documents
    Filter: ((NOT document_has_tags(id)) OR EXISTS(SubPlan 1))
@@ -149,7 +149,7 @@ SELECT id, title, pdb.score(id) AS score,
 FROM documents
 WHERE title ||| 'sheriff'
 ORDER BY id;
- id |             title              |   score    |                snippet                
+ id |             title              |   score    |                snippet
 ----+--------------------------------+------------+---------------------------------------
   1 | sheriff department los angeles | 0.35667497 | <b>sheriff</b> department los angeles
 (1 row)

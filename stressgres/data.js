@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773443833498,
+  "lastUpdate": 1773444662239,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -45454,6 +45454,54 @@ window.BENCHMARK_DATA = {
             "value": 492.0315214743499,
             "unit": "median tps",
             "extra": "avg tps: 439.4638437312795, max tps: 688.8471876855897, count: 107844"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53b9d11709c7373d7e2283e6a1cf125e5f3a194b",
+          "message": "fix: RLS policies that get planned as `SubPlan`s (#4354)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe handled certain RLS policies that got planned as plain function\ncalls, but our heap filter pushdown doesn't have support for subplans\n(which other policies can get written to).\n\n## Why\n\n## How\n\n## Tests\nSee new regression test.",
+          "timestamp": "2026-03-13T15:14:11-07:00",
+          "tree_id": "0b41638786d46dd550a4a72c2cee1738c2020c77",
+          "url": "https://github.com/paradedb/paradedb/commit/53b9d11709c7373d7e2283e6a1cf125e5f3a194b"
+        },
+        "date": 1773444655738,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 494.41028327448083,
+            "unit": "median tps",
+            "extra": "avg tps: 494.1147232429628, max tps: 669.0507588367512, count: 53907"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 570.2030228885557,
+            "unit": "median tps",
+            "extra": "avg tps: 571.3469317295953, max tps: 750.1900640626851, count: 53907"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.05992482095371,
+            "unit": "median tps",
+            "extra": "avg tps: 88.08604149249506, max tps: 95.89531385030006, count: 53907"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 456.66742566050266,
+            "unit": "median tps",
+            "extra": "avg tps: 423.6437129844551, max tps: 621.0420524217623, count: 107814"
           }
         ]
       }

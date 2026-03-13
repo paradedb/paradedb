@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773442109492,
+  "lastUpdate": 1773442987607,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23934,6 +23934,54 @@ window.BENCHMARK_DATA = {
             "value": 5.375675267527798,
             "unit": "median tps",
             "extra": "avg tps: 5.409287761100351, max tps: 7.193063855122429, count: 56334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53b9d11709c7373d7e2283e6a1cf125e5f3a194b",
+          "message": "fix: RLS policies that get planned as `SubPlan`s (#4354)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe handled certain RLS policies that got planned as plain function\ncalls, but our heap filter pushdown doesn't have support for subplans\n(which other policies can get written to).\n\n## Why\n\n## How\n\n## Tests\nSee new regression test.",
+          "timestamp": "2026-03-13T15:14:11-07:00",
+          "tree_id": "0b41638786d46dd550a4a72c2cee1738c2020c77",
+          "url": "https://github.com/paradedb/paradedb/commit/53b9d11709c7373d7e2283e6a1cf125e5f3a194b"
+        },
+        "date": 1773442980953,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1101.8944869232728,
+            "unit": "median tps",
+            "extra": "avg tps: 1106.67892469606, max tps: 1161.9946076905721, count: 56538"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1208.5190766408805,
+            "unit": "median tps",
+            "extra": "avg tps: 1207.8902307956769, max tps: 1267.930501929176, count: 56538"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1097.141395809809,
+            "unit": "median tps",
+            "extra": "avg tps: 1004.8769717661336, max tps: 1616.3605013768927, count: 56538"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.423058967364074,
+            "unit": "median tps",
+            "extra": "avg tps: 5.462069878561861, max tps: 8.439933704995942, count: 56538"
           }
         ]
       }

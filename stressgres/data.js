@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773370389885,
+  "lastUpdate": 1773371224137,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16018,6 +16018,42 @@ window.BENCHMARK_DATA = {
             "value": 5.329429935991965,
             "unit": "median tps",
             "extra": "avg tps: 4.786317950606267, max tps: 5.994912225810643, count: 57788"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "212998a4ad6eb7a4adeb1dcaa4bb231b2dc105e6",
+          "message": "chore: Upgrade to DataFusion ~53. (#4351)\n\n## What\n\nUpgrade to what will become DataFusion `53` by building atop\n`branch-53`.\n\n## Why\n\nIn order to make it easier to backport changes to `0.22.x`, and\nhopefully give that branch a longer life than it might have otherwise.\n\n## How\n\n* Removed the deprecated `statistics` method from `PgSearchScanPlan`.\n* Changed the `properties` field to be wrapped in an\n`Arc<PlanProperties>` and updated the method signature to return\n`&Arc<PlanProperties>`.\n* Derived `Debug` for `PhysicalOptimizerRule` implementations.\n\n## Tests\n\nThere are many plan changes. But having triaged them, they seem to be\nprimarily that:\n* ~All files were impacted by\nhttps://github.com/apache/datafusion/pull/20192, which was a bugfix for\nhttps://github.com/apache/datafusion/issues/20213 : hash joins were\nallowing TopK filters to be pushed down on _both_ sides of the join\n(incorrectly!) if column names were aligned. Consequently, many\n`dynamic_filters` counts dropped.\n* A few files lost their `GlobalLimitExec` in favor of\nhttps://github.com/apache/datafusion/pull/20228, which pushes the limit\ninto a hash join.\n* Some others were just impacted by metrics changes.",
+          "timestamp": "2026-03-12T19:29:07-07:00",
+          "tree_id": "35e9e3b3a1a8493a79bdb4c4460be6eda3d7451b",
+          "url": "https://github.com/paradedb/paradedb/commit/212998a4ad6eb7a4adeb1dcaa4bb231b2dc105e6"
+        },
+        "date": 1773371218162,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.760886079560484,
+            "unit": "median tps",
+            "extra": "avg tps: 6.6356493488811195, max tps: 10.020438003960239, count: 57556"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.328598673619876,
+            "unit": "median tps",
+            "extra": "avg tps: 4.777842247954166, max tps: 5.988572732283412, count: 57556"
           }
         ]
       }

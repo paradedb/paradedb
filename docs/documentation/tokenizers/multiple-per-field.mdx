@@ -51,6 +51,18 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+# Query against `description_simple`
+MockItem.search(:description_simple)
+        .matching_any("Sleek running shoes")
+        .select(:description, :rating, :category)
+
+# Query against `description`
+MockItem.search(:description)
+        .matching_any("Sleek running shoes")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 <Note>
@@ -80,6 +92,14 @@ from paradedb import ParadeDB, ParseWithField
 MockItem.objects.filter(
     description=ParadeDB(ParseWithField(query='shoes'))
 ).values('description', 'rating', 'category').order_by('description')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .parse("shoes")
+        .select(:description, :rating, :category)
+        .order(:description)
+        .limit(5)
 ```
 
 </CodeGroup>

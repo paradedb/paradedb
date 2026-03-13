@@ -34,6 +34,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .term("shoes")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 Numeric, boolean, or datetime fields can also be passed into the `term` query. Doing so is equivalent to using the

@@ -64,8 +64,8 @@ use crate::postgres::customscan::pdbscan::projections::{
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::qual_inspect::{
-    extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, PlannerContext, Qual,
-    QualExtractState,
+    extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
+    PlannerContext, Qual, QualExtractState,
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -223,6 +223,48 @@ impl PdbScan {
             &mut state,
             attempt_pushdown,
         );
+
+        // If full extraction failed (e.g., baserestrictinfo contains SubPlan from
+        // RLS policies alongside our @@@ operator), try partial extraction: extract
+        // each restrict_info item individually, skipping ones we can't handle.
+        // Only use partial extraction when ALL skipped clauses are SubPlans
+        // (which will be evaluated via plan.qual). If any non-SubPlan clause
+        // is skipped, fall back to let PostgreSQL handle the query normally.
+        //
+        // TODO: We do something similar in `collect_join_sources_base_rel`,
+        // is unification possible?
+        if quals.is_none() {
+            let mut partial_quals = Vec::new();
+            let mut partial_state = QualExtractState::default();
+            let mut all_skipped_are_subplans = true;
+            for ri in filtered_restrict_info.iter_ptr() {
+                if let Some(qual) = extract_quals(
+                    &context,
+                    rti,
+                    ri.cast(),
+                    ri_type,
+                    indexrel,
+                    false,
+                    &mut partial_state,
+                    attempt_pushdown,
+                ) {
+                    partial_quals.push(qual);
+                } else if !is_subplan(ri.cast()) {
+                    all_skipped_are_subplans = false;
+                }
+            }
+            if !partial_quals.is_empty()
+                && partial_state.uses_our_operator
+                && all_skipped_are_subplans
+            {
+                state = partial_state;
+                quals = if partial_quals.len() == 1 {
+                    partial_quals.pop()
+                } else {
+                    Some(Qual::And(partial_quals))
+                };
+            }
+        }
 
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
@@ -902,7 +944,43 @@ impl CustomScan for PdbScan {
                 .custom_private_mut()
                 .set_ambulkdelete_epoch(MetaPage::open(&indexrel).ambulkdelete_epoch());
 
-            builder.build()
+            // Collect subplans that our Custom Scan doesn't handle internally and set them as plan.qual.
+            // PostgreSQL's ExecInitCustomScan will call ExecInitQual on plan.qual,
+            // which properly initializes SubPlans. We then evaluate these in exec_custom_scan.
+            let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
+            let mut subplan_quals = PgList::<pg_sys::Node>::new();
+            for clause in clauses.iter_ptr() {
+                if is_subplan(clause) {
+                    // strip RestrictInfo wrapper, plan.qual needs bare expressions
+                    let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
+                        let ri = clause as *mut pg_sys::RestrictInfo;
+                        (*ri).clause.cast()
+                    } else {
+                        clause
+                    };
+                    subplan_quals.push(bare_clause);
+                }
+            }
+
+            // SubPlan quals require per-tuple heap access for ExecQual, which would
+            // negate the benefit of columnar. Fall back to Normal so we don't pay for both
+            // batch processing AND per-tuple heap fetches.
+            if !subplan_quals.is_empty()
+                && matches!(
+                    builder.custom_private().exec_method_type(),
+                    ExecMethodType::FastFieldMixed { .. }
+                )
+            {
+                builder
+                    .custom_private_mut()
+                    .set_exec_method_type(ExecMethodType::Normal);
+            }
+
+            let mut scan = builder.build();
+            if !subplan_quals.is_empty() {
+                scan.scan.plan.qual = subplan_quals.into_pg();
+            }
+            scan
         }
     }
 
@@ -1026,7 +1104,19 @@ impl CustomScan for PdbScan {
 
             assign_exec_method(&mut builder);
 
-            builder.build()
+            let state = builder.build();
+
+            // Tell ExecInitCustomScan to create the scan slot as BufferHeapTuple
+            // (matching what begin_custom_scan will use via table_slot_callbacks).
+            // This ensures ExecInitQual compiles plan.qual expressions for the
+            // correct slot type, avoiding TTS_IS_VIRTUAL assertion failures.
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            {
+                (*state).csstate.slotOps =
+                    pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
+            }
+
+            state
         }
     }
 
@@ -1211,6 +1301,21 @@ impl CustomScan for PdbScan {
                 tupdesc,
                 pg_sys::table_slot_callbacks(state.custom_state().heaprel().as_ptr()),
             );
+
+            // On PG15, ExecInitCustomScan hardcodes &TTSOpsVirtual for the scan slot
+            // (there's no slotOps override mechanism). ExecInitQual then compiles
+            // plan.qual expressions assuming virtual slots. Since we just replaced
+            // the slot with BufferHeapTuple above, we must re-initialize the qual
+            // so expressions are compiled for the correct slot type.
+            #[cfg(feature = "pg15")]
+            {
+                let plan = state.csstate.ss.ps.plan;
+                if !(*plan).qual.is_null() {
+                    state.csstate.ss.ps.qual =
+                        pg_sys::ExecInitQual((*plan).qual, state.planstate());
+                }
+            }
+
             pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
             pg_sys::ExecAssignProjectionInfo(
                 state.planstate(),
@@ -1266,6 +1371,13 @@ impl CustomScan for PdbScan {
                                 continue;
                             }
                         };
+
+                        // Evaluate executor-level quals (e.g., RLS policy SubPlan expressions)
+                        // that couldn't be pushed into the tantivy query.
+                        // These are set as plan.qual in plan_custom_path.
+                        if !satisfies_subplan_quals(state, slot) {
+                            continue;
+                        }
 
                         let needs_special_projection = state.custom_state().need_scores()
                             || state.custom_state().need_snippets()
@@ -1541,6 +1653,24 @@ fn check_visibility(
         .custom_state_mut()
         .visibility_checker()
         .exec_if_visible(ctid, bslot.cast(), move |heaprel| bslot.cast())
+}
+
+/// Evaluate executor-level quals (e.g., RLS policy SubPlan expressions) that couldn't be pushed
+/// into the tantivy query. These are set as `plan.qual` in `plan_custom_path`.
+/// Returns `true` if qual passes (or no qual exists), `false` if the row should be skipped.
+#[inline(always)]
+unsafe fn satisfies_subplan_quals(
+    state: &mut CustomScanStateWrapper<PdbScan>,
+    slot: *mut pg_sys::TupleTableSlot,
+) -> bool {
+    let qual = state.csstate.ss.ps.qual;
+    if qual.is_null() {
+        return true;
+    }
+    let econtext = (*state.projection_info()).pi_exprContext;
+    (*econtext).ecxt_scantuple = slot;
+    pg_sys::slot_getallattrs(slot);
+    pg_sys::ExecQual(qual, econtext)
 }
 
 /// Inject ParadeDB-specific placeholders (score, snippets, window aggregates) into the tuple slot

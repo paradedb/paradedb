@@ -70,7 +70,11 @@ impl ExecMethod for NormalScanExecState {
                 (*cstate).ss.ps.ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );
-            self.can_use_visibility_map = state.targetlist_len == 0;
+            // Use the visibility map only when we have no columns to project AND no
+            // executor-level quals (e.g. RLS SubPlan expressions). Virtual slots lack
+            // the full scan tuple descriptor that ExecQual requires.
+            self.can_use_visibility_map =
+                state.targetlist_len == 0 && (*cstate).ss.ps.qual.is_null();
         }
     }
 

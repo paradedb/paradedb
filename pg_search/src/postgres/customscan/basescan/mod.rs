@@ -1154,8 +1154,11 @@ impl CustomScan for BaseScan {
             // (matching what begin_custom_scan will use via table_slot_callbacks).
             // This ensures ExecInitQual compiles plan.qual expressions for the
             // correct slot type, avoiding TTS_IS_VIRTUAL assertion failures.
-            (*state).csstate.slotOps =
-                pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            {
+                (*state).csstate.slotOps =
+                    pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
+            }
 
             state
         }
@@ -1357,6 +1360,21 @@ impl CustomScan for BaseScan {
                 tupdesc,
                 pg_sys::table_slot_callbacks(state.custom_state().heaprel().as_ptr()),
             );
+
+            // On PG15, ExecInitCustomScan hardcodes &TTSOpsVirtual for the scan slot
+            // (there's no slotOps override mechanism). ExecInitQual then compiles
+            // plan.qual expressions assuming virtual slots. Since we just replaced
+            // the slot with BufferHeapTuple above, we must re-initialize the qual
+            // so expressions are compiled for the correct slot type.
+            #[cfg(feature = "pg15")]
+            {
+                let plan = state.csstate.ss.ps.plan;
+                if !(*plan).qual.is_null() {
+                    state.csstate.ss.ps.qual =
+                        pg_sys::ExecInitQual((*plan).qual, state.planstate());
+                }
+            }
+
             pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
             pg_sys::ExecAssignProjectionInfo(
                 state.planstate(),

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773391003747,
+  "lastUpdate": 1773441243264,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4886,6 +4886,78 @@ window.BENCHMARK_DATA = {
             "value": 68.83660027609439,
             "unit": "median tps",
             "extra": "avg tps: 73.54252789813678, max tps: 260.9780838760726, count: 55029"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53b9d11709c7373d7e2283e6a1cf125e5f3a194b",
+          "message": "fix: RLS policies that get planned as `SubPlan`s (#4354)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe handled certain RLS policies that got planned as plain function\ncalls, but our heap filter pushdown doesn't have support for subplans\n(which other policies can get written to).\n\n## Why\n\n## How\n\n## Tests\nSee new regression test.",
+          "timestamp": "2026-03-13T15:14:11-07:00",
+          "tree_id": "0b41638786d46dd550a4a72c2cee1738c2020c77",
+          "url": "https://github.com/paradedb/paradedb/commit/53b9d11709c7373d7e2283e6a1cf125e5f3a194b"
+        },
+        "date": 1773441237283,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 124.97837080925825,
+            "unit": "median tps",
+            "extra": "avg tps: 124.95625045283174, max tps: 148.1011101385229, count: 54456"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 399.65194243497797,
+            "unit": "median tps",
+            "extra": "avg tps: 398.4147186734509, max tps: 533.5707926625746, count: 54456"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2752.740924263169,
+            "unit": "median tps",
+            "extra": "avg tps: 2746.921164624826, max tps: 2939.884823544291, count: 54456"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 369.6994404224532,
+            "unit": "median tps",
+            "extra": "avg tps: 365.96318831457614, max tps: 503.07707090418546, count: 54456"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2825.6686805252684,
+            "unit": "median tps",
+            "extra": "avg tps: 2819.123367630852, max tps: 2964.945532488975, count: 108912"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 403.9592312418518,
+            "unit": "median tps",
+            "extra": "avg tps: 404.346014335368, max tps: 541.3194926403334, count: 54456"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1691.0584787224593,
+            "unit": "median tps",
+            "extra": "avg tps: 1689.7928499848322, max tps: 1761.3613125958227, count: 54456"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 44.32894287913519,
+            "unit": "median tps",
+            "extra": "avg tps: 46.02268611621365, max tps: 854.2416085711186, count: 54456"
           }
         ]
       }

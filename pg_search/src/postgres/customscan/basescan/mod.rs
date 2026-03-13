@@ -244,6 +244,9 @@ impl BaseScan {
         // Only use partial extraction when ALL skipped clauses are SubPlans
         // (which will be evaluated via plan.qual). If any non-SubPlan clause
         // is skipped, fall back to let PostgreSQL handle the query normally.
+        //
+        // TODO: We do something similar in `collect_join_sources_base_rel`,
+        // is unification possible?
         if quals.is_none() {
             let mut partial_quals = Vec::new();
             let mut partial_state = QualExtractState::default();

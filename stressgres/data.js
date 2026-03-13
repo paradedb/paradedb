@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773443825785,
+  "lastUpdate": 1773443833498,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42084,6 +42084,114 @@ window.BENCHMARK_DATA = {
             "value": 171.84375,
             "unit": "median mem",
             "extra": "avg mem: 168.59626255050438, max mem: 172.3515625, count: 55812"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53b9d11709c7373d7e2283e6a1cf125e5f3a194b",
+          "message": "fix: RLS policies that get planned as `SubPlan`s (#4354)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe handled certain RLS policies that got planned as plain function\ncalls, but our heap filter pushdown doesn't have support for subplans\n(which other policies can get written to).\n\n## Why\n\n## How\n\n## Tests\nSee new regression test.",
+          "timestamp": "2026-03-13T15:14:11-07:00",
+          "tree_id": "0b41638786d46dd550a4a72c2cee1738c2020c77",
+          "url": "https://github.com/paradedb/paradedb/commit/53b9d11709c7373d7e2283e6a1cf125e5f3a194b"
+        },
+        "date": 1773443827385,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.019106117215305, max cpu: 43.156845, count: 55526"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 173.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.04178820788908, max mem: 176.94921875, count: 55526"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.662004914050718, max cpu: 37.137333, count: 55526"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 118.66732293767784, max mem: 119.94921875, count: 55526"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.5035735590880765, max cpu: 22.988506, count: 55526"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 171.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 142.84443401233207, max mem: 174.640625, count: 55526"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16520,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16844.094370204948, max block_count: 31218.0, count: 55526"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.958859378679955, max cpu: 4.655674, count: 55526"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 109.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 95.94215688371213, max mem: 136.3203125, count: 55526"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.936174044591723, max segment_count: 37.0, count: 55526"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.101006915024833, max cpu: 41.498558, count: 111052"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 178.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.8653358547685, max mem: 178.8828125, count: 111052"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.12955949725144, max cpu: 27.826086, count: 55526"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 168.32172625211612, max mem: 171.671875, count: 55526"
           }
         ]
       }

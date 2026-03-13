@@ -16,18 +16,32 @@ SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
 
-SELECT ip::text FROM tbl_inet WHERE ip = '192.168.0.1'::inet;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip = '192.168.0.1'::inet ORDER BY ip;
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip = '192.168.0.1'::inet ORDER BY ip;
 
-SELECT ip::text FROM tbl_inet WHERE ip > '192.168.0.1'::inet ORDER BY ip;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip > '192.168.0.1'::inet ORDER BY ip;
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip > '192.168.0.1'::inet ORDER BY ip;
 
-SELECT ip::text FROM tbl_inet WHERE ip < '192.168.0.1'::inet ORDER BY ip;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip < '192.168.0.1'::inet ORDER BY ip;
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip < '192.168.0.1'::inet ORDER BY ip;
 
-SELECT ip::text FROM tbl_inet WHERE ip <= '192.168.0.1'::inet ORDER BY ip;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip <= '192.168.0.1'::inet ORDER BY ip;
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip <= '192.168.0.1'::inet ORDER BY ip;
 
-SELECT ip::text FROM tbl_inet WHERE ip >= '192.168.0.1'::inet ORDER BY ip;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip >= '192.168.0.1'::inet ORDER BY ip;
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip >= '192.168.0.1'::inet ORDER BY ip;
 
-SELECT ip::text FROM tbl_inet WHERE ip <> '192.168.0.1'::inet ORDER BY ip;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip <> '192.168.0.1'::inet ORDER BY ip;
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip <> '192.168.0.1'::inet ORDER BY ip;
 
-SELECT ip::text FROM tbl_inet WHERE ip = ANY(ARRAY['10.0.0.1'::inet, '192.168.0.1'::inet]) ORDER BY ip;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip = ANY(ARRAY['10.0.0.1'::inet, '192.168.0.1'::inet]) ORDER BY ip;
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip = ANY(ARRAY['10.0.0.1'::inet, '192.168.0.1'::inet]) ORDER BY ip;
 
 RESET paradedb.enable_aggregate_custom_scan;

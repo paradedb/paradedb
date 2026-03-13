@@ -43,6 +43,12 @@
                     ]
                   },
                   {
+                    "group": "Migration",
+                    "pages": [
+                      "documentation/migration/elasticsearch-feature-comparison"
+                    ]
+                  },
+                  {
                     "group": "Reference",
                     "pages": [
                       {

@@ -1,0 +1,157 @@
+---
+title: Migrating from Elasticsearch
+description: Feature comparison and migration guide for Elasticsearch users moving to ParadeDB
+canonical: https://docs.paradedb.com/documentation/migration/elasticsearch-feature-comparison
+---
+
+This page is for developers who are evaluating or actively migrating from Elasticsearch (or OpenSearch) to ParadeDB.
+ParadeDB delivers Elastic-quality full-text search as a Postgres extension, so your data, queries, and infrastructure
+all live inside Postgres — no ETL pipelines, no separate cluster to manage.
+
+## Key Differences
+
+|                     | Elasticsearch                                | ParadeDB                                       |
+| ------------------- | -------------------------------------------- | ---------------------------------------------- |
+| **Query language**  | JSON DSL                                     | Standard SQL with search operators             |
+| **Data model**      | Denormalized documents                       | Normalized relational tables with JOINs        |
+| **Transactions**    | Per-document atomicity, eventual consistency | Full ACID transactions                         |
+| **Index storage**   | Separate cluster                             | Inside Postgres (same database)                |
+| **Schema changes**  | Dynamic mapping or reindex                   | Defined at index creation; `REINDEX` to change |
+| **Updates/deletes** | Expensive (reindex internally)               | Native Postgres operations                     |
+
+## Migration Tips
+
+<Note>
+  ParadeDB's `pdb.agg()` function accepts **Elasticsearch-compatible JSON** for
+  aggregations, so many of your existing aggregation queries can be reused with
+  minimal changes. See the [aggregates
+  documentation](/documentation/aggregates/overview).
+</Note>
+
+- **Start with your most common queries.** Map your highest-traffic Elasticsearch queries using the
+  [full-text search reference](/documentation/full-text/overview).
+- **Use SQL JOINs instead of denormalization.** Elasticsearch requires denormalized documents, but ParadeDB supports
+  full SQL JOINs. You can normalize your schema and simplify your data model.
+- **Leverage Postgres tooling.** Backups, replication, monitoring, and CI/CD integrate with standard Postgres tools
+  you may already use.
+
+## Feature Comparison
+
+## Query Capabilities
+
+| Feature                     | Elasticsearch | ParadeDB | Notes                                                                                                                                                                     |
+| --------------------------- | :-----------: | :------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full-text search (BM25)     |      ✅       |    ✅    |                                                                                                                                                                           |
+| Fuzzy matching              |      ✅       |    ✅    | Max edit distance of 2                                                                                                                                                    |
+| Phrase matching             |      ✅       |    ✅    |                                                                                                                                                                           |
+| Phrase prefix               |      ✅       |    ✅    |                                                                                                                                                                           |
+| Regular expressions         |      ✅       |    ✅    |                                                                                                                                                                           |
+| Wildcard queries            |      ✅       |    ✅    | Via [regex](/documentation/query-builder/term/regex)                                                                                                                      |
+| Boolean queries             |      ✅       |    ✅    | Via SQL `AND`/`OR`/`NOT` or [`paradedb.boolean`](/documentation/query-builder/overview)                                                                                   |
+| Proximity search            |      ✅       |    ✅    | [`##` operator](/documentation/full-text/proximity)                                                                                                                       |
+| More Like This              |      ✅       |    ✅    | [`paradedb.more_like_this`](/documentation/query-builder/specialized/more-like-this)                                                                                      |
+| Nested queries              |      ✅       |    ✅    | Via SQL `JOIN`s                                                                                                                                                           |
+| Parent-child queries        |      ✅       |    ✅    | Via SQL `JOIN`s                                                                                                                                                           |
+| Geo queries                 |      ✅       |    ❌    | Use [PostGIS](https://postgis.net/)                                                                                                                                       |
+| Percolator (reverse search) |      ✅       |    ❌    |                                                                                                                                                                           |
+| Script-based scoring        |      ✅       |    ❌    |                                                                                                                                                                           |
+| Suggesters (autocomplete)   |      ✅       |    ✅    | Via [search_tokenizer](/documentation/tokenizers/search-tokenizer) (index with ngram, search with unicode) or [fuzzy prefix](/documentation/full-text/fuzzy#fuzzy-prefix) |
+
+## Text Analysis
+
+| Feature                        | Elasticsearch | ParadeDB | Notes                                                                                                                                                                                                                   |
+| ------------------------------ | :-----------: | :------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Custom tokenizers              |      ✅       |    ✅    | 12+ built-in [tokenizers](/documentation/tokenizers/overview)                                                                                                                                                           |
+| Token filters                  |      ✅       |    ✅    | 7 filters: lowercase, stemmer, stopwords, ascii_folding, alpha_num_only, trim, token_length                                                                                                                             |
+| Character filters              |      ✅       |    ❌    |                                                                                                                                                                                                                         |
+| Synonyms                       |      ✅       |    ⚠️    | Coming soon                                                                                                                                                                                                             |
+| Different search-time analyzer |      ✅       |    ✅    | Via [search_tokenizer](/documentation/tokenizers/search-tokenizer) or [multiple tokenizers per field](/documentation/tokenizers/multiple-per-field)                                                                     |
+| Multi-language support         |      ✅       |    ✅    | Chinese ([Jieba](/documentation/tokenizers/available-tokenizers/jieba)), Japanese/Korean ([Lindera](/documentation/tokenizers/available-tokenizers/lindera)), [ICU](/documentation/tokenizers/available-tokenizers/icu) |
+| Stemming                       |      ✅       |    ✅    | [19 languages](/documentation/token-filters/stemming)                                                                                                                                                                   |
+| Stopwords                      |      ✅       |    ✅    | [29 languages](/documentation/token-filters/stopwords)                                                                                                                                                                  |
+| N-gram tokenization            |      ✅       |    ✅    | [Configurable](/documentation/tokenizers/available-tokenizers/ngrams) min/max gram size                                                                                                                                 |
+
+## Aggregations
+
+| Feature                   | Elasticsearch | ParadeDB | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------- | :-----------: | :------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bucket aggregations       |      ✅       |    ✅    | [terms](/documentation/aggregates/bucket/terms), [histogram](/documentation/aggregates/bucket/histogram), [date_histogram](/documentation/aggregates/bucket/datehistogram), [range](/documentation/aggregates/bucket/range), [filters](/documentation/aggregates/bucket/filters)                                                                                                                                                           |
+| Metric aggregations       |      ✅       |    ✅    | [avg](/documentation/aggregates/metrics/average), [sum](/documentation/aggregates/metrics/sum), [min/max](/documentation/aggregates/metrics/minmax), [count](/documentation/aggregates/metrics/count), [stats](/documentation/aggregates/metrics/stats), [percentiles](/documentation/aggregates/metrics/percentiles), [cardinality](/documentation/aggregates/metrics/cardinality), [top_hits](/documentation/aggregates/metrics/tophits) |
+| Pipeline aggregations     |      ✅       |    ✅    | Use SQL window functions (`SUM() OVER()`, `LAG()`, etc.)                                                                                                                                                                                                                                                                                                                                                                                   |
+| Nested aggregations       |      ✅       |    ✅    | Use `pdb.agg()` with SQL `GROUP BY`                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ES-compatible JSON syntax |       —       |    ✅    | [`pdb.agg()`](/documentation/aggregates/overview) accepts ES JSON directly                                                                                                                                                                                                                                                                                                                                                                 |
+| SQL GROUP BY              |    Limited    |    ✅    | Full SQL aggregation support                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+<Note>
+  Since `pdb.agg()` accepts Elasticsearch-compatible JSON, many of your existing
+  aggregation queries can be migrated with minimal changes. See the [aggregates
+  documentation](/documentation/aggregates/overview).
+</Note>
+
+## Scoring and Relevance
+
+| Feature            | Elasticsearch | ParadeDB | Notes                                                   |
+| ------------------ | :-----------: | :------: | ------------------------------------------------------- |
+| BM25 scoring       |      ✅       |    ✅    |                                                         |
+| Custom boost       |      ✅       |    ✅    | [`pdb.boost()`](/documentation/sorting/boost) type cast |
+| Constant score     |      ✅       |    ✅    | `paradedb.const_score()`                                |
+| Disjunction max    |      ✅       |    ✅    | `paradedb.disjunction_max()`                            |
+| Function score     |      ✅       |    ❌    | Use boost / const_score as partial alternatives         |
+| Script scoring     |      ✅       |    ❌    |                                                         |
+| Decay functions    |      ✅       |    ❌    |                                                         |
+| Field value factor |      ✅       |    ❌    |                                                         |
+
+## Highlighting
+
+| Feature              | Elasticsearch | ParadeDB | Notes                                                                        |
+| -------------------- | :-----------: | :------: | ---------------------------------------------------------------------------- |
+| Snippet highlighting |      ✅       |    ✅    | [`pdb.snippet()`](/documentation/full-text/highlight)                        |
+| Multiple snippets    |      ✅       |    ✅    | [`pdb.snippets()`](/documentation/full-text/highlight#multiple-snippets)     |
+| Custom tags          |      ✅       |    ✅    | `start_tag`, `end_tag` parameters                                            |
+| Byte offsets         |      ❌       |    ✅    | [`pdb.snippet_positions()`](/documentation/full-text/highlight#byte-offsets) |
+| Fuzzy highlighting   |      ✅       |    ❌    |                                                                              |
+
+## Index Management
+
+| Feature           | Elasticsearch | ParadeDB | Notes                                                                 |
+| ----------------- | :-----------: | :------: | --------------------------------------------------------------------- |
+| Create index      |      ✅       |    ✅    | [`CREATE INDEX ... USING bm25`](/documentation/indexing/create-index) |
+| Drop index        |      ✅       |    ✅    | `DROP INDEX`                                                          |
+| Reindex           |      ✅       |    ✅    | [`REINDEX`](/documentation/indexing/reindexing)                       |
+| Index aliases     |      ✅       |    ✅    | Via Postgres views                                                    |
+| Index templates   |      ✅       |    ❌    |                                                                       |
+| Dynamic mapping   |      ✅       |    ❌    | Schema defined at index creation; requires `REINDEX` to change        |
+| Multi-field index |      ✅       |    ✅    | All columns included in one index per table                           |
+
+## Data Operations
+
+| Feature            | Elasticsearch | ParadeDB | Notes                                                                                 |
+| ------------------ | :-----------: | :------: | ------------------------------------------------------------------------------------- |
+| ACID transactions  |      ❌       |    ✅    | Full Postgres ACID compliance                                                         |
+| Real-time indexing |      ⚠️       |    ✅    | ES is near-real-time (requires refresh); ParadeDB provides immediate read-after-write |
+| JOINs              |      ❌       |    ✅    | Full SQL JOIN support                                                                 |
+| UPDATE / DELETE    |      ⚠️       |    ✅    | ES internally reindexes; Postgres handles natively                                    |
+| Bulk insert        |      ✅       |    ✅    | `COPY` or batch `INSERT`                                                              |
+| SQL queries        |      ❌       |    ✅    | Full SQL including subqueries, CTEs, window functions                                 |
+
+## Deployment and Operations
+
+| Feature                    | Elasticsearch | ParadeDB | Notes                                                                                  |
+| -------------------------- | :-----------: | :------: | -------------------------------------------------------------------------------------- |
+| Horizontal sharding        |      ✅       |    ⚠️    | Via [Citus](/deploy/citus) for distributed workloads                                   |
+| Read replicas              |      ✅       |    ✅    | Postgres streaming replication                                                         |
+| Kubernetes                 |      ✅       |    ✅    | [CNPG / Helm charts](/deploy/self-hosted/kubernetes)                                   |
+| Docker                     |      ✅       |    ✅    | [Official Docker image](/deploy/self-hosted/docker)                                    |
+| Logical replication ingest |      ❌       |    ✅    | [Sync from existing Postgres](/deploy/self-hosted/logical-replication/getting-started) |
+| Cross-cluster search       |      ✅       |    ❌    |                                                                                        |
+| Snapshot / restore         |      ✅       |    ✅    | Via Postgres backup tools (pg_dump, WAL archiving)                                     |
+| Monitoring                 |      ✅       |    ✅    | pg_stat, pganalyze, standard Postgres tools                                            |
+
+## Pagination
+
+| Feature           | Elasticsearch | ParadeDB | Notes                                                            |
+| ----------------- | :-----------: | :------: | ---------------------------------------------------------------- |
+| `from` / `size`   |      ✅       |    ✅    | SQL `LIMIT` / `OFFSET`                                           |
+| `scroll` API      |      ✅       |    ❌    | Use SQL cursors (`DECLARE` / `FETCH`) instead                    |
+| `search_after`    |      ✅       |    ❌    | Use keyset pagination (`WHERE id > last_id ORDER BY id`) instead |
+| TopN optimization |      ✅       |    ✅    | [`paradedb.limit_fetch_multiplier`](/documentation/sorting/topn) |

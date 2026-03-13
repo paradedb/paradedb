@@ -1023,6 +1023,21 @@ impl CustomScan for BaseScan {
                 }
             }
 
+            // SubPlan quals require per-tuple heap access for ExecQual, which would
+            // negate the benefit of the Columnar (fast-field) execution method.
+            // Fall back to Normal so we don't pay for both batch processing AND
+            // per-tuple heap fetches.
+            if !subplan_quals.is_empty()
+                && matches!(
+                    builder.custom_private().exec_method_type(),
+                    ExecMethodType::Columnar { .. }
+                )
+            {
+                builder
+                    .custom_private_mut()
+                    .set_exec_method_type(ExecMethodType::Normal);
+            }
+
             let mut scan = builder.build();
             if !subplan_quals.is_empty() {
                 scan.scan.plan.qual = subplan_quals.into_pg();
@@ -1435,14 +1450,8 @@ impl CustomScan for BaseScan {
                         // Evaluate executor-level quals (e.g., RLS policy SubPlan expressions)
                         // that couldn't be pushed into the tantivy query.
                         // These are set as plan.qual in plan_custom_path.
-                        let qual = state.csstate.ss.ps.qual;
-                        if !qual.is_null() {
-                            let econtext = (*state.projection_info()).pi_exprContext;
-                            (*econtext).ecxt_scantuple = slot;
-                            pg_sys::slot_getallattrs(slot);
-                            if !pg_sys::ExecQual(qual, econtext) {
-                                continue;
-                            }
+                        if !eval_plan_qual(state, slot) {
+                            continue;
                         }
 
                         let needs_special_projection = state.custom_state().need_scores()
@@ -1999,6 +2008,24 @@ fn check_visibility(
         .custom_state_mut()
         .visibility_checker()
         .exec_if_visible(ctid, bslot.cast(), move |_| bslot.cast())
+}
+
+/// Evaluate executor-level quals (e.g., RLS policy SubPlan expressions) that couldn't be pushed
+/// into the tantivy query. These are set as `plan.qual` in `plan_custom_path`.
+/// Returns `true` if qual passes (or no qual exists), `false` if the row should be skipped.
+#[inline(always)]
+unsafe fn eval_plan_qual(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    slot: *mut pg_sys::TupleTableSlot,
+) -> bool {
+    let qual = state.csstate.ss.ps.qual;
+    if qual.is_null() {
+        return true;
+    }
+    let econtext = (*state.projection_info()).pi_exprContext;
+    (*econtext).ecxt_scantuple = slot;
+    pg_sys::slot_getallattrs(slot);
+    pg_sys::ExecQual(qual, econtext)
 }
 
 /// Inject ParadeDB-specific placeholders (score, snippets, window aggregates) into the tuple slot

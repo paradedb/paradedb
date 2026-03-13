@@ -131,12 +131,48 @@ SELECT id, pdb.score(id)
 FROM documents
 WHERE title ||| 'sheriff';
 
+SELECT id
+FROM documents
+WHERE title ||| 'sheriff'
+ORDER BY id;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, pdb.score(id)
+FROM documents
+WHERE title ||| 'sheriff'
+ORDER BY pdb.score(id) DESC, id
+LIMIT 2;
+
+SELECT id
+FROM documents
+WHERE title ||| 'sheriff'
+ORDER BY pdb.score(id) DESC, id
+LIMIT 2;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, pdb.score(id) AS score,
        pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
 FROM documents
 WHERE title ||| 'sheriff'
 ORDER BY id;
+
+SELECT id, title, pdb.score(id) AS score,
+       pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
+FROM documents
+WHERE title ||| 'sheriff'
+ORDER BY id;
+
+SET LOCAL request.jwt.claim.org_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+SELECT id, title
+FROM documents
+WHERE title ||| 'sheriff'
+ORDER BY id;
 COMMIT;
+
+REVOKE SELECT ON documents FROM authenticated;
+REVOKE SELECT ON access_tags FROM authenticated;
+REVOKE authenticated FROM current_user;
 
 DROP POLICY org_access ON documents;
 DROP POLICY tag_access ON documents;

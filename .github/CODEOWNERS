@@ -1,12 +1,12 @@
 # Order is important. The last matching pattern has the most precedence
 
-/.cargo/                                                       @philippemnoel @rebasedming @stuhood
-/.github/                                                      @philippemnoel @rebasedming @stuhood
-/benchmarks/                                                   @philippemnoel @rebasedming @stuhood
-/docker/                                                       @philippemnoel @rebasedming @stuhood
-/docs/                                                         @philippemnoel @rebasedming @stuhood
-/pg_search/                                                    @philippemnoel @rebasedming @stuhood @mdashti
-/scripts/                                                      @philippemnoel @rebasedming @stuhood @mdashti
-/stressgres/                                                   @philippemnoel @rebasedming @stuhood
-/tests/                                                        @philippemnoel @rebasedming @stuhood @mdashti
-/tokenizers/                                                   @philippemnoel @rebasedming @stuhood
+/.cargo/                                                       @paradedb/pg_search-maintainers
+/.github/                                                      @paradedb/pg_search-maintainers
+/benchmarks/                                                   @paradedb/pg_search-maintainers
+/docker/                                                       @paradedb/pg_search-maintainers
+/docs/                                                         @paradedb/pg_search-maintainers
+/pg_search/                                                    @paradedb/pg_search-maintainers
+/scripts/                                                      @paradedb/pg_search-maintainers
+/stressgres/                                                   @paradedb/pg_search-maintainers
+/tests/                                                        @paradedb/pg_search-maintainers
+/tokenizers/                                                   @paradedb/pg_search-maintainers

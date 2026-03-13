@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773442101933,
+  "lastUpdate": 1773442109492,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20612,6 +20612,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.05024986598883, max segment_count: 128.0, count: 57831"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53b9d11709c7373d7e2283e6a1cf125e5f3a194b",
+          "message": "fix: RLS policies that get planned as `SubPlan`s (#4354)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe handled certain RLS policies that got planned as plain function\ncalls, but our heap filter pushdown doesn't have support for subplans\n(which other policies can get written to).\n\n## Why\n\n## How\n\n## Tests\nSee new regression test.",
+          "timestamp": "2026-03-13T15:14:11-07:00",
+          "tree_id": "0b41638786d46dd550a4a72c2cee1738c2020c77",
+          "url": "https://github.com/paradedb/paradedb/commit/53b9d11709c7373d7e2283e6a1cf125e5f3a194b"
+        },
+        "date": 1773442103514,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.09705766424804, max cpu: 42.899704, count: 57824"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 233.3167171341052, max mem: 236.76953125, count: 57824"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.58791767546421, max cpu: 33.267326, count: 57824"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.19815416446892, max mem: 176.2578125, count: 57824"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34574,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33702.12667750415, max block_count: 36635.0, count: 57824"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.6482775318207, max segment_count: 130.0, count: 57824"
           }
         ]
       }

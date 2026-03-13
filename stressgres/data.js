@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773364362606,
+  "lastUpdate": 1773364370632,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -55220,6 +55220,186 @@ window.BENCHMARK_DATA = {
             "value": 32.375,
             "unit": "median mem",
             "extra": "avg mem: 31.67003397281016, max mem: 32.46484375, count: 53908"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f8c5c827bcf3c3f09402915b810f680d4307443d",
+          "message": "chore: Move late materialization to a logical `OptimizerRule` (#4342)\n\n# Ticket(s) Closed\n\n- Closes #4324\n\n## What\n\nThis change moves the planning of our late materialization\n`TantivyLookupExec` from a `PhysicalOptimizerRule` to a logical\n`OptimizerRule`.\n\n## Why\n\nIn order to use a `PhysicalOptimizerRule` to install TantivyLookupExec,\nwe needed to lie about the schema of the deferred/union column, and\ndeclare that it was still string or bytes. We needed to disable schema\nchecking:\n```rust\nfn schema_check(&self) -> bool {\n    // Disabled because this rule temporarily changes column types\n    // (Utf8View -> UnionArray) between PgSearchScan and TantivyLookupExec.\n    // The final output schema is correct after TantivyLookupExec restores types.\n    false\n}\n```\n\nThis worked on DataFusion 52, but was fragile... and DataFusion 53\nintroduced additional schema checking in Projection nodes, which noticed\nthe difference and blocked upgrading.\n\n## How\n\n`impl OptimizerRule for LateMaterializationRule` looks for\n`PgSearchTableProvider` implementations which have string/bytes columns,\nand enables late materialization with\n`enable_late_materialization_schema`. This changes the schema that the\nnode declares to a schema which includes the Union. See the notes around\n`enable_late_materialization_schema` which explain why we need to use\nmutability here.\n\nWe then bubble this schema modification up through the plan, and look\nfor a node that will force the column(s) to be materialized\n(`should_anchor`): as before, we can bubble up past logical plan nodes\nwhich don't actually execute expressions on the deferred columns\n(adjusting their schemas as we go). When we find a logical node which\n_does_ need to execute expressions on the deferred column(s), we insert\nour logical `LateMaterializeNode` immediately below it.\n\nFinally, we use `impl ExtensionPlanner for LateMaterializePlanner` to\nconvert the logical `LateMaterializeNode` into a physical\n`TantivyLookupExec` node.\n\nBecause they do not need to make schema modifications and operate in a\nlocalized fashion, our `SegmentedTopK` and `SortMergeJoinEnforcer` rules\ncan remain physical optimizer rules.\n\n## Tests\n\nExisting tests all pass.\n\nAdditionally, I've validated that this unblocks the DataFusion 53\nupgrade.",
+          "timestamp": "2026-03-12T16:54:33-07:00",
+          "tree_id": "83e4d2115c3043e951a0bc64a617996c157f065f",
+          "url": "https://github.com/paradedb/paradedb/commit/f8c5c827bcf3c3f09402915b810f680d4307443d"
+        },
+        "date": 1773364364352,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.956745688001908, max cpu: 13.662238, count: 53912"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 50.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.51915020368842, max mem: 56.2421875, count: 53912"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.999525222026665, max cpu: 4.6153846, count: 53912"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 31.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.994126713440423, max mem: 31.984375, count: 53912"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.151573,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.785881305662619, max cpu: 22.922636, count: 53912"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 54.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.11980613372255, max mem: 60.20703125, count: 53912"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.953475408912023, max cpu: 9.365853, count: 53912"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 50.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.362914115247996, max mem: 56.16015625, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.628544002377157, max cpu: 9.195402, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.18547057879044, max mem: 38.34765625, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1092,
+            "unit": "median pages",
+            "extra": "avg pages: 1101.467613889301, max pages: 1820.0, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.53125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.605215733510164, max relation_size:MB: 14.21875, count: 53912"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.687731859326309, max segment_count: 19.0, count: 53912"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.433965593056942, max cpu: 4.610951, count: 53912"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.769262727917717, max mem: 29.86328125, count: 53912"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.593642332908426, max cpu: 4.6065254, count: 53912"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.710156423894496, max mem: 29.74609375, count: 53912"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.833586970015633, max cpu: 23.054754, count: 53912"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 48.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.31853616773631, max mem: 54.13671875, count: 53912"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000019286608975477397, max replication_lag:MB: 0.083160400390625, count: 53912"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.2081537317542, max cpu: 13.859479, count: 107824"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 48.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.86585807658777, max mem: 55.078125, count: 107824"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5283017,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7064753226175977, max cpu: 4.5845275, count: 53912"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 31.566204822210267, max mem: 32.56640625, count: 53912"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.759100831832806, max cpu: 4.597701, count: 53912"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 32.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 31.777400483078907, max mem: 32.55859375, count: 53912"
           }
         ]
       }

@@ -26,6 +26,7 @@ BEGIN
     END IF;
 END
 $$;
+SET client_min_messages TO warning;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS access_tags CASCADE;
 DROP FUNCTION IF EXISTS check_org_access(uuid);
@@ -97,10 +98,10 @@ FROM documents
 WHERE title ||| 'sheriff';
                                                                                                                                                                  QUERY PLAN                                                                                                                                                                 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on documents
+ Custom Scan (ParadeDB Scan) on documents
    Table: documents
    Index: documents_bm25
-   Exec Method: ColumnarExecState
+   Exec Method: MixedFastFieldExecState
    Fast Fields: id
    Scores: true
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"field_filters":[{"heap_filter":"check_org_access(org_id)"}]}}]}}
@@ -128,7 +129,7 @@ FROM documents
 WHERE title ||| 'sheriff';
                                                                                                                                                                  QUERY PLAN                                                                                                                                                                 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Base Scan) on documents
+ Custom Scan (ParadeDB Scan) on documents
    Filter: ((NOT document_has_tags(id)) OR EXISTS(SubPlan 1))
    Table: documents
    Index: documents_bm25
@@ -161,14 +162,14 @@ LIMIT 2;
                                                                                                                                                                     QUERY PLAN                                                                                                                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on documents
+   ->  Custom Scan (ParadeDB Scan) on documents
          Filter: ((NOT document_has_tags(id)) OR EXISTS(SubPlan 1))
          Table: documents
          Index: documents_bm25
-         Exec Method: TopKScanExecState
+         Exec Method: TopNScanExecState
          Scores: true
-            TopK Order By: pdb.score() desc, id asc
-            TopK Limit: 2
+            TopN Order By: pdb.score() desc, id asc
+            TopN Limit: 2
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"field_filters":[{"heap_filter":"check_org_access(org_id)"}]}}]}}
          SubPlan 1
            ->  Nested Loop
@@ -198,7 +199,7 @@ ORDER BY id;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: documents.id
-   ->  Custom Scan (ParadeDB Base Scan) on documents
+   ->  Custom Scan (ParadeDB Scan) on documents
          Filter: ((NOT document_has_tags(id)) OR EXISTS(SubPlan 1))
          Table: documents
          Index: documents_bm25

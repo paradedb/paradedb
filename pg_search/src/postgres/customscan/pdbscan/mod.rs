@@ -968,7 +968,7 @@ impl CustomScan for PdbScan {
             if !subplan_quals.is_empty()
                 && matches!(
                     builder.custom_private().exec_method_type(),
-                    ExecMethodType::Columnar { .. }
+                    ExecMethodType::FastFieldMixed { .. }
                 )
             {
                 builder
@@ -1660,7 +1660,7 @@ fn check_visibility(
 /// Returns `true` if qual passes (or no qual exists), `false` if the row should be skipped.
 #[inline(always)]
 unsafe fn satisfies_subplan_quals(
-    state: &mut CustomScanStateWrapper<BaseScan>,
+    state: &mut CustomScanStateWrapper<PdbScan>,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
     let qual = state.csstate.ss.ps.qual;

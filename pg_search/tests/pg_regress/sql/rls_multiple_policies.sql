@@ -29,6 +29,7 @@ BEGIN
 END
 $$;
 
+SET client_min_messages TO warning;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS access_tags CASCADE;
 DROP FUNCTION IF EXISTS check_org_access(uuid);

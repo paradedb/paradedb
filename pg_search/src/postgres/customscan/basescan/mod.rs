@@ -1024,9 +1024,8 @@ impl CustomScan for BaseScan {
             }
 
             // SubPlan quals require per-tuple heap access for ExecQual, which would
-            // negate the benefit of the Columnar (fast-field) execution method.
-            // Fall back to Normal so we don't pay for both batch processing AND
-            // per-tuple heap fetches.
+            // negate the benefit of columnar. Fall back to Normal so we don't pay for both
+            // batch processing AND per-tuple heap fetches.
             if !subplan_quals.is_empty()
                 && matches!(
                     builder.custom_private().exec_method_type(),
@@ -1450,7 +1449,7 @@ impl CustomScan for BaseScan {
                         // Evaluate executor-level quals (e.g., RLS policy SubPlan expressions)
                         // that couldn't be pushed into the tantivy query.
                         // These are set as plan.qual in plan_custom_path.
-                        if !eval_plan_qual(state, slot) {
+                        if !satisfies_subplan_quals(state, slot) {
                             continue;
                         }
 
@@ -2014,7 +2013,7 @@ fn check_visibility(
 /// into the tantivy query. These are set as `plan.qual` in `plan_custom_path`.
 /// Returns `true` if qual passes (or no qual exists), `false` if the row should be skipped.
 #[inline(always)]
-unsafe fn eval_plan_qual(
+unsafe fn satisfies_subplan_quals(
     state: &mut CustomScanStateWrapper<BaseScan>,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {

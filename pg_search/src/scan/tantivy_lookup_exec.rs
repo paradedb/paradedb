@@ -55,7 +55,7 @@ impl PhysicalDeferredField {
     }
 }
 
-use std::collections::HashMap;
+use crate::api::HashMap;
 
 pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
@@ -231,10 +231,16 @@ impl ExecutionPlan for TantivyLookupExec {
 
     fn gather_filters_for_pushdown(
         &self,
-        _phase: FilterPushdownPhase,
+        phase: FilterPushdownPhase,
         parent_filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &datafusion::common::config::ConfigOptions,
     ) -> Result<FilterDescription> {
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterDescription::all_unsupported(
+                &parent_filters,
+                &self.children(),
+            ));
+        }
         // ChildFilterDescription::from_child automatically reassigns indices if names match
         let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?;
         Ok(FilterDescription::new().with_child(child_desc))
@@ -253,7 +259,7 @@ impl ExecutionPlan for TantivyLookupExec {
 fn enrich_batch(
     batch: RecordBatch,
     decoders: &[DecoderInfo],
-    ffhelpers: &std::collections::HashMap<u32, Arc<FFHelper>>,
+    ffhelpers: &HashMap<u32, Arc<FFHelper>>,
     schema: &SchemaRef,
 ) -> Result<RecordBatch> {
     let num_rows = batch.num_rows();

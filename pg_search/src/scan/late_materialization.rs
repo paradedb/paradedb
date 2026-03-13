@@ -407,9 +407,10 @@ impl OptimizerRule for LateMaterializationRule {
                         // Now the provider natively outputs the Union schema!
                         // We must reconstruct the TableScan's projected schema to reflect this new reality.
                         let mut new_scan = scan.clone();
-                        let projected_indices: Vec<usize> = scan.projected_schema.fields().iter()
-                            .map(|f| scan.source.schema().index_of(f.name()).unwrap())
+                        let projected_indices: Result<Vec<usize>, _> = scan.projected_schema.fields().iter()
+                            .map(|f| scan.source.schema().index_of(f.name()))
                             .collect();
+                        let projected_indices = projected_indices?;
 
                         let projected_arrow_schema = new_scan.source.schema().project(&projected_indices)?;
                         let mut new_qualified_fields = Vec::new();
@@ -528,6 +529,9 @@ impl std::cmp::PartialOrd for LateMaterializeNode {
             return input_cmp;
         }
 
+        // Note: Comparing `Arc` pointers is non-deterministic across runs, but DataFusion's
+        // `partial_cmp` trait bound for plans only requires it for opportunistic deduplication/caching,
+        // not stable semantic ordering. Deep schema comparison is too expensive here.
         let schema_cmp =
             Arc::as_ptr(&self.output_schema).partial_cmp(&Arc::as_ptr(&other.output_schema));
         if schema_cmp != Some(std::cmp::Ordering::Equal) {
@@ -638,7 +642,7 @@ pub struct LateMaterializePlanner;
 
 fn extract_ff_helper(
     plan: &Arc<dyn ExecutionPlan>,
-    helpers: &mut std::collections::HashMap<u32, Arc<FFHelper>>,
+    helpers: &mut crate::api::HashMap<u32, Arc<FFHelper>>,
 ) {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
         if let Some(ff) = scan.ffhelper_if_deferred() {
@@ -664,7 +668,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
         if let Some(mat_node) = node.as_any().downcast_ref::<LateMaterializeNode>() {
             let input_exec = Arc::clone(&physical_inputs[0]);
 
-            let mut ff_helpers = std::collections::HashMap::new();
+            let mut ff_helpers = crate::api::HashMap::default();
             extract_ff_helper(&input_exec, &mut ff_helpers);
 
             if ff_helpers.is_empty() {

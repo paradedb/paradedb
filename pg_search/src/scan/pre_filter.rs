@@ -152,7 +152,10 @@ impl PreFilter {
                     })?;
                     return Ok(Transformed::yes(current_expr));
                 } else if let Some(cast) = node.as_any().downcast_ref::<CastExpr>() {
-                    return Ok(Transformed::yes(Arc::clone(cast.expr())));
+                    if cast.cast_type() == &cast.expr().data_type(schema)? {
+                        return Ok(Transformed::yes(Arc::clone(cast.expr())));
+                    }
+                    return Ok(Transformed::no(node));
                 } else if let Some(binary) = node.as_any().downcast_ref::<BinaryExpr>() {
                     if let Some(rewritten) =
                         try_rewrite_binary(binary, ffhelper, segment_ord, schema)?

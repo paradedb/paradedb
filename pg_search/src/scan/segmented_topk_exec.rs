@@ -601,14 +601,15 @@ impl SegmentedTopKState {
         pass_through: &mut [bool],
         row_to_seg: &mut [Option<SegmentOrdinal>],
     ) -> Result<Vec<Option<TermOrdinal>>> {
-        let union_col = batch
-            .column(deferred_col.sort_col_idx)
+        let column = batch.column(deferred_col.sort_col_idx);
+        let union_col = column
             .as_any()
             .downcast_ref::<UnionArray>()
             .ok_or_else(|| {
-                DataFusionError::Internal(
-                    "SegmentedTopKExec: sort column should be a deferred UnionArray".into(),
-                )
+                DataFusionError::Internal(format!(
+                    "SegmentedTopKExec: sort column should be a deferred UnionArray but found {:?} at index {}",
+                    column.data_type(), deferred_col.sort_col_idx
+                ))
             })?;
 
         let type_ids = union_col.type_ids();

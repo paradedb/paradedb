@@ -130,11 +130,16 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             let input_plan = inputs[0].clone();
 
             let mut offset = 1;
-            let schema_len =
-                u32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap()) as usize;
+
+            let schema_len_bytes = buf.get(offset..offset + 4).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: missing schema length".into())
+            })?;
+            let schema_len = u32::from_le_bytes(schema_len_bytes.try_into().unwrap()) as usize;
             offset += 4;
 
-            let schema_bytes = &buf[offset..offset + schema_len];
+            let schema_bytes = buf.get(offset..offset + schema_len).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: incomplete schema data".into())
+            })?;
             offset += schema_len;
 
             let df_schema_proto: datafusion_proto::protobuf::DfSchema =
@@ -147,7 +152,18 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                     DataFusionError::Internal(format!("Failed to parse schema: {}", e))
                 })?);
 
-            let deferred_fields_bytes = &buf[offset..];
+            let deferred_len_bytes = buf.get(offset..offset + 4).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: missing deferred fields length".into())
+            })?;
+            let deferred_len = u32::from_le_bytes(deferred_len_bytes.try_into().unwrap()) as usize;
+            offset += 4;
+
+            let deferred_fields_bytes =
+                buf.get(offset..offset + deferred_len).ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "truncated buffer: incomplete deferred fields data".into(),
+                    )
+                })?;
             let deferred_fields: Vec<crate::scan::late_materialization::DeferredField> =
                 serde_json::from_slice(deferred_fields_bytes).map_err(|e| {
                     DataFusionError::Internal(format!(
@@ -183,7 +199,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                     DataFusionError::Internal(format!("Failed to convert schema: {}", e))
                 })?;
 
-            let mut bytes = serde_json::to_vec(&mat_node.deferred_fields).map_err(|e| {
+            let bytes = serde_json::to_vec(&mat_node.deferred_fields).map_err(|e| {
                 DataFusionError::Internal(format!("Failed to serialize deferred fields: {}", e))
             })?;
 
@@ -192,7 +208,8 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
 
             buf.extend_from_slice(&(schema_bytes.len() as u32).to_le_bytes());
             buf.extend_from_slice(&schema_bytes);
-            buf.append(&mut bytes);
+            buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&bytes);
             return Ok(());
         }
 

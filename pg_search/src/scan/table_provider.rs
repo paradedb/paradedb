@@ -51,6 +51,8 @@ pub struct PgSearchTableProvider {
     fields: Vec<WhichFastField>,
     #[serde(skip)]
     schema: std::sync::OnceLock<SchemaRef>,
+    #[serde(skip)]
+    late_materialization_schema: std::sync::OnceLock<SchemaRef>,
     is_parallel: bool,
     /// Parallel state is skipped during serialization because it's a raw pointer
     /// to shared memory that is only valid in the current process. It is
@@ -76,12 +78,30 @@ pub struct PgSearchTableProvider {
     ///   then updates the `TableScan.projected_schema` to match, allowing the `Union`
     ///   types to legally bubble up to our `LateMaterializeNode` anchor.
     ///
-    /// Note: `AtomicBool` does not implement `Serialize`/`Deserialize`. By skipping it,
-    /// Serde initializes it using `AtomicBool::default()` (which is `false`) on the receiving
-    /// parallel workers. This perfectly mirrors the lifecycle, as the optimizer rule will
-    /// subsequently run locally on the worker and organically flip it back to `true`.
-    #[serde(skip)]
+    /// SAFETY: Relaxed ordering is sufficient because the store (in LateMaterializationRule)
+    /// and load (in get_schema) execute sequentially within the same single-threaded optimization pass.
+    #[serde(with = "atomic_bool_serde")]
     late_materialization_active: AtomicBool,
+}
+
+mod atomic_bool_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    pub fn serialize<S>(val: &AtomicBool, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bool(val.load(Ordering::Relaxed))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<AtomicBool, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let b = bool::deserialize(deserializer)?;
+        Ok(AtomicBool::new(b))
+    }
 }
 
 unsafe impl Send for PgSearchTableProvider {}
@@ -98,6 +118,7 @@ impl PgSearchTableProvider {
             scan_info,
             fields,
             schema: std::sync::OnceLock::new(),
+            late_materialization_schema: std::sync::OnceLock::new(),
             is_parallel,
             parallel_state,
             expr_context: None,
@@ -168,7 +189,9 @@ impl PgSearchTableProvider {
 
     fn get_schema(&self) -> SchemaRef {
         if self.late_materialization_active.load(Ordering::Relaxed) {
-            crate::index::fast_fields_helper::build_arrow_schema(&self.fields)
+            self.late_materialization_schema
+                .get_or_init(|| crate::index::fast_fields_helper::build_arrow_schema(&self.fields))
+                .clone()
         } else {
             self.schema
                 .get_or_init(|| {
@@ -193,16 +216,31 @@ impl PgSearchTableProvider {
         &self,
         projection: Option<&Vec<usize>>,
     ) -> Result<(Vec<WhichFastField>, SchemaRef)> {
-        let schema = crate::index::fast_fields_helper::build_arrow_schema(&self.fields);
+        let active_fields: Vec<_> = if self.late_materialization_active.load(Ordering::Relaxed) {
+            self.fields.clone()
+        } else {
+            self.fields
+                .iter()
+                .map(|wff| {
+                    if let WhichFastField::Deferred(name, ty) = wff {
+                        WhichFastField::Named(name.clone(), *ty)
+                    } else {
+                        wff.clone()
+                    }
+                })
+                .collect()
+        };
+
+        let schema = self.get_schema();
         match projection {
-            None => Ok((self.fields.clone(), schema)),
+            None => Ok((active_fields, schema)),
             Some(indices) => {
                 let mut fields = Vec::with_capacity(indices.len());
                 for &idx in indices {
-                    let field = self.fields.get(idx).ok_or_else(|| {
+                    let field = active_fields.get(idx).ok_or_else(|| {
                         DataFusionError::Execution(format!(
                             "Projection index {idx} out of bounds for {} fields",
-                            self.fields.len()
+                            active_fields.len()
                         ))
                     })?;
                     fields.push(field.clone());

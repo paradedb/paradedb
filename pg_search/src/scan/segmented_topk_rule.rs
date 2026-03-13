@@ -193,6 +193,7 @@ fn try_inject_below_lookup(
                         .iter()
                         .any(|d| d.canonical.indexrelid != id)
                     {
+                        pgrx::warning!("SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.");
                         return Ok(None);
                     }
                 }

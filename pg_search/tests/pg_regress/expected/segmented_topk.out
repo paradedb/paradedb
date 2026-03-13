@@ -556,6 +556,7 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
+WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -585,6 +586,7 @@ JOIN stk_documents d ON f.document_id = d.id
 WHERE d.category @@@ 'PROJECT_ALPHA'
 ORDER BY f.title ASC, d.category DESC, f.id ASC
 LIMIT 5;
+WARNING:  SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.
  id  |     title     |             category              
 -----+---------------+-----------------------------------
  102 | Group A Title | PROJECT_ALPHA roadmap planning

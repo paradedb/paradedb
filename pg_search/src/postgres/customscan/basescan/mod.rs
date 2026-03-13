@@ -1002,28 +1002,27 @@ impl CustomScan for BaseScan {
                 .custom_private_mut()
                 .set_ambulkdelete_epoch(MetaPage::open(&indexrel).ambulkdelete_epoch());
 
-            // Collect clauses that our Custom Scan doesn't handle internally
-            // (e.g., SubPlan expressions from RLS policies) and set them as plan.qual.
+            // Collect subplans that our Custom Scan doesn't handle internally and set them as plan.qual.
             // PostgreSQL's ExecInitCustomScan will call ExecInitQual on plan.qual,
             // which properly initializes SubPlans. We then evaluate these in exec_custom_scan.
             let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
-            let mut unhandled_quals = PgList::<pg_sys::Node>::new();
+            let mut subplan_quals = PgList::<pg_sys::Node>::new();
             for clause in clauses.iter_ptr() {
                 if is_subplan(clause) {
-                    // Strip RestrictInfo wrapper if present — plan.qual needs bare expressions
+                    // strip RestrictInfo wrapper, plan.qual needs bare expressions
                     let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
                         let ri = clause as *mut pg_sys::RestrictInfo;
                         (*ri).clause.cast()
                     } else {
                         clause
                     };
-                    unhandled_quals.push(bare_clause);
+                    subplan_quals.push(bare_clause);
                 }
             }
 
             let mut scan = builder.build();
-            if !unhandled_quals.is_empty() {
-                scan.scan.plan.qual = unhandled_quals.into_pg();
+            if !subplan_quals.is_empty() {
+                scan.scan.plan.qual = subplan_quals.into_pg();
             }
             scan
         }

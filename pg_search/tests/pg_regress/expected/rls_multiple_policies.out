@@ -1,5 +1,31 @@
-SET client_min_messages TO warning;
 CREATE EXTENSION IF NOT EXISTS pg_search;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_roles
+        WHERE rolname = 'authenticated'
+    ) THEN
+        CREATE ROLE authenticated;
+    END IF;
+END
+$$;
+DO $$
+DECLARE
+    v_session_user name := session_user;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_auth_members m
+        JOIN pg_roles r_member ON r_member.oid = m.member
+        JOIN pg_roles r_role   ON r_role.oid   = m.roleid
+        WHERE r_member.rolname = v_session_user
+          AND r_role.rolname = 'authenticated'
+    ) THEN
+        EXECUTE format('GRANT authenticated TO %I', v_session_user);
+    END IF;
+END
+$$;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS access_tags CASCADE;
 DROP FUNCTION IF EXISTS check_org_access(uuid);
@@ -12,7 +38,7 @@ CREATE TABLE access_tags (
 );
 INSERT INTO access_tags VALUES
     (1, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
-    (2, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    (2, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
 CREATE TABLE documents (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     org_id uuid NOT NULL DEFAULT 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -22,8 +48,11 @@ CREATE TABLE documents (
 INSERT INTO documents (title, tag_ids) VALUES
     ('sheriff department los angeles', '{}'),
     ('cloud computing infrastructure', '{1}'),
-    ('sheriff office county records', '{1,2}'),
-    ('unrelated document about nothing', '{}');
+    ('sheriff office county records', '{2}'),
+    ('sheriff cross org incident report', '{}');
+UPDATE documents
+SET org_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+WHERE title = 'sheriff cross org incident report';
 CREATE INDEX documents_bm25 ON documents
     USING bm25 (id, title) WITH (key_field=id);
 GRANT SELECT ON documents TO authenticated;
@@ -31,7 +60,9 @@ GRANT SELECT ON access_tags TO authenticated;
 ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE documents FORCE ROW LEVEL SECURITY;
 CREATE FUNCTION check_org_access(uuid)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$ SELECT true; $$;
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
+    SELECT $1 = current_setting('request.jwt.claim.org_id')::uuid;
+$$;
 CREATE FUNCTION document_has_tags(bigint)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
     SELECT EXISTS(
@@ -48,29 +79,31 @@ CREATE POLICY org_access ON documents FOR SELECT TO authenticated
     USING (check_org_access(org_id));
 BEGIN;
 SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.org_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 SELECT id, title, pdb.score(id) AS score,
        pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
 FROM documents
-WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
- id |             title              |   score   |                snippet                
-----+--------------------------------+-----------+---------------------------------------
-  1 | sheriff department los angeles | 0.6747451 | <b>sheriff</b> department los angeles
-  3 | sheriff office county records  | 0.6747451 | <b>sheriff</b> office county records
+WHERE title ||| 'sheriff'
+ORDER BY id;
+ id |             title              |   score    |                snippet                
+----+--------------------------------+------------+---------------------------------------
+  1 | sheriff department los angeles | 0.35667497 | <b>sheriff</b> department los angeles
+  3 | sheriff office county records  | 0.35667497 | <b>sheriff</b> office county records
 (2 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id)
 FROM documents
-WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE title ||| 'sheriff';
+                                                                                                                                                                 QUERY PLAN                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on documents
    Table: documents
    Index: documents_bm25
    Exec Method: ColumnarExecState
    Fast Fields: id
    Scores: true
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"check_org_access(org_id)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"field_filters":[{"heap_filter":"check_org_access(org_id)"}]}}]}}
 (7 rows)
 
 COMMIT;
@@ -88,12 +121,13 @@ CREATE POLICY tag_access ON documents AS RESTRICTIVE
     );
 BEGIN;
 SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.org_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id)
 FROM documents
-WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE title ||| 'sheriff';
+                                                                                                                                                                 QUERY PLAN                                                                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on documents
    Filter: ((NOT document_has_tags(id)) OR EXISTS(SubPlan 1))
    Table: documents
@@ -101,7 +135,7 @@ WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
    Exec Method: ColumnarExecState
    Fast Fields: id
    Scores: true
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"check_org_access(org_id)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"field_filters":[{"heap_filter":"check_org_access(org_id)"}]}}]}}
    SubPlan 1
      ->  Nested Loop
            ->  Function Scan on unnest tag_id
@@ -113,12 +147,12 @@ WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
 SELECT id, title, pdb.score(id) AS score,
        pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
 FROM documents
-WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
- id |             title              |   score   |                snippet                
-----+--------------------------------+-----------+---------------------------------------
-  1 | sheriff department los angeles | 0.6747451 | <b>sheriff</b> department los angeles
-  3 | sheriff office county records  | 0.6747451 | <b>sheriff</b> office county records
-(2 rows)
+WHERE title ||| 'sheriff'
+ORDER BY id;
+ id |             title              |   score    |                snippet                
+----+--------------------------------+------------+---------------------------------------
+  1 | sheriff department los angeles | 0.35667497 | <b>sheriff</b> department los angeles
+(1 row)
 
 COMMIT;
 DROP POLICY org_access ON documents;

@@ -1,5 +1,33 @@
-SET client_min_messages TO warning;
 CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_roles
+        WHERE rolname = 'authenticated'
+    ) THEN
+        CREATE ROLE authenticated;
+    END IF;
+END
+$$;
+
+DO $$
+DECLARE
+    v_session_user name := session_user;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_auth_members m
+        JOIN pg_roles r_member ON r_member.oid = m.member
+        JOIN pg_roles r_role   ON r_role.oid   = m.roleid
+        WHERE r_member.rolname = v_session_user
+          AND r_role.rolname = 'authenticated'
+    ) THEN
+        EXECUTE format('GRANT authenticated TO %I', v_session_user);
+    END IF;
+END
+$$;
 
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS access_tags CASCADE;
@@ -15,7 +43,7 @@ CREATE TABLE access_tags (
 
 INSERT INTO access_tags VALUES
     (1, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
-    (2, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    (2, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
 
 CREATE TABLE documents (
     id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
@@ -27,8 +55,12 @@ CREATE TABLE documents (
 INSERT INTO documents (title, tag_ids) VALUES
     ('sheriff department los angeles', '{}'),
     ('cloud computing infrastructure', '{1}'),
-    ('sheriff office county records', '{1,2}'),
-    ('unrelated document about nothing', '{}');
+    ('sheriff office county records', '{2}'),
+    ('sheriff cross org incident report', '{}');
+
+UPDATE documents
+SET org_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+WHERE title = 'sheriff cross org incident report';
 
 CREATE INDEX documents_bm25 ON documents
     USING bm25 (id, title) WITH (key_field=id);
@@ -39,7 +71,9 @@ ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE documents FORCE ROW LEVEL SECURITY;
 
 CREATE FUNCTION check_org_access(uuid)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$ SELECT true; $$;
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
+    SELECT $1 = current_setting('request.jwt.claim.org_id')::uuid;
+$$;
 
 CREATE FUNCTION document_has_tags(bigint)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
@@ -61,16 +95,18 @@ CREATE POLICY org_access ON documents FOR SELECT TO authenticated
 
 BEGIN;
 SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.org_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 SELECT id, title, pdb.score(id) AS score,
        pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
 FROM documents
-WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
+WHERE title ||| 'sheriff'
+ORDER BY id;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id)
 FROM documents
-WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
+WHERE title ||| 'sheriff';
 COMMIT;
 
 -- Second policy
@@ -88,16 +124,18 @@ CREATE POLICY tag_access ON documents AS RESTRICTIVE
 
 BEGIN;
 SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.org_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id)
 FROM documents
-WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
+WHERE title ||| 'sheriff';
 
 SELECT id, title, pdb.score(id) AS score,
        pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
 FROM documents
-WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
+WHERE title ||| 'sheriff'
+ORDER BY id;
 COMMIT;
 
 DROP POLICY org_access ON documents;

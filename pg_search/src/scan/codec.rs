@@ -33,7 +33,7 @@ use crate::scan::table_provider::PgSearchTableProvider;
 /// Any custom nodes (e.g. UDFs, table providers) must use this codec to instruct
 /// DataFusion how to serialize/deserialize them.
 #[derive(Debug, Default)]
-pub struct PgSearchExtensionCodec {
+struct PgSearchExtensionCodec {
     /// Shared state for parallel scans, containing the list of segments to be processed.
     pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     /// Postgres expression context, needed for heap filtering.
@@ -115,19 +115,99 @@ macro_rules! encode_udfs {
 impl LogicalExtensionCodec for PgSearchExtensionCodec {
     fn try_decode(
         &self,
-        _buf: &[u8],
-        _inputs: &[LogicalPlan],
-        _ctx: &TaskContext,
+        buf: &[u8],
+        inputs: &[LogicalPlan],
+        _ctx: &datafusion::execution::context::TaskContext,
     ) -> Result<Extension> {
-        Err(DataFusionError::NotImplemented(
-            "Extension node decoding not implemented".to_string(),
-        ))
+        if buf.is_empty() {
+            return Err(DataFusionError::Internal(
+                "Empty buffer for Extension decode".into(),
+            ));
+        }
+
+        // TODO: This uses a manual byte-tagging scheme to identify custom Extension nodes.
+        // If we add more custom node types, we should switch this payload to a proper Serde
+        // enum (e.g. `bincode` or `serde_json` of an enum wrapper) to cleanly handle variants.
+        let tag = buf[0];
+        if tag == 1 {
+            if inputs.len() != 1 {
+                return Err(DataFusionError::Internal(
+                    "LateMaterializeNode requires exactly one input".into(),
+                ));
+            }
+            let input_plan = inputs[0].clone();
+
+            let mut offset = 1;
+            let schema_len =
+                u32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap()) as usize;
+            offset += 4;
+
+            let schema_bytes = &buf[offset..offset + schema_len];
+            offset += schema_len;
+
+            let df_schema_proto: datafusion_proto::protobuf::DfSchema =
+                prost::Message::decode(schema_bytes).map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to decode schema: {}", e))
+                })?;
+
+            let output_schema: datafusion::common::DFSchemaRef =
+                std::sync::Arc::new((&df_schema_proto).try_into().map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to parse schema: {}", e))
+                })?);
+
+            let deferred_fields_bytes = &buf[offset..];
+            let deferred_fields: Vec<crate::scan::late_materialization::DeferredField> =
+                serde_json::from_slice(deferred_fields_bytes).map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to deserialize deferred fields: {}",
+                        e
+                    ))
+                })?;
+
+            let node =
+                std::sync::Arc::new(crate::scan::late_materialization::LateMaterializeNode {
+                    input: input_plan,
+                    output_schema,
+                    deferred_fields,
+                });
+
+            return Ok(Extension { node });
+        }
+
+        Err(DataFusionError::NotImplemented(format!(
+            "Extension node decoding not implemented for tag {}",
+            tag
+        )))
     }
 
-    fn try_encode(&self, _node: &Extension, _buf: &mut Vec<u8>) -> Result<()> {
-        Err(DataFusionError::NotImplemented(
-            "Extension node encoding not implemented".to_string(),
-        ))
+    fn try_encode(&self, node: &Extension, buf: &mut Vec<u8>) -> Result<()> {
+        if let Some(mat_node) =
+            node.node
+                .as_any()
+                .downcast_ref::<crate::scan::late_materialization::LateMaterializeNode>()
+        {
+            let schema_proto: datafusion_proto::protobuf::DfSchema =
+                mat_node.output_schema.as_ref().try_into().map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to convert schema: {}", e))
+                })?;
+
+            let mut bytes = serde_json::to_vec(&mat_node.deferred_fields).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize deferred fields: {}", e))
+            })?;
+
+            buf.push(1);
+            let schema_bytes = prost::Message::encode_to_vec(&schema_proto);
+
+            buf.extend_from_slice(&(schema_bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&schema_bytes);
+            buf.append(&mut bytes);
+            return Ok(());
+        }
+
+        Err(DataFusionError::NotImplemented(format!(
+            "Extension node encoding not implemented for {:?}",
+            node.node.name()
+        )))
     }
 
     fn try_decode_table_provider(
@@ -218,4 +298,45 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
     encode_udfs! {
         "pdb_search_predicate" => SearchPredicateUDF,
     }
+}
+
+/// Serializes a DataFusion `LogicalPlan` to bytes using the `PgSearchExtensionCodec`.
+pub fn serialize_logical_plan(plan: &LogicalPlan) -> Result<bytes::Bytes> {
+    datafusion_proto::bytes::logical_plan_to_bytes_with_extension_codec(
+        plan,
+        &PgSearchExtensionCodec::default(),
+    )
+}
+
+/// Deserializes a DataFusion `LogicalPlan` from bytes using the `PgSearchExtensionCodec`.
+pub fn deserialize_logical_plan(
+    bytes: &[u8],
+    ctx: &datafusion::execution::TaskContext,
+    parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+) -> Result<LogicalPlan> {
+    let codec = PgSearchExtensionCodec {
+        parallel_state,
+        expr_context,
+        non_partitioning_segment_ids: vec![],
+    };
+    datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
+}
+
+/// Deserializes a DataFusion `LogicalPlan` with canonical segment IDs for non-partitioning
+/// (replicated-parallel) sources. Used in the parallel exec path where workers must open
+/// each non-partitioning index with the same frozen segment set.
+pub fn deserialize_logical_plan_parallel(
+    bytes: &[u8],
+    ctx: &datafusion::execution::TaskContext,
+    parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+) -> Result<LogicalPlan> {
+    let codec = PgSearchExtensionCodec {
+        parallel_state,
+        expr_context,
+        non_partitioning_segment_ids,
+    };
+    datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
 }

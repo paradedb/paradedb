@@ -79,8 +79,30 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::scan::PgSearchTableProvider;
+use async_trait::async_trait;
+use datafusion::execution::context::{QueryPlanner, SessionState};
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::min;
+use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
+
+#[derive(Debug)]
+struct PgSearchQueryPlanner;
+
+#[async_trait]
+impl QueryPlanner for PgSearchQueryPlanner {
+    async fn create_physical_plan(
+        &self,
+        logical_plan: &datafusion::logical_expr::LogicalPlan,
+        session_state: &SessionState,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let physical_planner = DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(
+            crate::scan::late_materialization::LateMaterializePlanner {},
+        )]);
+        physical_planner
+            .create_physical_plan(logical_plan, session_state)
+            .await
+    }
+}
 
 /// Execution state for a single base relation in a join.
 pub struct RelationState {
@@ -187,9 +209,10 @@ pub fn create_session_context() -> SessionContext {
         builder =
             builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
     }
-    builder = builder.with_physical_optimizer_rule(Arc::new(
-        crate::scan::late_materialization_rule::LateMaterializationRule,
+    builder = builder.with_optimizer_rule(Arc::new(
+        crate::scan::late_materialization::LateMaterializationRule,
     ));
+    builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner {}));
     builder = builder.with_physical_optimizer_rule(Arc::new(
         crate::scan::segmented_topk_rule::SegmentedTopKRule,
     ));
@@ -219,8 +242,12 @@ pub async fn build_joinscan_physical_plan(
     ctx: &SessionContext,
     plan: datafusion::logical_expr::LogicalPlan,
 ) -> Result<Arc<dyn ExecutionPlan>> {
-    let df = ctx.execute_logical_plan(plan).await?;
-    let plan = df.create_physical_plan().await?;
+    let state = ctx.state();
+
+    let plan = state
+        .query_planner()
+        .create_physical_plan(&plan, &state)
+        .await?;
 
     if plan.output_partitioning().partition_count() > 1 {
         Ok(Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>)

@@ -61,7 +61,7 @@ impl ExecutionPlan for FilterPassthroughExec {
         self
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         self.inner.properties()
     }
 

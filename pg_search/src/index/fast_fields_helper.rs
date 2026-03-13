@@ -42,6 +42,16 @@ use tantivy::{DocAddress, DocId};
 /// A fast-field index position value.
 pub type FFIndex = usize;
 
+/// Uniquely identifies a specific dictionary/array in the underlying storage layer
+/// by combining the table's index relation ID and the fast field index.
+#[derive(
+    Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct CanonicalColumn {
+    pub indexrelid: u32,
+    pub ff_index: FFIndex,
+}
+
 /// A cache of fast field columns for a single segment, indexed by FFIndex.
 type ColumnCache = Vec<(String, OnceLock<FFType>)>;
 

@@ -64,11 +64,9 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-rating = MockItem.arel_table[:rating]
-
 base = MockItem.all
 left = base.search(:description).matching_any("keyboard")
-right = base.where(rating.lt(2))
+right = base.where(rating: ...2)
 
 left.or(right)
     .with_score

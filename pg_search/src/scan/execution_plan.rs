@@ -99,7 +99,7 @@ pub struct PgSearchScanPlan {
     /// Stored separately so `partition_statistics` is deterministic, even after
     /// the states have been consumed.
     partition_row_counts: Vec<u64>,
-    properties: PlanProperties,
+    properties: Arc<PlanProperties>,
     query_for_display: SearchQueryInput,
     /// Dynamic filters pushed down from parent operators (e.g. Top K threshold
     /// from SortExec, join-key bounds from HashJoinExec). Each batch produced
@@ -148,12 +148,12 @@ impl PgSearchScanPlan {
         let partition_count = states.len().max(1);
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
-        let properties = PlanProperties::new(
+        let properties = Arc::new(PlanProperties::new(
             eq_properties,
             Partitioning::UnknownPartitioning(partition_count),
             EmissionType::Incremental,
             Boundedness::Bounded,
-        );
+        ));
 
         let partition_row_counts: Vec<u64> = if states.is_empty() {
             vec![0]
@@ -270,12 +270,8 @@ impl ExecutionPlan for PgSearchScanPlan {
         self
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
-    }
-
-    fn statistics(&self) -> Result<Statistics> {
-        self.partition_statistics(None)
     }
 
     fn partition_statistics(&self, partition: Option<usize>) -> Result<Statistics> {

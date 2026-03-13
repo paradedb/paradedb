@@ -164,7 +164,7 @@ pub struct SegmentedTopKExec {
     /// string literals) that the scanner's `try_rewrite_binary` translates to
     /// per-segment ordinal bounds.
     dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
-    properties: PlanProperties,
+    properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
 
@@ -197,12 +197,12 @@ impl SegmentedTopKExec {
         use datafusion::physical_expr::expressions::lit;
 
         let eq_props = EquivalenceProperties::new(input.schema());
-        let properties = PlanProperties::new(
+        let properties = Arc::new(PlanProperties::new(
             eq_props,
             input.properties().output_partitioning().clone(),
             EmissionType::Both,
             Boundedness::Bounded,
-        );
+        ));
 
         // Create a DynamicFilterPhysicalExpr with the sort expression columns
         // as children. The initial expression is `lit(true)` (no filtering).
@@ -250,7 +250,7 @@ impl ExecutionPlan for SegmentedTopKExec {
         self
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 

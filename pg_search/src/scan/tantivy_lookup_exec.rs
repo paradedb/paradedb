@@ -62,7 +62,7 @@ pub struct TantivyLookupExec {
     deferred_fields: Vec<PhysicalDeferredField>,
     decoders: Vec<DecoderInfo>,
     ffhelpers: HashMap<u32, Arc<FFHelper>>,
-    properties: PlanProperties,
+    properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
 
@@ -84,12 +84,12 @@ impl TantivyLookupExec {
         let (output_schema, decoders) =
             build_schema_and_decoders(input.schema(), &deferred_fields)?;
         let eq_props = EquivalenceProperties::new(output_schema);
-        let properties = PlanProperties::new(
+        let properties = Arc::new(PlanProperties::new(
             eq_props,
             input.properties().output_partitioning().clone(),
             EmissionType::Incremental,
             Boundedness::Bounded,
-        );
+        ));
         Ok(Self {
             input,
             deferred_fields,
@@ -178,7 +178,7 @@ impl ExecutionPlan for TantivyLookupExec {
         Some(self.metrics.clone_inner())
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 

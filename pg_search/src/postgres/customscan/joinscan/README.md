@@ -95,8 +95,6 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 | `paradedb.enable_segmented_topk`   | `true`  | `SegmentedTopKExec` injection |
 | `paradedb.enable_columnar_sort`    | `true`  | Enables SortMergeJoin path    |
 
-<!-- permalinks (update after rebase/merge) -->
-
 [activation]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/mod.rs#L317
 [relnode]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/build.rs#L575
 [joincsc]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/build.rs#L796

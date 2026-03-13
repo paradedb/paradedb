@@ -638,6 +638,14 @@ pub fn index_memory_segment(
     let mut isnull = vec![false; heaptupdesc.len()];
 
     'next_ctid: for ctid in ctids {
+        // Guard against stale ctids referencing heap blocks truncated by VACUUM.
+        if !unsafe { crate::postgres::utils::ctid_satisfies_nblocks(ctid, heaprel.as_ptr()) } {
+            writer.insert(tantivy::TantivyDocument::new(), ctid, || {
+                unreachable!("No limits configured: should not finalize.")
+            })?;
+            continue 'next_ctid;
+        }
+
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
 

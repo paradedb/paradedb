@@ -29,6 +29,10 @@ pub struct VisibilityChecker {
 
     // we hold onto this b/c `scan` points to the relation this does
     _heaprel: PgSearchRelation,
+
+    /// Cached relation size (in blocks) at scan start. Used to cheaply skip
+    /// stale ctids pointing to pages truncated by a previous VACUUM.
+    nblocks: pg_sys::BlockNumber,
 }
 
 crate::impl_safe_drop!(VisibilityChecker, |self| {
@@ -44,11 +48,16 @@ impl VisibilityChecker {
     /// `relation` and `snapshot`
     pub fn with_rel_and_snap(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) -> Self {
         unsafe {
+            let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
+                heaprel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+            );
             Self {
                 scan: pg_sys::table_index_fetch_begin(heaprel.as_ptr()),
                 snapshot,
                 tid: pg_sys::ItemPointerData::default(),
                 _heaprel: Clone::clone(heaprel),
+                nblocks,
             }
         }
     }
@@ -62,6 +71,11 @@ impl VisibilityChecker {
         mut func: F,
     ) -> Option<T> {
         unsafe {
+            let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+            if blockno >= self.nblocks {
+                return None;
+            }
+
             utils::u64_to_item_pointer(ctid, &mut self.tid);
 
             let mut call_again = false;
@@ -95,6 +109,10 @@ pub struct HeapFetchState {
     // Hold a reference to the heap relation to keep it open for the lifetime of the scan.
     // The scan stores an internal pointer to the relation, so it must not be closed early.
     _heaprel: PgSearchRelation,
+
+    /// Cached relation size (in blocks) at scan start. Used to cheaply skip
+    /// stale ctids pointing to pages truncated by a previous VACUUM.
+    nblocks: pg_sys::BlockNumber,
 }
 
 impl HeapFetchState {
@@ -103,10 +121,15 @@ impl HeapFetchState {
         unsafe {
             let scan = pg_sys::table_index_fetch_begin(heaprel.as_ptr());
             let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
+            let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
+                heaprel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+            );
             Self {
                 scan,
                 slot: slot.cast(),
                 _heaprel: heaprel.clone(),
+                nblocks,
             }
         }
     }
@@ -117,6 +140,37 @@ impl HeapFetchState {
 
     pub fn buffer_slot(&self) -> *mut pg_sys::BufferHeapTupleTableSlot {
         self.slot
+    }
+
+    /// Wrapper around `table_index_fetch_tuple` that guards against stale ctids
+    /// referencing heap blocks truncated by VACUUM.
+    ///
+    /// The BM25 `ambulkdelete` correctly removes dead ctids from the index, but only
+    /// when VACUUM actually runs. Between VACUUM cycles, the index may still contain
+    /// ctids pointing to pages that a *previous* VACUUM truncated. The normal scan path
+    /// (top-K) rarely hits these because it fetches few results, but the heap_filter
+    /// path fetches ALL matching documents, making truncated-block hits likely.
+    ///
+    /// Returns `false` if the block has been truncated or the tuple is not visible.
+    pub unsafe fn fetch_tuple(
+        &self,
+        ctid: &mut pg_sys::ItemPointerData,
+        snapshot: pg_sys::Snapshot,
+        call_again: &mut bool,
+        all_dead: &mut bool,
+    ) -> bool {
+        let blockno = pgrx::itemptr::item_pointer_get_block_number(ctid);
+        if blockno >= self.nblocks {
+            return false;
+        }
+        pg_sys::table_index_fetch_tuple(
+            self.scan,
+            ctid,
+            snapshot,
+            self.slot(),
+            call_again,
+            all_dead,
+        )
     }
 }
 

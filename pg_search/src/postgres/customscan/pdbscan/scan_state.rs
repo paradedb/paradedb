@@ -379,11 +379,9 @@ impl PdbScanState {
 
         let mut call_again = false;
         let mut all_dead = false;
-        if !pg_sys::table_index_fetch_tuple(
-            state.scan,
+        if !state.fetch_tuple(
             &mut ipd,
             pg_sys::GetActiveSnapshot(),
-            state.slot(),
             &mut call_again,
             &mut all_dead,
         ) {

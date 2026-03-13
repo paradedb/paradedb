@@ -416,6 +416,248 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
     ))
 }
 
+<<<<<<< HEAD
+=======
+/// Result of heap reference check: (total_checked, total_docs, missing_ctids)
+/// - total_checked: number of documents successfully checked
+/// - total_docs: number of documents attempted (after sampling)
+/// - missing_ctids: list of (block, offset) pairs for ctids not found in heap
+///
+/// Note: if total_checked < total_docs, then (total_docs - total_checked) documents
+/// had missing ctid fields, indicating index corruption.
+type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>)>;
+
+/// Helper function to verify that all indexed ctids exist in the heap.
+/// Returns (total_checked, total_docs, missing_ctids, docs_without_ctid)
+fn verify_heap_references(
+    index_rel: &PgSearchRelation,
+    search_reader: &SearchIndexReader,
+    sample_rate: Option<f64>,
+    report_progress: bool,
+    verbose: bool,
+    segment_filter: &Option<HashSet<usize>>,
+) -> HeapCheckResult {
+    // Get the heap relation OID from the index
+    let heap_oid = index_rel
+        .rel_oid()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine heap relation for index"))?;
+
+    // Open the heap relation
+    let heap_rel = PgSearchRelation::with_lock(heap_oid, pg_sys::AccessShareLock as _);
+
+    // Set up heap fetch state
+    let scan = unsafe { pg_sys::table_index_fetch_begin(heap_rel.as_ptr()) };
+    let slot = unsafe {
+        pg_sys::MakeTupleTableSlot(
+            pg_sys::CreateTupleDesc(0, std::ptr::null_mut()),
+            &pg_sys::TTSOpsBufferHeapTuple,
+        )
+    };
+    let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+
+    let mut total_checked = 0usize;
+    let mut total_docs = 0usize;
+    let mut missing_ctids = Vec::new();
+
+    // For sampling, we use a simple deterministic approach based on doc_id
+    // This ensures reproducible results for the same sample_rate
+    // None means check all (no sampling)
+    let sample_threshold = sample_rate.map(|r| (r * u32::MAX as f64) as u32);
+
+    // Calculate total docs for progress reporting (only for segments we'll check)
+    let total_alive_docs: usize = search_reader
+        .segment_readers()
+        .iter()
+        .enumerate()
+        .filter(|(idx, _)| {
+            segment_filter
+                .as_ref()
+                .is_none_or(|filter| filter.contains(idx))
+        })
+        .map(|(_, r)| r.num_docs() as usize)
+        .sum();
+
+    // Progress reporting interval (report every ~5% or every 100k docs, whichever is larger)
+    let progress_interval = (total_alive_docs / 20).max(100_000);
+    let mut last_progress_report = 0usize;
+
+    // Build list of segments to process for progress logging
+    let segments_to_check: Vec<usize> = search_reader
+        .segment_readers()
+        .iter()
+        .enumerate()
+        .filter(|(idx, _)| {
+            segment_filter
+                .as_ref()
+                .is_none_or(|filter| filter.contains(idx))
+        })
+        .map(|(idx, _)| idx)
+        .collect();
+    let mut segments_completed = 0usize;
+
+    // Iterate through all segments and all documents
+    for (seg_idx, segment_reader) in search_reader.segment_readers().iter().enumerate() {
+        // Skip segments not in the filter (if filter is specified)
+        if let Some(ref filter) = segment_filter {
+            if !filter.contains(&seg_idx) {
+                continue;
+            }
+        }
+
+        let segment_id = segment_reader.segment_id().short_uuid_string();
+        let fast_fields = segment_reader.fast_fields();
+        let ctid_column = FFType::new_ctid(fast_fields);
+        let alive_bitset = segment_reader.alive_bitset();
+
+        if verbose {
+            pgrx::warning!(
+                "verify_index: Heap check - starting segment {}/{} (index={}, id={}, {} docs)",
+                segments_completed + 1,
+                segments_to_check.len(),
+                seg_idx,
+                segment_id,
+                segment_reader.num_docs()
+            );
+        }
+
+        // Iterate through all document IDs in this segment
+        for doc_id in 0..segment_reader.max_doc() {
+            // Skip deleted documents
+            if let Some(bitset) = &alive_bitset {
+                if !bitset.is_alive(doc_id) {
+                    continue;
+                }
+            }
+
+            // Apply sampling: use a hash of the doc_id for deterministic sampling
+            // None means check all (no sampling)
+            if let Some(threshold) = sample_threshold {
+                // Simple hash: multiply by a prime and take modulo
+                let hash = doc_id.wrapping_mul(2654435761);
+                if hash > threshold {
+                    continue;
+                }
+            }
+
+            // Count documents we're attempting to check (after sampling)
+            total_docs += 1;
+
+            // Get the ctid for this document
+            // Every indexed document MUST have a ctid - if missing, the index is corrupted
+            let ctid_u64 = match ctid_column.as_u64(doc_id) {
+                Some(val) => val,
+                None => continue, // Will be detected as total_docs > total_checked
+            };
+
+            total_checked += 1;
+
+            // Report progress periodically
+            if report_progress && total_checked - last_progress_report >= progress_interval {
+                let pct = (total_docs as f64 / total_alive_docs as f64 * 100.0).min(100.0);
+                pgrx::warning!(
+                    "verify_index: Progress {:.1}% ({} docs checked, {} missing so far)",
+                    pct,
+                    total_checked,
+                    missing_ctids.len()
+                );
+                last_progress_report = total_checked;
+            }
+
+            // Guard against stale ctids referencing heap blocks truncated by VACUUM.
+            if !unsafe {
+                crate::postgres::utils::ctid_satisfies_nblocks(ctid_u64, heap_rel.as_ptr())
+            } {
+                let mut tid = pg_sys::ItemPointerData::default();
+                u64_to_item_pointer(ctid_u64, &mut tid);
+                let (block, offset) = pgrx::itemptr::item_pointer_get_both(tid);
+                missing_ctids.push((block, offset));
+                continue;
+            }
+
+            // Convert u64 to ItemPointerData
+            let mut tid = pg_sys::ItemPointerData::default();
+            u64_to_item_pointer(ctid_u64, &mut tid);
+
+            // Check if the tuple exists in the heap
+            let mut call_again = false;
+            let mut all_dead = false;
+            let found = unsafe {
+                pg_sys::ExecClearTuple(slot);
+                pg_sys::table_index_fetch_tuple(
+                    scan,
+                    &mut tid,
+                    snapshot,
+                    slot,
+                    &mut call_again,
+                    &mut all_dead,
+                )
+            };
+
+            if !found {
+                let (block, offset) = pgrx::itemptr::item_pointer_get_both(tid);
+                missing_ctids.push((block, offset));
+            }
+
+            // Check for interrupts periodically (every 10k docs)
+            if total_checked.is_multiple_of(10_000) {
+                pgrx::check_for_interrupts!();
+            }
+        }
+
+        // Log segment completion with resume hint (verbose mode only)
+        segments_completed += 1;
+        if verbose {
+            let remaining: Vec<String> = segments_to_check
+                .iter()
+                .filter(|&&i| i > seg_idx)
+                .map(|i| i.to_string())
+                .collect();
+            if remaining.is_empty() {
+                pgrx::warning!(
+                    "verify_index: Heap check - completed segment {}/{} (index={}, id={}). All segments done.",
+                    segments_completed,
+                    segments_to_check.len(),
+                    seg_idx,
+                    segment_id
+                );
+            } else {
+                pgrx::warning!(
+                    "verify_index: Heap check - completed segment {}/{} (index={}, id={}). To resume: segment_ids := ARRAY[{}]",
+                    segments_completed,
+                    segments_to_check.len(),
+                    seg_idx,
+                    segment_id,
+                    remaining.join(", ")
+                );
+            }
+        }
+    }
+
+    // Clean up
+    unsafe {
+        pg_sys::ExecDropSingleTupleTableSlot(slot);
+        pg_sys::table_index_fetch_end(scan);
+    }
+
+    if report_progress {
+        let without_ctid = total_docs - total_checked;
+        pgrx::warning!(
+            "verify_index: Heap check complete. Checked {} of {} docs, {} missing{}",
+            total_checked,
+            total_docs,
+            missing_ctids.len(),
+            if without_ctid > 0 {
+                format!(", {} without ctid (corruption)", without_ctid)
+            } else {
+                String::new()
+            }
+        );
+    }
+
+    Ok((total_checked, total_docs, missing_ctids))
+}
+
+>>>>>>> 8efd56f2a (fix: prevent ReadBuffer errors from stale ctids after VACUUM truncation (#4338))
 #[pg_extern(sql = "")]
 fn create_bm25_jsonb() {}
 

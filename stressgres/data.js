@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773372103460,
+  "lastUpdate": 1773372923966,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33680,6 +33680,60 @@ window.BENCHMARK_DATA = {
             "value": 16.6493627906894,
             "unit": "median tps",
             "extra": "avg tps: 16.626163658996862, max tps: 19.714768697954856, count: 55531"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "212998a4ad6eb7a4adeb1dcaa4bb231b2dc105e6",
+          "message": "chore: Upgrade to DataFusion ~53. (#4351)\n\n## What\n\nUpgrade to what will become DataFusion `53` by building atop\n`branch-53`.\n\n## Why\n\nIn order to make it easier to backport changes to `0.22.x`, and\nhopefully give that branch a longer life than it might have otherwise.\n\n## How\n\n* Removed the deprecated `statistics` method from `PgSearchScanPlan`.\n* Changed the `properties` field to be wrapped in an\n`Arc<PlanProperties>` and updated the method signature to return\n`&Arc<PlanProperties>`.\n* Derived `Debug` for `PhysicalOptimizerRule` implementations.\n\n## Tests\n\nThere are many plan changes. But having triaged them, they seem to be\nprimarily that:\n* ~All files were impacted by\nhttps://github.com/apache/datafusion/pull/20192, which was a bugfix for\nhttps://github.com/apache/datafusion/issues/20213 : hash joins were\nallowing TopK filters to be pushed down on _both_ sides of the join\n(incorrectly!) if column names were aligned. Consequently, many\n`dynamic_filters` counts dropped.\n* A few files lost their `GlobalLimitExec` in favor of\nhttps://github.com/apache/datafusion/pull/20228, which pushes the limit\ninto a hash join.\n* Some others were just impacted by metrics changes.",
+          "timestamp": "2026-03-12T19:29:07-07:00",
+          "tree_id": "35e9e3b3a1a8493a79bdb4c4460be6eda3d7451b",
+          "url": "https://github.com/paradedb/paradedb/commit/212998a4ad6eb7a4adeb1dcaa4bb231b2dc105e6"
+        },
+        "date": 1773372917784,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.955409969156236,
+            "unit": "median tps",
+            "extra": "avg tps: 30.745866489521198, max tps: 31.89070280566606, count: 55582"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 243.356781782324,
+            "unit": "median tps",
+            "extra": "avg tps: 271.93614238624195, max tps: 3003.2366470765824, count: 55582"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 698.5644564839255,
+            "unit": "median tps",
+            "extra": "avg tps: 686.1077192148692, max tps: 1043.3304096627148, count: 55582"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 168.4824068573068,
+            "unit": "median tps",
+            "extra": "avg tps: 183.40597753820575, max tps: 1023.6078977546289, count: 111164"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.73254577295224,
+            "unit": "median tps",
+            "extra": "avg tps: 16.718555972332126, max tps: 22.9016537261254, count: 55582"
           }
         ]
       }

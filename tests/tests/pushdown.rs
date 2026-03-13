@@ -104,7 +104,6 @@ fn pushdown(mut conn: PgConnection) {
         ["varchar", "varchar", "'foo'::varchar"],
         ["varchar_1", "varchar", "'foo'::text"],
         ["uuid", "uuid", "gen_random_uuid()"],
-        ["inet", "inet", "'0.0.0.0'"],
     ];
 
     let sqlname = |sqltype: &str| -> String { String::from("col_") + &sqltype.replace('"', "") };

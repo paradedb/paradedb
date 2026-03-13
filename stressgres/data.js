@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773390157227,
+  "lastUpdate": 1773390995775,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -44794,6 +44794,54 @@ window.BENCHMARK_DATA = {
             "value": 513.6088166023111,
             "unit": "median tps",
             "extra": "avg tps: 480.1861397232727, max tps: 722.8445848977058, count: 107808"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8efd56f2a8b6f5059eecf70b200831280263c0f3",
+          "message": "fix: prevent ReadBuffer errors from stale ctids after VACUUM truncation (#4338)\n\n# Ticket(s) Closed\n\n- Closes #4333\n\n## What\n\nAdd defensive block-bounds checks before every\n`table_index_fetch_tuple()` / `table_tuple_fetch_row_version()` call\nacross the codebase. If a ctid references a block beyond the relation's\ncurrent nblocks, the tuple is treated as \"not found\" instead of\ncrashing.\n\n## Why\n\nBM25 queries that combine text search with non-indexed SQL predicates\n(e.g., `WHERE body @@@ 'fox' AND extra = 5`) use a \"heap_filter\" path\nthat fetches **all** matching documents from the heap during Tantivy's\nscoring pipeline. After VACUUM truncates trailing heap pages, stale\nctids in the BM25 index can point to blocks that no longer exist,\ncausing:\n\n```\nERROR: could not read blocks 435..435 in file \"base/16384/9021606\": read only 0 of 8192 bytes\n```\n\nSimple BM25 queries (no extra predicates) work fine because they only\nfetch the top-K results after scoring, making it unlikely to hit a\ntruncated block before visibility filtering kicks in.\n\n## How\n\nA new `ctid_satisfies_nblocks(ctid, rel)` helper in `utils.rs` checks\nwhether the block number encoded in a u64-packed ctid is within the\nrelation's current size using `RelationGetNumberOfBlocksInFork`. This\ncheck is inserted before heap tuple fetches in:\n\n- `HeapFieldFilter::evaluate_expression_inner()` — primary crash site\n- `VisibilityChecker::exec_if_visible()`\n- `VisibilityChecker::fetch_tuple_direct()`\n- `VisibilityChecker::check_batch()`\n- `index_memory_segment()` — mutable segment indexing\n- `BaseScanState::doc_from_heap()` — snippet generation\n- `verify_index()` — admin verification\n\nWhen a ctid fails the check, it's handled consistently with how Postgres\ntreats dead/invisible tuples (return `None`/`false`, increment invisible\ncount, or insert an empty document).\n\n## Tests\n\n- New regression test `heap_filter_vacuum`.",
+          "timestamp": "2026-03-13T00:19:41-07:00",
+          "tree_id": "5c9be168b64b5183e7e31ba1ed5e0feb9e3fc43a",
+          "url": "https://github.com/paradedb/paradedb/commit/8efd56f2a8b6f5059eecf70b200831280263c0f3"
+        },
+        "date": 1773390988396,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 536.8994841421115,
+            "unit": "median tps",
+            "extra": "avg tps: 537.7313554668558, max tps: 645.7272443483882, count: 53922"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 568.6225943957887,
+            "unit": "median tps",
+            "extra": "avg tps: 571.4333046438184, max tps: 783.9909196746245, count: 53922"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.79056024901499,
+            "unit": "median tps",
+            "extra": "avg tps: 85.7176603203857, max tps: 89.44859074075292, count: 53922"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 492.0315214743499,
+            "unit": "median tps",
+            "extra": "avg tps: 439.4638437312795, max tps: 688.8471876855897, count: 107844"
           }
         ]
       }

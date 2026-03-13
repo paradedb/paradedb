@@ -63,8 +63,8 @@ use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::qual_inspect::{
-    extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, PlannerContext, Qual,
-    QualExtractState,
+    extract_join_predicates, extract_quals, is_unhandled_clause, optimize_quals_with_heap_expr,
+    PlannerContext, Qual, QualExtractState,
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -237,6 +237,45 @@ impl BaseScan {
             &mut state,
             attempt_pushdown,
         );
+
+        // If full extraction failed (e.g., baserestrictinfo contains SubPlan from
+        // RLS policies alongside our @@@ operator), try partial extraction: extract
+        // each restrict_info item individually, skipping ones we can't handle.
+        // Only use partial extraction when ALL skipped clauses are SubPlans
+        // (which will be evaluated via plan.qual). If any non-SubPlan clause
+        // is skipped, fall back to let PostgreSQL handle the query normally.
+        if quals.is_none() {
+            let mut partial_quals = Vec::new();
+            let mut partial_state = QualExtractState::default();
+            let mut all_skipped_are_subplans = true;
+            for ri in filtered_restrict_info.iter_ptr() {
+                if let Some(qual) = extract_quals(
+                    &context,
+                    rti,
+                    ri.cast(),
+                    ri_type,
+                    indexrel,
+                    false,
+                    &mut partial_state,
+                    attempt_pushdown,
+                ) {
+                    partial_quals.push(qual);
+                } else if !is_unhandled_clause(ri.cast()) {
+                    all_skipped_are_subplans = false;
+                }
+            }
+            if !partial_quals.is_empty()
+                && partial_state.uses_our_operator
+                && all_skipped_are_subplans
+            {
+                state = partial_state;
+                quals = if partial_quals.len() == 1 {
+                    partial_quals.pop()
+                } else {
+                    Some(Qual::And(partial_quals))
+                };
+            }
+        }
 
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
@@ -963,7 +1002,30 @@ impl CustomScan for BaseScan {
                 .custom_private_mut()
                 .set_ambulkdelete_epoch(MetaPage::open(&indexrel).ambulkdelete_epoch());
 
-            builder.build()
+            // Collect clauses that our Custom Scan doesn't handle internally
+            // (e.g., SubPlan expressions from RLS policies) and set them as plan.qual.
+            // PostgreSQL's ExecInitCustomScan will call ExecInitQual on plan.qual,
+            // which properly initializes SubPlans. We then evaluate these in exec_custom_scan.
+            let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
+            let mut unhandled_quals = PgList::<pg_sys::Node>::new();
+            for clause in clauses.iter_ptr() {
+                if is_unhandled_clause(clause) {
+                    // Strip RestrictInfo wrapper if present — plan.qual needs bare expressions
+                    let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
+                        let ri = clause as *mut pg_sys::RestrictInfo;
+                        (*ri).clause.cast()
+                    } else {
+                        clause
+                    };
+                    unhandled_quals.push(bare_clause);
+                }
+            }
+
+            let mut scan = builder.build();
+            if !unhandled_quals.is_empty() {
+                scan.scan.plan.qual = unhandled_quals.into_pg();
+            }
+            scan
         }
     }
 
@@ -1087,7 +1149,16 @@ impl CustomScan for BaseScan {
 
             assign_exec_method(&mut builder);
 
-            builder.build()
+            let state = builder.build();
+
+            // Tell ExecInitCustomScan to create the scan slot as BufferHeapTuple
+            // (matching what begin_custom_scan will use via table_slot_callbacks).
+            // This ensures ExecInitQual compiles plan.qual expressions for the
+            // correct slot type, avoiding TTS_IS_VIRTUAL assertion failures.
+            (*state).csstate.slotOps =
+                pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
+
+            state
         }
     }
 
@@ -1340,6 +1411,19 @@ impl CustomScan for BaseScan {
                                 continue;
                             }
                         };
+
+                        // Evaluate executor-level quals (e.g., RLS policy SubPlan expressions)
+                        // that couldn't be pushed into the tantivy query.
+                        // These are set as plan.qual in plan_custom_path.
+                        let qual = state.csstate.ss.ps.qual;
+                        if !qual.is_null() {
+                            let econtext = (*state.projection_info()).pi_exprContext;
+                            (*econtext).ecxt_scantuple = slot;
+                            pg_sys::slot_getallattrs(slot);
+                            if !pg_sys::ExecQual(qual, econtext) {
+                                continue;
+                            }
+                        }
 
                         let needs_special_projection = state.custom_state().need_scores()
                             || state.custom_state().need_snippets()

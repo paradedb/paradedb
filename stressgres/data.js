@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773454645162,
+  "lastUpdate": 1773454653220,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42696,6 +42696,114 @@ window.BENCHMARK_DATA = {
             "value": 170.828125,
             "unit": "median mem",
             "extra": "avg mem: 168.32172625211612, max mem: 171.671875, count: 55526"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93a817d15837a40c33b6198dd20baebc69a6083b",
+          "message": "docs: add JoinScan README (#4360)\n\n## What\n\nAdds a `README.md` to `pg_search/src/postgres/customscan/joinscan/`\ndocumenting how the JoinScan pipeline works — from activation through\nplanning, physical plan construction, pruning paths, and execution.\n\n## Why\n\nThe JoinScan subsystem spans ~15 files across two directories and\ninvolves several interacting optimizer rules and execution nodes. Having\na concise architectural overview with links to key code locations makes\nit easier for contributors to orient themselves without reading every\nfile.\n\n## How\n\nSingle markdown file covering: physical plan structure, activation\nconditions, planning phase, optimizer rule ordering (including the\nsecond FilterPushdown pass), the three pruning paths (global threshold,\nper-segment ordinals, TopK dynamic filter), deferred column encoding,\nand key file references. All significant concepts link to source via\nGitHub permalinks.\n\n## Tests\n\nDocumentation only — no code changes.",
+          "timestamp": "2026-03-13T18:14:23-07:00",
+          "tree_id": "0e7610eabfc96ef973d14dffdd7816bec8fe790f",
+          "url": "https://github.com/paradedb/paradedb/commit/93a817d15837a40c33b6198dd20baebc69a6083b"
+        },
+        "date": 1773454646855,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.02762953532924, max cpu: 46.021095, count: 55718"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.44232094262625, max mem: 176.4609375, count: 55718"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.635756201840268, max cpu: 27.961164, count: 55718"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 119.27089231711476, max mem: 120.65234375, count: 55718"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.218263167611891, max cpu: 18.695229, count: 55718"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 166.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.53645316874707, max mem: 174.60546875, count: 55718"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16583,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16944.95295954629, max block_count: 31537.0, count: 55718"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.065387584369177, max cpu: 4.669261, count: 55718"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 110.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 96.08966427478553, max mem: 137.30078125, count: 55718"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.549391579022938, max segment_count: 39.0, count: 55718"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.402129208523723, max cpu: 28.486649, count: 111436"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 178.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.56774887884077, max mem: 180.83203125, count: 111436"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.254045414075039, max cpu: 32.463768, count: 55718"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 168.8336121742525, max mem: 171.98828125, count: 55718"
           }
         ]
       }

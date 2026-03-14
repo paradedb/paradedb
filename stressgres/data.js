@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773444669923,
+  "lastUpdate": 1773452053005,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4958,6 +4958,78 @@ window.BENCHMARK_DATA = {
             "value": 44.32894287913519,
             "unit": "median tps",
             "extra": "avg tps: 46.02268611621365, max tps: 854.2416085711186, count: 54456"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93a817d15837a40c33b6198dd20baebc69a6083b",
+          "message": "docs: add JoinScan README (#4360)\n\n## What\n\nAdds a `README.md` to `pg_search/src/postgres/customscan/joinscan/`\ndocumenting how the JoinScan pipeline works — from activation through\nplanning, physical plan construction, pruning paths, and execution.\n\n## Why\n\nThe JoinScan subsystem spans ~15 files across two directories and\ninvolves several interacting optimizer rules and execution nodes. Having\na concise architectural overview with links to key code locations makes\nit easier for contributors to orient themselves without reading every\nfile.\n\n## How\n\nSingle markdown file covering: physical plan structure, activation\nconditions, planning phase, optimizer rule ordering (including the\nsecond FilterPushdown pass), the three pruning paths (global threshold,\nper-segment ordinals, TopK dynamic filter), deferred column encoding,\nand key file references. All significant concepts link to source via\nGitHub permalinks.\n\n## Tests\n\nDocumentation only — no code changes.",
+          "timestamp": "2026-03-13T18:14:23-07:00",
+          "tree_id": "0e7610eabfc96ef973d14dffdd7816bec8fe790f",
+          "url": "https://github.com/paradedb/paradedb/commit/93a817d15837a40c33b6198dd20baebc69a6083b"
+        },
+        "date": 1773452047052,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 132.72977096809493,
+            "unit": "median tps",
+            "extra": "avg tps: 133.14724804476913, max tps: 142.63584525353352, count: 55163"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 438.6657725459075,
+            "unit": "median tps",
+            "extra": "avg tps: 438.99790720490773, max tps: 540.0916562545247, count: 55163"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2886.3966730682887,
+            "unit": "median tps",
+            "extra": "avg tps: 2874.344368943679, max tps: 2900.970284866819, count: 55163"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 411.89112729870556,
+            "unit": "median tps",
+            "extra": "avg tps: 413.87123384766136, max tps: 487.73602399739275, count: 55163"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2992.641254658079,
+            "unit": "median tps",
+            "extra": "avg tps: 2984.0483754826737, max tps: 3017.5460547282446, count: 110326"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 429.2613429642361,
+            "unit": "median tps",
+            "extra": "avg tps: 430.15413784084114, max tps: 559.8321222084599, count: 55163"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1877.7003492827544,
+            "unit": "median tps",
+            "extra": "avg tps: 1867.957678122978, max tps: 1884.8690093121772, count: 55163"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 48.00150603441975,
+            "unit": "median tps",
+            "extra": "avg tps: 43.1604586700808, max tps: 176.45373171409977, count: 55163"
           }
         ]
       }

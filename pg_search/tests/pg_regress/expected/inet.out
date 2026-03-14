@@ -3,7 +3,12 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 DROP TABLE IF EXISTS tbl_inet;
 CREATE TABLE tbl_inet (ip inet);
 CREATE INDEX idx_inet ON tbl_inet USING bm25 (ip) WITH (key_field = 'ip');
-INSERT INTO tbl_inet (ip) VALUES ('192.168.0.1');
+INSERT INTO tbl_inet (ip) VALUES
+    ('10.0.0.1'),
+    ('172.16.0.1'),
+    ('192.168.0.1'),
+    ('198.51.100.1'),
+    ('203.0.113.1');
 SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
  count 
 -------
@@ -21,5 +26,169 @@ SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (6 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip = '192.168.0.1'::inet ORDER BY ip;
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((ip)::text)
+   Sort Key: ((tbl_inet.ip)::text)
+   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+         Output: (ip)::text
+         Table: tbl_inet
+         Index: idx_inet
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"ip"}}}}]}},"field_filters":[{"heap_filter":"(ip = '192.168.0.1'::inet)"}]}}]}}
+(10 rows)
+
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip = '192.168.0.1'::inet ORDER BY ip;
+       ip       
+----------------
+ 192.168.0.1/32
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip > '192.168.0.1'::inet ORDER BY ip;
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((ip)::text)
+   Sort Key: ((tbl_inet.ip)::text)
+   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+         Output: (ip)::text
+         Table: tbl_inet
+         Index: idx_inet
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"ip"}}}}]}},"field_filters":[{"heap_filter":"(ip > '192.168.0.1'::inet)"}]}}]}}
+(10 rows)
+
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip > '192.168.0.1'::inet ORDER BY ip;
+       ip        
+-----------------
+ 198.51.100.1/32
+ 203.0.113.1/32
+(2 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip < '192.168.0.1'::inet ORDER BY ip;
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((ip)::text)
+   Sort Key: ((tbl_inet.ip)::text)
+   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+         Output: (ip)::text
+         Table: tbl_inet
+         Index: idx_inet
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"ip"}}}}]}},"field_filters":[{"heap_filter":"(ip < '192.168.0.1'::inet)"}]}}]}}
+(10 rows)
+
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip < '192.168.0.1'::inet ORDER BY ip;
+      ip       
+---------------
+ 10.0.0.1/32
+ 172.16.0.1/32
+(2 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip <= '192.168.0.1'::inet ORDER BY ip;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((ip)::text)
+   Sort Key: ((tbl_inet.ip)::text)
+   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+         Output: (ip)::text
+         Table: tbl_inet
+         Index: idx_inet
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"ip"}}}}]}},"field_filters":[{"heap_filter":"(ip <= '192.168.0.1'::inet)"}]}}]}}
+(10 rows)
+
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip <= '192.168.0.1'::inet ORDER BY ip;
+       ip       
+----------------
+ 10.0.0.1/32
+ 172.16.0.1/32
+ 192.168.0.1/32
+(3 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip >= '192.168.0.1'::inet ORDER BY ip;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((ip)::text)
+   Sort Key: ((tbl_inet.ip)::text)
+   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+         Output: (ip)::text
+         Table: tbl_inet
+         Index: idx_inet
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"ip"}}}}]}},"field_filters":[{"heap_filter":"(ip >= '192.168.0.1'::inet)"}]}}]}}
+(10 rows)
+
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip >= '192.168.0.1'::inet ORDER BY ip;
+       ip        
+-----------------
+ 192.168.0.1/32
+ 198.51.100.1/32
+ 203.0.113.1/32
+(3 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip <> '192.168.0.1'::inet ORDER BY ip;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((ip)::text)
+   Sort Key: ((tbl_inet.ip)::text)
+   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+         Output: (ip)::text
+         Table: tbl_inet
+         Index: idx_inet
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"ip"}}}}]}},"field_filters":[{"heap_filter":"(ip <> '192.168.0.1'::inet)"}]}}]}}
+(10 rows)
+
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip <> '192.168.0.1'::inet ORDER BY ip;
+       ip        
+-----------------
+ 10.0.0.1/32
+ 172.16.0.1/32
+ 198.51.100.1/32
+ 203.0.113.1/32
+(4 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip = ANY(ARRAY['10.0.0.1'::inet, '192.168.0.1'::inet]) ORDER BY ip;
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((ip)::text)
+   Sort Key: ((tbl_inet.ip)::text)
+   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+         Output: (ip)::text
+         Table: tbl_inet
+         Index: idx_inet
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"ip"}}}}]}},"field_filters":[{"heap_filter":"(ip = ANY ('{10.0.0.1,192.168.0.1}'::inet[]))"}]}}]}}
+(10 rows)
+
+SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip = ANY(ARRAY['10.0.0.1'::inet, '192.168.0.1'::inet]) ORDER BY ip;
+       ip       
+----------------
+ 10.0.0.1/32
+ 192.168.0.1/32
+(2 rows)
 
 RESET paradedb.enable_aggregate_custom_scan;

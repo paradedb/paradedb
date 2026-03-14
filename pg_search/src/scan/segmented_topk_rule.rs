@@ -19,6 +19,9 @@
 //! `TantivyLookupExec` when a `SortExec(TopK)` sorts by a deferred
 //! (late-materialized) string/bytes column.
 //!
+//! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
+//! the full optimizer pipeline and where this rule sits in the sequence.
+//!
 //! # Plan Transformation
 //!
 //! ```text

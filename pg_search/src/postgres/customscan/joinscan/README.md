@@ -8,15 +8,14 @@ For a typical `SELECT ... FROM files JOIN documents ... ORDER BY title LIMIT K`:
 
 ```txt
 ProjectionExec
-  SortExec(TopK)                        ← final global sort + LIMIT
-    TantivyLookupExec                   ← materializes deferred strings for survivors only
-      SegmentedTopKExec                 ← per-segment pruning + global threshold
-        HashJoinExec                    ← join on fast fields
-          PgSearchScan (documents)      ← BM25 search
-          PgSearchScan (files)          ← lazy scan, deferred columns, receives dynamic filters
+  TantivyLookupExec                   ← materializes deferred strings for final K rows only
+    SegmentedTopKExec                 ← per-segment pruning + global threshold + final sort + LIMIT K
+      HashJoinExec                    ← join on fast fields
+        PgSearchScan (documents)      ← BM25 search
+        PgSearchScan (files)          ← lazy scan, deferred columns, receives dynamic filters
 ```
 
-Nodes above the join ([`SegmentedTopKExec`][topk-exec], `SortExec(TopK)`) publish dynamic filter thresholds that are pushed down through the join to the probe-side scan, pruning rows at the scanner level.
+[`SegmentedTopKExec`][topk-exec] publishes dynamic filter thresholds that are pushed down through the join to the probe-side scan, pruning rows at the scanner level. It also performs the final materialized sort and LIMIT, so `TantivyLookupExec` only decodes K rows (not K×segments).
 
 ## How It Works
 
@@ -40,26 +39,25 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 1. **[`SortMergeJoinEnforcer`][smj-enforcer]** — converts HashJoin to SortMergeJoin when inputs are pre-sorted
 2. **FilterPushdown (Post)** — pushes dynamic filters through the join
 3. **`LateMaterializationRule`** — injects [`TantivyLookupExec`][lookup-exec] to defer string materialization
-4. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
+4. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)`, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
 5. **FilterPushdown (Post) — [second pass][second-pushdown]** — pushes `SegmentedTopKExec`'s `DynamicFilterPhysicalExpr` down to the scan
 
 ### 4. Deferred Columns
 
 String columns are emitted as a [3-way `UnionArray`](../../scan/deferred_encode.rs) (doc_address | term_ordinal | materialized) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../scan/table_provider.rs) is made in [`try_enable_late_materialization()`][defer-decision].
 
-### 5. Three Pruning Paths
+### 5. Two Pruning Paths
 
 | Path                     | Source                           | Mechanism                                                                       | When Active                                                            |
 | ------------------------ | -------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | **Global threshold**     | [`SegmentedTopKExec`][topk-exec] | [`DynamicFilterPhysicalExpr`][global-filter] pushed to scan via filter pushdown | After first K rows fill [global heap][global-heap] (during collection) |
 | **Per-segment ordinals** | [`SegmentedTopKExec`][topk-exec] | [`SegmentedThresholds`][seg-thresholds] side-channel                            | After per-segment heap fills (intra-segment)                           |
-| **TopK dynamic filter**  | `SortExec(TopK)`                 | `DynamicFilterPhysicalExpr` pushed to scan                                      | After `SegmentedTopKExec` emits (scanning already done)                |
 
 The **global threshold** is the primary pruning mechanism. It works during the [collection phase][collect-batch] because `SegmentedTopKExec` and [`PgSearchScan`][scan-plan] share an `Arc<DynamicFilterPhysicalExpr>` — no row flow required. The [scanner reads `current()`][scanner-next] on every batch and translates string literals to per-segment ordinal bounds via [`try_rewrite_binary`][rewrite-binary].
 
 ### 6. Execution Result
 
-After all input is consumed, `SegmentedTopKExec` emits survivors (bounded at K per segment). `TantivyLookupExec` materializes strings. `SortExec(TopK)` selects the final K rows. JoinScanState extracts CTIDs and fetches heap tuples — the only point where the PostgreSQL heap is accessed.
+After all input is consumed, `SegmentedTopKExec` materializes sort column values, performs the final sort, and emits exactly K rows. `TantivyLookupExec` decodes deferred strings for those K rows only. JoinScanState extracts CTIDs and fetches heap tuples — the only point where the PostgreSQL heap is accessed.
 
 ## Key Files
 

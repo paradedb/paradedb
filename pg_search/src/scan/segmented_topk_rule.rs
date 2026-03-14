@@ -121,8 +121,13 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
     let sort_exprs = sort_exec.expr();
 
     // Walk down from SortExec to find TantivyLookupExec.
+    // If injection succeeds, SegmentedTopKExec now handles the final sort + limit,
+    // so we unwrap SortExec and return its child directly.
     match try_inject_below_lookup(&plan, sort_exprs.clone(), k)? {
-        Some(rewritten) => Ok(rewritten),
+        Some(rewritten) => {
+            let children = rewritten.children();
+            Ok(Arc::clone(children[0]))
+        }
         None => Ok(plan),
     }
 }

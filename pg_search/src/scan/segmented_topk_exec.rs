@@ -196,11 +196,12 @@ impl SegmentedTopKExec {
     ) -> Self {
         use datafusion::physical_expr::expressions::lit;
 
-        let eq_props = EquivalenceProperties::new(input.schema());
+        let mut eq_props = EquivalenceProperties::new(input.schema());
+        eq_props.add_ordering(sort_exprs.clone());
         let properties = Arc::new(PlanProperties::new(
             eq_props,
             input.properties().output_partitioning().clone(),
-            EmissionType::Both,
+            EmissionType::Final,
             Boundedness::Bounded,
         ));
 
@@ -326,6 +327,7 @@ impl ExecutionPlan for SegmentedTopKExec {
             dynamic_filter: Arc::clone(&self.dynamic_filter),
             batches: Vec::new(),
             row_ordinals: Vec::new(),
+            pass_through_rows: Vec::new(),
             global_heap: BinaryHeap::new(),
             last_published_global: None,
             rows_input,
@@ -340,32 +342,16 @@ impl ExecutionPlan for SegmentedTopKExec {
                 state.rows_input.add(batch.num_rows());
 
                 let batch_idx = state.batches.len();
-                match state.collect_batch(&batch, batch_idx)? {
-                    Some(pass_through) => {
-                        state.batches.push(batch);
-                        state.maybe_compact();
-                        state.rows_output.add(pass_through.num_rows());
-                        yield pass_through;
-                    }
-                    None => {
-                        state.batches.push(batch);
-                        state.maybe_compact();
-                    }
-                }
+                state.collect_batch(&batch, batch_idx)?;
+                state.batches.push(batch);
+                state.maybe_compact();
             }
 
-            // All input consumed — emit survivors from every segment.
-            let survivors = state.build_survivors();
-            for (batch_idx, batch) in state.batches.iter().enumerate() {
-                let mask: BooleanArray = (0..batch.num_rows())
-                    .map(|row_idx| Some(survivors.contains(&(batch_idx, row_idx))))
-                    .collect();
-                let filtered = filter_record_batch(batch, &mask)
-                    .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-                if filtered.num_rows() > 0 {
-                    state.rows_output.add(filtered.num_rows());
-                    yield filtered;
-                }
+            // All input consumed — perform final sort + limit and emit exactly K rows.
+            let final_batch = state.emit_final_topk()?;
+            if let Some(batch) = final_batch {
+                state.rows_output.add(batch.num_rows());
+                yield batch;
             }
         };
 
@@ -442,6 +428,9 @@ struct SegmentedTopKState {
     /// Keeps track of the heap rows for compaction.
     /// (batch_idx, row_idx, seg_ord, row_data)
     row_ordinals: Vec<(usize, usize, SegmentOrdinal, OwnedRow)>,
+    /// Buffered pass-through rows (State 2 and NULL ordinals) that bypass
+    /// ordinal comparison. These are included in the final sort + limit.
+    pass_through_rows: Vec<(usize, usize)>,
 
     /// Global K-sized max-heap across all segments.
     /// The worst entry (heap root) defines the global threshold.
@@ -477,14 +466,9 @@ impl SegmentedTopKState {
 
     /// Ingest a single batch: extract ordinals, update per-segment heaps,
     /// and publish thresholds. The batch is buffered for the final emission
-    /// phase. Returns a pass-through batch of rows that bypass ordinal
-    /// comparison (State 2 and NULL ordinals) so they can be emitted
-    /// immediately.
-    fn collect_batch(
-        &mut self,
-        batch: &RecordBatch,
-        batch_idx: usize,
-    ) -> Result<Option<RecordBatch>> {
+    /// phase. Pass-through rows (State 2 and NULL ordinals) are buffered
+    /// in `pass_through_rows` for the final sort + limit.
+    fn collect_batch(&mut self, batch: &RecordBatch, batch_idx: usize) -> Result<()> {
         let num_rows = batch.num_rows();
         let mut pass_through = vec![false; num_rows];
         let mut row_to_seg = vec![None; num_rows];
@@ -578,17 +562,14 @@ impl SegmentedTopKState {
             }
         }
 
-        // Emit pass-through rows (State 2 + NULL ordinals) immediately.
-        if pass_through.iter().any(|&b| b) {
-            let mask: BooleanArray = pass_through.into_iter().map(Some).collect();
-            let filtered = filter_record_batch(batch, &mask)
-                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-            if filtered.num_rows() > 0 {
-                return Ok(Some(filtered));
+        // Buffer pass-through rows (State 2 + NULL ordinals) for the final sort.
+        for (row_idx, &is_pt) in pass_through.iter().enumerate() {
+            if is_pt {
+                self.pass_through_rows.push((batch_idx, row_idx));
             }
         }
 
-        Ok(None)
+        Ok(())
     }
 
     /// Helper to extract term ordinals from a deferred UnionArray.
@@ -957,6 +938,11 @@ impl SegmentedTopKState {
             }
         }
 
+        // Include pass-through rows in the survivor set so they aren't discarded.
+        for &(batch_idx, row_idx) in &self.pass_through_rows {
+            survivors.insert((batch_idx, row_idx));
+        }
+
         // Don't compact if we wouldn't discard at least half the rows.
         if new_row_ordinals.len() * 2 > self.row_ordinals.capacity() {
             self.row_ordinals = new_row_ordinals;
@@ -991,6 +977,7 @@ impl SegmentedTopKState {
         if filtered_batches.is_empty() {
             self.batches.clear();
             self.row_ordinals.clear();
+            self.pass_through_rows.clear();
             return;
         }
 
@@ -1004,7 +991,238 @@ impl SegmentedTopKState {
             entry.1 = new_ri;
         }
 
+        // Remap pass_through_rows into the single compacted batch.
+        for entry in &mut self.pass_through_rows {
+            let new_ri = mapping[&(entry.0, entry.1)];
+            entry.0 = 0;
+            entry.1 = new_ri;
+        }
+
         self.row_ordinals = new_row_ordinals;
         self.batches = vec![compacted];
+    }
+
+    /// Perform the final sort + limit after all input is consumed.
+    ///
+    /// This replaces the old `build_survivors` + emit phase with a materialized
+    /// sort that produces exactly min(K, total_candidates) sorted rows.
+    ///
+    /// Steps:
+    /// 1. Build ordinal survivors (rows within per-segment cutoffs).
+    /// 2. Merge ordinal survivors with pass-through rows into candidate set.
+    /// 3. Materialize sort column values for each candidate.
+    /// 4. Sort candidates by materialized values, take top K.
+    /// 5. Emit a single sorted batch.
+    fn emit_final_topk(&mut self) -> Result<Option<RecordBatch>> {
+        use datafusion::common::ScalarValue;
+
+        // 1. Build ordinal survivors.
+        let ordinal_survivors = self.build_survivors();
+
+        // 2. Collect all candidates: ordinal survivors + pass-through rows.
+        //    Each candidate is (batch_idx, row_idx, Option<(SegmentOrdinal, OwnedRow)>).
+        //    The OwnedRow is the ordinal-based row for ordinal survivors; None for pass-through.
+        type Candidate = (usize, usize, Option<(SegmentOrdinal, OwnedRow)>);
+        let mut candidates: Vec<Candidate> = Vec::new();
+
+        for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+            if ordinal_survivors.contains(&(*batch_idx, *row_idx)) {
+                candidates.push((*batch_idx, *row_idx, Some((*seg_ord, heap_val.clone()))));
+            }
+        }
+        for &(batch_idx, row_idx) in &self.pass_through_rows {
+            candidates.push((batch_idx, row_idx, None));
+        }
+
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+
+        // 3. Materialize sort column values for each candidate and build a
+        //    second RowConverter using materialized data types (Utf8View/BinaryView
+        //    for deferred columns, original type for non-deferred).
+        let materialized_sort_fields: Vec<SortField> = self
+            .sort_exprs
+            .iter()
+            .map(|expr| {
+                let is_deferred = expr
+                    .expr
+                    .as_any()
+                    .downcast_ref::<datafusion::physical_expr::expressions::Column>()
+                    .and_then(|c| {
+                        self.deferred_columns
+                            .iter()
+                            .find(|d| d.sort_col_idx == c.index())
+                    });
+                let data_type = if let Some(deferred) = is_deferred {
+                    let col = self.ffhelper.column(0, deferred.canonical.ff_index);
+                    match col {
+                        FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
+                        _ => arrow_schema::DataType::Utf8View,
+                    }
+                } else {
+                    expr.expr
+                        .data_type(&self.schema)
+                        .unwrap_or(arrow_schema::DataType::Utf8View)
+                };
+                SortField::new_with_options(data_type, expr.options)
+            })
+            .collect();
+
+        let mat_row_converter = RowConverter::new(materialized_sort_fields)?;
+
+        // For each candidate, resolve materialized ScalarValues and convert to OwnedRow.
+        let mut mat_rows: Vec<(usize, OwnedRow)> = Vec::with_capacity(candidates.len());
+
+        for (idx, (batch_idx, row_idx, ord_info)) in candidates.iter().enumerate() {
+            let mut values = Vec::with_capacity(self.sort_exprs.len());
+
+            for (i, sort_expr) in self.sort_exprs.iter().enumerate() {
+                let is_deferred = sort_expr
+                    .expr
+                    .as_any()
+                    .downcast_ref::<datafusion::physical_expr::expressions::Column>()
+                    .and_then(|c| {
+                        self.deferred_columns
+                            .iter()
+                            .find(|d| d.sort_col_idx == c.index())
+                    });
+
+                let value = if let Some(deferred) = is_deferred {
+                    if let Some((seg_ord, ord_row)) = ord_info {
+                        // Ordinal survivor: convert ordinal back to string.
+                        let arrays = self
+                            .row_converter
+                            .convert_rows(std::iter::once(ord_row.row()))
+                            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+                        let term_ord = arrays[i]
+                            .as_any()
+                            .downcast_ref::<UInt64Array>()
+                            .map(|a| a.value(0));
+                        if let Some(term_ord) = term_ord {
+                            let col = self.ffhelper.column(*seg_ord, deferred.canonical.ff_index);
+                            match col {
+                                FFType::Text(str_col) => {
+                                    let mut s = String::new();
+                                    if str_col.ord_to_str(term_ord, &mut s).is_ok() {
+                                        ScalarValue::Utf8View(Some(s))
+                                    } else {
+                                        ScalarValue::Utf8View(None)
+                                    }
+                                }
+                                FFType::Bytes(bytes_col) => {
+                                    let mut b = Vec::new();
+                                    if bytes_col.ord_to_bytes(term_ord, &mut b).is_ok() {
+                                        ScalarValue::BinaryView(Some(b))
+                                    } else {
+                                        ScalarValue::BinaryView(None)
+                                    }
+                                }
+                                _ => ScalarValue::Utf8View(None),
+                            }
+                        } else {
+                            ScalarValue::Utf8View(None)
+                        }
+                    } else {
+                        // Pass-through row: extract materialized value from
+                        // UnionArray State 2 child.
+                        let batch = &self.batches[*batch_idx];
+                        let union_col = batch
+                            .column(deferred.sort_col_idx)
+                            .as_any()
+                            .downcast_ref::<UnionArray>();
+                        if let Some(union_arr) = union_col {
+                            let type_ids = union_arr.type_ids();
+                            let offsets = union_arr.offsets();
+                            if let Some(offsets) = offsets {
+                                if type_ids[*row_idx] == 2 {
+                                    // State 2: materialized child
+                                    let child = union_arr.child(2);
+                                    let ci = offsets[*row_idx] as usize;
+                                    ScalarValue::try_from_array(child, ci)
+                                        .unwrap_or(ScalarValue::Utf8View(None))
+                                } else {
+                                    // NULL ordinal pass-through
+                                    ScalarValue::Utf8View(None)
+                                }
+                            } else {
+                                ScalarValue::Utf8View(None)
+                            }
+                        } else {
+                            ScalarValue::Utf8View(None)
+                        }
+                    }
+                } else {
+                    // Non-deferred column: evaluate directly from the batch.
+                    let batch = &self.batches[*batch_idx];
+                    let val = sort_expr.expr.evaluate(batch)?;
+                    let arr = val.into_array(batch.num_rows())?;
+                    ScalarValue::try_from_array(&arr, *row_idx)
+                        .unwrap_or(ScalarValue::Utf8View(None))
+                };
+                values.push(value);
+            }
+
+            // Convert ScalarValues to arrays and then to an OwnedRow.
+            let arrays: Vec<ArrayRef> = values
+                .iter()
+                .map(|v| v.to_array())
+                .collect::<Result<Vec<_>>>()?;
+            let converted = mat_row_converter
+                .convert_columns(&arrays)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+            mat_rows.push((idx, converted.row(0).owned()));
+        }
+
+        // 4. Sort candidates by materialized OwnedRow and take top K.
+        mat_rows.sort_by(|a, b| a.1.cmp(&b.1));
+        mat_rows.truncate(self.k);
+
+        if mat_rows.is_empty() {
+            return Ok(None);
+        }
+
+        // 5. Emit a single sorted batch.
+        //    Concatenate all buffered batches into one mega-batch, then use
+        //    row indices to select and reorder the winners.
+        let mut batch_offsets: Vec<usize> = Vec::with_capacity(self.batches.len());
+        let mut running = 0usize;
+        for batch in &self.batches {
+            batch_offsets.push(running);
+            running += batch.num_rows();
+        }
+
+        let mega_batch = if self.batches.len() == 1 {
+            self.batches[0].clone()
+        } else {
+            concat_batches(&self.schema, &self.batches)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?
+        };
+
+        // Compute global row index for each winner.
+        let indices: Vec<usize> = mat_rows
+            .iter()
+            .map(|(candidate_idx, _)| {
+                let (batch_idx, row_idx, _) = &candidates[*candidate_idx];
+                batch_offsets[*batch_idx] + row_idx
+            })
+            .collect();
+
+        // Use interleave to reorder columns. interleave expects (array_idx, row_idx)
+        // pairs — with a single source array, array_idx is always 0.
+        let interleave_indices: Vec<(usize, usize)> = indices.iter().map(|&ri| (0, ri)).collect();
+
+        let mut output_columns = Vec::with_capacity(mega_batch.num_columns());
+        for col in mega_batch.columns() {
+            let col_refs: Vec<&dyn arrow_array::Array> = vec![col.as_ref()];
+            let reordered = arrow_select::interleave::interleave(&col_refs, &interleave_indices)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+            output_columns.push(reordered);
+        }
+
+        let result = RecordBatch::try_new(self.schema.clone(), output_columns)
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+
+        Ok(Some(result))
     }
 }

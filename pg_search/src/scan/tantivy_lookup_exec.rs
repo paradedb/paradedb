@@ -83,7 +83,36 @@ impl TantivyLookupExec {
     ) -> Result<Self> {
         let (output_schema, decoders) =
             build_schema_and_decoders(input.schema(), &deferred_fields)?;
-        let eq_props = EquivalenceProperties::new(output_schema);
+        let mut eq_props = EquivalenceProperties::new(output_schema.clone());
+        // Propagate input ordering: TantivyLookupExec preserves row order
+        // within batches (uses interleave), so if the input is sorted the
+        // output retains that ordering.
+        if let Some(input_ordering) = input.properties().output_ordering() {
+            // Rewrite ordering expressions to reference the output schema
+            // (column names are preserved, only data types change for deferred cols).
+            use datafusion::physical_expr::expressions::Column;
+            let rewritten: Vec<_> = input_ordering
+                .iter()
+                .filter_map(|sort_expr| {
+                    if let Some(col) = sort_expr.expr.as_any().downcast_ref::<Column>() {
+                        if let Ok(new_idx) = output_schema.index_of(col.name()) {
+                            let new_col =
+                                Arc::new(Column::new(col.name(), new_idx)) as Arc<dyn PhysicalExpr>;
+                            return Some(datafusion::physical_expr::PhysicalSortExpr {
+                                expr: new_col,
+                                options: sort_expr.options,
+                            });
+                        }
+                    }
+                    None
+                })
+                .collect();
+            if rewritten.len() == input_ordering.len() {
+                if let Some(lex) = datafusion::physical_expr::LexOrdering::new(rewritten) {
+                    eq_props.add_ordering(lex);
+                }
+            }
+        }
         let properties = Arc::new(PlanProperties::new(
             eq_props,
             input.properties().output_partitioning().clone(),

@@ -17,6 +17,9 @@
 
 //! Pre-materialization dynamic filter support.
 //!
+//! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
+//! how dynamic filters fit into the overall pruning pipeline.
+//!
 //! Dynamic filters allow parent operators (e.g. `SortExec(TopK)`) to push evolving
 //! thresholds into scan nodes so that rows failing the threshold are pruned *before*
 //! column materialization — at the term-ordinal level for strings and direct

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773460696729,
+  "lastUpdate": 1773461569497,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24630,6 +24630,54 @@ window.BENCHMARK_DATA = {
             "value": 5.202109014288021,
             "unit": "median tps",
             "extra": "avg tps: 5.230882535193646, max tps: 6.684834844503756, count: 56028"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "54edae9d46d8593d5d108d4c67309876260ac7d2",
+          "message": "chore: Upgrade to `0.21.15` (#4363)",
+          "timestamp": "2026-03-13T20:19:31-07:00",
+          "tree_id": "a33b67517a372bae213e5ca499617abbc9cc7b39",
+          "url": "https://github.com/paradedb/paradedb/commit/54edae9d46d8593d5d108d4c67309876260ac7d2"
+        },
+        "date": 1773461561127,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1101.5183557602372,
+            "unit": "median tps",
+            "extra": "avg tps: 1108.066270678595, max tps: 1154.8357475353173, count: 56499"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 631.4726168624967,
+            "unit": "median tps",
+            "extra": "avg tps: 578.9486766065536, max tps: 1236.0440406675223, count: 56499"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1861.86585961052,
+            "unit": "median tps",
+            "extra": "avg tps: 1840.4037641764598, max tps: 2034.0761881238648, count: 56499"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.118415866101409,
+            "unit": "median tps",
+            "extra": "avg tps: 5.166794674729126, max tps: 6.825298572515422, count: 56499"
           }
         ]
       }

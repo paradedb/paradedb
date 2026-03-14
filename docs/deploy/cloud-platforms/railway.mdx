@@ -1,0 +1,54 @@
+---
+title: Railway
+description: Deploy ParadeDB on Railway with one click
+canonical: https://docs.paradedb.com/deploy/cloud-platforms/railway
+---
+
+<Note>
+  Cloud platform deployments run ParadeDB Community, which does not include WAL
+  support. This makes them suitable for hobby, development, and staging
+  environments. For production, we recommend [ParadeDB
+  Enterprise](/deploy/enterprise) deployed via
+  [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
+</Note>
+
+[Railway](https://railway.com) is a cloud platform for deploying and managing applications. The
+[ParadeDB Railway template](https://railway.com/deploy/paradedb) provides a one-click deployment
+that runs ParadeDB Community with persistent storage and a TCP proxy.
+
+## One-Click Deploy
+
+The fastest way to get started is to click the button below, which will deploy ParadeDB to your Railway account.
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/paradedb)
+
+## Configuration
+
+Railway automatically provisions a Docker container running `paradedb/paradedb:latest` with the following
+environment variables:
+
+| Variable              | Description               | Default        |
+| --------------------- | ------------------------- | -------------- |
+| `POSTGRES_USER`       | Database user             | `postgres`     |
+| `POSTGRES_PASSWORD`   | Database password         | Auto-generated |
+| `POSTGRES_DB`         | Database name             | `paradedb`     |
+| `PGPORT`              | Connection port           | `5432`         |
+| `DATABASE_URL`        | Private connection string | Auto-generated |
+| `DATABASE_PUBLIC_URL` | Public connection string  | Auto-generated |
+
+## Connecting to ParadeDB
+
+Railway provides both private and public connection strings. You can find these in the **Variables** tab of your
+service in the Railway dashboard.
+
+To connect from other services on your Railway project, use the private `DATABASE_URL`:
+
+```bash
+psql $DATABASE_URL
+```
+
+To connect from your local machine, use the public connection string:
+
+```bash
+psql $DATABASE_PUBLIC_URL
+```

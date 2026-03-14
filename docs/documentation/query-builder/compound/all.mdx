@@ -44,6 +44,18 @@ MockItem.objects.filter(
 ).order_by('rating')[:5]
 ```
 
+```ruby Rails
+# Top N executed by standard Postgres
+MockItem.where.not(rating: nil).order(:rating).limit(5)
+
+# Top N executed by ParadeDB
+MockItem.search(:id)
+        .match_all
+        .where.not(rating: nil)
+        .order(:rating)
+        .limit(5)
+```
+
 </CodeGroup>
 
 This is useful for cases where queries that don't contain a ParadeDB operator can be more efficiently executed by ParadeDB vs. standard Postgres,

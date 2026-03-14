@@ -1,0 +1,237 @@
+---
+title: Overview
+description: Optimize JOIN queries in ParadeDB
+canonical: https://docs.paradedb.com/documentation/joins/overview
+---
+
+ParadeDB supports all standard PostgreSQL `JOIN` types, including:
+
+- `INNER JOIN`
+- `LEFT JOIN`
+- `RIGHT JOIN`
+- `FULL JOIN`
+- `SEMI JOIN`
+- `ANTI JOIN`
+
+In most cases, join queries run using PostgreSQL’s native execution exactly as they would in a vanilla Postgres database.
+However, ParadeDB also includes a beta optimization called **join pushdown** that can significantly accelerate `INNER`, `SEMI`, and `ANTI`
+joins when they involve ParadeDB search queries.
+
+## Join Pushdown (Beta)
+
+<Note>
+  Join pushdown is in beta and is available on versions `0.22.0` and up.
+</Note>
+
+Join pushdown is an optimization that allows ParadeDB to execute parts of a `JOIN` directly inside
+the ParadeDB executor instead of in Postgres' row-based executor.
+
+This can dramatically reduce latency for certain queries because ParadeDB tries to answer as much
+of the query as possible using the index before touching the underlying table.
+
+To enable join pushdown, first enable the feature:
+
+```sql
+SET paradedb.enable_join_custom_scan TO on;
+```
+
+## Requirements for Join Pushdown
+
+Join pushdown is automatically used when a query meets several conditions. If any of these are not satisfied, PostgreSQL will simply execute the join normally.
+
+| Requirement         | Description                                                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Supported join type | The query must use an `INNER`, `SEMI`, or `ANTI` join. Pushdown for other join types is coming soon.                                                         |
+| BM25 indexes        | All tables participating in the join must have a ParadeDB BM25 index.                                                                                        |
+| Search predicate    | The query must contain a ParadeDB operator such as `&&&`, `===`, etc.                                                                                        |
+| Equi-join key       | The join must contain at least one equality condition such as `a.id = b.id`.                                                                                 |
+| Indexed fields      | All join keys, filters, and `ORDER BY` columns must be present in the BM25 index. Text and JSON fields must be [columnar](/documentation/indexing/columnar). |
+| LIMIT clause        | The query must include a `LIMIT`.                                                                                                                            |
+| No aggregates       | Queries containing aggregates (`GROUP BY`, `COUNT`, etc.) are not currently supported.                                                                       |
+
+If any checks fail, ParadeDB will emit a `NOTICE` explaining why and fall back to Postgres' native join execution.
+
+To demonstrate, let's create a second table called `orders` that can be joined with `mock_items`:
+
+```sql
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'orders',
+  table_type => 'Orders'
+);
+
+ALTER TABLE orders
+ADD CONSTRAINT foreign_key_product_id
+FOREIGN KEY (product_id)
+REFERENCES mock_items(id);
+
+CREATE INDEX orders_idx ON orders
+USING bm25 (order_id, product_id, order_quantity, order_total, customer_name)
+WITH (key_field = 'order_id');
+```
+
+```sql
+SELECT * FROM orders ORDER BY order_id LIMIT 3;
+```
+
+```csv Expected Response
+ order_id | product_id | order_quantity | order_total | customer_name
+----------+------------+----------------+-------------+---------------
+        1 |          1 |              3 |       99.99 | John Doe
+        2 |          2 |              1 |       49.99 | Jane Smith
+        3 |          3 |              5 |      249.95 | Alice Johnson
+(3 rows)
+```
+
+## Inner Join
+
+An inner join returns rows where a matching row exists in both tables according to the join condition.
+
+```sql
+SELECT o.order_id, o.customer_name, o.order_total, m.description
+FROM orders o
+INNER JOIN mock_items m
+  ON o.product_id = m.id
+WHERE m.description ||| 'keyboard'
+AND o.customer_name ||| 'John'
+ORDER BY o.order_total DESC
+LIMIT 5;
+```
+
+```csv Expected Response
+ order_id | customer_name | order_total |       description
+----------+---------------+-------------+--------------------------
+        4 | John Doe      |      501.87 | Plastic Keyboard
+        1 | John Doe      |       99.99 | Ergonomic metal keyboard
+(2 rows)
+```
+
+To verify join pushdown, run `EXPLAIN` on the query and look for a `ParadeDB Join Scan` in the output.
+
+```csv Expected Response
+                                                                                                                         QUERY PLAN
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..11.00 rows=5 width=55)
+   ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=5 width=55)
+         Relation Tree: m INNER o
+         Join Cond: o.product_id = m.id
+         Limit: 5
+         Order By: o.order_total desc
+         DataFusion Physical Plan:
+           : ProjectionExec: expr=[NULL as col_1, NULL as col_2, order_total@2 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=5), expr=[order_total@2 DESC], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, ctid_1@2, order_total@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, product_id@1 as product_id, order_total@2 as order_total]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(16 rows)
+```
+
+## Semi Join
+
+A semi join returns rows from the left table when a matching row exists in the right table.
+In SQL, this usually appears as an `IN` or `EXISTS` query:
+
+```sql
+SELECT o.order_id, o.order_total FROM orders o
+WHERE o.product_id IN (
+  SELECT m.id
+  FROM mock_items m
+  WHERE m.description ||| 'keyboard'
+)
+ORDER BY o.order_total DESC
+LIMIT 5;
+```
+
+```csv Expected Response
+ order_id | order_total
+----------+-------------
+       27 |      676.15
+       57 |      676.15
+       11 |      633.94
+       41 |      633.94
+        4 |      501.87
+(5 rows)
+```
+
+To verify join pushdown, run `EXPLAIN` on the query and look for a `ParadeDB Join Scan` in the output.
+
+```csv Expected Response
+                                                                                                                QUERY PLAN
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..11.00 rows=5 width=11)
+   ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=5 width=11)
+         Relation Tree: m INNER o
+         Join Cond: o.product_id = m.id
+         Limit: 5
+         Order By: o.order_total desc
+         DataFusion Physical Plan:
+           : ProjectionExec: expr=[NULL as col_1, order_total@2 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=5), expr=[order_total@2 DESC], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_0@0, ctid_1@2, order_total@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, product_id@1 as product_id, order_total@2 as order_total]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(16 rows)
+```
+
+## Anti Join
+
+An anti join returns rows from the left table when no matching row exists in the right table. This typically appears as NOT EXISTS or NOT IN.
+
+```sql
+SELECT o.order_id, o.order_total FROM orders o
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM mock_items m
+  WHERE m.id = o.product_id
+    AND m.description ||| 'keyboard'
+)
+ORDER BY o.order_total DESC
+LIMIT 5;
+```
+
+```csv Expected Response
+ order_id | order_total
+----------+-------------
+       10 |      638.73
+       40 |      638.73
+       21 |      632.08
+       51 |      632.08
+       22 |      605.18
+(5 rows)
+```
+
+To verify join pushdown, run `EXPLAIN` on the query and look for a `ParadeDB Join Scan` in the output.
+
+```csv Expected Response
+                                                                                                               QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..11.00 rows=5 width=11)
+   ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=5 width=11)
+         Relation Tree: o ANTI m
+         Join Cond: m.id = o.product_id
+         Limit: 5
+         Order By: o.order_total desc
+         DataFusion Physical Plan:
+           : ProjectionExec: expr=[NULL as col_1, order_total@1 as col_2, ctid_0@0 as ctid_0]
+           :   SortExec: TopK(fetch=5), expr=[order_total@1 DESC], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(id@0, product_id@1)], projection=[ctid_0@0, order_total@2]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, product_id@1 as product_id, order_total@2 as order_total]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(15 rows)
+```
+
+## Future Work
+
+We are actively improving join pushdown, specifically when it comes to pushing down more shapes of joins.
+If your join query is not currently supported by join pushdown (or isn't as fast as you'd like!), we invite you to [open a Github issue](https://github.com/paradedb/paradedb/issues).

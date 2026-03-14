@@ -171,3 +171,21 @@ pub fn build_state_hydrated(materialized: ArrayRef, is_bytes: bool) -> ArrayRef 
             .expect("Failed to construct State 2 UnionArray"),
     )
 }
+
+/// Extracts the underlying materialized string/bytes data type from a deferred Union schema field.
+/// The Union array uses a 3-state encoding:
+/// 0 = doc_address (UInt64)
+/// 1 = term_ordinal (Struct)
+/// 2 = materialized (Utf8View / BinaryView)
+pub fn extract_materialized_type_from_union(
+    union_fields: &arrow_schema::UnionFields,
+) -> arrow_schema::DataType {
+    // The materialized type is always safely located at index 2
+    union_fields
+        .iter()
+        .nth(2)
+        .expect("Deferred Union schema is missing the materialized field variant")
+        .1
+        .data_type()
+        .clone()
+}

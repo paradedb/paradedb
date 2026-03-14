@@ -24,6 +24,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .regex_phrase("ru.*", "shoes")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 <div className="mt-8" />

@@ -26,6 +26,12 @@ MockItem.objects.filter(
 ).values('id', 'weight_range')
 ```
 
+```ruby Rails
+MockItem.search(:weight_range)
+        .range_term(1)
+        .select(:id, :weight_range)
+```
+
 </CodeGroup>
 
 ## Range Intersects
@@ -45,6 +51,12 @@ from paradedb import ParadeDB, RangeTerm
 MockItem.objects.filter(
     weight_range=ParadeDB(RangeTerm('(10, 12]', relation='Intersects', range_type='int4range'))
 ).values('id', 'weight_range')
+```
+
+```ruby Rails
+MockItem.search(:weight_range)
+        .range_term("(10, 12]", relation: "Intersects", range_type: "int4range")
+        .select(:id, :weight_range)
 ```
 
 </CodeGroup>
@@ -67,6 +79,12 @@ MockItem.objects.filter(
 ).values('id', 'weight_range')
 ```
 
+```ruby Rails
+MockItem.search(:weight_range)
+        .range_term("(3, 9]", relation: "Contains", range_type: "int4range")
+        .select(:id, :weight_range)
+```
+
 </CodeGroup>
 
 ## Range Within
@@ -85,6 +103,12 @@ from paradedb import ParadeDB, RangeTerm
 MockItem.objects.filter(
     weight_range=ParadeDB(RangeTerm('(2, 11]', relation='Within', range_type='int4range'))
 ).values('id', 'weight_range')
+```
+
+```ruby Rails
+MockItem.search(:weight_range)
+        .range_term("(2, 11]", relation: "Within", range_type: "int4range")
+        .select(:id, :weight_range)
 ```
 
 </CodeGroup>

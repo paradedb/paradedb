@@ -17,6 +17,9 @@
 
 //! Pre-materialization dynamic filter support.
 //!
+//! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
+//! how dynamic filters fit into the overall pruning pipeline.
+//!
 //! Dynamic filters allow parent operators (e.g. `SortExec(TopK)`) to push evolving
 //! thresholds into scan nodes so that rows failing the threshold are pruned *before*
 //! column materialization — at the term-ordinal level for strings and direct
@@ -95,7 +98,9 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode};
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::Operator;
-use datafusion::physical_expr::expressions::{BinaryExpr, Column, IsNullExpr, Literal, NotExpr};
+use datafusion::physical_expr::expressions::{
+    BinaryExpr, CastExpr, Column, DynamicFilterPhysicalExpr, IsNullExpr, Literal, NotExpr,
+};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
@@ -139,8 +144,19 @@ impl PreFilter {
         let rewritten_string_expr = self
             .expr
             .clone()
-            .transform(|node| {
-                if let Some(binary) = node.as_any().downcast_ref::<BinaryExpr>() {
+            .transform_down(|node| {
+                if let Some(dyn_filter) = node.as_any().downcast_ref::<DynamicFilterPhysicalExpr>()
+                {
+                    let current_expr = dyn_filter.current().map_err(|e| {
+                        datafusion::error::DataFusionError::Execution(format!(
+                            "DynamicFilter error: {}",
+                            e
+                        ))
+                    })?;
+                    return Ok(Transformed::yes(current_expr));
+                } else if let Some(cast) = node.as_any().downcast_ref::<CastExpr>() {
+                    return Ok(Transformed::yes(Arc::clone(cast.expr())));
+                } else if let Some(binary) = node.as_any().downcast_ref::<BinaryExpr>() {
                     if let Some(rewritten) =
                         try_rewrite_binary(binary, ffhelper, segment_ord, schema)?
                     {
@@ -392,6 +408,29 @@ fn try_rewrite_binary(
     Ok(None)
 }
 
+fn extract_bytes_from_scalar(scalar: &ScalarValue) -> Option<Option<&[u8]>> {
+    match scalar {
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::LargeUtf8(Some(s))
+        | ScalarValue::Utf8View(Some(s)) => Some(Some(s.as_bytes())),
+        ScalarValue::Binary(Some(b))
+        | ScalarValue::LargeBinary(Some(b))
+        | ScalarValue::BinaryView(Some(b)) => Some(Some(b.as_slice())),
+
+        ScalarValue::Utf8(None)
+        | ScalarValue::LargeUtf8(None)
+        | ScalarValue::Utf8View(None)
+        | ScalarValue::Binary(None)
+        | ScalarValue::LargeBinary(None)
+        | ScalarValue::BinaryView(None) => Some(None),
+
+        ScalarValue::Union(Some((_, boxed_val)), _, _) => extract_bytes_from_scalar(boxed_val),
+        ScalarValue::Union(None, _, _) => Some(None),
+
+        _ => None,
+    }
+}
+
 fn try_rewrite_in_list(
     in_list: &InListExpr,
     ffhelper: &FFHelper,
@@ -421,26 +460,14 @@ fn try_rewrite_in_list(
             Some(lit) => lit,
             None => return Ok(None),
         };
-        let bytes = match lit.value() {
-            ScalarValue::Utf8(Some(s))
-            | ScalarValue::LargeUtf8(Some(s))
-            | ScalarValue::Utf8View(Some(s)) => s.as_bytes(),
-            ScalarValue::Binary(Some(b))
-            | ScalarValue::LargeBinary(Some(b))
-            | ScalarValue::BinaryView(Some(b)) => b.as_slice(),
-
-            // Push None to preserve 3VL semantics when a NULL is in the IN list
-            ScalarValue::Utf8(None)
-            | ScalarValue::LargeUtf8(None)
-            | ScalarValue::Utf8View(None)
-            | ScalarValue::Binary(None)
-            | ScalarValue::LargeBinary(None)
-            | ScalarValue::BinaryView(None) => {
+        let bytes = match extract_bytes_from_scalar(lit.value()) {
+            Some(Some(b)) => b,
+            Some(None) => {
+                // Push None to preserve 3VL semantics when a NULL is in the IN list
                 ordinals.push(None);
                 continue;
             }
-
-            _ => return Ok(None), // Early abort if non-string literal is found
+            None => return Ok(None), // Early abort if non-string literal is found
         };
 
         let target_ord = dict
@@ -483,22 +510,10 @@ fn rewrite_col_op_lit(
     };
     let ff_type = ffhelper.column(segment_ord, ff_index);
 
-    let bytes = match lit.value() {
-        ScalarValue::Utf8(Some(s))
-        | ScalarValue::LargeUtf8(Some(s))
-        | ScalarValue::Utf8View(Some(s)) => s.as_bytes(),
-        ScalarValue::Binary(Some(b))
-        | ScalarValue::LargeBinary(Some(b))
-        | ScalarValue::BinaryView(Some(b)) => b.as_slice(),
-        ScalarValue::Utf8(None)
-        | ScalarValue::LargeUtf8(None)
-        | ScalarValue::Utf8View(None)
-        | ScalarValue::Binary(None)
-        | ScalarValue::LargeBinary(None)
-        | ScalarValue::BinaryView(None) => {
-            return Ok(Some(Arc::new(Literal::new(ScalarValue::Boolean(None)))))
-        }
-        _ => return Ok(None), // Not a string/bytes literal. Leave for native DataFusion eval over numerics.
+    let bytes = match extract_bytes_from_scalar(lit.value()) {
+        Some(Some(b)) => b,
+        Some(None) => return Ok(Some(Arc::new(Literal::new(ScalarValue::Boolean(None))))),
+        None => return Ok(None), // Not a string/bytes literal. Leave for native DataFusion eval over numerics.
     };
 
     let dict = match ff_type {

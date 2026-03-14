@@ -110,7 +110,7 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           PgSearchScan: segments=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
@@ -160,7 +160,7 @@ LIMIT 5;
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (19 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -346,7 +346,7 @@ LIMIT 3;
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (19 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name

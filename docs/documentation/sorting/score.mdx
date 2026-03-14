@@ -29,6 +29,15 @@ MockItem.objects.filter(
 ).values('id', 'score').order_by('score')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("shoes")
+        .with_score
+        .select(:id)
+        .order(:search_score)
+        .limit(5)
+```
+
 </CodeGroup>
 
 In order for a field to be factored into the BM25 score, it must be present in the BM25 index. For instance,
@@ -52,6 +61,18 @@ MockItem.objects.filter(
 ).annotate(
     score=Score()
 ).values('id', 'score').order_by('score')[:5]
+```
+
+```ruby Rails
+base = MockItem.all
+left = base.search(:description).matching_any("keyboard")
+right = base.where(rating: ...2)
+
+left.or(right)
+    .with_score
+    .select(:id)
+    .order(:search_score)
+    .limit(5)
 ```
 
 </CodeGroup>
@@ -109,6 +130,33 @@ Order.objects.filter(
 ).values(
     'order_id', 'customer_name', 'product__description', 'score'
 ).order_by('-score', 'order_id')[:5]
+```
+
+```ruby Rails
+orders = Order.arel_table
+mock_items = MockItem.arel_table
+combined_score = Arel::Nodes::Addition.new(
+  orders[:order_id].pdb_score,
+  mock_items[:id].pdb_score
+)
+join = orders.join(mock_items).on(orders[:product_id].eq(mock_items[:id])).join_sources
+
+Order.joins(join)
+     .search(:customer_name)
+     .matching_any("Johnson")
+     .search(mock_items[:description])
+     .matching_any("running shoes")
+     .select(
+       orders[:order_id],
+       orders[:customer_name],
+       mock_items[:description].as("product_description"),
+       combined_score.as("score")
+     )
+     .order(
+       Arel::Nodes::Descending.new(combined_score),
+       Arel::Nodes::Ascending.new(orders[:order_id])
+     )
+     .limit(5)
 ```
 
 </CodeGroup>

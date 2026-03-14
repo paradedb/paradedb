@@ -61,6 +61,26 @@ MockItem.objects.filter(
 ).values('id', 'description')[:5]
 ```
 
+```ruby Rails
+# Fuzzy match disjunction
+MockItem.search(:description)
+        .matching_any('runing shose', distance: 2)
+        .select(:id, :description)
+        .limit(5)
+
+# Fuzzy match conjunction
+MockItem.search(:description)
+        .matching_all('runing shose', distance: 2)
+        .select(:id, :description)
+        .limit(5)
+
+# Fuzzy term
+MockItem.search(:description)
+        .term("shose", distance: 2)
+        .select(:id, :description)
+        .limit(5)
+```
+
 </CodeGroup>
 
 ## How It Works
@@ -101,6 +121,13 @@ MockItem.objects.filter(
 ).values('id', 'description')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .term("rann", distance: 1, prefix: true)
+        .select(:id, :description)
+        .limit(5)
+```
+
 </CodeGroup>
 
 <Note>
@@ -126,6 +153,13 @@ MockItem.objects.filter(
 ).values('id', 'description')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("slee rann", distance: 1, prefix: true)
+        .select(:id, :description)
+        .limit(5)
+```
+
 </CodeGroup>
 
 ## Transposition Cost
@@ -147,6 +181,13 @@ from paradedb import ParadeDB, Term
 MockItem.objects.filter(
     description=ParadeDB(Term('shose', distance=1, transposition_cost_one=True))
 ).values('id', 'description')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .term("shose", distance: 1, transposition_cost_one: true)
+        .select(:id, :description)
+        .limit(5)
 ```
 
 </CodeGroup>

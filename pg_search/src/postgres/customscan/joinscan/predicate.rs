@@ -17,6 +17,8 @@
 
 //! Predicate extraction functions for JoinScan.
 //!
+//! See the [JoinScan README](README.md) for the full architecture overview.
+//!
 //! This module handles the transformation of PostgreSQL expressions containing
 //! search predicates into `JoinLevelExpr` trees that can be evaluated
 //! during join execution. It supports:

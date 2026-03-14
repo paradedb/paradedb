@@ -551,6 +551,37 @@ pub struct QualExtractState {
     pub uses_heap_expr: bool,
 }
 
+/// Check if a clause contains node types that extract_quals cannot handle
+/// (e.g., SubPlan from RLS policies) and thus needs plan.qual evaluation.
+pub unsafe fn is_subplan(node: *mut pg_sys::Node) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        _data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_SubPlan | pg_sys::NodeTag::T_AlternativeSubPlan => true,
+            // RestrictInfo is a planner node, not an expression node, so
+            // expression_tree_walker doesn't know how to handle it. Unwrap
+            // to the inner clause before recursing.
+            pg_sys::NodeTag::T_RestrictInfo => {
+                let ri = node as *mut pg_sys::RestrictInfo;
+                walker((*ri).clause.cast(), _data)
+            }
+            _ => pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut()),
+        }
+    }
+
+    if node.is_null() {
+        return false;
+    }
+
+    walker(node, std::ptr::null_mut())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn extract_quals(
     context: &PlannerContext,

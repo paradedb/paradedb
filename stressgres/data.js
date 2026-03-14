@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773454653220,
+  "lastUpdate": 1773455503093,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -46114,6 +46114,54 @@ window.BENCHMARK_DATA = {
             "value": 456.66742566050266,
             "unit": "median tps",
             "extra": "avg tps: 423.6437129844551, max tps: 621.0420524217623, count: 107814"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93a817d15837a40c33b6198dd20baebc69a6083b",
+          "message": "docs: add JoinScan README (#4360)\n\n## What\n\nAdds a `README.md` to `pg_search/src/postgres/customscan/joinscan/`\ndocumenting how the JoinScan pipeline works — from activation through\nplanning, physical plan construction, pruning paths, and execution.\n\n## Why\n\nThe JoinScan subsystem spans ~15 files across two directories and\ninvolves several interacting optimizer rules and execution nodes. Having\na concise architectural overview with links to key code locations makes\nit easier for contributors to orient themselves without reading every\nfile.\n\n## How\n\nSingle markdown file covering: physical plan structure, activation\nconditions, planning phase, optimizer rule ordering (including the\nsecond FilterPushdown pass), the three pruning paths (global threshold,\nper-segment ordinals, TopK dynamic filter), deferred column encoding,\nand key file references. All significant concepts link to source via\nGitHub permalinks.\n\n## Tests\n\nDocumentation only — no code changes.",
+          "timestamp": "2026-03-13T18:14:23-07:00",
+          "tree_id": "0e7610eabfc96ef973d14dffdd7816bec8fe790f",
+          "url": "https://github.com/paradedb/paradedb/commit/93a817d15837a40c33b6198dd20baebc69a6083b"
+        },
+        "date": 1773455496993,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 540.2222688244673,
+            "unit": "median tps",
+            "extra": "avg tps: 540.7783016999915, max tps: 664.084979472864, count: 53869"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 608.3648078379538,
+            "unit": "median tps",
+            "extra": "avg tps: 609.0144252224314, max tps: 700.8052953649038, count: 53869"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.6127878836349,
+            "unit": "median tps",
+            "extra": "avg tps: 87.59033656042406, max tps: 92.08468828826548, count: 53869"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 467.3012572133078,
+            "unit": "median tps",
+            "extra": "avg tps: 417.82641087867955, max tps: 641.9908186646055, count: 107738"
           }
         ]
       }

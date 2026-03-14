@@ -17,6 +17,9 @@
 
 //! Per-segment Top K with ordinal pruning and global threshold.
 //!
+//! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
+//! how this node fits into the overall physical plan and pruning pipeline.
+//!
 //! `SegmentedTopKExec` sits between `TantivyLookupExec` and its child in the
 //! physical plan. It operates on the 3-way deferred `UnionArray` columns emitted
 //! by late materialization:

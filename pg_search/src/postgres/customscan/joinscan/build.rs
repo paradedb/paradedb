@@ -17,6 +17,8 @@
 
 //! Data structures for JoinScan planning and serialization.
 //!
+//! See the [JoinScan README](README.md) for the full architecture overview.
+//!
 //! These structures are serialized to JSON and stored in CustomScan's custom_private
 //! field, then deserialized during execution.
 //!

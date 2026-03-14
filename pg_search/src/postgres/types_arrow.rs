@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::datetime::MICROSECONDS_IN_SECOND;
 
 use arrow_array::cast::AsArray;
@@ -74,6 +75,14 @@ pub fn arrow_array_to_datum(
                 }
                 PgOid::BuiltIn(PgBuiltInOids::INETOID) => {
                     datum::Inet::from(s.to_string()).into_datum()
+                }
+
+                PgOid::Custom(custom) => {
+                    if is_citext_oid(*custom) {
+                        s.into_datum()
+                    } else {
+                        return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}"));
+                    }
                 }
                 _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
             }
@@ -297,6 +306,7 @@ mod tests {
     use arrow_array::Array;
     use pgrx::datum::{Date, Time, TimeWithTimeZone, Timestamp, TimestampWithTimeZone};
     use pgrx::pg_test;
+    use pgrx::Spi;
     use proptest::prelude::*;
     use serde_json::Value as JsonValue;
 
@@ -460,12 +470,18 @@ mod tests {
 
     #[pg_test]
     fn test_arrow_string_to_datum_text() {
+        Spi::run("CREATE EXTENSION IF NOT EXISTS citext;").unwrap();
+        let citext_oid = PgOid::from(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'citext'::regtype::oid")
+                .expect("SPI failed")
+                .expect("citext extension not installed"),
+        );
         proptest!(|(ref s in ".*")| {
             let oid_text = PgOid::from(PgBuiltInOids::TEXTOID.value());
             let oid_varchar = PgOid::from(PgBuiltInOids::VARCHAROID.value());
-
             test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_text, |s| s);
             test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_varchar, |s| s);
+            test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), citext_oid, |s| s);
         });
     }
 
@@ -566,6 +582,7 @@ mod tests {
 
     #[pg_test]
     fn test_arrow_to_datum_nulls() {
+        Spi::run("CREATE EXTENSION IF NOT EXISTS citext;").unwrap();
         test_null_conversion(
             Int64Builder::with_capacity(1),
             PgOid::from(PgBuiltInOids::INT8OID.value()),
@@ -596,5 +613,13 @@ mod tests {
             PgOid::from(PgBuiltInOids::TEXTOID.value()),
             |b| b.append_null(),
         );
+        let citext_oid = PgOid::from(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'citext'::regtype::oid")
+                .expect("SPI failed")
+                .expect("citext extension not installed"),
+        );
+        test_null_conversion(StringViewBuilder::with_capacity(1), citext_oid, |b| {
+            b.append_null()
+        });
     }
 }

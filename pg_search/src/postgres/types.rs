@@ -17,6 +17,7 @@
 
 use crate::api::tokenizers::type_is_tokenizer;
 use crate::nodecast;
+use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
@@ -101,6 +102,13 @@ impl TantivyValue {
                     _ => return Err(TantivyValueError::UnsupportedOid(oid.value())),
                 };
                 Ok(datum)
+            }
+
+            PgOid::Custom(custom) => {
+                if is_citext_oid(*custom) {
+                    return Ok(String::try_from(self)?.into_datum());
+                }
+                Err(TantivyValueError::UnsupportedOid(oid.value()))
             }
             _ => Err(TantivyValueError::InvalidOid),
         }
@@ -322,7 +330,14 @@ impl TantivyValue {
                 String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
             ),
 
-            PgOid::Custom(_) => Err(TantivyValueError::UnsupportedOid(oid.value())),
+            PgOid::Custom(custom) => {
+                if is_citext_oid(*custom) {
+                    return TantivyValue::try_from(
+                        String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                    );
+                }
+                Err(TantivyValueError::UnsupportedOid(oid.value()))
+            }
 
             _ => Err(TantivyValueError::InvalidOid),
         }

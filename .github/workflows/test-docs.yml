@@ -35,12 +35,12 @@ jobs:
       - name: Test Docs for Broken Links
         working-directory: docs/
         run: |
-          output=$(mintlify broken-links)
+          output=$(mintlify broken-links 2>&1) || true
+          echo "$output"
           if [[ "$output" == *"success no broken links found"* ]]; then
             echo "No broken links found."
           else
-            echo "Broken links found:"
-            echo "$output"
+            echo "Broken links found. See output above for details."
             exit 1
           fi
 

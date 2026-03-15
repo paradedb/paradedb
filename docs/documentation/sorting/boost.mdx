@@ -33,15 +33,13 @@ MockItem.objects.filter(
 ```
 
 ```ruby Rails
-base = MockItem.all
-left = base.search(:description).matching_any("shoes", boost: 2)
-right = base.search(:category).matching_any("footwear")
-
-left.or(right)
-    .with_score
-    .select(:id, :description, :category)
-    .order(search_score: :desc)
-    .limit(5)
+MockItem.search(:description)
+        .matching_any("shoes", boost: 2)
+        .or(MockItem.search(:category).matching_any("footwear"))
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>

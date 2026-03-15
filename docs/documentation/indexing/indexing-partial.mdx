@@ -1,0 +1,40 @@
+---
+title: Partial Indexes
+description: Add row filters to the BM25 index
+canonical: https://docs.paradedb.com/documentation/indexing/indexing-partial
+---
+
+A partial index is an index that only includes rows that satisfy a `WHERE` condition.
+Instead of indexing every row in a table, Postgres evaluates the predicate and only indexes rows that match it.
+This can reduce index size and improve performance when you only query a subset of a table.
+
+The BM25 index supports partial indexes using the same syntax as PostgreSQL.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category)
+WITH (key_field='id')
+WHERE description IS NOT NULL;
+```
+
+An important note: if the BM25 index has a `WHERE` condition, queries **must have the same `WHERE` condition** in order for the index to be used.
+A query that does not contain the `WHERE` condition will fall back to a sequential scan, which does not support all of
+ParadeDB's query types and has poor performance.
+
+For example, the following query will not use the partial BM25 index defined above because it does not contain the
+`description IS NOT NULL` predicate:
+
+```sql
+SELECT * FROM mock_items
+WHERE description ||| 'running shoes';
+```
+
+However, this query will use the BM25 index because it contains the predicate:
+
+```sql
+SELECT * FROM mock_items
+WHERE description ||| 'running shoes'
+AND description IS NOT NULL;
+```
+
+This behavior is consistent with other Postgres indexes and is necessary to ensure that the index returns correct results.

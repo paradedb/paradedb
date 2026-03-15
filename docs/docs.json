@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.21.14",
+        "version": "v0.21.15",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -52,6 +52,7 @@
                           "documentation/indexing/indexing-expressions",
                           "documentation/indexing/indexing-json",
                           "documentation/indexing/indexing-arrays",
+                          "documentation/indexing/indexing-partial",
                           "documentation/indexing/reindexing",
                           "documentation/indexing/verify-index"
                         ]
@@ -148,6 +149,12 @@
                         ]
                       },
                       {
+                        "group": "Joins",
+                        "pages": [
+                          "documentation/joins/overview"
+                        ]
+                      },
+                      {
                         "group": "Advanced Query Functions",
                         "pages": [
                           "documentation/query-builder/overview",
@@ -165,7 +172,6 @@
                         "pages": [
                           "documentation/performance-tuning/overview",
                           "documentation/performance-tuning/create-index",
-                          "documentation/performance-tuning/joins",
                           "documentation/performance-tuning/reads",
                           "documentation/performance-tuning/writes"
                         ]
@@ -306,6 +312,14 @@
                       }
                     ]
                   },
+                  {
+                    "group": "Cloud Platforms",
+                    "pages": [
+                      "deploy/cloud-platforms/railway",
+                      "deploy/cloud-platforms/render",
+                      "deploy/cloud-platforms/digitalocean"
+                    ]
+                  },
                   "deploy/byoc",
                   "deploy/enterprise",
                   "deploy/upgrading",
@@ -326,6 +340,7 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.21.15",
                   "changelog/0.21.14",
                   "changelog/0.21.13",
                   "changelog/0.21.12",

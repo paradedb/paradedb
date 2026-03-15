@@ -37,6 +37,18 @@ MockItem.objects.filter(
 ).order_by('-rating')[:3]
 ```
 
+```ruby Rails
+relation = MockItem.search(:category)
+                   .term("electronics")
+                   .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
+                   .select(:id, :description, :rating)
+                   .order(rating: :desc)
+                   .limit(3)
+
+rows = relation.to_a
+aggregates = relation.aggregates
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -82,6 +94,18 @@ MockItem.objects.filter(
 ).annotate(
     agg=Window(expression=Agg('{"value_count": {"field": "id"}}', exact=False))
 ).order_by('rating')[:5]
+```
+
+```ruby Rails
+relation = MockItem.search(:description)
+                   .matching_any("running shoes")
+                   .with_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
+                   .select(:description, :rating, :category)
+                   .order(:rating)
+                   .limit(5)
+
+rows = relation.to_a
+aggregates = relation.aggregates
 ```
 
 </CodeGroup>

@@ -285,6 +285,10 @@ impl ParallelQueryCapable for JoinScan {
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
         state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
+        // Keep readers alive for the full scan duration to hold the Tantivy pin on
+        // all source segments. Without this, readers would drop here, releasing the
+        // pin and allowing Tantivy GC to merge/delete segments before workers open them.
+        state.custom_state_mut()._pinned_readers = readers;
     }
 
     fn reinitialize_dsm_custom_scan(

@@ -75,6 +75,7 @@ use crate::postgres::customscan::joinscan::build::{
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
@@ -165,6 +166,15 @@ pub struct JoinScanState {
     /// non-partitioning `PgSearchTableProvider`s open each index with
     /// `MvccSatisfies::ParallelWorker`, ensuring all workers see identical segments.
     pub non_partitioning_segments: Vec<crate::api::HashSet<SegmentId>>,
+
+    /// Open index readers held by the leader to keep Tantivy segment files pinned.
+    ///
+    /// The leader opens readers for all sources in `initialize_dsm_custom_scan` to
+    /// snapshot segment IDs into DSM. Without retaining them here, the readers would
+    /// drop at the end of that function, releasing the Tantivy pin and allowing the
+    /// GC to merge/delete those segments before workers call `exec_custom_scan`.
+    /// Storing them here keeps all segments alive for the full duration of the scan.
+    pub _pinned_readers: Vec<SearchIndexReader>,
 }
 
 impl JoinScanState {

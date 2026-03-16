@@ -229,6 +229,12 @@ pub unsafe fn save_new_metas(
             // not be in progress, the FrozenTransactionId.
             meta_entry.set_xmax(pg_sys::FrozenTransactionId);
 
+            // Invalidate DSM cache entries for this merged/deleted segment
+            crate::postgres::storage::dsm_cache::invalidate_segment(
+                indexrel.oid(),
+                id.uuid_bytes(),
+            );
+
             (meta_entry, blockno)
         })
         .collect::<Vec<_>>();

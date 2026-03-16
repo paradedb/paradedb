@@ -106,6 +106,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
         error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
     }
 
+    postgres::storage::dsm_cache::init();
     postgres::options::init();
     gucs::init();
 

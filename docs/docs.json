@@ -307,10 +307,10 @@
                   {
                     "group": "Logical Replication",
                     "pages": [
-                      "deploy/self-hosted/logical-replication/getting-started",
-                      "deploy/self-hosted/logical-replication/operational-guide",
-                      "deploy/self-hosted/logical-replication/configuration",
-                      "deploy/self-hosted/logical-replication/multi-database"
+                      "deploy/logical-replication/getting-started",
+                      "deploy/logical-replication/operational-guide",
+                      "deploy/logical-replication/configuration",
+                      "deploy/logical-replication/multi-database"
                     ]
                   },
                   {

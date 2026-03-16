@@ -1,14 +1,14 @@
 ---
 title: Schema Changes
 description: Handle DDL/schema changes when running ParadeDB as a logical replica
-canonical: https://docs.paradedb.com/deploy/self-hosted/logical-replication/configuration
+canonical: https://docs.paradedb.com/deploy/logical-replication/configuration
 ---
 
 <Note>
   This section assumes that you have successfully completed the [getting
-  started](/deploy/self-hosted/logical-replication/getting-started) guide and
-  reviewed the [Logical Replication Operational
-  Guide](/deploy/self-hosted/logical-replication/operational-guide).
+  started](/deploy/logical-replication/getting-started) guide and reviewed the
+  [Logical Replication Operational
+  Guide](/deploy/logical-replication/operational-guide).
 </Note>
 
 ## Schema Changes
@@ -35,11 +35,11 @@ ERROR: logical replication target relation "public.mock_items" is missing some r
 
 For the safe rollout sequence, including subscriber-first additive DDL and how
 to handle non-additive changes, see [Roll Out DDL
-Safely](/deploy/self-hosted/logical-replication/operational-guide#roll-out-ddl-safely).
+Safely](/deploy/logical-replication/operational-guide#roll-out-ddl-safely).
 
 If replication is already failing because the schemas diverged or because a
 conflict stopped the apply worker, see [Troubleshoot Apply
-Failures](/deploy/self-hosted/logical-replication/operational-guide#troubleshoot-apply-failures).
+Failures](/deploy/logical-replication/operational-guide#troubleshoot-apply-failures).
 
 If you want a new table to replicate to ParadeDB, that table must be included
 in the publication. Publications created with `FOR ALL TABLES` include new
@@ -50,7 +50,7 @@ you add them manually. If you do not want a table replicated to ParadeDB, leave
 it out of the publication.
 
 For the full sequence for adding a replicated searchable table, see [Add New
-Tables](/deploy/self-hosted/logical-replication/operational-guide#add-new-tables).
+Tables](/deploy/logical-replication/operational-guide#add-new-tables).
 
 ```sql
 -- On Publisher

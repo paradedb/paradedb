@@ -1,14 +1,14 @@
 ---
 title: Logical Replication Operational Guide
 description: Monitor, troubleshoot, and safely operate ParadeDB as a permanent logical replica
-canonical: https://docs.paradedb.com/deploy/self-hosted/logical-replication/operational-guide
+canonical: https://docs.paradedb.com/deploy/logical-replication/operational-guide
 ---
 
 This guide covers how to operate ParadeDB after logical replication has been
 set up.
 
 Use [Getting Started with Logical
-Replication](/deploy/self-hosted/logical-replication/getting-started) to create
+Replication](/deploy/logical-replication/getting-started) to create
 the publication and subscription first. This page focuses on what happens after
 the link is established and ParadeDB is staying in sync continuously.
 
@@ -379,6 +379,6 @@ copy before it can resume as a logical subscriber.
 - Assuming `ALTER SUBSCRIPTION ... DISABLE` relieves publisher-side WAL pressure
 
 For schema-change basics, see [Schema
-Changes](/deploy/self-hosted/logical-replication/configuration). For multiple
-source databases, see [Multi-Database Replication for
-Microservices](/deploy/self-hosted/logical-replication/multi-database).
+Changes](/deploy/logical-replication/configuration). For multiple source
+databases, see [Multi-Database Replication for
+Microservices](/deploy/logical-replication/multi-database).

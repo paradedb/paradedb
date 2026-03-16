@@ -1,7 +1,7 @@
 ---
 title: Getting Started with Logical Replication
 description: Configure ParadeDB as a logical subscriber to an existing Postgres primary
-canonical: https://docs.paradedb.com/deploy/self-hosted/logical-replication/getting-started
+canonical: https://docs.paradedb.com/deploy/logical-replication/getting-started
 ---
 
 <Note>
@@ -26,7 +26,7 @@ This deployment model is useful when:
   Logical replication copies row changes, not schema changes or indexes. The
   published tables must already exist on ParadeDB, and any DDL must be applied
   on both sides. For ongoing operations, see the [Logical Replication
-  Operational Guide](/deploy/self-hosted/logical-replication/operational-guide).
+  Operational Guide](/deploy/logical-replication/operational-guide).
 </Warning>
 
 ParadeDB supports logical replication from any primary Postgres.
@@ -231,5 +231,5 @@ WHERE description = 'Blue running shoes';
 
 At this point, the base table is replicating correctly and you can create BM25
 indexes locally on ParadeDB. Continue to the [Logical Replication Operational
-Guide](/deploy/self-hosted/logical-replication/operational-guide) for BM25
+Guide](/deploy/logical-replication/operational-guide) for BM25
 index build timing, monitoring, WAL retention, and troubleshooting.

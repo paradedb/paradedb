@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773682061786,
+  "lastUpdate": 1773682070602,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21512,6 +21512,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.11972925372103, max segment_count: 128.0, count: 57914"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121796315+kiran-4444@users.noreply.github.com",
+            "name": "Chandra Kiran G",
+            "username": "kiran-4444"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f9e401abb9e1a353ce54c0695f66ff48f83619a",
+          "message": "feat: Implement mlt for datetime objects (#4286)\n\n# Ticket(s) Closed\n\n- Closes #2549 \n\n## What\nThis extends `more_like_this` support for datetime objects.\n\n## Why\nUse more_like_this on datetime fields.\n\n\n## How\nModified `try_coerce` function to convert string (datetime object is\nsent a string to the function) to tantivity datetime object using pgOid.\n\n## Tests\nIncluded in the commit.\n\n```sql\npsql (18.3)\nType \"help\" for help.\n\npg_search=# DROP EXTENSION pg_search cascade;\nCREATE EXTENSION pg_search;\n\ndrop table if exists more_like_this_dt cascade;\n\nCREATE TABLE more_like_this_dt (\n    id INT PRIMARY KEY,\n    created_at TIMESTAMP\n);\n\nINSERT INTO more_like_this_dt (id, created_at) VALUES\n    (1, '2012-01-01 00:00:00'),\n    (2, '2013-01-03 00:00:00'),\n    (3, '2014-01-02 00:00:00'),\n    (4, '2015-01-01 00:00:00');\n\nNOTICE:  drop cascades to 2 other objects\nDETAIL:  drop cascades to index test_more_like_this_index\ndrop cascades to index search_idx\nDROP EXTENSION\nCREATE EXTENSION\nDROP TABLE\nCREATE TABLE\nINSERT 0 4\npg_search=# drop index if exists test_more_like_this_index;\n\nCREATE INDEX test_more_like_this_index on more_like_this_dt USING bm25 (id, created_at)\nWITH (key_field='id');\nNOTICE:  index \"test_more_like_this_index\" does not exist, skipping\nDROP INDEX\nCREATE INDEX\npg_search=# select * from more_like_this_dt\nWHERE id @@@ pdb.more_like_this(\n    document => '{\"created_at\": \"2013-01-03 00:00:00\"}'\n);\n id |     created_at      \n----+---------------------\n  2 | 2013-01-03 00:00:00\n(1 row)\n```",
+          "timestamp": "2026-03-16T09:52:53-07:00",
+          "tree_id": "ef87a1061d97a0f7f00eac834fcbf6b1e79cc1d8",
+          "url": "https://github.com/paradedb/paradedb/commit/4f9e401abb9e1a353ce54c0695f66ff48f83619a"
+        },
+        "date": 1773682063551,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.26624451243965, max cpu: 42.687748, count: 57810"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 232.8009251751427, max mem: 234.44921875, count: 57810"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.466983303716276, max cpu: 33.168808, count: 57810"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.48692402914722, max mem: 175.9609375, count: 57810"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34309,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33405.618249437815, max block_count: 35694.0, count: 57810"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.02387130254282, max segment_count: 127.0, count: 57810"
           }
         ]
       }

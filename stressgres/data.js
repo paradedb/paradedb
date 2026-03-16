@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773696179009,
+  "lastUpdate": 1773696187208,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22412,6 +22412,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.89046976148441, max segment_count: 131.0, count: 57774"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "aritroroy1999@gmail.com",
+            "name": "Aritro",
+            "username": "arrxy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c185a8364ba01b70159455f1c5dac23d07d2e1c",
+          "message": "feat: Support citext Postgres type (#4265)\n\n# Ticket(s) Closed\nCloses #2469\n\n## What\nAdd support for indexing and querying citext columns in pg_search.\n## Why\ncitext is a commonly used PostgreSQL extension type that provides\ncase-insensitive text comparisons while storing data using the same\nvarlena representation as text.\n## How\ncitext appears as a PgOid::Custom type, so support was added by\ndetecting its OID via a cached catalog lookup (is_citext_oid). When\ndetected, it is treated as a Text field across schema resolution, datum\nconversion, query construction, and Arrow ingestion. A lowercase\nnormalizer is applied to preserve citext’s case-insensitive behavior.\n## Tests\nManual tests were performed across PostgreSQL 18 using cargo pgrx.\nIndex creation\n```\nCREATE TABLE users_ci (\n    id BIGINT PRIMARY KEY,\n    username CITEXT\n);\n\nCREATE INDEX users_ci_search_idx\nON users_ci\nUSING bm25 (username, id)\nWITH (key_field = 'id');\n```\nQuery behavior\n```\nSELECT * FROM users_ci\nWHERE username @@@ 'alice';\n```\nReturns expected rows including case-insensitive matches.\nPlanner verification\n```\nEXPLAIN (ANALYZE, VERBOSE)\nSELECT * FROM users_ci\nWHERE username @@@ 'alice';\n```\nShows\n```\nCustom Scan (ParadeDB Base Scan)\nIndex: users_ci_search_idx\n```\nconfirming the pg_search index is used.",
+          "timestamp": "2026-03-16T16:49:52-04:00",
+          "tree_id": "daa41bc668753fd2718bbe6d3239c78884e42052",
+          "url": "https://github.com/paradedb/paradedb/commit/3c185a8364ba01b70159455f1c5dac23d07d2e1c"
+        },
+        "date": 1773696180728,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.980629239556702, max cpu: 42.72997, count: 57620"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 233.28602861419645, max mem: 234.93359375, count: 57620"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.55308042049008, max cpu: 33.300297, count: 57620"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.52593805590507, max mem: 176.37109375, count: 57620"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34193,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33509.34311003124, max block_count: 36158.0, count: 57620"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.99064560916348, max segment_count: 129.0, count: 57620"
           }
         ]
       }

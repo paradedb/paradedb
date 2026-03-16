@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773691525316,
+  "lastUpdate": 1773692420794,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25326,6 +25326,54 @@ window.BENCHMARK_DATA = {
             "value": 5.282277330482828,
             "unit": "median tps",
             "extra": "avg tps: 5.29433775171129, max tps: 6.30800926138135, count: 56651"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1e199549867854b0e75ca4ba60c71c4a679d0f48",
+          "message": "feat: finalize sort in SegmentedTopKExec, remove redundant SortExec(TopK) (#4365)\n\n## What\n\nEliminate the `SortExec(TopK)` node from JoinScan plans when\n`SegmentedTopKExec` is present. `SegmentedTopKExec` now performs\nper-segment pruning, final materialized sort, and LIMIT K — emitting\nexactly K sorted rows.\n\n## Why\n\nThe previous plan had two Top K nodes:\n\n```\nProjectionExec\n  SortExec(TopK, fetch=K)          ← final global sort + LIMIT\n    TantivyLookupExec              ← decodes K*S rows\n      SegmentedTopKExec(K)         ← per-segment pruning, emits K*S rows\n        HashJoinExec\n```\n\n`SortExec(TopK)`'s `DynamicFilterPhysicalExpr` provided zero pruning\nbenefit because `SegmentedTopKExec` blocks until all input is consumed —\nby the time TopK receives rows, scanning is already done. Its only real\ncontribution was the final sort + LIMIT, which `SegmentedTopKExec` can\nabsorb.\n\nThe key win is that `TantivyLookupExec` now decodes **K rows instead of\nK×S** (where S is the number of segments), since it sits above\n`SegmentedTopKExec` which now emits only the final K rows.\n\n## How\n\n**`segmented_topk_exec.rs`** — Buffer pass-through rows instead of\nemitting them immediately. After all input is consumed,\n`emit_final_topk()` materializes sort column values (converting ordinals\nback to strings via `ord_to_str`), sorts all candidates by materialized\nvalues, takes top K, and emits a single sorted batch. Declares output\nordering so downstream nodes know the output is sorted. Updated\n`maybe_compact` to include pass-through rows in the survivor set.\n\n**`segmented_topk_rule.rs`** — After injecting `SegmentedTopKExec` below\n`TantivyLookupExec`, unwrap `SortExec` and return its child directly\n(removing it from the plan). When injection fails (multi-table sort\ncolumns, no deferred sort cols), `SortExec` is preserved as a safe\nfallback.\n\n**`tantivy_lookup_exec.rs`** — Propagate input ordering through output\n`EquivalenceProperties`. `TantivyLookupExec` preserves row order (uses\n`interleave`), so if its input is sorted, the output retains that\nordering.\n\nNew plan:\n```\nProjectionExec\n  TantivyLookupExec              ← decodes K rows only\n    SegmentedTopKExec(K)         ← pruning + final sort + LIMIT K\n      HashJoinExec\n```\n\n## Tests\n\nUpdated expected outputs for the existing tests.\n\n---------\n\nSigned-off-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-16T12:29:57-07:00",
+          "tree_id": "cd4ab9fe217faa4877a3edf0d28cf30236ecbab0",
+          "url": "https://github.com/paradedb/paradedb/commit/1e199549867854b0e75ca4ba60c71c4a679d0f48"
+        },
+        "date": 1773692413747,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1092.8406331385547,
+            "unit": "median tps",
+            "extra": "avg tps: 1098.1717476880167, max tps: 1146.3387059605584, count: 56218"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1256.769091468233,
+            "unit": "median tps",
+            "extra": "avg tps: 1236.9660853316668, max tps: 1275.5073915880107, count: 56218"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1139.726473356718,
+            "unit": "median tps",
+            "extra": "avg tps: 1045.1633812615273, max tps: 1513.889411310128, count: 56218"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.138240985846618,
+            "unit": "median tps",
+            "extra": "avg tps: 5.175192829686685, max tps: 6.757265012662979, count: 56218"
           }
         ]
       }

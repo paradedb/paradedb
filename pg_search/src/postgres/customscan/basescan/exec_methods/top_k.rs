@@ -325,15 +325,10 @@ impl ExecMethod for TopKScanExecState {
         // produced enough results for the LIMIT, skip the expensive Tantivy query.
         if let Some(et) = state.partition_early_term.as_ref() {
             if let (Some(et_state), Some(rank)) = (et.shared_state, et.sort_rank) {
-                if unsafe { (*et_state).should_terminate(rank) } {
-                    state.mark_terminated_early();
-                    return false;
-                }
-
-                // Gate: for rank > 0, wait until all lower-ranked partitions' segments
-                // have been fully claimed before starting our scan. Workers may also
-                // terminate early during the wait if lower ranks produce enough results.
-                if !PartitionEarlyTermState::wait_for_gate(et_state, rank) {
+                // Non-blocking gate: check if lower-ranked partitions have already
+                // produced enough results for the LIMIT. Does not block waiting for
+                // lower ranks to finish — blocking can deadlock (see try_gate docs).
+                if !PartitionEarlyTermState::try_gate(et_state, rank) {
                     state.mark_terminated_early();
                     return false;
                 }

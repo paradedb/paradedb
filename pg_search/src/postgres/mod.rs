@@ -495,32 +495,26 @@ impl PartitionEarlyTermState {
         true
     }
 
-    /// Wait until all lower-ranked partitions' segments have been fully claimed,
-    /// or until early termination is triggered.
+    /// Check whether this partition should proceed or terminate early.
+    ///
+    /// This is a **non-blocking** gate: it checks whether lower-ranked partitions
+    /// have already produced enough results (early termination), but does NOT block
+    /// waiting for lower ranks to finish claiming segments.
+    ///
+    /// Blocking here is unsafe because:
+    /// 1. For DESC ordering, the Parallel Append child order may not match rank
+    ///    order, so lower-ranked children may be *later* in the plan — blocking
+    ///    would deadlock since no worker ever reaches them.
+    /// 2. The Gather Merge leader participates in the Parallel Append. If the
+    ///    leader blocks here, it cannot drain worker tuple queues, causing workers
+    ///    to fill their shared-memory queues and block — a circular deadlock.
     ///
     /// Returns `true` if the scan should proceed, `false` if it should terminate early.
-    pub fn wait_for_gate(this: *mut Self, rank: usize) -> bool {
+    pub fn try_gate(this: *mut Self, rank: usize) -> bool {
         if rank == 0 {
             return true;
         }
-        unsafe {
-            loop {
-                pgrx::check_for_interrupts!();
-                (*this).gate_cv.prepare_to_sleep();
-
-                if (*this).should_terminate(rank) {
-                    ConditionVariable::cancel_sleep();
-                    return false;
-                }
-
-                if (*this).lower_ranks_fully_claimed(rank) {
-                    ConditionVariable::cancel_sleep();
-                    return true;
-                }
-
-                (*this).gate_cv.sleep();
-            }
-        }
+        unsafe { !(*this).should_terminate(rank) }
     }
 
     /// Reset only a single rank's counters. Used during reinitialize to avoid the race

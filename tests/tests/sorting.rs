@@ -434,23 +434,23 @@ fn parallel_topk_partition_early_term_asc(mut conn: PgConnection) {
         "Expected a parallel plan with Gather/Gather Merge, got: {node_types:?}"
     );
 
-    // 2) Check that early termination caused most partitions to produce 0 rows.
-    // In a Gather Merge plan, every worker enters every partition (Actual Loops = 1),
-    // but early termination makes later partitions return immediately with 0 rows.
+    // 2) Check that early termination limited the total rows produced.
+    // Without a blocking gate, all partitions may produce some rows before the
+    // termination signal propagates, but the total should be far less than what
+    // a full scan would produce (~100k matching rows across 8 partitions).
     let mut rows_per_partition = Vec::new();
     collect_actual_rows(root, &mut rows_per_partition);
     eprintln!("Actual rows per partition: {rows_per_partition:?}");
 
-    let producing_count = rows_per_partition.iter().filter(|&&r| r > 0).count();
-    let empty_count = rows_per_partition.iter().filter(|&&r| r == 0).count();
-    eprintln!("Partitions producing rows: {producing_count}, empty: {empty_count}");
+    let total_rows: i64 = rows_per_partition.iter().sum();
+    eprintln!("Total rows produced across all partitions: {total_rows}");
 
-    // With 8 partitions and LIMIT 5, the first partition has ~12500 matching rows.
-    // Early termination should cause at least some later partitions to produce 0 rows.
+    // Each partition has ~12500 matching rows. Without early termination, we'd
+    // see ~100k total rows. With early termination, total should be well under 1000.
     assert!(
-        empty_count > 0,
-        "Expected cross-partition early termination to cause some partitions to produce 0 rows, \
-         but all {producing_count} partitions produced rows. Rows: {rows_per_partition:?}"
+        total_rows < 1000,
+        "Expected early termination to limit total rows, but got {total_rows}. \
+         Rows per partition: {rows_per_partition:?}"
     );
 
     // Verify results are correct
@@ -515,21 +515,20 @@ fn parallel_topk_partition_early_term_desc(mut conn: PgConnection) {
         "Expected a parallel plan with Gather/Gather Merge, got: {node_types:?}"
     );
 
-    // 2) Check that early termination caused most partitions to produce 0 rows
+    // 2) Check that early termination limited the total rows produced.
     let mut rows_per_partition = Vec::new();
     collect_actual_rows(root, &mut rows_per_partition);
     eprintln!("Actual rows per partition: {rows_per_partition:?}");
 
-    let empty_count = rows_per_partition.iter().filter(|&&r| r == 0).count();
-    eprintln!(
-        "DESC — Partitions producing rows: {}, empty: {empty_count}",
-        rows_per_partition.iter().filter(|&&r| r > 0).count()
-    );
+    let total_rows: i64 = rows_per_partition.iter().sum();
+    eprintln!("DESC — Total rows produced: {total_rows}");
 
+    // Each partition has ~12500 matching rows. Without early termination, we'd
+    // see ~100k total. With early termination the total should be well under 1000.
     assert!(
-        empty_count > 0,
-        "Expected cross-partition early termination (DESC) to cause some partitions \
-         to produce 0 rows, but all produced rows. Rows: {rows_per_partition:?}"
+        total_rows < 1000,
+        "Expected early termination to limit total rows (DESC), but got {total_rows}. \
+         Rows per partition: {rows_per_partition:?}"
     );
 
     // Verify results are correct and in DESC order

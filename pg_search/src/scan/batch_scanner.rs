@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::segmented_topk_exec::SegmentedThresholds;
+
 use crate::index::fast_fields_helper::{
     build_arrow_schema, ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, WhichFastField,
 };
@@ -138,8 +138,6 @@ pub struct Scanner {
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
-    /// Per-segment ordinal thresholds from `SegmentedTopKExec` for early pruning.
-    segmented_thresholds: Option<Arc<SegmentedThresholds>>,
 }
 
 impl Scanner {
@@ -192,7 +190,6 @@ impl Scanner {
             prefetched: None,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
-            segmented_thresholds: None,
         }
     }
 
@@ -207,10 +204,7 @@ impl Scanner {
         self.batch_size = size.min(MAX_BATCH_SIZE);
     }
 
-    /// Set shared per-segment ordinal thresholds for early pruning.
-    pub(crate) fn set_segmented_thresholds(&mut self, thresholds: Arc<SegmentedThresholds>) {
-        self.segmented_thresholds = Some(thresholds);
-    }
+
 
     /// Returns the estimated number of rows that will be produced by this scanner.
     pub fn estimated_rows(&self) -> u64 {
@@ -248,8 +242,7 @@ impl Scanner {
         }
     }
 
-    /// Fetch the next batch of results, applying visibility checks,
-    /// dynamic `SegmentedThresholds` (for Top K queries), and
+    /// Fetch the next batch of results, applying visibility checks and
     /// pre-materialization filters.
     ///
     /// `pre_filters` are applied after visibility checks but *before* column
@@ -277,66 +270,24 @@ impl Scanner {
         // to keep them aligned with `ids`.
         let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
 
-        // TODO(https://github.com/paradedb/paradedb/issues/4257): Unify `SegmentedThresholds`
-        // with the `DynamicFilterPhysicalExpr` infrastructure so that per-segment ordinal
-        // thresholds are also pushed down via the standard DataFusion filter push-down path
-        // rather than this side-channel.
-        let evaluate_pre_filters = |filters: &[crate::scan::pre_filter::PreFilter],
-                                    schema: &SchemaRef,
-                                    ids: &mut Vec<DocId>,
-                                    scores: &mut Vec<Score>,
-                                    memoized_columns: &mut Vec<Option<ArrayRef>>|
-         -> (usize, usize) {
+        // Apply pre-materialization filters before visibility checks (which require the ctid), and
+        // before dictionary lookups.
+        if let Some(pre_filters) = pre_filters {
             let before = ids.len();
-            for pre_filter in filters {
+            for pre_filter in pre_filters.filters {
                 if ids.is_empty() {
                     break;
                 }
                 for &ff_index in &pre_filter.required_columns {
-                    ensure_column_fetched(memoized_columns, ffhelper, segment_ord, ff_index, ids);
+                    ensure_column_fetched(&mut memoized_columns, ffhelper, segment_ord, ff_index, &ids);
                 }
                 let mask = pre_filter
-                    .apply_arrow(ffhelper, segment_ord, memoized_columns, schema, ids.len())
+                    .apply_arrow(ffhelper, segment_ord, &memoized_columns, pre_filters.schema, ids.len())
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
-                compact_with_mask(ids, scores, memoized_columns, &mask);
+                compact_with_mask(&mut ids, &mut scores, &mut memoized_columns, &mask);
             }
-            (before, before - ids.len())
-        };
-
-        // Apply per-segment ordinal thresholds from SegmentedTopKExec.
-        // These use cheap segment-local ordinals for early row pruning.
-        // The global threshold (materialized strings) is pushed down separately
-        // through DataFusion's standard DynamicFilterPhysicalExpr mechanism
-        // and arrives via the `pre_filters` parameter.
-        if let Some(thresholds) = self.segmented_thresholds.as_ref() {
-            if let Some(seg_expr) = thresholds.get_threshold(segment_ord) {
-                let schema = self.schema();
-                let mut dyn_filters = Vec::new();
-                crate::scan::pre_filter::collect_filters(&seg_expr, &schema, &mut dyn_filters);
-                let (scanned, pruned) = evaluate_pre_filters(
-                    &dyn_filters,
-                    &schema,
-                    &mut ids,
-                    &mut scores,
-                    &mut memoized_columns,
-                );
-                self.pre_filter_rows_scanned += scanned;
-                self.pre_filter_rows_pruned += pruned;
-            }
-        }
-
-        // Apply pre-materialization filters before visibility checks (which require the ctid), and
-        // before dictionary lookups.
-        if let Some(pre_filters) = pre_filters {
-            let (scanned, pruned) = evaluate_pre_filters(
-                pre_filters.filters,
-                pre_filters.schema,
-                &mut ids,
-                &mut scores,
-                &mut memoized_columns,
-            );
-            self.pre_filter_rows_scanned += scanned;
-            self.pre_filter_rows_pruned += pruned;
+            self.pre_filter_rows_scanned += before;
+            self.pre_filter_rows_pruned += before - ids.len();
         }
 
         // Batch lookup the ctids and visibility check them.

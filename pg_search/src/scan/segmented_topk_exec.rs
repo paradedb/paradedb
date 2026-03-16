@@ -33,23 +33,17 @@
 //! top rows per segment. All batches are collected during the input phase,
 //! and survivors are emitted in a single pass once all input is consumed.
 //!
-//! ## Per-segment and global thresholds
+//! ## Global threshold
 //!
-//! As rows are ingested, two kinds of thresholds are published to the scanner:
+//! As rows are ingested, a global threshold is published to the scanner:
 //!
-//! 1. **Per-segment thresholds** (ordinal-based, side-channel): once a segment's
-//!    heap reaches K entries, the worst ordinal is published via
-//!    `SegmentedThresholds`. The scanner skips rows that cannot beat this within
-//!    the same segment. These use segment-local ordinals that cannot be expressed
-//!    as standard DataFusion physical expressions.
+//! Once the global heap across all segments reaches K entries, the worst
 //!
-//! 2. **Global threshold** (materialized string literals, DataFusion pushdown):
-//!    once the global heap across all segments reaches K entries, the worst
-//!    entry's deferred ordinals are converted back to strings via
-//!    `FFHelper::ord_to_str` and published as a `DynamicFilterPhysicalExpr`.
-//!    DataFusion's standard filter pushdown mechanism routes this to
-//!    `PgSearchScanPlan`, where `pre_filter::try_rewrite_binary` translates
-//!    the string literals to per-segment ordinal bounds automatically.
+//! entry's deferred ordinals are converted back to strings via
+//! `FFHelper::ord_to_str` and published as a `DynamicFilterPhysicalExpr`.
+//! DataFusion's standard filter pushdown mechanism routes this to
+//! `PgSearchScanPlan`, where `pre_filter::try_rewrite_binary` translates
+//! the string literals to per-segment ordinal bounds automatically.
 //!
 //! ## Output bound
 //!
@@ -106,43 +100,11 @@ use datafusion::physical_plan::metrics::{
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use std::any::Any;
 use std::collections::BinaryHeap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
-/// Shared per-segment ordinal thresholds, written by `SegmentedTopKExec`
-/// and read by the scanner for early row pruning.
-///
-/// As the exec builds up its per-segment heaps, it publishes the "worst"
-/// ordinal still in the Top K for each segment. The scanner can then skip
-/// rows whose ordinal cannot beat that threshold, avoiding ctid lookups,
-/// visibility checks, and dictionary materialisation.
-///
-/// Note: the *global* threshold (materialized string literals, cross-segment)
-/// is pushed down separately through DataFusion's standard
-/// `DynamicFilterPhysicalExpr` filter pushdown mechanism. This side-channel
-/// only carries per-segment ordinal thresholds, which cannot be expressed
-/// as standard physical expressions because they use segment-local ordinals.
-pub struct SegmentedThresholds {
-    /// segment_ord → threshold expression (ordinal-based, segment-local).
-    inner: Mutex<HashMap<SegmentOrdinal, Arc<dyn PhysicalExpr>>>,
-}
 
-impl SegmentedThresholds {
-    pub fn new() -> Self {
-        Self {
-            inner: Mutex::new(HashMap::default()),
-        }
-    }
-
-    pub fn set_threshold(&self, seg_ord: SegmentOrdinal, threshold: Arc<dyn PhysicalExpr>) {
-        self.inner.lock().unwrap().insert(seg_ord, threshold);
-    }
-
-    pub fn get_threshold(&self, seg_ord: SegmentOrdinal) -> Option<Arc<dyn PhysicalExpr>> {
-        self.inner.lock().unwrap().get(&seg_ord).cloned()
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct DeferredSortColumn {
@@ -160,8 +122,6 @@ pub struct SegmentedTopKExec {
     ffhelper: Arc<FFHelper>,
     /// Maximum rows to keep per segment.
     k: usize,
-    /// Shared per-segment ordinal thresholds published back to the scanner.
-    thresholds: Arc<SegmentedThresholds>,
     /// Dynamic filter pushed down through DataFusion's standard filter pushdown
     /// mechanism. Updated at runtime with a global threshold (materialized
     /// string literals) that the scanner's `try_rewrite_binary` translates to
@@ -195,7 +155,6 @@ impl SegmentedTopKExec {
         deferred_columns: Vec<DeferredSortColumn>,
         ffhelper: Arc<FFHelper>,
         k: usize,
-        thresholds: Arc<SegmentedThresholds>,
     ) -> Self {
         use datafusion::physical_expr::expressions::lit;
 
@@ -220,7 +179,6 @@ impl SegmentedTopKExec {
             deferred_columns,
             ffhelper,
             k,
-            thresholds,
             dynamic_filter,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
@@ -271,7 +229,6 @@ impl ExecutionPlan for SegmentedTopKExec {
             self.deferred_columns.clone(),
             Arc::clone(&self.ffhelper),
             self.k,
-            Arc::clone(&self.thresholds),
         );
         // Preserve the existing dynamic filter so that filter pushdown
         // wiring (which already holds a reference) stays connected.
@@ -325,7 +282,6 @@ impl ExecutionPlan for SegmentedTopKExec {
             schema: self.properties.eq_properties.schema().clone(),
             row_converter,
             segment_heaps: HashMap::default(),
-            thresholds: Arc::clone(&self.thresholds),
             dynamic_filter: Arc::clone(&self.dynamic_filter),
             batches: Vec::new(),
             row_ordinals: Vec::new(),
@@ -386,11 +342,6 @@ impl ExecutionPlan for SegmentedTopKExec {
     /// Pushes `SegmentedTopKExec`'s own [`DynamicFilterPhysicalExpr`] (the global
     /// threshold with materialized string literals) down to child nodes via
     /// DataFusion's standard filter pushdown mechanism.
-    ///
-    /// This is only for the **global** threshold. Per-segment ordinal thresholds
-    /// are published through the [`SegmentedThresholds`] side-channel because
-    /// they use segment-local ordinals that can't be expressed as standard
-    /// `PhysicalExpr` on the scan's output schema.
     fn gather_filters_for_pushdown(
         &self,
         phase: FilterPushdownPhase,
@@ -435,8 +386,6 @@ struct SegmentedTopKState {
     /// the 'worst' element (the boundary) is always at the root. We also store the
     /// `(batch_idx, row_idx)` to allow for compaction.
     segment_heaps: HashMap<SegmentOrdinal, BinaryHeap<OwnedRow>>,
-    /// Shared per-segment ordinal thresholds published back to the scanner.
-    thresholds: Arc<SegmentedThresholds>,
     /// Dynamic filter updated with global thresholds (materialized strings).
     /// Pushed down through DataFusion's standard filter pushdown to the scanner.
     dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
@@ -547,19 +496,7 @@ impl SegmentedTopKState {
             }
         }
 
-        // Publish per-segment thresholds for segments with full heaps.
-        for (seg_ord, heap) in &self.segment_heaps {
-            if heap.len() >= self.k {
-                if let Some(worst) = heap.peek() {
-                    let arrays = self
-                        .row_converter
-                        .convert_rows(std::iter::once(worst.row()))?;
-                    if let Some(expr) = self.build_filter_expression(&arrays) {
-                        self.thresholds.set_threshold(*seg_ord, expr);
-                    }
-                }
-            }
-        }
+
 
         // Update the dynamic filter with the global threshold (materialized strings).
         // This is pushed down through DataFusion's standard filter pushdown to the
@@ -738,24 +675,7 @@ impl SegmentedTopKState {
 
         Ok(global_term_ords)
     }
-    /// Build a per-segment filter from the worst heap entry's ordinal arrays.
-    ///
-    /// The deferred columns remain as UInt64 ordinals (valid only within the
-    /// segment). The pre-filter evaluates them directly against fast-field
-    /// ordinals, skipping dictionary materialization.
-    fn build_filter_expression(
-        &self,
-        threshold_arrays: &[ArrayRef],
-    ) -> Option<Arc<dyn PhysicalExpr>> {
-        use datafusion::common::ScalarValue;
 
-        let values: Vec<ScalarValue> = threshold_arrays
-            .iter()
-            .map(|a| ScalarValue::try_from_array(a, 0))
-            .collect::<std::result::Result<_, _>>()
-            .ok()?;
-        Self::build_lexicographic_filter(&self.sort_exprs, &values)
-    }
 
     /// Build a chained lexicographic filter expression from threshold values.
     ///

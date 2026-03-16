@@ -36,6 +36,35 @@ fn mlt_enables_scoring_issue1747(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn mlt_datetime_key(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE more_like_this_dt (
+    id INT PRIMARY KEY,
+    created_at TIMESTAMP
+    );
+    INSERT INTO more_like_this_dt (id, created_at) VALUES
+    (1, '2012-01-01 00:00:00'),
+    (2, '2013-01-03 00:00:00'),
+    (3, '2014-01-02 00:00:00'),
+    (4, '2015-01-01 00:00:00');
+    "#
+    .execute(&mut conn);
+
+    r#"CREATE INDEX test_more_like_this_index on more_like_this_dt USING bm25 (id, created_at)
+    WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<i32> = r#"
+    SELECT id FROM more_like_this_dt WHERE id @@@ pdb.more_like_this(
+        document => '{"created_at": "2013-01-03 00:00:00"}'
+    );
+    "#
+    .fetch_scalar(&mut conn);
+    assert_eq!(rows, vec![2]);
+}
+
+#[rstest]
 fn mlt_scoring_nested(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

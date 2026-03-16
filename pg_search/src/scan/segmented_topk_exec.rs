@@ -1007,8 +1007,6 @@ impl SegmentedTopKState {
 
     /// Perform the final sort + limit after all input is consumed.
     ///
-    /// This replaces the old `build_survivors` + emit phase with a materialized
-    /// sort that produces exactly min(K, total_candidates) sorted rows.
     ///
     /// Steps:
     /// 1. Build ordinal survivors (rows within per-segment cutoffs).

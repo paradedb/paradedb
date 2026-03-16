@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773696204232,
+  "lastUpdate": 1773697087326,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26022,6 +26022,54 @@ window.BENCHMARK_DATA = {
             "value": 5.293311716603396,
             "unit": "median tps",
             "extra": "avg tps: 5.349092127464712, max tps: 9.630770790361435, count: 56079"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "aritroroy1999@gmail.com",
+            "name": "Aritro",
+            "username": "arrxy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c185a8364ba01b70159455f1c5dac23d07d2e1c",
+          "message": "feat: Support citext Postgres type (#4265)\n\n# Ticket(s) Closed\nCloses #2469\n\n## What\nAdd support for indexing and querying citext columns in pg_search.\n## Why\ncitext is a commonly used PostgreSQL extension type that provides\ncase-insensitive text comparisons while storing data using the same\nvarlena representation as text.\n## How\ncitext appears as a PgOid::Custom type, so support was added by\ndetecting its OID via a cached catalog lookup (is_citext_oid). When\ndetected, it is treated as a Text field across schema resolution, datum\nconversion, query construction, and Arrow ingestion. A lowercase\nnormalizer is applied to preserve citext’s case-insensitive behavior.\n## Tests\nManual tests were performed across PostgreSQL 18 using cargo pgrx.\nIndex creation\n```\nCREATE TABLE users_ci (\n    id BIGINT PRIMARY KEY,\n    username CITEXT\n);\n\nCREATE INDEX users_ci_search_idx\nON users_ci\nUSING bm25 (username, id)\nWITH (key_field = 'id');\n```\nQuery behavior\n```\nSELECT * FROM users_ci\nWHERE username @@@ 'alice';\n```\nReturns expected rows including case-insensitive matches.\nPlanner verification\n```\nEXPLAIN (ANALYZE, VERBOSE)\nSELECT * FROM users_ci\nWHERE username @@@ 'alice';\n```\nShows\n```\nCustom Scan (ParadeDB Base Scan)\nIndex: users_ci_search_idx\n```\nconfirming the pg_search index is used.",
+          "timestamp": "2026-03-16T16:49:52-04:00",
+          "tree_id": "daa41bc668753fd2718bbe6d3239c78884e42052",
+          "url": "https://github.com/paradedb/paradedb/commit/3c185a8364ba01b70159455f1c5dac23d07d2e1c"
+        },
+        "date": 1773697080684,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1104.5967228761126,
+            "unit": "median tps",
+            "extra": "avg tps: 1108.5723301030926, max tps: 1157.281432716693, count: 56390"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1196.2976370850265,
+            "unit": "median tps",
+            "extra": "avg tps: 1177.1305028328397, max tps: 1228.3719612997038, count: 56390"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1788.1526021132986,
+            "unit": "median tps",
+            "extra": "avg tps: 1760.7745385929343, max tps: 1925.1168483068714, count: 56390"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.5258743103974215,
+            "unit": "median tps",
+            "extra": "avg tps: 5.548846918722371, max tps: 7.446587156874108, count: 56390"
           }
         ]
       }

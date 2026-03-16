@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773695371654,
+  "lastUpdate": 1773695381419,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15144,6 +15144,138 @@ window.BENCHMARK_DATA = {
             "value": 55.4921875,
             "unit": "median mem",
             "extra": "avg mem: 54.87896667051547, max mem: 67.671875, count: 55212"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "aritroroy1999@gmail.com",
+            "name": "Aritro",
+            "username": "arrxy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c185a8364ba01b70159455f1c5dac23d07d2e1c",
+          "message": "feat: Support citext Postgres type (#4265)\n\n# Ticket(s) Closed\nCloses #2469\n\n## What\nAdd support for indexing and querying citext columns in pg_search.\n## Why\ncitext is a commonly used PostgreSQL extension type that provides\ncase-insensitive text comparisons while storing data using the same\nvarlena representation as text.\n## How\ncitext appears as a PgOid::Custom type, so support was added by\ndetecting its OID via a cached catalog lookup (is_citext_oid). When\ndetected, it is treated as a Text field across schema resolution, datum\nconversion, query construction, and Arrow ingestion. A lowercase\nnormalizer is applied to preserve citext’s case-insensitive behavior.\n## Tests\nManual tests were performed across PostgreSQL 18 using cargo pgrx.\nIndex creation\n```\nCREATE TABLE users_ci (\n    id BIGINT PRIMARY KEY,\n    username CITEXT\n);\n\nCREATE INDEX users_ci_search_idx\nON users_ci\nUSING bm25 (username, id)\nWITH (key_field = 'id');\n```\nQuery behavior\n```\nSELECT * FROM users_ci\nWHERE username @@@ 'alice';\n```\nReturns expected rows including case-insensitive matches.\nPlanner verification\n```\nEXPLAIN (ANALYZE, VERBOSE)\nSELECT * FROM users_ci\nWHERE username @@@ 'alice';\n```\nShows\n```\nCustom Scan (ParadeDB Base Scan)\nIndex: users_ci_search_idx\n```\nconfirming the pg_search index is used.",
+          "timestamp": "2026-03-16T16:49:52-04:00",
+          "tree_id": "daa41bc668753fd2718bbe6d3239c78884e42052",
+          "url": "https://github.com/paradedb/paradedb/commit/3c185a8364ba01b70159455f1c5dac23d07d2e1c"
+        },
+        "date": 1773695373609,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.383966930826952, max cpu: 23.59882, count: 55121"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 64.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.69377263486239, max mem: 74.90234375, count: 55121"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.848085489077082, max cpu: 18.60465, count: 55121"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 62.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.623390047577146, max mem: 73.79296875, count: 55121"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.591016110237125, max cpu: 9.239654, count: 55121"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.530719349249836, max mem: 37.6640625, count: 55121"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.623400673261716, max cpu: 9.239654, count: 55121"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.05492887238983, max mem: 72.69921875, count: 55121"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.671672649036106, max cpu: 9.329447, count: 110242"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.855954542052935, max mem: 67.515625, count: 110242"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1809,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1797.9943215834255, max block_count: 3169.0, count: 55121"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.165998439796086, max segment_count: 17.0, count: 55121"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.782116405119941, max cpu: 18.842003, count: 55121"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.44510400981477, max mem: 73.6796875, count: 55121"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.552894573191837, max cpu: 4.743083, count: 55121"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.87602884449665, max mem: 62.7734375, count: 55121"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.416334512474573, max cpu: 4.64666, count: 55121"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.497912972143105, max mem: 67.41015625, count: 55121"
           }
         ]
       }

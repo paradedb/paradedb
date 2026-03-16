@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::catalog::{is_citext_oid, lookup_type_category, lookup_type_name, lookup_typoid};
+use crate::postgres::catalog::{
+    is_citext_oid, lookup_type_category, lookup_type_name, lookup_typoid,
+};
 use once_cell::sync::Lazy;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -64,7 +66,8 @@ pub fn type_can_be_tokenized(oid: pg_sys::Oid) -> bool {
         pg_sys::TEXTARRAYOID,
         pg_sys::VARCHARARRAYOID,
     ]
-    .contains(&oid) || is_citext_oid(oid)
+    .contains(&oid)
+        || is_citext_oid(oid)
 }
 // given an oid and typmod, return the alias name if it is an alias, otherwise return None
 #[inline]

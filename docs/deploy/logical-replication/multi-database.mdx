@@ -16,7 +16,7 @@ However, table naming collisions can occur since each microservice and its datab
 
 ## Logical Replication Background
 
-Postgres' Logical Replication is designed from the perspective of one source database and one destination database. Logical replication carries `table_name` and `schema_name` as part of the WAL (Write-Ahead Log) being emitted. It does not have native primitives to allow any schema or table name mutations in the middle.
+Postgres' Logical Replication is designed from the perspective of one source database and one destination database. Logical replication resolves tables by their schema-qualified name. It does not have native primitives to remap schema or table names during replication.
 
 ## Solution
 

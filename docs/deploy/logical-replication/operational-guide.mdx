@@ -97,7 +97,7 @@ LIMIT 10;
 For large or high-churn production tables, use one publication and one
 subscription per large table, or group only small related tables together.
 
-This gives each subscription its own leader apply worker and replication slot.
+This gives each subscription its own main apply worker and replication slot.
 In normal steady-state replication, PostgreSQL does not parallelize ordinary
 change application across tables within a single subscription, so one hot table
 can delay other tables that share that apply worker. A publication per table
@@ -113,10 +113,12 @@ number of subscriptions you plan to run:
   `max_sync_workers_per_subscription = 2`, leave room for the main subscription
   plus up to two extra sync slots per bootstrapping subscription, and set
   `max_wal_senders` high enough to cover the same plus any physical replicas.
-- On the subscriber, set `max_active_replication_origins` and
+- On the subscriber, set `max_replication_slots` and
   `max_logical_replication_workers` to at least the number of subscriptions plus
-  reserve for table synchronization workers. `max_worker_processes` must also be
-  high enough to accommodate those logical replication workers and any other
+  reserve for table synchronization workers. On PostgreSQL 18+,
+  `max_active_replication_origins` controls replication origin tracking
+  separately and should also be sized accordingly. `max_worker_processes` must
+  be high enough to accommodate those logical replication workers and any other
   background workers used by the system.
 - `max_sync_workers_per_subscription` controls initial-copy parallelism when a
   subscription is created or refreshed. The default is `2`, so multi-table
@@ -222,11 +224,12 @@ Do not think of this as a server-wide setting. `REPLICA IDENTITY FULL` is set
 per published table and should be treated as a fallback rather than the default
 design.
 
-PostgreSQL explicitly warns that subscriber-side row lookup can become very
-inefficient under `FULL` if there is no suitable index to help find matching
-rows. In practice, `FULL` can also increase WAL and replication traffic for
-`UPDATE` and `DELETE` because the entire row is used as the identity instead of
-a smaller key.
+PostgreSQL explicitly warns that subscriber-side `UPDATE` and `DELETE` can
+become very inefficient under `FULL`, because the subscriber must locate the
+matching row using the entire old row image rather than a compact key.
+`FULL` also increases WAL volume and replication traffic on the publisher,
+since every `UPDATE` and `DELETE` writes the full before-image of the row
+into WAL instead of just the key columns.
 
 ### Monitor the Publisher
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773682993471,
+  "lastUpdate": 1773683001700,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32266,6 +32266,108 @@ window.BENCHMARK_DATA = {
             "value": 162.296875,
             "unit": "median mem",
             "extra": "avg mem: 181.2509666238562, max mem: 220.74609375, count: 56499"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121796315+kiran-4444@users.noreply.github.com",
+            "name": "Chandra Kiran G",
+            "username": "kiran-4444"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f9e401abb9e1a353ce54c0695f66ff48f83619a",
+          "message": "feat: Implement mlt for datetime objects (#4286)\n\n# Ticket(s) Closed\n\n- Closes #2549 \n\n## What\nThis extends `more_like_this` support for datetime objects.\n\n## Why\nUse more_like_this on datetime fields.\n\n\n## How\nModified `try_coerce` function to convert string (datetime object is\nsent a string to the function) to tantivity datetime object using pgOid.\n\n## Tests\nIncluded in the commit.\n\n```sql\npsql (18.3)\nType \"help\" for help.\n\npg_search=# DROP EXTENSION pg_search cascade;\nCREATE EXTENSION pg_search;\n\ndrop table if exists more_like_this_dt cascade;\n\nCREATE TABLE more_like_this_dt (\n    id INT PRIMARY KEY,\n    created_at TIMESTAMP\n);\n\nINSERT INTO more_like_this_dt (id, created_at) VALUES\n    (1, '2012-01-01 00:00:00'),\n    (2, '2013-01-03 00:00:00'),\n    (3, '2014-01-02 00:00:00'),\n    (4, '2015-01-01 00:00:00');\n\nNOTICE:  drop cascades to 2 other objects\nDETAIL:  drop cascades to index test_more_like_this_index\ndrop cascades to index search_idx\nDROP EXTENSION\nCREATE EXTENSION\nDROP TABLE\nCREATE TABLE\nINSERT 0 4\npg_search=# drop index if exists test_more_like_this_index;\n\nCREATE INDEX test_more_like_this_index on more_like_this_dt USING bm25 (id, created_at)\nWITH (key_field='id');\nNOTICE:  index \"test_more_like_this_index\" does not exist, skipping\nDROP INDEX\nCREATE INDEX\npg_search=# select * from more_like_this_dt\nWHERE id @@@ pdb.more_like_this(\n    document => '{\"created_at\": \"2013-01-03 00:00:00\"}'\n);\n id |     created_at      \n----+---------------------\n  2 | 2013-01-03 00:00:00\n(1 row)\n```",
+          "timestamp": "2026-03-16T09:52:53-07:00",
+          "tree_id": "ef87a1061d97a0f7f00eac834fcbf6b1e79cc1d8",
+          "url": "https://github.com/paradedb/paradedb/commit/4f9e401abb9e1a353ce54c0695f66ff48f83619a"
+        },
+        "date": 1773682995258,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07696245432560767, max background_merging: 2.0, count: 56651"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.668560958439386, max cpu: 9.60961, count: 56651"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 28.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.632788228583784, max mem: 28.63671875, count: 56651"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.007275886037222, max cpu: 27.77242, count: 56651"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 187.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 183.98103381890877, max mem: 187.59375, count: 56651"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51455,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51311.36398298353, max block_count: 51455.0, count: 56651"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.95062752643378, max segment_count: 56.0, count: 56651"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.558737024416652, max cpu: 27.665707, count: 56651"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 149.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 136.51485969190747, max mem: 161.96875, count: 56651"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.825535198412188, max cpu: 27.906979, count: 56651"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 184.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 180.07235778053345, max mem: 185.078125, count: 56651"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.829337862599587, max cpu: 33.532936, count: 56651"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 182.23939408064288, max mem: 221.1484375, count: 56651"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773695272407,
+  "lastUpdate": 1773695371654,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5318,6 +5318,78 @@ window.BENCHMARK_DATA = {
             "value": 36.37053072722081,
             "unit": "median tps",
             "extra": "avg tps: 47.87319872666914, max tps: 246.50019029814692, count: 55212"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "aritroroy1999@gmail.com",
+            "name": "Aritro",
+            "username": "arrxy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c185a8364ba01b70159455f1c5dac23d07d2e1c",
+          "message": "feat: Support citext Postgres type (#4265)\n\n# Ticket(s) Closed\nCloses #2469\n\n## What\nAdd support for indexing and querying citext columns in pg_search.\n## Why\ncitext is a commonly used PostgreSQL extension type that provides\ncase-insensitive text comparisons while storing data using the same\nvarlena representation as text.\n## How\ncitext appears as a PgOid::Custom type, so support was added by\ndetecting its OID via a cached catalog lookup (is_citext_oid). When\ndetected, it is treated as a Text field across schema resolution, datum\nconversion, query construction, and Arrow ingestion. A lowercase\nnormalizer is applied to preserve citext’s case-insensitive behavior.\n## Tests\nManual tests were performed across PostgreSQL 18 using cargo pgrx.\nIndex creation\n```\nCREATE TABLE users_ci (\n    id BIGINT PRIMARY KEY,\n    username CITEXT\n);\n\nCREATE INDEX users_ci_search_idx\nON users_ci\nUSING bm25 (username, id)\nWITH (key_field = 'id');\n```\nQuery behavior\n```\nSELECT * FROM users_ci\nWHERE username @@@ 'alice';\n```\nReturns expected rows including case-insensitive matches.\nPlanner verification\n```\nEXPLAIN (ANALYZE, VERBOSE)\nSELECT * FROM users_ci\nWHERE username @@@ 'alice';\n```\nShows\n```\nCustom Scan (ParadeDB Base Scan)\nIndex: users_ci_search_idx\n```\nconfirming the pg_search index is used.",
+          "timestamp": "2026-03-16T16:49:52-04:00",
+          "tree_id": "daa41bc668753fd2718bbe6d3239c78884e42052",
+          "url": "https://github.com/paradedb/paradedb/commit/3c185a8364ba01b70159455f1c5dac23d07d2e1c"
+        },
+        "date": 1773695364747,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.118262213087,
+            "unit": "median tps",
+            "extra": "avg tps: 129.45849085451195, max tps: 144.305440170789, count: 55121"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 441.3365090915835,
+            "unit": "median tps",
+            "extra": "avg tps: 440.0437910771537, max tps: 508.719802968405, count: 55121"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2844.6805099247663,
+            "unit": "median tps",
+            "extra": "avg tps: 2830.180277746278, max tps: 2853.1723737244824, count: 55121"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 395.70878444350797,
+            "unit": "median tps",
+            "extra": "avg tps: 393.01466576019345, max tps: 470.5935502330379, count: 55121"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2993.51607022152,
+            "unit": "median tps",
+            "extra": "avg tps: 3001.222098425613, max tps: 3038.3812369632083, count: 110242"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 441.18830008128623,
+            "unit": "median tps",
+            "extra": "avg tps: 440.62706326724464, max tps: 538.7390005583432, count: 55121"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1922.7292226777508,
+            "unit": "median tps",
+            "extra": "avg tps: 1909.9674126275818, max tps: 1929.9657534248217, count: 55121"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 55.58832518207442,
+            "unit": "median tps",
+            "extra": "avg tps: 61.96822606037568, max tps: 698.5445126534354, count: 55121"
           }
         ]
       }

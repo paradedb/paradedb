@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773681166065,
+  "lastUpdate": 1773681175263,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14532,6 +14532,138 @@ window.BENCHMARK_DATA = {
             "value": 54.86328125,
             "unit": "median mem",
             "extra": "avg mem: 53.14125269040485, max mem: 67.484375, count: 55231"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121796315+kiran-4444@users.noreply.github.com",
+            "name": "Chandra Kiran G",
+            "username": "kiran-4444"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f9e401abb9e1a353ce54c0695f66ff48f83619a",
+          "message": "feat: Implement mlt for datetime objects (#4286)\n\n# Ticket(s) Closed\n\n- Closes #2549 \n\n## What\nThis extends `more_like_this` support for datetime objects.\n\n## Why\nUse more_like_this on datetime fields.\n\n\n## How\nModified `try_coerce` function to convert string (datetime object is\nsent a string to the function) to tantivity datetime object using pgOid.\n\n## Tests\nIncluded in the commit.\n\n```sql\npsql (18.3)\nType \"help\" for help.\n\npg_search=# DROP EXTENSION pg_search cascade;\nCREATE EXTENSION pg_search;\n\ndrop table if exists more_like_this_dt cascade;\n\nCREATE TABLE more_like_this_dt (\n    id INT PRIMARY KEY,\n    created_at TIMESTAMP\n);\n\nINSERT INTO more_like_this_dt (id, created_at) VALUES\n    (1, '2012-01-01 00:00:00'),\n    (2, '2013-01-03 00:00:00'),\n    (3, '2014-01-02 00:00:00'),\n    (4, '2015-01-01 00:00:00');\n\nNOTICE:  drop cascades to 2 other objects\nDETAIL:  drop cascades to index test_more_like_this_index\ndrop cascades to index search_idx\nDROP EXTENSION\nCREATE EXTENSION\nDROP TABLE\nCREATE TABLE\nINSERT 0 4\npg_search=# drop index if exists test_more_like_this_index;\n\nCREATE INDEX test_more_like_this_index on more_like_this_dt USING bm25 (id, created_at)\nWITH (key_field='id');\nNOTICE:  index \"test_more_like_this_index\" does not exist, skipping\nDROP INDEX\nCREATE INDEX\npg_search=# select * from more_like_this_dt\nWHERE id @@@ pdb.more_like_this(\n    document => '{\"created_at\": \"2013-01-03 00:00:00\"}'\n);\n id |     created_at      \n----+---------------------\n  2 | 2013-01-03 00:00:00\n(1 row)\n```",
+          "timestamp": "2026-03-16T09:52:53-07:00",
+          "tree_id": "ef87a1061d97a0f7f00eac834fcbf6b1e79cc1d8",
+          "url": "https://github.com/paradedb/paradedb/commit/4f9e401abb9e1a353ce54c0695f66ff48f83619a"
+        },
+        "date": 1773681168792,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.450559451374744, max cpu: 23.076923, count: 55216"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.497286438147455, max mem: 74.79296875, count: 55216"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.737479692053284, max cpu: 18.934912, count: 55216"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 62.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.652042518246525, max mem: 73.9765625, count: 55216"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.630539259760604, max cpu: 9.302325, count: 55216"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 34.188757348979465, max mem: 35.73046875, count: 55216"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.635194264488104, max cpu: 9.257474, count: 55216"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 61.00221537631755, max mem: 72.84765625, count: 55216"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.659929788679095, max cpu: 9.257474, count: 110432"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 52.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.19061284602742, max mem: 67.390625, count: 110432"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1851,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1840.229462474645, max block_count: 3235.0, count: 55216"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.237920168067227, max segment_count: 16.0, count: 55216"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.950483833590278, max cpu: 18.842003, count: 55216"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.3840969442734, max mem: 73.72265625, count: 55216"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.527171313566239, max cpu: 4.738401, count: 55216"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.525488818911185, max mem: 62.4140625, count: 55216"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.342503247022488, max cpu: 9.275363, count: 55216"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 53.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.81073724950648, max mem: 66.05078125, count: 55216"
           }
         ]
       }

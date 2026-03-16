@@ -84,6 +84,13 @@ max_replication_slots = 10
 max_wal_senders = 10
 ```
 
+Leave headroom in `max_replication_slots` and `max_wal_senders` for the initial
+copy phase, not just the steady-state subscription. During bootstrap,
+PostgreSQL can create temporary table synchronization slots and connections on
+the publisher. With the default `max_sync_workers_per_subscription = 2`, plan
+for the main subscription plus up to two extra sync workers per actively
+bootstrapping subscription.
+
 Then allow the subscriber to connect in `pg_hba.conf`:
 
 ```ini
@@ -163,6 +170,16 @@ CREATE EXTENSION pg_search;
 CREATE PUBLICATION marketplace_pub FOR TABLE mock_items;
 ```
 
+If you plan to replicate several large or update-heavy tables, avoid putting
+all of them into one catch-all subscription by default. Our usual
+recommendation is one publication/subscription pair per large hot table, and to
+group only smaller related tables together.
+
+In normal steady-state replication, PostgreSQL runs a single apply worker per
+enabled subscription, so changes for all tables inside that subscription are
+applied through that worker on the subscriber. Separate subscriptions give each
+group its own apply worker and replication slot.
+
 ### 6. Create a Subscription on ParadeDB
 
 ```sql
@@ -175,6 +192,17 @@ By default, PostgreSQL copies existing rows from the publisher and then keeps
 streaming new changes. If you do not want the initial copy, create the
 subscription with `WITH (copy_data = false)` and backfill the tables by another
 method.
+
+Initial-copy parallelism is controlled by
+`max_sync_workers_per_subscription`, which defaults to `2`. If the publication
+contains many tables, it is normal to see only two tables copying at once while
+the rest wait for those workers to free up.
+
+For steady-state write throughput, do not confuse that initial-copy parallelism
+with normal apply throughput. If several high-churn tables share one
+subscription, their changes still funnel through the subscription's main apply
+worker unless you are using PostgreSQL's separate parallel-apply features for
+streamed in-progress transactions.
 
 ### 7. Verify Replication
 

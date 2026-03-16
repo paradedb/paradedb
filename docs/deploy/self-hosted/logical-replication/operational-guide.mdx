@@ -33,23 +33,37 @@ OLTP traffic.
 
 ## Baseline Workflow
 
-### 1. Build Search Indexes on ParadeDB
-
-In a logical replication deployment, ParadeDB receives replicated row changes
-and maintains its BM25 indexes locally. The BM25 indexes used for the search
-workload in this guide should be created on ParadeDB after the replicated tables
-have been copied over.
-
-### 2. Wait for the Initial Copy to Finish
+### 1. Wait for the Initial Copy to Finish
 
 Let PostgreSQL finish copying the base table data before you build BM25 indexes.
 This avoids extra indexing work during the bootstrap phase.
 
-On ParadeDB, you can monitor apply workers in `pg_stat_subscription` and error
-counters in `pg_stat_subscription_stats`. On the publisher, you should also
-watch replication slots to make sure retained WAL is not growing unexpectedly.
+On ParadeDB, you can check whether the initial copy is still running with:
 
-### 3. Build BM25 Indexes on ParadeDB
+```sql
+SELECT
+  subname,
+  worker_type,
+  CASE WHEN relid = 0 THEN NULL ELSE relid::regclass END AS table_name,
+  latest_end_time
+FROM pg_stat_subscription
+ORDER BY 1, 2, 3;
+```
+
+The initial copy is complete when there are no remaining rows with
+`worker_type = 'table synchronization'`. If you want a stricter per-table
+check, run:
+
+```sql
+SELECT srrelid::regclass AS table_name, srsubstate
+FROM pg_subscription_rel
+ORDER BY 1;
+```
+
+The initial copy is complete when every replicated table is in state `r`
+(`ready`).
+
+### 2. Build BM25 Indexes on ParadeDB
 
 Once the replicated tables are caught up, create BM25 indexes locally on
 ParadeDB:
@@ -63,7 +77,7 @@ WITH (key_field='id');
 After this, ongoing replicated `INSERT`, `UPDATE`, and `DELETE` operations will
 keep the BM25 index current automatically.
 
-### 4. Query ParadeDB
+### 3. Query ParadeDB
 
 Your application can now issue search queries to ParadeDB without adding search
 indexes to the primary database:
@@ -83,22 +97,30 @@ LIMIT 10;
 For large or high-churn production tables, use one publication and one
 subscription per large table, or group only small related tables together.
 
-This gives each subscription its own leader apply worker. A publication per
-table alone does not provide that isolation.
+This gives each subscription its own leader apply worker and replication slot.
+In normal steady-state replication, PostgreSQL does not parallelize ordinary
+change application across tables within a single subscription, so one hot table
+can delay other tables that share that apply worker. A publication per table
+alone does not provide that isolation unless it also has its own subscription.
 
 If you split replication this way, size the replication worker settings for the
 number of subscriptions you plan to run:
 
 - On the publisher, set `max_replication_slots` to at least the number of
-  subscriptions plus some reserve, and set `max_wal_senders` at least that high
-  plus any physical replicas.
+  subscriptions plus reserve for initial table synchronization workers. During
+  bootstrap, each active table synchronization worker can temporarily consume
+  its own replication slot on the publisher. With the default
+  `max_sync_workers_per_subscription = 2`, leave room for the main subscription
+  plus up to two extra sync slots per bootstrapping subscription, and set
+  `max_wal_senders` high enough to cover the same plus any physical replicas.
 - On the subscriber, set `max_active_replication_origins` and
   `max_logical_replication_workers` to at least the number of subscriptions plus
   reserve for table synchronization workers. `max_worker_processes` must also be
   high enough to accommodate those logical replication workers and any other
   background workers used by the system.
 - `max_sync_workers_per_subscription` controls initial-copy parallelism when a
-  subscription is created or refreshed.
+  subscription is created or refreshed. The default is `2`, so multi-table
+  publications normally copy at most two tables at a time unless you raise it.
 
 ### Add New Tables
 
@@ -154,6 +176,14 @@ For additive changes such as `ADD COLUMN`, the safest rollout is usually:
 
 This follows PostgreSQL's recommendation to apply additive schema changes on the
 subscriber first whenever possible, which avoids intermittent apply failures.
+Logical replication can tolerate extra columns on the subscriber, so adding a
+column on ParadeDB first will not stop replication by itself. Those extra
+subscriber-only columns use their local default value, or `NULL` if no default
+is defined, until the publisher starts sending that column.
+
+If the new column must be `NOT NULL`, give it a compatible default on both
+sides or use a coordinated maintenance window. Otherwise replicated `INSERT`
+operations can fail before the publisher-side change is in place.
 
 If the change is not additive, such as a column rename, drop, or incompatible
 type change, use a short maintenance window, pause writes to the affected
@@ -197,12 +227,6 @@ inefficient under `FULL` if there is no suitable index to help find matching
 rows. In practice, `FULL` can also increase WAL and replication traffic for
 `UPDATE` and `DELETE` because the entire row is used as the identity instead of
 a smaller key.
-
-### Avoid Writing to Replicated Tables on ParadeDB
-
-ParadeDB should normally be treated as a read and search node. Local writes to
-subscribed tables can create conflicts with incoming replicated changes and make
-the replica harder to reason about operationally.
 
 ### Monitor the Publisher
 
@@ -252,10 +276,12 @@ FROM pg_stat_subscription_stats;
 If `latest_end_time` stops advancing or `apply_error_count` increases, inspect
 the subscriber logs immediately.
 
-### Troubleshoot Schema Drift
+### Troubleshoot Apply Failures
 
-Two common log patterns indicate that the publisher and subscriber schemas have
-drifted apart:
+One common cause of apply-worker failures is schema drift between the publisher
+and subscriber.
+
+Two common log patterns for schema drift are:
 
 ```text
 logical replication target relation "public.doctor" is missing replicated columns: "personnel_id", "role_function_id"
@@ -277,6 +303,32 @@ When you see these messages:
 3. Apply the missing DDL on ParadeDB
 4. Re-enable or refresh the subscription if needed
 5. Rebuild any BM25 indexes affected by the schema change
+
+Another common cause of apply-worker failures is a logical replication conflict.
+For example, a duplicate key, a permissions failure on the target table, or
+row-level security on the subscriber can stop replication even when the schemas
+match.
+
+```text
+ERROR: duplicate key value violates unique constraint ...
+CONTEXT: processing remote data during INSERT for replication target relation ...
+```
+
+When you suspect a replication conflict:
+
+1. Inspect the subscriber logs for the first conflict error and note the finish
+   LSN and replication origin if PostgreSQL logged them
+2. Resolve the underlying issue on the subscriber, such as conflicting local
+   data, missing privileges, or row-level security policy interference
+3. Resume replication normally once the conflict is removed
+4. Only if you intentionally want to discard that remote transaction, use
+   `ALTER SUBSCRIPTION ... SKIP` with care
+
+Skipping a conflicting transaction can leave the subscriber inconsistent, so it
+should be treated as a last resort rather than the default fix. For conflict
+types and the PostgreSQL recovery workflow, see the [PostgreSQL logical
+replication conflicts
+documentation](https://www.postgresql.org/docs/current/logical-replication-conflicts.html).
 
 ### Emergency: WAL Keeps Accumulating on the Publisher
 
@@ -320,6 +372,8 @@ copy before it can resume as a logical subscriber.
 - Applying DDL on only one side of the replication link
 - Forgetting that new tables must be added to the publication and refreshed on
   the subscription
+- Writing directly to subscribed tables on ParadeDB, which can create conflicts
+  with incoming replicated changes
 - Leaving a broken logical slot unattended on the publisher until `pg_wal`
   fills disk
 - Assuming `ALTER SUBSCRIPTION ... DISABLE` relieves publisher-side WAL pressure

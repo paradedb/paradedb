@@ -351,23 +351,28 @@ WITH (key_field = 'id');
 
 -- ||| (match): lowercase and UPPERCASE queries must return the same rows in the same Top-K order
 -- rows 2, 3, 4 have identical token content at different case — their scores must be equal
-SELECT id, round(pdb.score(id)::numeric, 4) AS score
+SELECT id, round(pdb.score(id)::numeric, 4) AS score, content
 FROM citext_topk
 WHERE content ||| 'quick'
 ORDER BY pdb.score(id) DESC, id;
 
-SELECT id, round(pdb.score(id)::numeric, 4) AS score
+SELECT id, round(pdb.score(id)::numeric, 4) AS score, content
 FROM citext_topk
 WHERE content ||| 'QUICK'
 ORDER BY pdb.score(id) DESC, id;
 
 -- === (exact term): only lowercase matches (terms are stored lowercased at index time)
-SELECT id FROM citext_topk WHERE content === 'quick' ORDER BY id;
-SELECT id FROM citext_topk WHERE content === 'QUICK' ORDER BY id;  -- expects 0 rows
+SELECT id, content FROM citext_topk WHERE content === 'quick' ORDER BY id;
+SELECT id, content FROM citext_topk WHERE content === 'QUICK' ORDER BY id;  -- expects 0 rows
+
+-- paradedb.term() with 'QUICK': raw term lookup — 0 rows since tokens are stored lowercased
+SELECT id, content FROM citext_topk
+WHERE content ||| paradedb.term('content', 'QUICK')
+ORDER BY id;
 
 -- ### (phrase): case-insensitive phrase matching
-SELECT id FROM citext_topk WHERE content ### 'quick brown' ORDER BY id;
-SELECT id FROM citext_topk WHERE content ### 'QUICK BROWN' ORDER BY id;
+SELECT id, content FROM citext_topk WHERE content ### 'quick brown' ORDER BY id;
+SELECT id, content FROM citext_topk WHERE content ### 'QUICK BROWN' ORDER BY id;
 
 DROP TABLE citext_topk;
 

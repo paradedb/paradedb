@@ -1,0 +1,61 @@
+---
+title: Schema Changes
+description: Handle DDL/schema changes when running ParadeDB as a logical replica
+canonical: https://docs.paradedb.com/deploy/logical-replication/configuration
+---
+
+<Note>
+  This section assumes that you have successfully completed the [getting
+  started](/deploy/logical-replication/getting-started) guide and reviewed the
+  [Logical Replication Operational
+  Guide](/deploy/logical-replication/operational-guide).
+</Note>
+
+## Schema Changes
+
+PostgreSQL logical replication copies row changes, not DDL. That means schema
+changes on the publisher are not applied automatically on ParadeDB.
+
+Keep these rules in mind:
+
+- Existing replicated tables must stay schema-compatible on both sides
+- New tables must exist on ParadeDB before they can replicate there
+- BM25 indexes are local to ParadeDB and must be created or rebuilt there
+- Publication membership still controls whether a new table is replicated at all
+
+```sql
+-- On Publisher
+ALTER TABLE mock_items ADD COLUMN num_stock int;
+INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating, num_stock)
+VALUES ('Green running shoes', 'Footwear', true, '14:00:00', '2024-07-09', '{}', '2024-07-09 14:00:00', 2, 900);
+
+-- On Subscriber
+ERROR: logical replication target relation "public.mock_items" is missing some replicated columns
+```
+
+For the safe rollout sequence, including subscriber-first additive DDL and how
+to handle non-additive changes, see [Roll Out DDL
+Safely](/deploy/logical-replication/operational-guide#roll-out-ddl-safely).
+
+If replication is already failing because the schemas diverged or because a
+conflict stopped the apply worker, see [Troubleshoot Apply
+Failures](/deploy/logical-replication/operational-guide#troubleshoot-apply-failures).
+
+If you want a new table to replicate to ParadeDB, that table must be included
+in the publication. Publications created with `FOR ALL TABLES` include new
+tables automatically, and publications created with `FOR TABLES IN SCHEMA ...`
+include new tables created in those schemas automatically. If your publication
+was created from an explicit table list, new tables will not replicate until
+you add them manually. If you do not want a table replicated to ParadeDB, leave
+it out of the publication.
+
+For the full sequence for adding a replicated searchable table, see [Add New
+Tables](/deploy/logical-replication/operational-guide#add-new-tables).
+
+```sql
+-- On Publisher
+ALTER PUBLICATION marketplace_pub ADD TABLE newly_added_table;
+
+-- On Subscriber
+ALTER SUBSCRIPTION marketplace_sub REFRESH PUBLICATION;
+```

@@ -849,7 +849,7 @@ unsafe fn attname_from_var(heaprel: &PgSearchRelation, var: *mut pg_sys::Var) ->
 #[inline]
 unsafe fn validate_lhs_type_as_text_compatible(lhs: *mut pg_sys::Node, operator_name: &str) {
     let typoid = pg_sys::exprType(lhs);
-    if !type_can_be_tokenized(typoid) && !type_is_tokenizer(typoid) && !is_citext_oid(typoid) {
+    if !type_can_be_tokenized(typoid) && !type_is_tokenizer(typoid) {
         let typname = lookup_type_name(typoid).unwrap_or_else(|| String::from("<unknown type>"));
         ErrorReport::new(
             PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,

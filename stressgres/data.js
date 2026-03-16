@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773697087326,
+  "lastUpdate": 1773697096006,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33616,6 +33616,108 @@ window.BENCHMARK_DATA = {
             "value": 162.6796875,
             "unit": "median mem",
             "extra": "avg mem: 180.26208500229586, max mem: 221.0703125, count: 56079"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "aritroroy1999@gmail.com",
+            "name": "Aritro",
+            "username": "arrxy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c185a8364ba01b70159455f1c5dac23d07d2e1c",
+          "message": "feat: Support citext Postgres type (#4265)\n\n# Ticket(s) Closed\nCloses #2469\n\n## What\nAdd support for indexing and querying citext columns in pg_search.\n## Why\ncitext is a commonly used PostgreSQL extension type that provides\ncase-insensitive text comparisons while storing data using the same\nvarlena representation as text.\n## How\ncitext appears as a PgOid::Custom type, so support was added by\ndetecting its OID via a cached catalog lookup (is_citext_oid). When\ndetected, it is treated as a Text field across schema resolution, datum\nconversion, query construction, and Arrow ingestion. A lowercase\nnormalizer is applied to preserve citext’s case-insensitive behavior.\n## Tests\nManual tests were performed across PostgreSQL 18 using cargo pgrx.\nIndex creation\n```\nCREATE TABLE users_ci (\n    id BIGINT PRIMARY KEY,\n    username CITEXT\n);\n\nCREATE INDEX users_ci_search_idx\nON users_ci\nUSING bm25 (username, id)\nWITH (key_field = 'id');\n```\nQuery behavior\n```\nSELECT * FROM users_ci\nWHERE username @@@ 'alice';\n```\nReturns expected rows including case-insensitive matches.\nPlanner verification\n```\nEXPLAIN (ANALYZE, VERBOSE)\nSELECT * FROM users_ci\nWHERE username @@@ 'alice';\n```\nShows\n```\nCustom Scan (ParadeDB Base Scan)\nIndex: users_ci_search_idx\n```\nconfirming the pg_search index is used.",
+          "timestamp": "2026-03-16T16:49:52-04:00",
+          "tree_id": "daa41bc668753fd2718bbe6d3239c78884e42052",
+          "url": "https://github.com/paradedb/paradedb/commit/3c185a8364ba01b70159455f1c5dac23d07d2e1c"
+        },
+        "date": 1773697089269,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08006738783472248, max background_merging: 2.0, count: 56390"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.652040577054422, max cpu: 9.638554, count: 56390"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.43152272399805, max mem: 27.453125, count: 56390"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9656571170907124, max cpu: 27.988338, count: 56390"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 188.14453125,
+            "unit": "median mem",
+            "extra": "avg mem: 184.268627942676, max mem: 188.4921875, count: 56390"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51430,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51289.536761837204, max block_count: 51430.0, count: 56390"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.84603653129987, max segment_count: 56.0, count: 56390"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.649996043543687, max cpu: 27.906979, count: 56390"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 150.14453125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.9975543508379, max mem: 161.09375, count: 56390"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.740767205732214, max cpu: 23.210833, count: 56390"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 180.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 176.56290212415766, max mem: 181.28125, count: 56390"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.798871668880047, max cpu: 33.7011, count: 56390"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 180.8396878879234, max mem: 220.9921875, count: 56390"
           }
         ]
       }

@@ -1254,6 +1254,12 @@ impl CustomScan for JoinScan {
         // Clean up resources
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().result_slot = None;
+        // Explicitly drop pinned readers to release the Tantivy segment pin at the
+        // intended lifetime boundary (end of scan), mirroring basescan's pattern of
+        // explicitly dropping search_reader in end_custom_scan.
+        drop(std::mem::take(
+            &mut state.custom_state_mut()._pinned_readers,
+        ));
     }
 }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773690613116,
+  "lastUpdate": 1773690622339,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14736,6 +14736,138 @@ window.BENCHMARK_DATA = {
             "value": 53.0703125,
             "unit": "median mem",
             "extra": "avg mem: 52.81073724950648, max mem: 66.05078125, count: 55216"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1e199549867854b0e75ca4ba60c71c4a679d0f48",
+          "message": "feat: finalize sort in SegmentedTopKExec, remove redundant SortExec(TopK) (#4365)\n\n## What\n\nEliminate the `SortExec(TopK)` node from JoinScan plans when\n`SegmentedTopKExec` is present. `SegmentedTopKExec` now performs\nper-segment pruning, final materialized sort, and LIMIT K — emitting\nexactly K sorted rows.\n\n## Why\n\nThe previous plan had two Top K nodes:\n\n```\nProjectionExec\n  SortExec(TopK, fetch=K)          ← final global sort + LIMIT\n    TantivyLookupExec              ← decodes K*S rows\n      SegmentedTopKExec(K)         ← per-segment pruning, emits K*S rows\n        HashJoinExec\n```\n\n`SortExec(TopK)`'s `DynamicFilterPhysicalExpr` provided zero pruning\nbenefit because `SegmentedTopKExec` blocks until all input is consumed —\nby the time TopK receives rows, scanning is already done. Its only real\ncontribution was the final sort + LIMIT, which `SegmentedTopKExec` can\nabsorb.\n\nThe key win is that `TantivyLookupExec` now decodes **K rows instead of\nK×S** (where S is the number of segments), since it sits above\n`SegmentedTopKExec` which now emits only the final K rows.\n\n## How\n\n**`segmented_topk_exec.rs`** — Buffer pass-through rows instead of\nemitting them immediately. After all input is consumed,\n`emit_final_topk()` materializes sort column values (converting ordinals\nback to strings via `ord_to_str`), sorts all candidates by materialized\nvalues, takes top K, and emits a single sorted batch. Declares output\nordering so downstream nodes know the output is sorted. Updated\n`maybe_compact` to include pass-through rows in the survivor set.\n\n**`segmented_topk_rule.rs`** — After injecting `SegmentedTopKExec` below\n`TantivyLookupExec`, unwrap `SortExec` and return its child directly\n(removing it from the plan). When injection fails (multi-table sort\ncolumns, no deferred sort cols), `SortExec` is preserved as a safe\nfallback.\n\n**`tantivy_lookup_exec.rs`** — Propagate input ordering through output\n`EquivalenceProperties`. `TantivyLookupExec` preserves row order (uses\n`interleave`), so if its input is sorted, the output retains that\nordering.\n\nNew plan:\n```\nProjectionExec\n  TantivyLookupExec              ← decodes K rows only\n    SegmentedTopKExec(K)         ← pruning + final sort + LIMIT K\n      HashJoinExec\n```\n\n## Tests\n\nUpdated expected outputs for the existing tests.\n\n---------\n\nSigned-off-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-16T12:29:57-07:00",
+          "tree_id": "cd4ab9fe217faa4877a3edf0d28cf30236ecbab0",
+          "url": "https://github.com/paradedb/paradedb/commit/1e199549867854b0e75ca4ba60c71c4a679d0f48"
+        },
+        "date": 1773690615502,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.440650228580177, max cpu: 28.857718, count: 54944"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 63.12188262139633, max mem: 74.2890625, count: 54944"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.869845928995298, max cpu: 18.842003, count: 54944"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 62.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.28996341729761, max mem: 73.32421875, count: 54944"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.59982225344022, max cpu: 9.248554, count: 54944"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.23381676115682, max mem: 37.1328125, count: 54944"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7347007579201685, max cpu: 9.458128, count: 54944"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.77521359816358, max mem: 72.0625, count: 54944"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.627559262938869, max cpu: 9.320388, count: 109888"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 59.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.13758443966812, max mem: 71.13671875, count: 109888"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1756,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1757.389705882353, max block_count: 3114.0, count: 54944"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.199312026790915, max segment_count: 17.0, count: 54944"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.061457333965992, max cpu: 23.188406, count: 54944"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.09894797714491, max mem: 73.11328125, count: 54944"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.510670816382096, max cpu: 4.7524753, count: 54944"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.09302219930748, max mem: 62.890625, count: 54944"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9978334244797464, max cpu: 4.6421666, count: 54944"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.91294083237023, max mem: 66.078125, count: 54944"
           }
         ]
       }

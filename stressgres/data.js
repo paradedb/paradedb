@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773768999455,
+  "lastUpdate": 1773769009061,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23612,6 +23612,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.32814734712387, max segment_count: 127.0, count: 57334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "25d2d5f35370f855a7f3624769d387a8da0ac06b",
+          "message": "chore: Feedback from logical late materialization change (#4387)\n\n# Description\nBackport of #4376 to `0.22.x`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-17T09:55:24-07:00",
+          "tree_id": "333a91568c5b912e691e92a1a5dc6469136bef37",
+          "url": "https://github.com/paradedb/paradedb/commit/25d2d5f35370f855a7f3624769d387a8da0ac06b"
+        },
+        "date": 1773769001450,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.176097750570456, max cpu: 42.772278, count: 57281"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.5,
+            "unit": "median mem",
+            "extra": "avg mem: 233.40558114819922, max mem: 234.984375, count: 57281"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.449191109117734, max cpu: 33.168808, count: 57281"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.5270924532131, max mem: 176.69140625, count: 57281"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34089,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33538.26885005499, max block_count: 36206.0, count: 57281"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.30158342207713, max segment_count: 127.0, count: 57281"
           }
         ]
       }

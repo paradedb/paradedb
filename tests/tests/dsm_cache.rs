@@ -19,49 +19,56 @@ mod fixtures;
 
 use async_std::task::block_on;
 use fixtures::*;
-use rstest::*;
 use sqlx::PgConnection;
 
 const FAKE_OID: i64 = 99999;
 const FAKE_SEGMENT: &str = "00000000-0000-0000-0000-000000000001";
 const FAKE_SEGMENT_2: &str = "00000000-0000-0000-0000-000000000002";
 
+fn new_conn() -> (Db, PgConnection) {
+    let db = block_on(async { Db::new().await });
+    let mut conn = block_on(async { db.connection().await });
+    "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut conn);
+    (db, conn)
+}
+
 fn clear_cache(conn: &mut PgConnection) {
     "SELECT paradedb.dsm_cache_test_clear_all()".execute(conn);
 }
 
-
-#[rstest]
-fn dsm_cache_insert_and_lookup(mut conn: PgConnection) {
-    clear_cache(&mut conn);
+#[test]
+fn dsm_cache_insert_and_lookup() {
+    let (_db, ref mut conn) = new_conn();
+    clear_cache(conn);
 
     // Insert a test entry
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 256)"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     let (entries, _, total_bytes): (i64, i64, i64) =
-        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(&mut conn);
+        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn);
 
     assert_eq!(entries, 1);
     assert_eq!(total_bytes, 256);
 }
 
-#[rstest]
-fn dsm_cache_entries_have_correct_fields(mut conn: PgConnection) {
-    clear_cache(&mut conn);
+#[test]
+fn dsm_cache_entries_have_correct_fields() {
+    let (_db, ref mut conn) = new_conn();
+    clear_cache(conn);
 
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 42, 512)"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     let rows: Vec<(String, String, i32, i64)> = r#"
         SELECT segment_id, tag, sub_key, size_bytes
         FROM paradedb.dsm_cache_entries()
     "#
-    .fetch(&mut conn);
+    .fetch(conn);
 
     assert_eq!(rows.len(), 1);
     let (segment_id, tag, sub_key, size_bytes) = &rows[0];
@@ -71,166 +78,170 @@ fn dsm_cache_entries_have_correct_fields(mut conn: PgConnection) {
     assert_eq!(*size_bytes, 512);
 }
 
-#[rstest]
-fn dsm_cache_multiple_entries(mut conn: PgConnection) {
-    clear_cache(&mut conn);
+#[test]
+fn dsm_cache_multiple_entries() {
+    let (_db, ref mut conn) = new_conn();
+    clear_cache(conn);
 
     // Two segments, same index
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
     )
-    .execute(&mut conn);
+    .execute(conn);
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     let (entries, _, total_bytes): (i64, i64, i64) =
-        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(&mut conn);
+        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn);
 
     assert_eq!(entries, 2);
     assert_eq!(total_bytes, 128 + 256);
 }
 
-#[rstest]
-fn dsm_cache_multiple_sub_keys(mut conn: PgConnection) {
-    clear_cache(&mut conn);
+#[test]
+fn dsm_cache_multiple_sub_keys() {
+    let (_db, ref mut conn) = new_conn();
+    clear_cache(conn);
 
     // Same segment, different sub_keys
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 100)"
     )
-    .execute(&mut conn);
+    .execute(conn);
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 1, 200)"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     let (entries, _, total_bytes): (i64, i64, i64) =
-        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(&mut conn);
+        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn);
 
     assert_eq!(entries, 2);
     assert_eq!(total_bytes, 300);
 }
 
-#[rstest]
-fn dsm_cache_duplicate_insert_is_idempotent(mut conn: PgConnection) {
-    clear_cache(&mut conn);
+#[test]
+fn dsm_cache_duplicate_insert_is_idempotent() {
+    let (_db, ref mut conn) = new_conn();
+    clear_cache(conn);
 
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 256)"
    )
-    .execute(&mut conn);
+    .execute(conn);
     // Insert same key again
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 256)"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     let (entries, _, _): (i64, i64, i64) =
-        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(&mut conn);
+        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn);
 
     assert_eq!(entries, 1, "duplicate insert should not create a second entry");
 }
 
-#[rstest]
-fn dsm_cache_invalidate_segment(mut conn: PgConnection) {
-    clear_cache(&mut conn);
+#[test]
+fn dsm_cache_invalidate_segment() {
+    let (_db, ref mut conn) = new_conn();
+    clear_cache(conn);
 
     // Insert entries for two segments
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
     )
-    .execute(&mut conn);
+    .execute(conn);
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     // Invalidate just the first segment
     format!(
         "SELECT paradedb.dsm_cache_test_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     let (entries, _, total_bytes): (i64, i64, i64) =
-        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(&mut conn);
+        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn);
 
     assert_eq!(entries, 1, "only one segment should remain");
     assert_eq!(total_bytes, 256, "only the second segment's bytes should remain");
 }
 
-#[rstest]
-fn dsm_cache_invalidate_index(mut conn: PgConnection) {
-    clear_cache(&mut conn);
+#[test]
+fn dsm_cache_invalidate_index() {
+    let (_db, ref mut conn) = new_conn();
+    clear_cache(conn);
 
     // Insert entries for two segments under the same index
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
     )
-    .execute(&mut conn);
+    .execute(conn);
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     // Invalidate the entire index
     format!(
         "SELECT paradedb.dsm_cache_test_invalidate_index('{FAKE_OID}'::oid)"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     let (entries, _, total_bytes): (i64, i64, i64) =
-        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(&mut conn);
+        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn);
 
     assert_eq!(entries, 0, "all entries should be removed");
     assert_eq!(total_bytes, 0, "total bytes should be zero");
 }
 
-#[rstest]
-fn dsm_cache_invalidate_segment_with_sub_keys(mut conn: PgConnection) {
-    clear_cache(&mut conn);
+#[test]
+fn dsm_cache_invalidate_segment_with_sub_keys() {
+    let (_db, ref mut conn) = new_conn();
+    clear_cache(conn);
 
     // Insert multiple sub_keys for the same segment
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 100)"
     )
-    .execute(&mut conn);
+    .execute(conn);
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 1, 200)"
     )
-    .execute(&mut conn);
+    .execute(conn);
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 2, 300)"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     // Invalidate the segment — all sub_keys should be removed
     format!(
         "SELECT paradedb.dsm_cache_test_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
     )
-    .execute(&mut conn);
+    .execute(conn);
 
     let (entries, _, _): (i64, i64, i64) =
-        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(&mut conn);
+        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn);
 
     assert_eq!(entries, 0, "all sub_keys for the segment should be removed");
 }
 
-#[rstest]
-fn dsm_cache_visible_across_connections(database: Db) {
-    let mut conn_a = block_on(async { database.connection().await });
-    let mut conn_b = block_on(async { database.connection().await });
-
-    "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut conn_a);
+#[test]
+fn dsm_cache_visible_across_connections() {
+    let (db, ref mut conn_a) = new_conn();
+    let mut conn_b = block_on(async { db.connection().await });
     "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut conn_b);
-    clear_cache(&mut conn_a);
+    clear_cache(conn_a);
 
     // Connection A inserts a cache entry
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 512)"
     )
-    .execute(&mut conn_a);
+    .execute(conn_a);
 
     // Connection B should see it (shared memory is cross-backend)
     let (entries, _, total_bytes): (i64, i64, i64) =
@@ -240,24 +251,22 @@ fn dsm_cache_visible_across_connections(database: Db) {
     assert_eq!(total_bytes, 512);
 }
 
-#[rstest]
-fn dsm_cache_invalidation_across_connections(database: Db) {
-    let mut conn_a = block_on(async { database.connection().await });
-    let mut conn_b = block_on(async { database.connection().await });
-
-    "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut conn_a);
+#[test]
+fn dsm_cache_invalidation_across_connections() {
+    let (db, ref mut conn_a) = new_conn();
+    let mut conn_b = block_on(async { db.connection().await });
     "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut conn_b);
-    clear_cache(&mut conn_a);
+    clear_cache(conn_a);
 
     // Connection A inserts entries
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
     )
-    .execute(&mut conn_a);
+    .execute(conn_a);
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
     )
-    .execute(&mut conn_a);
+    .execute(conn_a);
 
     // Connection B sees both
     let (entries, _, _): (i64, i64, i64) =
@@ -268,7 +277,7 @@ fn dsm_cache_invalidation_across_connections(database: Db) {
     format!(
         "SELECT paradedb.dsm_cache_test_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
     )
-    .execute(&mut conn_a);
+    .execute(conn_a);
 
     // Connection B should see only one remaining
     let (entries, _, total_bytes): (i64, i64, i64) =
@@ -277,33 +286,31 @@ fn dsm_cache_invalidation_across_connections(database: Db) {
     assert_eq!(total_bytes, 256);
 }
 
-#[rstest]
-fn dsm_cache_drop_index_clears_entries_across_connections(database: Db) {
-    let mut conn_a = block_on(async { database.connection().await });
-    let mut conn_b = block_on(async { database.connection().await });
-
-    "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut conn_a);
+#[test]
+fn dsm_cache_drop_index_clears_entries_across_connections() {
+    let (db, ref mut conn_a) = new_conn();
+    let mut conn_b = block_on(async { db.connection().await });
     "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut conn_b);
-    clear_cache(&mut conn_a);
+    clear_cache(conn_a);
 
     // Create a plain index so we have a real OID for the object_access_hook
-    "CREATE TABLE test_dsm_drop (id SERIAL, body TEXT)".execute(&mut conn_a);
-    "CREATE INDEX test_dsm_drop_idx ON test_dsm_drop (id)".execute(&mut conn_a);
+    "CREATE TABLE test_dsm_drop (id SERIAL, body TEXT)".execute(conn_a);
+    "CREATE INDEX test_dsm_drop_idx ON test_dsm_drop (id)".execute(conn_a);
 
     // Get the real index OID
     let (index_oid,): (i64,) =
         "SELECT oid::int8 FROM pg_class WHERE relname = 'test_dsm_drop_idx'"
-            .fetch_one(&mut conn_a);
+            .fetch_one(conn_a);
 
     // Insert fake cache entries under that real index OID
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{index_oid}'::oid, '{FAKE_SEGMENT}', 0, 128)"
     )
-    .execute(&mut conn_a);
+    .execute(conn_a);
     format!(
         "SELECT paradedb.dsm_cache_test_insert('{index_oid}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
     )
-    .execute(&mut conn_a);
+    .execute(conn_a);
 
     // Connection B sees the entries
     let (entries, _, _): (i64, i64, i64) =
@@ -311,7 +318,7 @@ fn dsm_cache_drop_index_clears_entries_across_connections(database: Db) {
     assert_eq!(entries, 2, "both entries should be visible before DROP");
 
     // Drop the index — object_access_hook should fire and invalidate
-    "DROP INDEX test_dsm_drop_idx".execute(&mut conn_a);
+    "DROP INDEX test_dsm_drop_idx".execute(conn_a);
 
     // Connection B should see the entries are gone
     let (entries, _, total_bytes): (i64, i64, i64) =
@@ -320,20 +327,18 @@ fn dsm_cache_drop_index_clears_entries_across_connections(database: Db) {
     assert_eq!(total_bytes, 0);
 }
 
-#[rstest]
-fn dsm_cache_refcount_keeps_mapping_alive_after_invalidation(database: Db) {
-    let mut conn_a = block_on(async { database.connection().await });
-    let mut conn_b = block_on(async { database.connection().await });
-
-    "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut conn_a);
+#[test]
+fn dsm_cache_refcount_keeps_mapping_alive_after_invalidation() {
+    let (db, ref mut conn_a) = new_conn();
+    let mut conn_b = block_on(async { db.connection().await });
     "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut conn_b);
-    clear_cache(&mut conn_a);
+    clear_cache(conn_a);
 
     // 1. Connection A creates an entry and HOLDS the DsmSlice
     let (held,): (bool,) = format!(
         "SELECT paradedb.dsm_cache_test_hold('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 1024)"
     )
-    .fetch_one(&mut conn_a);
+    .fetch_one(conn_a);
     assert!(held, "conn_a: should create and hold a cache entry");
 
     // 2. Connection B attaches to the SAME entry and holds its own DsmSlice
@@ -345,24 +350,24 @@ fn dsm_cache_refcount_keeps_mapping_alive_after_invalidation(database: Db) {
 
     // Verify the entry is in the shared array
     let (entries, _, _): (i64, i64, i64) =
-        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(&mut conn_a);
+        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn_a);
     assert_eq!(entries, 1);
 
     // 3. Invalidate the segment — removes from shared array and unpins globally
     format!(
         "SELECT paradedb.dsm_cache_test_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
     )
-    .execute(&mut conn_a);
+    .execute(conn_a);
 
     // Shared array should be empty now
     let (entries, _, _): (i64, i64, i64) =
-        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(&mut conn_a);
+        "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn_a);
     assert_eq!(entries, 0, "entry should be gone from shared array");
 
     // 4. Connection A releases its reference
-    "SELECT paradedb.dsm_cache_test_release()".execute(&mut conn_a);
+    "SELECT paradedb.dsm_cache_test_release()".execute(conn_a);
     let (readable,): (bool,) =
-        "SELECT paradedb.dsm_cache_test_read_held()".fetch_one(&mut conn_a);
+        "SELECT paradedb.dsm_cache_test_read_held()".fetch_one(conn_a);
     assert!(!readable, "conn_a: should have nothing held after release");
 
     // 5. Connection B can STILL read — its Arc<MappingGuard> keeps the mapping alive

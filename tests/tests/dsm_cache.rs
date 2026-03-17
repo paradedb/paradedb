@@ -33,7 +33,7 @@ fn new_conn() -> (Db, PgConnection) {
 }
 
 fn clear_cache(conn: &mut PgConnection) {
-    "SELECT paradedb.dsm_cache_test_clear_all()".execute(conn);
+    "SELECT paradedb.pg_test_dsm_cache_clear_all()".execute(conn);
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn dsm_cache_insert_and_lookup() {
 
     // Insert a test entry
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 256)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 256)"
     )
     .execute(conn);
 
@@ -60,7 +60,7 @@ fn dsm_cache_entries_have_correct_fields() {
     clear_cache(conn);
 
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 42, 512)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 42, 512)"
     )
     .execute(conn);
 
@@ -85,11 +85,11 @@ fn dsm_cache_multiple_entries() {
 
     // Two segments, same index
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
     )
     .execute(conn);
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
     )
     .execute(conn);
 
@@ -107,11 +107,11 @@ fn dsm_cache_multiple_sub_keys() {
 
     // Same segment, different sub_keys
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 100)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 100)"
     )
     .execute(conn);
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 1, 200)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 1, 200)"
     )
     .execute(conn);
 
@@ -128,12 +128,12 @@ fn dsm_cache_duplicate_insert_is_idempotent() {
     clear_cache(conn);
 
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 256)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 256)"
    )
     .execute(conn);
     // Insert same key again
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 256)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 256)"
     )
     .execute(conn);
 
@@ -150,17 +150,17 @@ fn dsm_cache_invalidate_segment() {
 
     // Insert entries for two segments
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
     )
     .execute(conn);
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
     )
     .execute(conn);
 
     // Invalidate just the first segment
     format!(
-        "SELECT paradedb.dsm_cache_test_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
+        "SELECT paradedb.pg_test_dsm_cache_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
     )
     .execute(conn);
 
@@ -178,17 +178,17 @@ fn dsm_cache_invalidate_index() {
 
     // Insert entries for two segments under the same index
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
     )
     .execute(conn);
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
     )
     .execute(conn);
 
     // Invalidate the entire index
     format!(
-        "SELECT paradedb.dsm_cache_test_invalidate_index('{FAKE_OID}'::oid)"
+        "SELECT paradedb.pg_test_dsm_cache_invalidate_index('{FAKE_OID}'::oid)"
     )
     .execute(conn);
 
@@ -206,21 +206,21 @@ fn dsm_cache_invalidate_segment_with_sub_keys() {
 
     // Insert multiple sub_keys for the same segment
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 100)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 100)"
     )
     .execute(conn);
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 1, 200)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 1, 200)"
     )
     .execute(conn);
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 2, 300)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 2, 300)"
     )
     .execute(conn);
 
     // Invalidate the segment — all sub_keys should be removed
     format!(
-        "SELECT paradedb.dsm_cache_test_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
+        "SELECT paradedb.pg_test_dsm_cache_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
     )
     .execute(conn);
 
@@ -239,7 +239,7 @@ fn dsm_cache_visible_across_connections() {
 
     // Connection A inserts a cache entry
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 512)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 512)"
     )
     .execute(conn_a);
 
@@ -260,11 +260,11 @@ fn dsm_cache_invalidation_across_connections() {
 
     // Connection A inserts entries
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 128)"
     )
     .execute(conn_a);
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
     )
     .execute(conn_a);
 
@@ -275,7 +275,7 @@ fn dsm_cache_invalidation_across_connections() {
 
     // Connection A invalidates one segment
     format!(
-        "SELECT paradedb.dsm_cache_test_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
+        "SELECT paradedb.pg_test_dsm_cache_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
     )
     .execute(conn_a);
 
@@ -304,11 +304,11 @@ fn dsm_cache_drop_index_clears_entries_across_connections() {
 
     // Insert fake cache entries under that real index OID
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{index_oid}'::oid, '{FAKE_SEGMENT}', 0, 128)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{index_oid}'::oid, '{FAKE_SEGMENT}', 0, 128)"
     )
     .execute(conn_a);
     format!(
-        "SELECT paradedb.dsm_cache_test_insert('{index_oid}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
+        "SELECT paradedb.pg_test_dsm_cache_insert('{index_oid}'::oid, '{FAKE_SEGMENT_2}', 0, 256)"
     )
     .execute(conn_a);
 
@@ -336,14 +336,14 @@ fn dsm_cache_refcount_keeps_mapping_alive_after_invalidation() {
 
     // 1. Connection A creates an entry and HOLDS the DsmSlice
     let (held,): (bool,) = format!(
-        "SELECT paradedb.dsm_cache_test_hold('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 1024)"
+        "SELECT paradedb.pg_test_dsm_cache_hold('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 1024)"
     )
     .fetch_one(conn_a);
     assert!(held, "conn_a: should create and hold a cache entry");
 
     // 2. Connection B attaches to the SAME entry and holds its own DsmSlice
     let (held,): (bool,) = format!(
-        "SELECT paradedb.dsm_cache_test_hold('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 1024)"
+        "SELECT paradedb.pg_test_dsm_cache_hold('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 1024)"
     )
     .fetch_one(&mut conn_b);
     assert!(held, "conn_b: should attach and hold the same cache entry");
@@ -355,7 +355,7 @@ fn dsm_cache_refcount_keeps_mapping_alive_after_invalidation() {
 
     // 3. Invalidate the segment — removes from shared array and unpins globally
     format!(
-        "SELECT paradedb.dsm_cache_test_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
+        "SELECT paradedb.pg_test_dsm_cache_invalidate_segment('{FAKE_OID}'::oid, '{FAKE_SEGMENT}')"
     )
     .execute(conn_a);
 
@@ -365,19 +365,19 @@ fn dsm_cache_refcount_keeps_mapping_alive_after_invalidation() {
     assert_eq!(entries, 0, "entry should be gone from shared array");
 
     // 4. Connection A releases its reference
-    "SELECT paradedb.dsm_cache_test_release()".execute(conn_a);
+    "SELECT paradedb.pg_test_dsm_cache_release()".execute(conn_a);
     let (readable,): (bool,) =
-        "SELECT paradedb.dsm_cache_test_read_held()".fetch_one(conn_a);
+        "SELECT paradedb.pg_test_dsm_cache_read_held()".fetch_one(conn_a);
     assert!(!readable, "conn_a: should have nothing held after release");
 
     // 5. Connection B can STILL read — its Arc<MappingGuard> keeps the mapping alive
     let (readable,): (bool,) =
-        "SELECT paradedb.dsm_cache_test_read_held()".fetch_one(&mut conn_b);
+        "SELECT paradedb.pg_test_dsm_cache_read_held()".fetch_one(&mut conn_b);
     assert!(readable, "conn_b: should still be readable after conn_a released");
 
     // 6. Connection B releases — last reference, dsm_detach fires
-    "SELECT paradedb.dsm_cache_test_release()".execute(&mut conn_b);
+    "SELECT paradedb.pg_test_dsm_cache_release()".execute(&mut conn_b);
     let (readable,): (bool,) =
-        "SELECT paradedb.dsm_cache_test_read_held()".fetch_one(&mut conn_b);
+        "SELECT paradedb.pg_test_dsm_cache_read_held()".fetch_one(&mut conn_b);
     assert!(!readable, "conn_b: should have nothing held after release");
 }

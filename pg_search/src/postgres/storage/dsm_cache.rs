@@ -769,7 +769,7 @@ thread_local! {
 /// Test-only: insert a cache entry with the Test tag and a payload of `size` zero-bytes.
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_extern]
-fn dsm_cache_test_insert(index_oid: pg_sys::Oid, segment_id: String, sub_key: i32, size: i32) {
+fn pg_test_dsm_cache_insert(index_oid: pg_sys::Oid, segment_id: String, sub_key: i32, size: i32) {
     let uuid = uuid::Uuid::parse_str(&segment_id).expect("invalid segment_id UUID");
     get_or_create(
         index_oid,
@@ -784,7 +784,7 @@ fn dsm_cache_test_insert(index_oid: pg_sys::Oid, segment_id: String, sub_key: i3
 /// Test-only: invalidate all cache entries for a given segment.
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_extern]
-fn dsm_cache_test_invalidate_segment(index_oid: pg_sys::Oid, segment_id: String) {
+fn pg_test_dsm_cache_invalidate_segment(index_oid: pg_sys::Oid, segment_id: String) {
     let uuid = uuid::Uuid::parse_str(&segment_id).expect("invalid segment_id UUID");
     invalidate_segment(index_oid, uuid.as_bytes());
 }
@@ -792,14 +792,14 @@ fn dsm_cache_test_invalidate_segment(index_oid: pg_sys::Oid, segment_id: String)
 /// Test-only: invalidate all cache entries for a given index.
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_extern]
-fn dsm_cache_test_invalidate_index(index_oid: pg_sys::Oid) {
+fn pg_test_dsm_cache_invalidate_index(index_oid: pg_sys::Oid) {
     invalidate_index(index_oid);
 }
 
 /// Test-only: remove all entries from the cache.
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_extern]
-fn dsm_cache_test_clear_all() {
+fn pg_test_dsm_cache_clear_all() {
     let Some(shared) = load_shared() else {
         return;
     };
@@ -817,7 +817,7 @@ fn dsm_cache_test_clear_all() {
 /// Returns true if the entry was created successfully.
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_extern]
-fn dsm_cache_test_hold(
+fn pg_test_dsm_cache_hold(
     index_oid: pg_sys::Oid,
     segment_id: String,
     sub_key: i32,
@@ -841,7 +841,7 @@ fn dsm_cache_test_hold(
 /// Returns true if the held slice is still readable and contains the expected pattern.
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_extern]
-fn dsm_cache_test_read_held() -> bool {
+fn pg_test_dsm_cache_read_held() -> bool {
     HELD_SLICE.with(|h| {
         let borrow = h.borrow();
         match borrow.as_ref() {
@@ -857,7 +857,7 @@ fn dsm_cache_test_read_held() -> bool {
 /// Test-only: drop the held DsmSlice, releasing the Arc<MappingGuard>.
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_extern]
-fn dsm_cache_test_release() {
+fn pg_test_dsm_cache_release() {
     HELD_SLICE.with(|h| *h.borrow_mut() = None);
 }
 

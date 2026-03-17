@@ -75,7 +75,7 @@ use crate::postgres::customscan::joinscan::build::{
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
@@ -167,14 +167,18 @@ pub struct JoinScanState {
     /// `MvccSatisfies::ParallelWorker`, ensuring all workers see identical segments.
     pub non_partitioning_segments: Vec<crate::api::HashSet<SegmentId>>,
 
-    /// Open index readers held by the leader to keep Tantivy segment files pinned.
+    /// Captured source manifests held by the leader. Serves two purposes:
+    /// 1. Provides segment counts for DSM sizing in `estimate_dsm_custom_scan` and
+    ///    segment readers for DSM population in `initialize_dsm_custom_scan`.
+    /// 2. Keeps the underlying Tantivy buffer pins alive for the full duration of the
+    ///    scan, preventing background merges from recycling the canonical segments.
     ///
-    /// The leader opens readers for all sources in `initialize_dsm_custom_scan` to
-    /// snapshot segment IDs into DSM. Without retaining them here, the readers would
-    /// drop at the end of that function, releasing the Tantivy pin and allowing the
-    /// GC to merge/delete those segments before workers call `exec_custom_scan`.
-    /// Storing them here keeps all segments alive for the full duration of the scan.
-    pub _pinned_readers: Vec<SearchIndexReader>,
+    /// Must live on `JoinScanState` (not as a local in `initialize_dsm`) because the
+    /// buffer pins must survive from DSM initialization through `exec_custom_scan`,
+    /// where workers reopen the same segments via `MvccSatisfies::ParallelWorker(ids)`.
+    /// Dropping manifests early would release the pins and allow segment recycling
+    /// before workers can open them.
+    pub _source_manifests: Vec<SearchIndexManifest>,
 }
 
 impl JoinScanState {

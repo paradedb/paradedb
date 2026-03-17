@@ -377,13 +377,27 @@ impl JoinSourceCandidate {
 
         let index_rel = PgSearchRelation::open(indexrelid);
         let heap_rel = PgSearchRelation::open(heaprelid);
+        let query = self.query.clone().unwrap_or(SearchQueryInput::All);
+        let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
+
+        let has_pg_exprs = {
+            let mut q = query.clone();
+            q.has_postgres_expressions()
+        };
+        if has_pg_exprs {
+            let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::LargestSegment)
+                .expect("Failed to open index reader for estimation");
+            self.segment_count = Some(reader.total_segment_count());
+            self.estimate = Some(RowEstimate::Known(reader.total_docs()));
+            return;
+        }
 
         // `expr_context` only lives until the end of this function,
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
-            self.query.clone().unwrap_or(SearchQueryInput::All),
+            query,
             false,
             MvccSatisfies::LargestSegment,
             NonNull::new(expr_context.as_ptr()),
@@ -392,8 +406,6 @@ impl JoinSourceCandidate {
         .expect("Failed to open index reader for estimation");
 
         self.segment_count = Some(reader.total_segment_count());
-
-        let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
 
         let (estimate, _) = reader.estimate_docs(row_estimate);
         self.estimate = Some(RowEstimate::Known(estimate as u64));

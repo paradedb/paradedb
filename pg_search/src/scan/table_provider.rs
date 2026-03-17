@@ -62,6 +62,10 @@ pub struct PgSearchTableProvider {
     /// re-injected by the `PgSearchExtensionCodec` during deserialization.
     #[serde(skip)]
     expr_context: Option<*mut pg_sys::ExprContext>,
+    /// Executor planstate, skipped during serialization and re-injected only for execution paths
+    /// that need to solve runtime Postgres expressions before opening a real reader.
+    #[serde(skip)]
+    planstate: Option<*mut pg_sys::PlanState>,
     /// Position of this source in the non-partitioning source list (0-based), or `None`
     /// if this is the partitioning source or a serial scan.
     ///
@@ -115,6 +119,7 @@ impl PgSearchTableProvider {
             is_parallel,
             parallel_state,
             expr_context: None,
+            planstate: None,
             non_partitioning_index: None,
             canonical_segment_ids: None,
             late_materialization_active: AtomicBool::new(false),
@@ -156,6 +161,10 @@ impl PgSearchTableProvider {
 
     pub(crate) fn set_expr_context(&mut self, expr_context: Option<*mut pg_sys::ExprContext>) {
         self.expr_context = expr_context;
+    }
+
+    pub(crate) fn set_planstate(&mut self, planstate: Option<*mut pg_sys::PlanState>) {
+        self.planstate = planstate;
     }
     pub fn try_enable_late_materialization(
         &mut self,
@@ -570,11 +579,26 @@ impl TableProvider for PgSearchTableProvider {
         let heap_rel = PgSearchRelation::open(heap_relid);
         let index_rel = PgSearchRelation::open(index_relid);
 
-        // Start with the base query from scan_info
-        let base_query = self.scan_info.query.clone();
-
-        // Convert pushed-down filters to SearchQueryInput and combine with base query
-        let query = self.combine_query_with_filters(base_query, filters);
+        // Solve runtime Postgres expressions (prepared-statement params, etc.) here in scan()
+        // rather than earlier because each process (leader and workers) independently
+        // deserializes the logical plan from PrivateData and must resolve expressions in its
+        // own executor context. The planstate and expr_context are injected by
+        // PgSearchExtensionCodec during deserialization in exec_custom_scan.
+        let mut query = self.combine_query_with_filters(self.scan_info.query.clone(), filters);
+        if query.has_postgres_expressions() {
+            let Some(planstate) = self.planstate else {
+                return Err(DataFusionError::Internal(
+                    "postgres expressions have not been solved: missing planstate".to_string(),
+                ));
+            };
+            let Some(expr_context) = self.expr_context else {
+                return Err(DataFusionError::Internal(
+                    "postgres expressions have not been solved: missing expr_context".to_string(),
+                ));
+            };
+            query.init_postgres_expressions(planstate);
+            query.solve_postgres_expressions(expr_context);
+        }
 
         // Determine MVCC strategy based on whether we are running in parallel mode.
         //

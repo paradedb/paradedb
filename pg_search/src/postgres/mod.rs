@@ -166,10 +166,10 @@ struct ParallelScanPayloadLayout {
     all_counts: Range<usize>,
     /// Concatenated 16-byte segment UUIDs for all sources, in ascending source-index order.
     all_ids: Range<usize>,
-    /// One `u32` per segment across all sources (same order as `all_ids`): deleted doc count.
-    all_deleted_docs: Range<usize>,
-    /// One `u32` per segment across all sources (same order as `all_ids`): max doc count.
-    all_max_docs: Range<usize>,
+    /// One `u32` per segment in the partitioning source: deleted doc count.
+    partitioning_deleted_docs: Range<usize>,
+    /// One `u32` per segment in the partitioning source: max doc count.
+    partitioning_max_docs: Range<usize>,
     /// One `i32` per segment in the partitioning source: which worker claimed it.
     claims: Range<usize>,
     aggregates_header: Option<Range<usize>>,
@@ -206,15 +206,17 @@ impl ParallelScanPayloadLayout {
         let (layout, all_ids_offset) = layout.extend(all_ids_layout)?;
         let all_ids_range = all_ids_offset..(all_ids_offset + all_ids_layout.size());
 
-        // All deleted doc counts concatenated: [u32; total_segs].
-        let all_del_layout = Layout::array::<u32>(total_segs)?;
-        let (layout, all_del_offset) = layout.extend(all_del_layout)?;
-        let all_deleted_docs_range = all_del_offset..(all_del_offset + all_del_layout.size());
+        // Deleted doc counts for the partitioning source only: [u32; partitioning_nsegments].
+        let partitioning_del_layout = Layout::array::<u32>(partitioning_nsegments)?;
+        let (layout, partitioning_del_offset) = layout.extend(partitioning_del_layout)?;
+        let partitioning_deleted_docs_range =
+            partitioning_del_offset..(partitioning_del_offset + partitioning_del_layout.size());
 
-        // All max doc counts concatenated: [u32; total_segs].
-        let all_max_layout = Layout::array::<u32>(total_segs)?;
-        let (layout, all_max_offset) = layout.extend(all_max_layout)?;
-        let all_max_docs_range = all_max_offset..(all_max_offset + all_max_layout.size());
+        // Max doc counts for the partitioning source only: [u32; partitioning_nsegments].
+        let partitioning_max_layout = Layout::array::<u32>(partitioning_nsegments)?;
+        let (layout, partitioning_max_offset) = layout.extend(partitioning_max_layout)?;
+        let partitioning_max_docs_range =
+            partitioning_max_offset..(partitioning_max_offset + partitioning_max_layout.size());
 
         // Claims for the partitioning source only: [i32; partitioning_nsegments].
         let claims_layout = Layout::array::<i32>(partitioning_nsegments)?;
@@ -241,8 +243,8 @@ impl ParallelScanPayloadLayout {
             query: query_range,
             all_counts: all_counts_range,
             all_ids: all_ids_range,
-            all_deleted_docs: all_deleted_docs_range,
-            all_max_docs: all_max_docs_range,
+            partitioning_deleted_docs: partitioning_deleted_docs_range,
+            partitioning_max_docs: partitioning_max_docs_range,
             claims: claims_range,
             aggregates_header,
             aggregates_data,
@@ -310,28 +312,23 @@ impl ParallelScanPayload {
             flat_offset += source.len();
         }
 
-        // All deleted doc counts concatenated.
-        let del_range = self.layout.all_deleted_docs.clone();
+        // Deleted doc counts for the partitioning source only.
+        let del_range = self.layout.partitioning_deleted_docs.clone();
         let del_slice: &mut [u32] =
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[del_range]).unwrap();
-        let mut flat_offset = 0;
-        for source in all_sources.iter() {
-            for (reader, target) in source.iter().zip(del_slice[flat_offset..].iter_mut()) {
-                *target = reader.num_deleted_docs();
-            }
-            flat_offset += source.len();
+        let partitioning_source = all_sources
+            .get(partitioning_source_idx)
+            .expect("partitioning_source_idx out of bounds");
+        for (reader, target) in partitioning_source.iter().zip(del_slice.iter_mut()) {
+            *target = reader.num_deleted_docs();
         }
 
-        // All max doc counts concatenated.
-        let max_range = self.layout.all_max_docs.clone();
+        // Max doc counts for the partitioning source only.
+        let max_range = self.layout.partitioning_max_docs.clone();
         let max_slice: &mut [u32] =
             bytemuck::try_cast_slice_mut(&mut self.data_mut()[max_range]).unwrap();
-        let mut flat_offset = 0;
-        for source in all_sources.iter() {
-            for (reader, target) in source.iter().zip(max_slice[flat_offset..].iter_mut()) {
-                *target = reader.max_doc();
-            }
-            flat_offset += source.len();
+        for (reader, target) in partitioning_source.iter().zip(max_slice.iter_mut()) {
+            *target = reader.max_doc();
         }
 
         // Initialize claims (only for the partitioning source).
@@ -382,20 +379,13 @@ impl ParallelScanPayload {
         &all[offset..offset + count]
     }
 
-    fn source_deleted_docs(&self, source_idx: usize) -> &[u32] {
-        let offset = self.source_flat_offset(source_idx);
-        let count = self.all_counts()[source_idx] as usize;
-        let all: &[u32] =
-            bytemuck::try_cast_slice(&self.data()[self.layout.all_deleted_docs.clone()]).unwrap();
-        &all[offset..offset + count]
+    fn partitioning_deleted_docs(&self) -> &[u32] {
+        bytemuck::try_cast_slice(&self.data()[self.layout.partitioning_deleted_docs.clone()])
+            .unwrap()
     }
 
-    fn source_max_docs(&self, source_idx: usize) -> &[u32] {
-        let offset = self.source_flat_offset(source_idx);
-        let count = self.all_counts()[source_idx] as usize;
-        let all: &[u32] =
-            bytemuck::try_cast_slice(&self.data()[self.layout.all_max_docs.clone()]).unwrap();
-        &all[offset..offset + count]
+    fn partitioning_max_docs(&self) -> &[u32] {
+        bytemuck::try_cast_slice(&self.data()[self.layout.partitioning_max_docs.clone()]).unwrap()
     }
 
     /// An array of `i32` parallel worker numbers (as returned by pg_sys::ParallelWorkerNumber)
@@ -512,10 +502,6 @@ pub struct ParallelScanState {
     /// Index into the unified sources array identifying the partitioning source —
     /// the one from which workers claim segments via `checkout_segment`.
     partitioning_source_idx: usize,
-    /// DSM payload capacity in bytes, set during `initialize_dsm` from planning-time
-    /// segment counts. Used in `create_and_populate` to assert that execution-time
-    /// layout fits within the DSM allocation.
-    dsm_payload_capacity: usize,
     queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
@@ -553,30 +539,12 @@ impl ParallelScanState {
             )
     }
 
-    /// Set the DSM payload capacity in bytes. Must be called before `create_and_populate`,
-    /// using the planning-time segment counts (from `payload_capacity_of`).
-    pub fn set_dsm_payload_capacity(&mut self, capacity: usize) {
-        self.dsm_payload_capacity = capacity;
-    }
-
     /// Phase 1+2: Create the mutex and populate with actual data in one call.
     /// Used by Custom Scan which has all data available at initialization time.
     fn create_and_populate(&mut self, args: ParallelScanArgs) {
         self.mutex.init();
         self.aggregation_cv.init();
         self.init_cv.init();
-        // Assert that the execution-time layout fits within the planning-time DSM allocation.
-        // `dsm_payload_capacity` was set from planning-time segment counts in `initialize_dsm`.
-        let execution_capacity = Self::payload_capacity_of(
-            &args.all_nsegments(),
-            args.partitioning_source_idx,
-            &args.query,
-            args.with_aggregates,
-        );
-        assert!(
-            execution_capacity <= self.dsm_payload_capacity,
-            "execution-time segment counts exceed planning-time DSM allocation"
-        );
         self.populate(
             &args.all_sources,
             args.partitioning_source_idx,
@@ -939,12 +907,11 @@ impl ParallelScanState {
     }
 
     fn num_deleted_docs(&self, i: usize) -> u32 {
-        self.payload
-            .source_deleted_docs(self.partitioning_source_idx)[i]
+        self.payload.partitioning_deleted_docs()[i]
     }
 
     fn segment_max_docs(&self, i: usize) -> u32 {
-        self.payload.source_max_docs(self.partitioning_source_idx)[i]
+        self.payload.partitioning_max_docs()[i]
     }
 
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {

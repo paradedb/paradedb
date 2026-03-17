@@ -38,6 +38,8 @@ struct PgSearchExtensionCodec {
     pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     /// Postgres expression context, needed for heap filtering.
     pub expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
+    pub planstate: Option<*mut pgrx::pg_sys::PlanState>,
     /// Canonical segment ID sets for non-partitioning sources, indexed by position in the
     /// non-partitioning source list (same order as `JoinScanState::non_partitioning_segments`).
     ///
@@ -49,31 +51,6 @@ struct PgSearchExtensionCodec {
 
 unsafe impl Send for PgSearchExtensionCodec {}
 unsafe impl Sync for PgSearchExtensionCodec {}
-
-/// Generated code for `try_decode_udf` for a list of UDF types.
-macro_rules! decode_udfs {
-    ($($name:literal => $ty:ty),* $(,)?) => {
-        fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-            match name {
-                $(
-                    $name => {
-                        let udf: $ty = serde_json::from_slice(buf).map_err(|e| {
-                            DataFusionError::Internal(format!(
-                                "Failed to deserialize {}: {e}",
-                                stringify!($ty)
-                            ))
-                        })?;
-                        Ok(Arc::new(ScalarUDF::new_from_impl(udf)))
-                    }
-                )*
-                _ => Err(DataFusionError::NotImplemented(format!(
-                    "UDF '{}' deserialization not implemented",
-                    name
-                ))),
-            }
-        }
-    };
-}
 
 /// Generated code for `try_encode_udf` for a list of UDF types.
 macro_rules! encode_udfs {
@@ -244,6 +221,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             }
         }
         provider.set_expr_context(self.expr_context);
+        provider.set_planstate(self.planstate);
         Ok(Arc::new(provider))
     }
 
@@ -291,8 +269,21 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         Ok(())
     }
 
-    decode_udfs! {
-        "pdb_search_predicate" => SearchPredicateUDF,
+    fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
+        match name {
+            "pdb_search_predicate" => {
+                let udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to deserialize SearchPredicateUDF: {e}"
+                    ))
+                })?;
+                Ok(Arc::new(ScalarUDF::new_from_impl(udf)))
+            }
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "UDF '{}' deserialization not implemented",
+                name
+            ))),
+        }
     }
 
     encode_udfs! {
@@ -314,10 +305,12 @@ pub fn deserialize_logical_plan(
     ctx: &datafusion::execution::TaskContext,
     parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    planstate: Option<*mut pgrx::pg_sys::PlanState>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
         expr_context,
+        planstate,
         non_partitioning_segment_ids: vec![],
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
@@ -331,11 +324,13 @@ pub fn deserialize_logical_plan_parallel(
     ctx: &datafusion::execution::TaskContext,
     parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    planstate: Option<*mut pgrx::pg_sys::PlanState>,
     non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
         expr_context,
+        planstate,
         non_partitioning_segment_ids,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)

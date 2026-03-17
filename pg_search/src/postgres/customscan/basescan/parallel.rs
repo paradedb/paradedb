@@ -48,17 +48,10 @@ impl ParallelQueryCapable for BaseScan {
         coordinate: *mut c_void,
     ) {
         let args = state.custom_state().parallel_scan_args();
-        let capacity = ParallelScanState::payload_capacity_of(
-            &args.all_nsegments(),
-            args.partitioning_source_idx,
-            &args.query,
-            args.with_aggregates,
-        );
 
         unsafe {
             let pscan_state = coordinate.cast::<ParallelScanState>();
             assert!(!pscan_state.is_null(), "coordinate is null");
-            (*pscan_state).set_dsm_payload_capacity(capacity);
             (*pscan_state).create_and_populate(args);
             state.custom_state_mut().parallel_state = Some(pscan_state);
         }

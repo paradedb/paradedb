@@ -166,7 +166,7 @@ use self::scan_state::{
 };
 use crate::api::OrderByFeature;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -202,15 +202,20 @@ impl ParallelQueryCapable for JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
     ) -> pg_sys::Size {
+        // Size DSM from actual execution-time segment counts (via manifests) rather
+        // than planning-time scan_info.segment_count, which can diverge under
+        // concurrent inserts.
+        Self::ensure_source_manifests(state);
+
         let join_clause = &state.custom_state().join_clause;
         let partitioning_idx = join_clause.partitioning_source_index();
-        let sources = join_clause.plan.sources();
+        let all_nsegments: Vec<usize> = state
+            .custom_state()
+            ._source_manifests
+            .iter()
+            .map(SearchIndexManifest::segment_count)
+            .collect();
 
-        // Collect planning-time segment counts for all sources (safe upper bound:
-        // merges can only reduce the segment count before initialization).
-        let all_nsegments: Vec<usize> = sources.iter().map(|s| s.scan_info.segment_count).collect();
-
-        // JoinScan doesn't currently support aggregates in the scan
         ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false)
     }
 
@@ -222,60 +227,24 @@ impl ParallelQueryCapable for JoinScan {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
 
+        Self::ensure_source_manifests(state);
+
         let join_clause = state.custom_state().join_clause.clone();
-        let sources = join_clause.plan.sources();
         let partitioning_idx = join_clause.partitioning_source_index();
 
-        // Compute planning-time payload capacity from plan's segment counts,
-        // matching what estimate_dsm used. This is the upper bound for the assertion
-        // in create_and_populate, since execution-time counts may be lower due to merges.
-        let all_nsegments_planning: Vec<usize> =
-            sources.iter().map(|s| s.scan_info.segment_count).collect();
-        let capacity = ParallelScanState::payload_capacity_of(
-            &all_nsegments_planning,
-            partitioning_idx,
-            &[],
-            false,
-        );
-
-        let expr_context = crate::postgres::utils::ExprContextGuard::new();
-
-        // Open ALL sources with Snapshot visibility, in ascending sources() order.
-        // The leader captures a single frozen segment list for every source so that
-        // all workers see identical segment ordinals (required for DocAddress consistency).
-        let rels: Vec<PgSearchRelation> = sources
-            .iter()
-            .map(|s| PgSearchRelation::open(s.scan_info.indexrelid))
-            .collect();
-
-        let readers: Vec<SearchIndexReader> = sources
-            .iter()
-            .zip(rels.iter())
-            .map(|(s, rel)| {
-                SearchIndexReader::open_with_context(
-                    rel,
-                    s.scan_info.query.clone(),
-                    false,
-                    MvccSatisfies::Snapshot,
-                    std::ptr::NonNull::new(expr_context.as_ptr()),
-                    None,
-                )
-                .expect("Failed to open reader for DSM initialization")
-            })
-            .collect();
-
-        let all_sources: Vec<&[tantivy::SegmentReader]> =
-            readers.iter().map(|r| r.segment_readers()).collect();
-
-        let args = crate::postgres::ParallelScanArgs {
-            all_sources,
-            partitioning_source_idx: partitioning_idx,
-            query: vec![], // JoinScan passes query via PrivateData, not shared state
-            with_aggregates: false,
-        };
-
         unsafe {
-            (*pscan_state).set_dsm_payload_capacity(capacity);
+            let all_sources: Vec<&[tantivy::SegmentReader]> = state
+                .custom_state()
+                ._source_manifests
+                .iter()
+                .map(|manifest| manifest.segment_readers())
+                .collect();
+            let args = crate::postgres::ParallelScanArgs {
+                all_sources,
+                partitioning_source_idx: partitioning_idx,
+                query: vec![], // JoinScan passes query via PrivateData, not shared state
+                with_aggregates: false,
+            };
             (*pscan_state).create_and_populate(args);
         }
 
@@ -285,10 +254,6 @@ impl ParallelQueryCapable for JoinScan {
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
         state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
-        // Keep readers alive for the full scan duration to hold the Tantivy pin on
-        // all source segments. Without this, readers would drop here, releasing the
-        // pin and allowing Tantivy GC to merge/delete segments before workers open them.
-        state.custom_state_mut()._pinned_readers = readers;
     }
 
     fn reinitialize_dsm_custom_scan(
@@ -328,6 +293,53 @@ impl ParallelQueryCapable for JoinScan {
         // We don't need to deserialize query from parallel state for JoinScan
         // because the full plan (including query) is serialized in PrivateData
         // and available to the worker via the plan.
+    }
+}
+
+impl JoinScan {
+    /// Capture lightweight segment manifests for all join sources.
+    ///
+    /// Uses `SearchIndexManifest::capture` instead of opening full `SearchIndexReader`s
+    /// because this runs during DSM initialization (`estimate_dsm` / `initialize_dsm`),
+    /// which is part of executor startup — before `begin_custom_scan` sets up executor
+    /// state. Opening full readers would call `into_tantivy_query` on each source's
+    /// `scan_info.query`, which fails for parameterized predicates (prepared statements,
+    /// initplan-backed subqueries) that require a `PlanState` to evaluate.
+    ///
+    /// Manifests also provide consistent segment counts for both DSM sizing and DSM
+    /// population, avoiding the divergence that can occur when planning-time counts
+    /// (from `scan_info.segment_count`) differ from execution-time counts due to
+    /// concurrent inserts.
+    fn ensure_source_manifests(state: &mut CustomScanStateWrapper<Self>) {
+        if !state.custom_state()._source_manifests.is_empty() {
+            return;
+        }
+
+        let manifests = state
+            .custom_state()
+            .join_clause
+            .plan
+            .sources()
+            .iter()
+            .map(|source| {
+                let rel = PgSearchRelation::open(source.scan_info.indexrelid);
+                SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to capture source manifest for indexrelid {}: {e}",
+                        source.scan_info.indexrelid
+                    )
+                })
+            })
+            .collect();
+
+        state.custom_state_mut()._source_manifests = manifests;
+    }
+
+    fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
+        join_clause.plan.sources().iter().any(|source| {
+            let mut query = source.scan_info.query.clone();
+            query.has_postgres_expressions()
+        })
     }
 }
 
@@ -1073,6 +1085,18 @@ impl CustomScan for JoinScan {
                 }
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
+            // Plain EXPLAIN reconstructs the physical plan by deserializing the logical
+            // plan and calling PgSearchTableProvider::scan(), but without executor state
+            // (planstate=None). If any source query contains a PostgresExpression
+            // (e.g., prepared-statement parameter), scan() would fail with "missing
+            // planstate". Skip physical plan display for those cases.
+            if Self::source_queries_need_executor_state(&state.custom_state().join_clause) {
+                explainer.add_text(
+                    "DataFusion Physical Plan",
+                    "omitted for EXPLAIN because source queries require executor-time expression resolution",
+                );
+                return;
+            }
             // For plain EXPLAIN, reconstruct the plan from the serialized logical plan.
             let ctx = create_session_context();
             let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1084,6 +1108,7 @@ impl CustomScan for JoinScan {
                 &ctx.task_ctx(),
                 None,
                 Some(expr_context.as_ptr()),
+                None,
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
@@ -1105,6 +1130,8 @@ impl CustomScan for JoinScan {
         if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
             unsafe {
                 let planstate = state.planstate();
+                // Always assign an ExprContext — heap filters, runtime
+                // expressions, and pushed-down predicates may all need it.
                 pg_sys::ExecAssignExprContext(estate, planstate);
 
                 state.custom_state_mut().max_memory = (pg_sys::work_mem as usize) * 1024;
@@ -1147,6 +1174,7 @@ impl CustomScan for JoinScan {
                 }
 
                 // Deserialize the logical plan and convert to execution plan
+                let planstate = state.planstate();
                 let plan_bytes = state
                     .custom_state()
                     .logical_plan
@@ -1160,6 +1188,7 @@ impl CustomScan for JoinScan {
                     &ctx.task_ctx(),
                     state.custom_state().parallel_state,
                     Some(state.runtime_context),
+                    Some(planstate),
                     state.custom_state().non_partitioning_segments.clone(),
                 )
                 .expect("Failed to deserialize logical plan");
@@ -1254,11 +1283,11 @@ impl CustomScan for JoinScan {
         // Clean up resources
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().result_slot = None;
-        // Explicitly drop pinned readers to release the Tantivy segment pin at the
+        // Explicitly drop source manifests to release the Tantivy segment pins at the
         // intended lifetime boundary (end of scan), mirroring basescan's pattern of
         // explicitly dropping search_reader in end_custom_scan.
         drop(std::mem::take(
-            &mut state.custom_state_mut()._pinned_readers,
+            &mut state.custom_state_mut()._source_manifests,
         ));
     }
 }

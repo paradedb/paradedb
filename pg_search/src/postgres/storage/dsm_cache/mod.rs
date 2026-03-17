@@ -48,6 +48,7 @@ mod sql;
 use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
 use crate::api::{HashMap, HashSet};
+use crate::postgres::locks::LWLock;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::ops::Deref;
@@ -174,7 +175,7 @@ impl DsmSlice {
 /// Both are initialized together in `shmem_startup` and share the same lifecycle.
 pub(super) struct DsmCacheShared {
     pub(super) header: *mut DsmCacheHeader,
-    pub(super) lock: *mut pg_sys::LWLock,
+    pub(super) lock: LWLock,
 }
 
 impl DsmCacheShared {
@@ -256,7 +257,7 @@ impl DsmCacheShared {
         let mut removed_handles = Vec::new();
 
         unsafe {
-            pg_sys::LWLockAcquire(self.lock, pg_sys::LWLockMode::LW_EXCLUSIVE);
+            let _guard = self.lock.acquire_exclusive();
 
             let max = (*self.header).max_entries as usize;
             let base = self.slots();
@@ -289,8 +290,6 @@ impl DsmCacheShared {
                 }
                 *slot = std::mem::zeroed();
             }
-
-            pg_sys::LWLockRelease(self.lock);
         }
 
         removed_handles
@@ -321,10 +320,8 @@ impl DsmCacheShared {
     /// holding the mapping is also dropped.
     fn sweep_stale_mappings(&self) {
         let live_handles = unsafe {
-            pg_sys::LWLockAcquire(self.lock, pg_sys::LWLockMode::LW_SHARED);
-            let h = self.collect_live_handles();
-            pg_sys::LWLockRelease(self.lock);
-            h
+            let _guard = self.lock.acquire_shared();
+            self.collect_live_handles()
         };
 
         LOCAL_HANDLES.with(|h| {
@@ -418,8 +415,9 @@ unsafe extern "C-unwind" fn shmem_startup() {
     }
 
     // Get the LWLock we requested.
-    let lock = pg_sys::GetNamedLWLockTranche(c"pg_search_dsm_cache".as_ptr())
-        as *mut pg_sys::LWLock;
+    let lock = LWLock::from_raw(
+        pg_sys::GetNamedLWLockTranche(c"pg_search_dsm_cache".as_ptr()) as *mut pg_sys::LWLock,
+    );
 
     let max = max_entries();
     let size = shmem_size(max);
@@ -507,15 +505,12 @@ pub fn try_get(
     }
 
     // Shared array lookup
-    unsafe {
-        pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
-
-        if let Some((handle, size)) = shared.find_slot(&key) {
-            pg_sys::LWLockRelease(shared.lock);
-            return resolve_and_cache(key, handle, size as usize);
-        }
-
-        pg_sys::LWLockRelease(shared.lock);
+    let found = unsafe {
+        let _guard = shared.lock.acquire_shared();
+        shared.find_slot(&key)
+    };
+    if let Some((handle, size)) = found {
+        return resolve_and_cache(key, handle, size as usize);
     }
 
     None
@@ -565,19 +560,15 @@ pub fn get_or_create(
     }
 
     // 2. Shared array lookup (shared lock)
-    unsafe {
-        pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
-
-        if let Some((handle, size)) = shared.find_slot(&key) {
-            pg_sys::LWLockRelease(shared.lock);
-
-            if let Some(slice) = resolve_and_cache(key, handle, size as usize) {
-                return Some(slice);
-            }
-            // Segment gone (race with invalidation) — fall through to create
-        } else {
-            pg_sys::LWLockRelease(shared.lock);
+    let found = unsafe {
+        let _guard = shared.lock.acquire_shared();
+        shared.find_slot(&key)
+    };
+    if let Some((handle, size)) = found {
+        if let Some(slice) = resolve_and_cache(key, handle, size as usize) {
+            return Some(slice);
         }
+        // Segment gone (race with invalidation) — fall through to create
     }
 
     // 3. Miss — create DSM outside the lock
@@ -605,29 +596,29 @@ pub fn get_or_create(
         pg_sys::dsm_pin_mapping(seg);
 
         // 4. Insert into array (exclusive lock), with double-check
-        pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_EXCLUSIVE);
+        {
+            let _guard = shared.lock.acquire_exclusive();
 
-        // Check if another backend inserted while we were creating
-        if let Some((their_handle, their_size)) = shared.find_slot(&key) {
-            pg_sys::LWLockRelease(shared.lock);
-            pg_sys::dsm_unpin_segment(handle);
-            pg_sys::dsm_detach(seg);
-            return resolve_and_cache(key, their_handle, their_size as usize);
+            // Check if another backend inserted while we were creating
+            if let Some((their_handle, their_size)) = shared.find_slot(&key) {
+                drop(_guard);
+                pg_sys::dsm_unpin_segment(handle);
+                pg_sys::dsm_detach(seg);
+                return resolve_and_cache(key, their_handle, their_size as usize);
+            }
+
+            // Try to insert into a free slot
+            if !shared.insert_slot(&key, handle, data_size as u32) {
+                drop(_guard);
+                pg_sys::dsm_unpin_segment(handle);
+                pg_sys::dsm_detach(seg);
+                pgrx::log!(
+                    "pg_search: DSM cache array full, cache entry unavailable (tag={:?})",
+                    CacheTag::try_from(key.tag).ok(),
+                );
+                return None;
+            }
         }
-
-        // Try to insert into a free slot
-        if !shared.insert_slot(&key, handle, data_size as u32) {
-            pg_sys::LWLockRelease(shared.lock);
-            pg_sys::dsm_unpin_segment(handle);
-            pg_sys::dsm_detach(seg);
-            pgrx::log!(
-                "pg_search: DSM cache array full, cache entry unavailable (tag={:?})",
-                CacheTag::try_from(key.tag).ok(),
-            );
-            return None;
-        }
-
-        pg_sys::LWLockRelease(shared.lock);
 
         let ptr = pg_sys::dsm_segment_address(seg) as *const u8;
 

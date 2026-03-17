@@ -153,7 +153,7 @@ fn dsm_cache_entries() -> TableIterator<
     let mut rows = Vec::new();
 
     unsafe {
-        pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
+        let _guard = shared.lock.acquire_shared();
 
         let max = (*shared.header).max_entries as usize;
         let base = shared.slots();
@@ -172,8 +172,6 @@ fn dsm_cache_entries() -> TableIterator<
                 slot.size as i64,
             ));
         }
-
-        pg_sys::LWLockRelease(shared.lock);
     }
 
     TableIterator::new(rows)
@@ -196,7 +194,7 @@ fn dsm_cache_stats() -> TableIterator<
     let mut total_bytes = 0i64;
 
     unsafe {
-        pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
+        let _guard = shared.lock.acquire_shared();
 
         let max = (*shared.header).max_entries as usize;
         let base = shared.slots();
@@ -210,7 +208,6 @@ fn dsm_cache_stats() -> TableIterator<
         }
 
         let max_entries = (*shared.header).max_entries as i64;
-        pg_sys::LWLockRelease(shared.lock);
 
         TableIterator::once((count, max_entries, total_bytes))
     }

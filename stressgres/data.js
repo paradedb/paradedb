@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773728638556,
+  "lastUpdate": 1773729497190,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -50524,6 +50524,54 @@ window.BENCHMARK_DATA = {
             "value": 482.8198096917047,
             "unit": "median tps",
             "extra": "avg tps: 426.93235748895177, max tps: 664.8711395344092, count: 107836"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6c588a1aa25f747a9bcf224d6e3028b46284ef2",
+          "message": "fix: Handle relabel nodes in more places in join scan planning (#4386)\n\n## What\n\n* Add a (reduced-size) repro of #2733 and of another customer query\n* Fixes handling of relabel nodes in more cases\n* Removes the `is_interesting` flag: after we have detected our\noperator, all remaining return statements are worth logging.\n\n## Why\n\nTo increase the number of places where the join scan is planned, and\nensure that we get warnings.",
+          "timestamp": "2026-03-16T22:19:07-07:00",
+          "tree_id": "618b6cffa53b00e32573f28a59c4193bb5b9dfa6",
+          "url": "https://github.com/paradedb/paradedb/commit/a6c588a1aa25f747a9bcf224d6e3028b46284ef2"
+        },
+        "date": 1773729489797,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 514.1941143686474,
+            "unit": "median tps",
+            "extra": "avg tps: 512.5872595269724, max tps: 673.592579246104, count: 53933"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 602.6595798874242,
+            "unit": "median tps",
+            "extra": "avg tps: 599.9946178998601, max tps: 820.6278669612607, count: 53933"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.62872292885471,
+            "unit": "median tps",
+            "extra": "avg tps: 86.65650305867219, max tps: 100.12207203413031, count: 53933"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 487.5223507618216,
+            "unit": "median tps",
+            "extra": "avg tps: 432.5257322116662, max tps: 719.1501511495755, count: 107866"
           }
         ]
       }

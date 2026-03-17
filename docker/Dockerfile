@@ -173,7 +173,7 @@ COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2 && \
     rm /usr/lib/python*/EXTERNALLY-MANAGED && \
-    pip3 install --no-cache-dir setuptools 'barman[cloud,azure,snappy,google]==3.18.0' && \
+    pip3 install --no-cache-dir 'setuptools==82.0.1' 'barman[cloud,azure,snappy,google]==3.18.0' && \
     apt-get remove -y python3-dev python3-pip --purge && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* && \

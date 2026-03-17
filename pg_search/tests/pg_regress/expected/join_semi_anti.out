@@ -224,7 +224,6 @@ LIMIT 10;
 -- =====================================================================
 -- 4. Tuple Semi Join
 -- =====================================================================
--- This is not supported yet
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category
 FROM table_a
@@ -264,6 +263,101 @@ WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all
                            ->  Bitmap Index Scan on table_b_group_id_a_id_idx
                                  Index Cond: ((table_b.group_id)::text = 'group_1'::text)
 (23 rows)
+
+SELECT id, category
+FROM table_a
+WHERE (id, category) IN (
+    SELECT a_id, category
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ pdb.all()
+ORDER BY id ASC
+LIMIT 10;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
+WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields) (tables: table_a, table_b)
+ id  |    category     
+-----+-----------------
+  10 | target_category
+  20 | target_category
+  30 | target_category
+  40 | target_category
+  50 | target_category
+  60 | target_category
+  70 | target_category
+  80 | target_category
+  90 | target_category
+ 100 | target_category
+(10 rows)
+
+-- =====================================================================
+-- 5. SELECT * and ORDER BY varchar column (RelabelType wrapper reproduction)
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT *
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY category ASC, id ASC
+LIMIT 10;
+WARNING:  JoinScan not used: ORDER BY column is not available in the joined output schema (tables: table_a, table_b)
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: table_a.id, table_a.category
+   ->  Sort
+         Output: table_a.id, table_a.category
+         Sort Key: table_a.category, table_a.id
+         ->  Hash Semi Join
+               Output: table_a.id, table_a.category
+               Hash Cond: (table_a.id = table_b.a_id)
+               ->  Custom Scan (ParadeDB Base Scan) on public.table_a
+                     Output: table_a.id, table_a.category
+                     Table: table_a
+                     Index: table_a_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: category, id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash
+                     Output: table_b.a_id
+                     ->  Bitmap Heap Scan on public.table_b
+                           Output: table_b.a_id
+                           Recheck Cond: ((table_b.group_id)::text = 'group_1'::text)
+                           ->  Bitmap Index Scan on table_b_group_id_a_id_idx
+                                 Index Cond: ((table_b.group_id)::text = 'group_1'::text)
+(23 rows)
+
+SELECT *
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY category ASC, id ASC
+LIMIT 10;
+WARNING:  JoinScan not used: ORDER BY column is not available in the joined output schema (tables: table_a, table_b)
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
+ id  |    category     
+-----+-----------------
+  10 | target_category
+  20 | target_category
+  30 | target_category
+  40 | target_category
+  50 | target_category
+  60 | target_category
+  70 | target_category
+  80 | target_category
+  90 | target_category
+ 100 | target_category
+(10 rows)
 
 -- Cleanup
 DROP TABLE table_a CASCADE;

@@ -21,8 +21,9 @@ pub mod range;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
+use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
-pub use crate::postgres::utils::FieldSource;
+pub use crate::postgres::utils::{convert_pg_date_string, FieldSource};
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
 use anyhow::bail;
@@ -74,7 +75,15 @@ pub enum SearchFieldType {
 impl SearchFieldType {
     pub fn default_config(&self) -> SearchFieldConfig {
         match self {
-            SearchFieldType::Text(_) => SearchFieldConfig::default_text(),
+            SearchFieldType::Text(oid) => {
+                if is_citext_oid(*oid) {
+                    let mut cfg = SearchFieldConfig::default_text();
+                    cfg.set_normalizer(Some(SearchNormalizer::Lowercase));
+                    cfg
+                } else {
+                    SearchFieldConfig::default_text()
+                }
+            }
             SearchFieldType::Tokenized(..) => {
                 // NB:  check `search_field_config_from_type` to make sure the tokenizer is properly represented
                 panic!("CustomText fields do not have a default config")
@@ -308,7 +317,13 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
                 SearchFieldType::Tokenized(*tokenizer_oid, typmod, inner_typoid),
             ),
 
-            PgOid::Custom(_) => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
+            PgOid::Custom(custom) => {
+                if is_citext_oid(*custom) {
+                    Ok(SearchFieldType::Text(*custom))
+                } else {
+                    Err(SearchIndexSchemaError::InvalidPgOid(pg_oid))
+                }
+            }
 
             _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
         }
@@ -754,6 +769,18 @@ impl SearchField {
             | (FieldType::Bool(_), OwnedValue::Bool(_))
             | (FieldType::Date(_), OwnedValue::Date(_))
             | (FieldType::JsonObject(_), OwnedValue::Object(_)) => Ok(()),
+            (FieldType::Date(_), OwnedValue::Str(s)) => {
+                let typeoid = match self.field_type {
+                    SearchFieldType::Date(oid) => PgOid::from(oid),
+                    _ => bail!(
+                        "field type mismatch: expected Date but got {:?}",
+                        self.field_type
+                    ),
+                };
+                let datetime = convert_pg_date_string(typeoid, &s);
+                *value = OwnedValue::Date(datetime);
+                Ok(())
+            }
             (FieldType::U64(_), OwnedValue::I64(v)) => {
                 *value = OwnedValue::U64(v.try_into()?);
                 Ok(())

@@ -412,22 +412,31 @@ impl CustomScan for JoinScan {
                 })
                 .collect();
 
-            // A join is "potentially interesting" if at least one side has a BM25 index and a search predicate.
-            // We use this flag to decide whether to emit user-friendly warnings explaining why the JoinScan
-            // wasn't chosen (e.g., missing LIMIT, missing fast fields). If the user hasn't tried to search,
-            // we don't want to spam them with warnings about standard Postgres joins.
-            let is_interesting = all_sources.iter().any(|s| s.scan_info.has_search_predicate);
+            let join_conditions = extract_join_conditions(extra, &all_sources);
 
+            // The minimum requirement for considering the join scan is that a search predicate
+            // is used.
+            if !all_sources.iter().any(|s| s.scan_info.has_search_predicate)
+                && !join_conditions.has_search_predicate
+            {
+                // Join does not use our operator anywhere: do not trigger.
+                return Vec::new();
+            }
+
+            //
+            // After this point the join is considered interesting: all returns should have
+            // `add_planner_warning` calls to explain themselves.
+            //
+
+            // All tables must have bm25 indexes.
             if all_sources
                 .iter()
                 .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
             {
-                if is_interesting {
-                    Self::add_planner_warning(
-                        "JoinScan not used: all join sources must have a BM25 index",
-                        &aliases,
-                    );
-                }
+                Self::add_planner_warning(
+                    "JoinScan not used: all join sources must have a BM25 index",
+                    &aliases,
+                );
                 return Vec::new();
             }
 
@@ -436,12 +445,10 @@ impl CustomScan for JoinScan {
             // output not to the rows feeding the aggregate, so pushing LIMIT into
             // DataFusion would produce wrong results until we add support for Agg functions
             if (*(*root).parse).hasAggs {
-                if is_interesting {
-                    Self::add_planner_warning(
-                        "JoinScan not used: queries with aggregate functions are not supported",
-                        (),
-                    );
-                }
+                Self::add_planner_warning(
+                    "JoinScan not used: queries with aggregate functions are not supported",
+                    (),
+                );
                 return Vec::new();
             }
 
@@ -462,52 +469,39 @@ impl CustomScan for JoinScan {
             // of heap tuples _after_ the join has run.
             let limit_offset = LimitOffset::from_root(root);
             if limit_offset.limit.is_none() {
-                if is_interesting {
-                    Self::add_planner_warning(
-                        "JoinScan not used: query must have a LIMIT clause",
-                        (),
-                    );
-                }
+                Self::add_planner_warning("JoinScan not used: query must have a LIMIT clause", ());
                 return Vec::new();
             }
-
-            let join_conditions = extract_join_conditions(extra, &all_sources);
 
             // Require equi-join keys for JoinScan.
             // Without equi-join keys, we'd have a cross join requiring O(N*M) comparisons
             // where join complexity explodes. PostgreSQL's native join
             // handles cartesian products more efficiently.
             if join_conditions.equi_keys.is_empty() {
-                if is_interesting {
-                    Self::add_planner_warning(
-                        "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
-                        &aliases,
-                    );
-                }
+                Self::add_planner_warning(
+                    "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
+                    &aliases,
+                );
                 return Vec::new();
             }
 
             // Detect DISTINCT and validate columns are fast fields
             let has_distinct = !(*(*root).parse).distinctClause.is_null();
             if has_distinct && !distinct_columns_are_fast_fields(root, &all_sources) {
-                if is_interesting {
-                    Self::add_planner_warning(
-                        "JoinScan not used: all DISTINCT columns must be fast fields in the BM25 index",
-                        &aliases,
-                    );
-                }
+                Self::add_planner_warning(
+                    "JoinScan not used: all DISTINCT columns must be fast fields in the BM25 index",
+                    &aliases,
+                );
                 return Vec::new();
             }
 
             // Check if all ORDER BY columns are fast fields
             // JoinScan requires fast field access for efficient sorting
             if !order_by_columns_are_fast_fields(root, &all_sources) {
-                if is_interesting {
-                    Self::add_planner_warning(
-                        "JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index",
-                        &aliases,
-                    );
-                }
+                Self::add_planner_warning(
+                    "JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index",
+                    &aliases,
+                );
                 return Vec::new();
             }
 
@@ -529,12 +523,10 @@ impl CustomScan for JoinScan {
                             inner.scan_info.indexrelid,
                             jk.inner_attno,
                         ) {
-                            if is_interesting {
-                                Self::add_planner_warning(
-                                    "JoinScan not used: join key columns must be fast fields",
-                                    &aliases,
-                                );
-                            }
+                            Self::add_planner_warning(
+                                "JoinScan not used: join key columns must be fast fields",
+                                &aliases,
+                            );
                             return Vec::new();
                         }
                     }
@@ -563,16 +555,14 @@ impl CustomScan for JoinScan {
 
             let unsupported = plan.unsupported_join_types();
             if !unsupported.is_empty() {
-                if is_interesting {
-                    Self::add_detailed_planner_warning(
-                        "JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported",
-                        &aliases,
-                        unsupported
-                            .iter()
-                            .map(|t| t.to_string().to_uppercase())
-                            .collect::<Vec<_>>(),
-                    );
-                }
+                Self::add_detailed_planner_warning(
+                    "JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported",
+                    &aliases,
+                    unsupported
+                        .iter()
+                        .map(|t| t.to_string().to_uppercase())
+                        .collect::<Vec<_>>(),
+                );
                 return Vec::new();
             }
 
@@ -618,12 +608,10 @@ impl CustomScan for JoinScan {
             if jointype == pg_sys::JoinType::JOIN_SEMI {
                 let partitioning_idx = join_clause.partitioning_source_index();
                 if partitioning_idx != 0 {
-                    if is_interesting {
-                        Self::add_planner_warning(
+                    Self::add_planner_warning(
                             "JoinScan not used: SEMI JOIN requires the left side to be the largest source",
                             &aliases,
                         );
-                    }
                     return Vec::new();
                 }
             }
@@ -643,12 +631,10 @@ impl CustomScan for JoinScan {
                 ) {
                     Ok(result) => result,
                     Err(_err) => {
-                        if is_interesting {
-                            Self::add_planner_warning(
+                        Self::add_planner_warning(
                                 "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
                                 &aliases,
                             );
-                        }
                         return Vec::new();
                     }
                 };
@@ -677,12 +663,10 @@ impl CustomScan for JoinScan {
             let order_by = match extract_orderby(root, &current_sources_after_cond, &output_rtis) {
                 Some(ob) => ob,
                 None => {
-                    if is_interesting {
-                        Self::add_planner_warning(
+                    Self::add_planner_warning(
                             "JoinScan not used: ORDER BY column is not available in the joined output schema",
                             &aliases,
                         );
-                    }
                     return Vec::new();
                 }
             };

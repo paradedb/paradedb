@@ -1,0 +1,218 @@
+---
+title: Getting Started with Logical Replication
+description: Configure ParadeDB as a logical subscriber to an existing Postgres primary
+canonical: https://docs.paradedb.com/deploy/logical-replication/getting-started
+---
+
+<Note>
+  In order for ParadeDB to run as a logical subscriber, ParadeDB must be using
+  Postgres 17+.
+</Note>
+
+In production, ParadeDB is commonly deployed as a logical subscriber to your
+primary Postgres. Your application continues to write to the source database,
+while ParadeDB receives the same row changes and maintains local BM25 indexes
+for search and analytics.
+
+This deployment model is useful when:
+
+- Your primary Postgres runs on a managed service such as AWS RDS, Aurora,
+  Cloud SQL, AlloyDB, or Azure Database for PostgreSQL
+- You want search and analytics queries to run away from your OLTP workload
+- You want to keep Postgres as the system of record and add ParadeDB as a
+  dedicated read and search node
+
+<Warning>
+  Logical replication copies row changes, not schema changes or indexes. The
+  published tables must already exist on ParadeDB, and any DDL must be applied
+  on both sides. For ongoing operations, see the [Logical Replication
+  Operational Guide](/deploy/logical-replication/operational-guide).
+</Warning>
+
+ParadeDB supports logical replication from any primary Postgres.
+
+## Managed Postgres Providers
+
+Each managed provider has its own prerequisite steps for enabling logical
+replication. In every case, the managed database is the **publisher** and
+ParadeDB is the **subscriber**.
+
+- **AWS RDS/Aurora**: Follow AWS'
+  [tutorial](https://aws.amazon.com/blogs/database/using-logical-replication-to-replicate-managed-amazon-rds-for-postgresql-and-amazon-aurora-to-self-managed-postgresql/)
+- **Azure Database for PostgreSQL**: Follow Azure's
+  [tutorial](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-logical)
+- **Cloud SQL for PostgreSQL**: Follow Google's
+  [tutorial](https://cloud.google.com/sql/docs/postgres/replication/configure-logical-replication#set-up-native-postgresql-logical-replication)
+- **AlloyDB for PostgreSQL**: Follow Google's
+  [tutorial](https://cloud.google.com/alloydb/docs/omni/replicate-data-omni-other-db)
+
+<Note>
+  Azure Cosmos DB for PostgreSQL [does not support logical
+  replication](https://learn.microsoft.com/en-us/answers/questions/1193391/does-azure-cosmos-db-for-postgresql-support-logica).
+</Note>
+
+## Self-Hosted Postgres
+
+The example below shows a minimal self-hosted setup where Postgres publishes
+changes and ParadeDB subscribes to them.
+
+### Environment Setup
+
+We'll use the following environment:
+
+**Publisher**
+
+- **OS**: Ubuntu 24.04
+- **IP**: 192.168.0.30
+- **Database Name**: `marketplace`
+- **Replication User**: `replicator`
+- **Replication Password**: `passw0rd`
+
+**Subscriber (ParadeDB)**
+
+- **OS**: Ubuntu 24.04
+- **IP**: 192.168.0.31
+
+### 1. Configure the Publisher
+
+Ensure that `postgresql.conf` on the publisher has the following settings:
+
+```ini
+listen_addresses = 'localhost,192.168.0.30'
+wal_level = logical
+max_replication_slots = 10
+max_wal_senders = 10
+```
+
+Leave headroom in `max_replication_slots` and `max_wal_senders` for the initial
+copy phase, not just the steady-state subscription. For sizing guidance, see
+[Choose Publication and Subscription Boundaries](/deploy/logical-replication/operational-guide#choose-publication-and-subscription-boundaries).
+
+Then allow the subscriber to connect in `pg_hba.conf`:
+
+```ini
+local   replication     all                                     peer
+host    replication     all             127.0.0.1/32            scram-sha-256
+host    replication     all             ::1/128                 scram-sha-256
+host    replication     all             192.168.0.0/24          scram-sha-256
+```
+
+Create a replication user:
+
+```bash
+sudo -u postgres createuser --pwprompt --replication replicator
+```
+
+### 2. Create the Source Schema on the Publisher
+
+Create a database and a table on the publisher:
+
+```bash
+sudo -u postgres -H createdb marketplace
+```
+
+```sql
+CREATE TABLE mock_items (
+  id SERIAL PRIMARY KEY,
+  description TEXT,
+  rating INTEGER CHECK (rating BETWEEN 1 AND 5),
+  category VARCHAR(255),
+  in_stock BOOLEAN,
+  metadata JSONB,
+  created_at TIMESTAMP,
+  last_updated_date DATE,
+  latest_available_time TIME
+);
+
+
+INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+VALUES ('Red sports shoes', 'Footwear', true, '12:00:00', '2024-07-10', '{}', '2024-07-10 12:00:00', 1);
+```
+
+PostgreSQL's default replica identity uses the primary key. Because
+`mock_items` has a primary key, it already has a valid replica identity
+for `INSERT`, `UPDATE`, and `DELETE`, so no additional replica identity
+configuration is needed here.
+
+### 3. Bootstrap the Schema on ParadeDB
+
+Logical replication does not copy schema definitions, so create the same
+database and tables on ParadeDB before you subscribe. A schema-only dump is the
+simplest way to do this:
+
+```bash
+createdb -h 192.168.0.31 -U postgres marketplace
+
+pg_dump --schema-only --no-owner --no-privileges \
+  -h 192.168.0.30 -U postgres marketplace \
+  | psql -h 192.168.0.31 -U postgres marketplace
+```
+
+The target tables on ParadeDB should start empty if you are using the default
+initial copy behavior of `CREATE SUBSCRIPTION`.
+
+### 4. Install and Load `pg_search` on ParadeDB
+
+Deploy ParadeDB on the subscriber using [Docker](/deploy/self-hosted/docker),
+[Kubernetes](/deploy/self-hosted/kubernetes), or as an
+[extension](/deploy/self-hosted/extension), then load the extension in the
+subscriber database:
+
+```sql
+CREATE EXTENSION pg_search;
+```
+
+### 5. Create a Publication on the Publisher
+
+```sql
+CREATE PUBLICATION marketplace_pub FOR TABLE mock_items;
+```
+
+If you plan to replicate several large or update-heavy tables, consider one
+publication/subscription pair per large hot table rather than grouping
+everything together. See [Choose Publication and Subscription
+Boundaries](/deploy/logical-replication/operational-guide#choose-publication-and-subscription-boundaries)
+for the reasoning.
+
+### 6. Create a Subscription on ParadeDB
+
+```sql
+CREATE SUBSCRIPTION marketplace_sub
+CONNECTION 'host=192.168.0.30 port=5432 dbname=marketplace user=replicator password=passw0rd application_name=marketplace_sub'
+PUBLICATION marketplace_pub;
+```
+
+By default, PostgreSQL copies existing rows from the publisher and then keeps
+streaming new changes. If you do not want the initial copy, create the
+subscription with `WITH (copy_data = false)` and backfill the tables by another
+method.
+
+### 7. Verify Replication
+
+First check that the existing row is present on ParadeDB:
+
+```sql
+SELECT id, description, category
+FROM mock_items
+ORDER BY id;
+```
+
+Then insert a new row on the publisher:
+
+```sql
+INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+VALUES ('Blue running shoes', 'Footwear', true, '14:00:00', '2024-07-10', '{}', '2024-07-10 14:00:00', 2);
+```
+
+Now verify that the new row arrives on ParadeDB:
+
+```sql
+SELECT id, description, category
+FROM mock_items
+WHERE description = 'Blue running shoes';
+```
+
+At this point, the base table is replicating correctly and you can create BM25
+indexes locally on ParadeDB. Continue to the [Logical Replication Operational
+Guide](/deploy/logical-replication/operational-guide) for BM25
+index build timing, monitoring, WAL retention, and troubleshooting.

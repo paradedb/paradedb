@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773769120876,
+  "lastUpdate": 1773769928030,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27414,6 +27414,54 @@ window.BENCHMARK_DATA = {
             "value": 5.267288017335132,
             "unit": "median tps",
             "extra": "avg tps: 5.331625576979299, max tps: 7.222510235867901, count: 55756"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "25d2d5f35370f855a7f3624769d387a8da0ac06b",
+          "message": "chore: Feedback from logical late materialization change (#4387)\n\n# Description\nBackport of #4376 to `0.22.x`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-17T09:55:24-07:00",
+          "tree_id": "333a91568c5b912e691e92a1a5dc6469136bef37",
+          "url": "https://github.com/paradedb/paradedb/commit/25d2d5f35370f855a7f3624769d387a8da0ac06b"
+        },
+        "date": 1773769920933,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1108.467709677689,
+            "unit": "median tps",
+            "extra": "avg tps: 1106.5978923209234, max tps: 1175.9621672231692, count: 55888"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1231.1960607131718,
+            "unit": "median tps",
+            "extra": "avg tps: 1211.8988188222675, max tps: 1247.700193653541, count: 55888"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1103.32786072955,
+            "unit": "median tps",
+            "extra": "avg tps: 1025.6277309119412, max tps: 1536.6004788815392, count: 55888"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.426770363844318,
+            "unit": "median tps",
+            "extra": "avg tps: 5.461008456466105, max tps: 6.817986560343984, count: 55888"
           }
         ]
       }

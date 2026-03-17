@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773787139161,
+  "lastUpdate": 1773787148056,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -49158,6 +49158,114 @@ window.BENCHMARK_DATA = {
             "value": 171.6015625,
             "unit": "median mem",
             "extra": "avg mem: 168.82845504912515, max mem: 172.4296875, count: 55496"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c8b01e2feaf6c2a3690c780d32253f2a6a2276a5",
+          "message": "fix: Allow aggregate scan planning warnings to be disabled. (#4394)\n\n## What\n\nAllow aggregate scan planning warnings to be disabled.\n\n## Why\n\nThe aggregate scan planning warnings are helpful for users who:\n1. are designing queries to get ideal performance\n2. are using `pdb.agg` (in which case the aggregate scan _must_ be used)\n\n...but they are not necessarily helpful for users who have turned on the\nscan globally in order to get wins whenever possible, without\nnecessarily focusing on the performance of individual queries.\n\n## How\n\nAdded the `paradedb.check_aggregate_scan`, which is obeyed unless\n`pdb.agg` is used (in which case the scan is the only possible way to\nsatisfy a query).",
+          "timestamp": "2026-03-17T14:30:00-07:00",
+          "tree_id": "60797b087787d79d2ae83cdfb5d6708161db54a9",
+          "url": "https://github.com/paradedb/paradedb/commit/c8b01e2feaf6c2a3690c780d32253f2a6a2276a5"
+        },
+        "date": 1773787140798,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.00888741210293, max cpu: 46.376812, count: 55434"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.92286273146897, max mem: 176.96484375, count: 55434"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.659248427008782, max cpu: 28.015566, count: 55434"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 119.08312510429069, max mem: 120.46875, count: 55434"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.446986706525067, max cpu: 18.731707, count: 55434"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 171.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 144.6162360588718, max mem: 176.9921875, count: 55434"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16641,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17025.976187899123, max block_count: 31780.0, count: 55434"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.526461879981711, max cpu: 4.729064, count: 55434"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 111.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 97.00955979182451, max mem: 137.20703125, count: 55434"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.63424973842768, max segment_count: 37.0, count: 55434"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.038681072098132, max cpu: 28.290766, count: 110868"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 176.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.766507207614, max mem: 180.96875, count: 110868"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.581891380968097, max cpu: 27.906979, count: 55434"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 169.00936163951727, max mem: 172.1171875, count: 55434"
           }
         ]
       }

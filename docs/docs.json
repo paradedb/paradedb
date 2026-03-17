@@ -52,6 +52,7 @@
                           "documentation/indexing/indexing-expressions",
                           "documentation/indexing/indexing-json",
                           "documentation/indexing/indexing-arrays",
+                          "documentation/indexing/indexing-composite",
                           "documentation/indexing/indexing-partial",
                           "documentation/indexing/reindexing",
                           "documentation/indexing/verify-index"

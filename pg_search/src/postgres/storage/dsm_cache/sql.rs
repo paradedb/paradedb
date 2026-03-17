@@ -18,7 +18,7 @@
 //! SQL-callable functions for the DSM cache: diagnostics and test helpers.
 
 use super::{
-    get_or_create, invalidate_index, invalidate_segment, load_shared, tag_name, CacheTag,
+    get_or_create, invalidate_index, invalidate_segment, load_shared, tag_name, CacheKey, CacheTag,
     DsmSlice,
 };
 use pgrx::pg_sys;
@@ -40,14 +40,13 @@ thread_local! {
 #[pg_extern]
 fn pg_test_dsm_cache_insert(index_oid: pg_sys::Oid, segment_id: String, sub_key: i32, size: i32) {
     let uuid = uuid::Uuid::parse_str(&segment_id).expect("invalid segment_id UUID");
-    get_or_create(
+    let key = CacheKey {
         index_oid,
-        uuid.as_bytes(),
-        CacheTag::Test,
-        sub_key as u32,
-        size as usize,
-        |buf| buf.fill(0),
-    );
+        segment_id: *uuid.as_bytes(),
+        tag: CacheTag::Test,
+        sub_key: sub_key as u32,
+    };
+    get_or_create(&key, size as usize, |buf| buf.fill(0));
 }
 
 /// Test-only: invalidate all cache entries for a given segment.
@@ -93,14 +92,13 @@ fn pg_test_dsm_cache_hold(
     size: i32,
 ) -> bool {
     let uuid = uuid::Uuid::parse_str(&segment_id).expect("invalid segment_id UUID");
-    let slice = get_or_create(
+    let key = CacheKey {
         index_oid,
-        uuid.as_bytes(),
-        CacheTag::Test,
-        sub_key as u32,
-        size as usize,
-        |buf| buf.fill(0xAB),
-    );
+        segment_id: *uuid.as_bytes(),
+        tag: CacheTag::Test,
+        sub_key: sub_key as u32,
+    };
+    let slice = get_or_create(&key, size as usize, |buf| buf.fill(0xAB));
     let ok = slice.is_some();
     HELD_SLICE.with(|h| *h.borrow_mut() = slice);
     ok
@@ -154,11 +152,7 @@ fn dsm_cache_entries() -> TableIterator<
 
     unsafe {
         let _guard = shared.lock.acquire_shared();
-
-        let max = (*shared.header).max_entries as usize;
-        let base = shared.slots();
-        for i in 0..max {
-            let slot = &*base.add(i);
+        for slot in shared.slot_slice() {
             if slot.key.is_empty() {
                 break;
             }
@@ -195,11 +189,7 @@ fn dsm_cache_stats() -> TableIterator<
 
     unsafe {
         let _guard = shared.lock.acquire_shared();
-
-        let max = (*shared.header).max_entries as usize;
-        let base = shared.slots();
-        for i in 0..max {
-            let slot = &*base.add(i);
+        for slot in shared.slot_slice() {
             if slot.key.is_empty() {
                 break;
             }

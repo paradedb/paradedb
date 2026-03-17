@@ -111,6 +111,29 @@ pub enum CacheTag {
 }
 
 // ---------------------------------------------------------------------------
+// CacheKey — public key type for cache lookups
+// ---------------------------------------------------------------------------
+
+/// Key identifying a cached DSM entry.
+pub struct CacheKey {
+    pub index_oid: pg_sys::Oid,
+    pub segment_id: [u8; 16],
+    pub tag: CacheTag,
+    pub sub_key: u32,
+}
+
+impl CacheKey {
+    fn to_internal(&self) -> DsmCacheKey {
+        DsmCacheKey {
+            index_oid: self.index_oid,
+            segment_id: self.segment_id,
+            tag: self.tag as u32,
+            sub_key: self.sub_key,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // MappingGuard — prevents dsm_detach until all DsmSlices are dropped
 // ---------------------------------------------------------------------------
 
@@ -179,9 +202,22 @@ pub(super) struct DsmCacheShared {
 }
 
 impl DsmCacheShared {
-    /// Get a pointer to the slot array (immediately after the header).
-    pub(super) unsafe fn slots(&self) -> *mut DsmCacheSlot {
-        self.header.add(1) as *mut DsmCacheSlot
+    /// Get the slot array as a slice.
+    ///
+    /// # Safety
+    /// Caller must hold the LWLock (shared or exclusive).
+    pub(super) unsafe fn slot_slice(&self) -> &[DsmCacheSlot] {
+        let max = (*self.header).max_entries as usize;
+        std::slice::from_raw_parts(self.header.add(1) as *const DsmCacheSlot, max)
+    }
+
+    /// Get the slot array as a mutable slice.
+    ///
+    /// # Safety
+    /// Caller must hold the LWLock exclusively.
+    unsafe fn slot_slice_mut(&self) -> &mut [DsmCacheSlot] {
+        let max = (*self.header).max_entries as usize;
+        std::slice::from_raw_parts_mut(self.header.add(1) as *mut DsmCacheSlot, max)
     }
 
     /// Linear scan for a matching key.  Returns `(handle, size)` if found.
@@ -189,10 +225,7 @@ impl DsmCacheShared {
     /// # Safety
     /// Caller must hold the LWLock (shared or exclusive).
     unsafe fn find_slot(&self, key: &DsmCacheKey) -> Option<(pg_sys::dsm_handle, u32)> {
-        let max = (*self.header).max_entries as usize;
-        let base = self.slots();
-        for i in 0..max {
-            let slot = &*base.add(i);
+        for slot in self.slot_slice() {
             if slot.key == *key {
                 return Some((slot.handle, slot.size));
             }
@@ -213,10 +246,7 @@ impl DsmCacheShared {
         handle: pg_sys::dsm_handle,
         size: u32,
     ) -> bool {
-        let max = (*self.header).max_entries as usize;
-        let base = self.slots();
-        for i in 0..max {
-            let slot = &mut *base.add(i);
+        for slot in self.slot_slice_mut() {
             if slot.key.is_empty() {
                 slot.key = *key;
                 slot.handle = handle;
@@ -234,10 +264,7 @@ impl DsmCacheShared {
     /// Caller must hold the LWLock (shared or exclusive).
     unsafe fn collect_live_handles(&self) -> HashSet<pg_sys::dsm_handle> {
         let mut live = HashSet::new();
-        let max = (*self.header).max_entries as usize;
-        let base = self.slots();
-        for i in 0..max {
-            let slot = &*base.add(i);
+        for slot in self.slot_slice() {
             if slot.key.is_empty() {
                 break;
             }
@@ -258,33 +285,25 @@ impl DsmCacheShared {
 
         unsafe {
             let _guard = self.lock.acquire_exclusive();
-
-            let max = (*self.header).max_entries as usize;
-            let base = self.slots();
+            let slots = self.slot_slice_mut();
 
             let mut write_idx = 0usize;
-            for read_idx in 0..max {
-                let slot = &*base.add(read_idx);
-                if slot.key.is_empty() {
+            for read_idx in 0..slots.len() {
+                if slots[read_idx].key.is_empty() {
                     break;
                 }
-                if predicate(&slot.key) {
-                    removed_handles.push(slot.handle);
+                if predicate(&slots[read_idx].key) {
+                    removed_handles.push(slots[read_idx].handle);
                     (*self.header).count.fetch_sub(1, Ordering::Relaxed);
                 } else {
                     if write_idx != read_idx {
-                        std::ptr::copy_nonoverlapping(
-                            base.add(read_idx),
-                            base.add(write_idx),
-                            1,
-                        );
+                        slots[write_idx] = std::ptr::read(&slots[read_idx]);
                     }
                     write_idx += 1;
                 }
             }
 
-            for i in write_idx..max {
-                let slot = &mut *base.add(i);
+            for slot in &mut slots[write_idx..] {
                 if slot.key.is_empty() {
                     break;
                 }
@@ -473,22 +492,12 @@ unsafe extern "C-unwind" fn object_access_hook(
 /// Look up an existing DSM cache entry without creating one on miss.
 /// Returns `None` if not found or cache not initialized.
 #[allow(dead_code)] // remove when cache consumers land
-pub fn try_get(
-    index_oid: pg_sys::Oid,
-    segment_id: &[u8; 16],
-    tag: CacheTag,
-    sub_key: u32,
-) -> Option<DsmSlice> {
+pub fn try_get(key: &CacheKey) -> Option<DsmSlice> {
     let shared = load_shared()?;
 
     shared.maybe_sweep();
 
-    let key = DsmCacheKey {
-        index_oid,
-        segment_id: *segment_id,
-        tag: tag as u32,
-        sub_key,
-    };
+    let key = key.to_internal();
 
     // Thread-local fast path
     let cached = LOCAL_CACHE.with(|c| {
@@ -523,10 +532,7 @@ pub fn try_get(
 /// or the data size is zero.
 #[allow(dead_code)] // remove when cache consumers land
 pub fn get_or_create(
-    index_oid: pg_sys::Oid,
-    segment_id: &[u8; 16],
-    tag: CacheTag,
-    sub_key: u32,
+    key: &CacheKey,
     data_size: usize,
     fill_fn: impl FnOnce(&mut [u8]),
 ) -> Option<DsmSlice> {
@@ -538,12 +544,7 @@ pub fn get_or_create(
 
     shared.maybe_sweep();
 
-    let key = DsmCacheKey {
-        index_oid,
-        segment_id: *segment_id,
-        tag: tag as u32,
-        sub_key,
-    };
+    let key = key.to_internal();
 
     // 1. Thread-local fast path
     let cached = LOCAL_CACHE.with(|c| {

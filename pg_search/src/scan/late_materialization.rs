@@ -86,6 +86,136 @@ fn get_deferred_fields(plan: &LogicalPlan) -> Vec<DeferredField> {
     fields
 }
 
+/// Traces a column backward through a logical plan down to the originating `TableScan`.
+///
+/// This is necessary because DataFusion does not natively preserve custom metadata (like our
+/// `DeferredField` info) alongside a logical `Column` as it is transformed by the query plan.
+/// When a query contains aliases (e.g., `SELECT description AS desc`), `Projection`s, or `Join`s
+/// with fully qualified names (e.g., `p.description`), the output `Column`'s name and relation
+/// often change, breaking naive string matching against the base table's column name.
+///
+/// Instead of relying on brittle string suffix matching (`ends_with`) or unsafe positional
+/// indices, this function explicitly recursively traces the `Column`'s lineage back down the
+/// plan tree to find its exact root `Column` at the `TableScan` level, allowing robust exact matching.
+fn trace_column(plan: &LogicalPlan, col: &Column) -> Option<Column> {
+    match plan {
+        LogicalPlan::TableScan(scan) => {
+            if scan.projected_schema.has_column(col) {
+                // If the column exists in this table scan's projected schema, we have found the base!
+                let (_, field) = scan
+                    .projected_schema
+                    .qualified_field_from_column(col)
+                    .ok()?;
+                Some(Column::from_name(field.name()))
+            } else {
+                None
+            }
+        }
+        LogicalPlan::Projection(proj) => {
+            let idx = proj.schema.index_of_column(col).ok()?;
+            let expr = &proj.expr[idx];
+            let unaliased = match expr {
+                Expr::Alias(alias) => alias.expr.as_ref(),
+                e => e,
+            };
+            if let Expr::Column(c) = unaliased {
+                trace_column(proj.input.as_ref(), c)
+            } else {
+                None
+            }
+        }
+        LogicalPlan::Filter(filter) => trace_column(filter.input.as_ref(), col),
+        LogicalPlan::Sort(sort) => trace_column(sort.input.as_ref(), col),
+        LogicalPlan::Limit(limit) => trace_column(limit.input.as_ref(), col),
+        LogicalPlan::Window(window) => {
+            if let Ok(idx) = window.schema.index_of_column(col) {
+                let input_schema = window.input.schema();
+                if idx < input_schema.fields().len() {
+                    let (q, f) = input_schema.qualified_field(idx);
+                    trace_column(window.input.as_ref(), &Column::new(q.cloned(), f.name()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        LogicalPlan::Aggregate(agg) => {
+            if let Ok(idx) = agg.schema.index_of_column(col) {
+                if idx < agg.group_expr.len() {
+                    let expr = &agg.group_expr[idx];
+                    let unaliased = match expr {
+                        Expr::Alias(alias) => alias.expr.as_ref(),
+                        e => e,
+                    };
+                    if let Expr::Column(c) = unaliased {
+                        trace_column(agg.input.as_ref(), c)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        LogicalPlan::Join(join) => {
+            if join.left.schema().has_column(col) {
+                trace_column(join.left.as_ref(), col)
+            } else if join.right.schema().has_column(col) {
+                trace_column(join.right.as_ref(), col)
+            } else {
+                None
+            }
+        }
+        LogicalPlan::SubqueryAlias(alias) => {
+            if let Ok(idx) = alias.schema.index_of_column(col) {
+                let (q, f) = alias.input.schema().qualified_field(idx);
+                trace_column(alias.input.as_ref(), &Column::new(q.cloned(), f.name()))
+            } else {
+                None
+            }
+        }
+        LogicalPlan::Extension(ext) => {
+            if ext.node.inputs().len() == 1 {
+                trace_column(ext.node.inputs()[0], col)
+            } else {
+                None
+            }
+        }
+        LogicalPlan::Union(union_plan) => {
+            if let Ok(idx) = union_plan.schema.index_of_column(col) {
+                let (q, f) = union_plan.inputs[0].schema().qualified_field(idx);
+                trace_column(
+                    union_plan.inputs[0].as_ref(),
+                    &Column::new(q.cloned(), f.name()),
+                )
+            } else {
+                None
+            }
+        }
+        _ => {
+            let inputs = plan.inputs();
+            if inputs.len() == 1 {
+                if let Ok(idx) = plan.schema().index_of_column(col) {
+                    let input_schema = inputs[0].schema();
+                    if idx < input_schema.fields().len() {
+                        let (q, f) = input_schema.qualified_field(idx);
+                        trace_column(inputs[0], &Column::new(q.cloned(), f.name()))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    }
+}
+
 /// Helper function to check if the given plan outputs a `Union` type that corresponds
 /// to a known deferred field. If it does, it returns the actively tracked deferred fields
 /// mapped accurately to the plan's current output schema (accounting for relation aliases).
@@ -119,30 +249,22 @@ fn get_union_info(
             ));
             new_fields.push((qualifier.cloned(), materialized_field));
 
-            // Find matching deferred field.
-            // DataFusion aliases columns (e.g. from `name` to `p.name` or `col_1`)
-            // as they bubble up through projections and joins. We use `.ends_with` to fuzzy match
-            // the qualified name against the original base `field_name`.
-            if let Some(pos) = all_deferred.iter().position(|d| {
-                d.column.name == *field.name() || field.name().ends_with(&d.column.name)
-            }) {
-                let mut d = all_deferred.remove(pos);
-                d.column =
-                    datafusion::common::Column::from((qualifier.cloned().as_ref(), field.as_ref()));
-                active_deferred.push(d);
-            } else if !all_deferred.is_empty() {
-                // Assume order is preserved and rename
-                let mut d = all_deferred.remove(0);
-                d.column =
-                    datafusion::common::Column::from((qualifier.cloned().as_ref(), field.as_ref()));
-                active_deferred.push(d);
+            // Find matching deferred field by tracing the column lineage.
+            let col =
+                datafusion::common::Column::from((qualifier.cloned().as_ref(), field.as_ref()));
+            if let Some(base_col) = trace_column(plan, &col) {
+                if let Some(pos) = all_deferred.iter().position(|d| d.name == base_col.name) {
+                    let d = all_deferred.remove(pos);
+                    // Since d.name is already the base name, we just need to keep it in the active set
+                    active_deferred.push(d);
+                }
             }
         } else {
             new_fields.push((qualifier.cloned(), field.clone()));
         }
     }
 
-    active_deferred.dedup_by(|a, b| a.column == b.column);
+    active_deferred.dedup_by(|a, b| a.name == b.name);
 
     let new_schema = Arc::new(
         datafusion::common::DFSchema::new_with_metadata(new_fields, schema.metadata().clone())
@@ -168,12 +290,12 @@ fn get_column_refs(node: &LogicalPlan) -> HashSet<Column> {
 fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool {
     let refs = get_column_refs(node);
 
-    // DataFusion aliases columns (e.g. `p.name` instead of `name`),
-    // so we must fuzzy match against `df.field_name`.
     let references_deferred = refs.iter().any(|c| {
-        deferred_fields
-            .iter()
-            .any(|df| df.column.name == c.name || c.name.ends_with(&df.column.name))
+        if let Some(base_col) = trace_column(node, c) {
+            deferred_fields.iter().any(|df| df.name == base_col.name)
+        } else {
+            false
+        }
     });
 
     let anchor = match node {
@@ -185,9 +307,13 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
             for expr in &proj.expr {
                 let mut cols = HashSet::new();
                 expr.add_column_refs(&mut cols);
-                let uses_deferred = cols
-                    .iter()
-                    .any(|c| deferred_fields.iter().any(|df| df.column.name == c.name));
+                let uses_deferred = cols.iter().any(|c| {
+                    if let Some(base_col) = trace_column(node, c) {
+                        deferred_fields.iter().any(|df| df.name == base_col.name)
+                    } else {
+                        false
+                    }
+                });
 
                 if uses_deferred {
                     // Check if it's a simple pass-through or alias
@@ -216,7 +342,7 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
             // immediately below it.
             references_deferred
         }
-        LogicalPlan::Limit(_) | LogicalPlan::Aggregate(_) | LogicalPlan::Window(_) => true,
+        LogicalPlan::Aggregate(_) | LogicalPlan::Window(_) => true,
         LogicalPlan::Join(join) => {
             let mut join_refs = HashSet::new();
             for (l, r) in &join.on {
@@ -227,13 +353,18 @@ fn should_anchor(node: &LogicalPlan, deferred_fields: &[DeferredField]) -> bool 
                 filter.add_column_refs(&mut join_refs);
             }
             let join_cols: HashSet<Column> = join_refs.into_iter().cloned().collect();
-            join_cols
-                .iter()
-                .any(|c| deferred_fields.iter().any(|df| df.column.name == c.name))
+            join_cols.iter().any(|c| {
+                if let Some(base_col) = trace_column(node, c) {
+                    deferred_fields.iter().any(|df| df.name == base_col.name)
+                } else {
+                    false
+                }
+            })
         }
         LogicalPlan::TableScan(_)
         | LogicalPlan::EmptyRelation(_)
         | LogicalPlan::Extension(_)
+        | LogicalPlan::Limit(_)
         | LogicalPlan::SubqueryAlias(_) => false,
         _ => true,
     };
@@ -276,9 +407,10 @@ impl OptimizerRule for LateMaterializationRule {
                         // Now the provider natively outputs the Union schema!
                         // We must reconstruct the TableScan's projected schema to reflect this new reality.
                         let mut new_scan = scan.clone();
-                        let projected_indices: Vec<usize> = scan.projected_schema.fields().iter()
-                            .map(|f| scan.source.schema().index_of(f.name()).unwrap())
+                        let projected_indices: Result<Vec<usize>, _> = scan.projected_schema.fields().iter()
+                            .map(|f| scan.source.schema().index_of(f.name()))
                             .collect();
+                        let projected_indices = projected_indices?;
 
                         let projected_arrow_schema = new_scan.source.schema().project(&projected_indices)?;
                         let mut new_qualified_fields = Vec::new();
@@ -397,6 +529,9 @@ impl std::cmp::PartialOrd for LateMaterializeNode {
             return input_cmp;
         }
 
+        // Note: Comparing `Arc` pointers is non-deterministic across runs, but DataFusion's
+        // `partial_cmp` trait bound for plans only requires it for opportunistic deduplication/caching,
+        // not stable semantic ordering. Deep schema comparison is too expensive here.
         let schema_cmp =
             Arc::as_ptr(&self.output_schema).partial_cmp(&Arc::as_ptr(&other.output_schema));
         if schema_cmp != Some(std::cmp::Ordering::Equal) {
@@ -434,7 +569,7 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
             "LateMaterialize: decode=[{}]",
             self.deferred_fields
                 .iter()
-                .map(|d| d.column.name.as_str())
+                .map(|d| d.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -473,8 +608,10 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
 
                 // Find the corresponding deferred field.
                 let target_col = datafusion::common::Column::from((qualifier, field.as_ref()));
-                if let Some(pos) = deferred_pool.iter().position(|d| d.column == target_col) {
-                    new_deferred_fields.push(deferred_pool.remove(pos));
+                if let Some(base_col) = trace_column(&input, &target_col) {
+                    if let Some(pos) = deferred_pool.iter().position(|d| d.name == base_col.name) {
+                        new_deferred_fields.push(deferred_pool.remove(pos));
+                    }
                 }
             } else {
                 qualified_fields.push((
@@ -505,7 +642,7 @@ pub struct LateMaterializePlanner;
 
 fn extract_ff_helper(
     plan: &Arc<dyn ExecutionPlan>,
-    helpers: &mut std::collections::HashMap<u32, Arc<FFHelper>>,
+    helpers: &mut crate::api::HashMap<u32, Arc<FFHelper>>,
 ) {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
         if let Some(ff) = scan.ffhelper_if_deferred() {
@@ -531,7 +668,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
         if let Some(mat_node) = node.as_any().downcast_ref::<LateMaterializeNode>() {
             let input_exec = Arc::clone(&physical_inputs[0]);
 
-            let mut ff_helpers = std::collections::HashMap::new();
+            let mut ff_helpers = crate::api::HashMap::default();
             extract_ff_helper(&input_exec, &mut ff_helpers);
 
             if ff_helpers.is_empty() {
@@ -544,11 +681,28 @@ impl ExtensionPlanner for LateMaterializePlanner {
             let mut physical_deferred_fields = Vec::with_capacity(mat_node.deferred_fields.len());
 
             for deferred in &mat_node.deferred_fields {
-                let col_idx = child_logical_schema.index_of_column(&deferred.column)?;
+                let mut found_idx = None;
+                for (i, field) in child_logical_schema.fields().iter().enumerate() {
+                    let col = datafusion::common::Column::from_name(field.name());
+                    if let Some(base_col) = trace_column(&mat_node.input, &col) {
+                        if base_col.name == deferred.name {
+                            found_idx = Some(i);
+                            break;
+                        }
+                    }
+                }
+
+                let col_idx = found_idx.ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "Could not find physical index for deferred column {}",
+                        deferred.name
+                    ))
+                })?;
+
                 physical_deferred_fields.push(
                     crate::scan::tantivy_lookup_exec::PhysicalDeferredField {
                         col_idx,
-                        display_name: deferred.column.name.clone(),
+                        display_name: deferred.name.clone(),
                         is_bytes: deferred.is_bytes,
                         canonical: deferred.canonical.clone(),
                     },
@@ -571,10 +725,10 @@ impl ExtensionPlanner for LateMaterializePlanner {
 /// *not* preserve custom metadata attached to fields.
 ///
 /// We use `DeferredField` to manually carry the Tantivy `ff_index` and `is_bytes` metadata
-/// alongside the logical `datafusion_common::Column` identifier. As columns are renamed
+/// alongside the logical column's base `name`. As columns are renamed
 /// or fully qualified (e.g. from `name` to `p.name` or `col_1`), `LateMaterializationRule`
-/// uses fuzzy string matching (`.ends_with`) against this base column name to re-associate
-/// the `ff_index` to the new alias.
+/// uses logical plan tracing to recursively discover the original table scan column,
+/// allowing exact matching against this base `name`.
 ///
 /// When the logical plan is converted to a physical plan, this is resolved into a
 /// `PhysicalDeferredField`.
@@ -582,29 +736,7 @@ impl ExtensionPlanner for LateMaterializePlanner {
     Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct DeferredField {
-    #[serde(with = "column_serde")]
-    pub column: Column,
+    pub name: String,
     pub is_bytes: bool,
     pub canonical: CanonicalColumn,
-}
-mod column_serde {
-    use datafusion::common::Column;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(column: &Column, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Convert to qualified string, e.g. "mock.col_1" or "col_1"
-        let s = column.to_string();
-        serializer.serialize_str(&s)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Column, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(Column::from_qualified_name(&s))
-    }
 }

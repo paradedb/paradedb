@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773789331553,
+  "lastUpdate": 1773789340571,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24812,6 +24812,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.16026529057284, max segment_count: 129.0, count: 57748"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d8b950ef294aceff175067f5f51f082f1184fe15",
+          "message": "fix: Fix casts in aggregate scan target lists. (#4404)\n\n# Description\nBackport of #4401 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-17T15:40:57-07:00",
+          "tree_id": "7c7ffc7bb93ad630760294e2afeab90a0dfdb832",
+          "url": "https://github.com/paradedb/paradedb/commit/d8b950ef294aceff175067f5f51f082f1184fe15"
+        },
+        "date": 1773789333427,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.10497085741865, max cpu: 42.72997, count: 57343"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 237.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 236.0204353490182, max mem: 237.2109375, count: 57343"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.739657779559284, max cpu: 33.23442, count: 57343"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.35392622301327, max mem: 176.125, count: 57343"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34547,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33618.10013427969, max block_count: 36138.0, count: 57343"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.87658476187154, max segment_count: 127.0, count: 57343"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773770042194,
+  "lastUpdate": 1773770829941,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -39674,6 +39674,60 @@ window.BENCHMARK_DATA = {
             "value": 15.850940166767339,
             "unit": "median tps",
             "extra": "avg tps: 15.704282271672389, max tps: 19.077762639361147, count: 55472"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "25d2d5f35370f855a7f3624769d387a8da0ac06b",
+          "message": "chore: Feedback from logical late materialization change (#4387)\n\n# Description\nBackport of #4376 to `0.22.x`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-17T09:55:24-07:00",
+          "tree_id": "333a91568c5b912e691e92a1a5dc6469136bef37",
+          "url": "https://github.com/paradedb/paradedb/commit/25d2d5f35370f855a7f3624769d387a8da0ac06b"
+        },
+        "date": 1773770822887,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 28.61699833784619,
+            "unit": "median tps",
+            "extra": "avg tps: 28.41850824384796, max tps: 30.528048186876383, count: 55496"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 242.95341765877603,
+            "unit": "median tps",
+            "extra": "avg tps: 268.5736075356165, max tps: 2724.8117502108516, count: 55496"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 553.4559830832638,
+            "unit": "median tps",
+            "extra": "avg tps: 537.546544396728, max tps: 888.3151436002429, count: 55496"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.16973071236822,
+            "unit": "median tps",
+            "extra": "avg tps: 175.6941887257724, max tps: 972.521831803693, count: 110992"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.421910788502435,
+            "unit": "median tps",
+            "extra": "avg tps: 15.364804754071473, max tps: 19.802194296991804, count: 55496"
           }
         ]
       }

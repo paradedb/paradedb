@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773787148056,
+  "lastUpdate": 1773787282631,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19618,6 +19618,42 @@ window.BENCHMARK_DATA = {
             "value": 5.075965150184484,
             "unit": "median tps",
             "extra": "avg tps: 4.5648482405816635, max tps: 5.606351585322463, count: 57598"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4f47a0f09104d05a2eaf8f682d92db306fe6d6b",
+          "message": "fix: Allow aggregate scan planning warnings to be disabled. (#4402)\n\n# Description\nBackport of #4394 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-17T15:06:32-07:00",
+          "tree_id": "deabec65ce18a0f2398bac601ae6ed40c93f30b5",
+          "url": "https://github.com/paradedb/paradedb/commit/e4f47a0f09104d05a2eaf8f682d92db306fe6d6b"
+        },
+        "date": 1773787275418,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.694340293280778,
+            "unit": "median tps",
+            "extra": "avg tps: 6.582137665819905, max tps: 9.969553501460506, count: 57748"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.31738844989019,
+            "unit": "median tps",
+            "extra": "avg tps: 4.781199262581061, max tps: 5.955380762427487, count: 57748"
           }
         ]
       }

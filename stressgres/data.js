@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773785365659,
+  "lastUpdate": 1773785819811,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5750,6 +5750,78 @@ window.BENCHMARK_DATA = {
             "value": 52.6491684192794,
             "unit": "median tps",
             "extra": "avg tps: 54.026491402489235, max tps: 265.18678298466136, count: 54572"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dd16f1844e0c6c3857c8ebd9ce991fa37ae25b84",
+          "message": "fix: Fix casts in aggregate scan target lists. (#4401)\n\n## Ticket(s) Closed\n\n- Closes #4396\n\n## What\n\nFixes use of casts in aggregate scan target lists.\n\n## Why\n\nSee #4396.",
+          "timestamp": "2026-03-17T14:53:14-07:00",
+          "tree_id": "7c24ca04c3e96ff3bda5d1cb43c29e1ef2738b6d",
+          "url": "https://github.com/paradedb/paradedb/commit/dd16f1844e0c6c3857c8ebd9ce991fa37ae25b84"
+        },
+        "date": 1773785812632,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 138.9509269271701,
+            "unit": "median tps",
+            "extra": "avg tps: 138.80830868470017, max tps: 145.7371536433578, count: 55043"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 446.47783424365855,
+            "unit": "median tps",
+            "extra": "avg tps: 446.15278937365326, max tps: 550.68651793664, count: 55043"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2830.834181910677,
+            "unit": "median tps",
+            "extra": "avg tps: 2818.19609192924, max tps: 2834.391313513369, count: 55043"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 387.92805587593404,
+            "unit": "median tps",
+            "extra": "avg tps: 388.25710248021403, max tps: 503.8356165763933, count: 55043"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2934.4918850615195,
+            "unit": "median tps",
+            "extra": "avg tps: 2927.2413019370183, max tps: 2965.218069316444, count: 110086"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 401.01640082622436,
+            "unit": "median tps",
+            "extra": "avg tps: 402.662030567252, max tps: 526.3301308155161, count: 55043"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1880.1570834490324,
+            "unit": "median tps",
+            "extra": "avg tps: 1871.6249537118288, max tps: 1890.1350982176705, count: 55043"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 35.734861900023446,
+            "unit": "median tps",
+            "extra": "avg tps: 33.68280873696106, max tps: 213.12575453177283, count: 55043"
           }
         ]
       }

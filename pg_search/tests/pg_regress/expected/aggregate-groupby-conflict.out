@@ -209,7 +209,7 @@ FROM groupby_conflict_test
 WHERE category @@@ 'electronics'
 GROUP BY title
 ORDER BY title;
-WARNING:  Aggregate Scan not used: grouping column title exists, but is not a fast field (table: groupby_conflict_test)
+WARNING:  Aggregate Scan not used: grouping column title exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: groupby_conflict_test)
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -236,7 +236,7 @@ WHERE category @@@ 'electronics'
 GROUP BY title
 ORDER BY title
 LIMIT 5;
-WARNING:  Aggregate Scan not used: grouping column title exists, but is not a fast field (table: groupby_conflict_test)
+WARNING:  Aggregate Scan not used: grouping column title exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: groupby_conflict_test)
    title    |       avg_rating       | count 
 ------------+------------------------+-------
  Product A1 | 1.00000000000000000000 |     1

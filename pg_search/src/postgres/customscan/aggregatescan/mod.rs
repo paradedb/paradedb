@@ -90,6 +90,9 @@ impl CustomScan for AggregateScan {
     }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
+        // When `has_paradedb_agg`, the aggregate scan must run, because the placeholder
+        // aggregate functions have no valid implementation: the only way they can be satisfied is
+        // via this scan.
         let has_paradedb_agg = unsafe {
             let parse = builder.args().root().parse;
             !parse.is_null()
@@ -161,11 +164,20 @@ impl CustomScan for AggregateScan {
             }
             Err(CustomScanBuildError::Incompatible(e)) => {
                 // If it failed to build, we only log a warning if it was considered "interesting"
-                if has_paradedb_agg || gucs::enable_aggregate_custom_scan() {
-                    Self::add_planner_warning(
-                        format!("Aggregate Scan not used: {}", e),
-                        _table.name().to_string(),
-                    );
+                if has_paradedb_agg
+                    || (gucs::enable_aggregate_custom_scan() && gucs::check_aggregate_scan())
+                {
+                    let warning_msg = if has_paradedb_agg {
+                        format!("Aggregate Scan not used: {}", e)
+                    } else {
+                        format!(
+                            "Aggregate Scan not used: {}. \
+                             To disable this warning: SET paradedb.check_aggregate_scan = false",
+                            e,
+                        )
+                    };
+
+                    Self::add_planner_warning(warning_msg, _table.name().to_string());
                 }
                 Vec::new()
             }

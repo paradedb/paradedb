@@ -8,6 +8,8 @@ SET max_parallel_workers_per_gather = 8;
 -- 2/25 (ming): We are not pushing this down, this shape not yet supported
 -- 3/02 (stuhood): https://github.com/paradedb/paradedb/pull/4241 nets us a warning, but actual
 --      execution requires support for anti joins.
+-- 3/16 (stuhood): Is able to be planned, but the filters on contacts_companies_combined_full are too
+--      selective to actually get a semi-join.
 
 SET paradedb.enable_join_custom_scan TO off;
 EXPLAIN ANALYZE

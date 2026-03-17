@@ -64,7 +64,7 @@ INSERT INTO industries VALUES ('Financial Services'), ('Information Technology')
 DO $$
 BEGIN
     -- Contacts Table Ratios
-    PERFORM set_config('myvars.total_contacts', '10000000', false);
+    PERFORM set_config('myvars.total_contacts', '20000000', false);
     PERFORM set_config('myvars.john_contact_count', '4000000', false); -- % of contacts that are "john"
 
     -- Intent Table Ratios

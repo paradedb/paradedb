@@ -6,7 +6,9 @@ canonical: https://docs.paradedb.com/documentation/indexing/indexing-composite
 
 <Note>This is a beta feature available in versions `0.22.0` and above.</Note>
 
-Postgres allows a maximum of 32 columns in an index definition. To index more than 32 columns in a single BM25 index,
+Postgres allows a maximum of 32 columns in an index definition, but because ParadeDB benefits from pushing filters and ranking signals into the BM25 index this can become a limitation.
+
+To index more than 32 columns in a single BM25 index,
 wrap columns in a `ROW()` expression cast to a composite type. ParadeDB will unpack the composite type and index each
 field individually.
 

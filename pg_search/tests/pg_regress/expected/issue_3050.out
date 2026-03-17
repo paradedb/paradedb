@@ -17,7 +17,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
-WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column (table: mock_items)
+WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  Limit
@@ -41,7 +41,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
-WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column (table: mock_items)
+WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.check_aggregate_scan = false (table: mock_items)
  id | rating | count 
 ----+--------+-------
   1 |      4 |     1

@@ -32,6 +32,9 @@ static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Validate aggregate scan eligibility
+static CHECK_AGGREGATE_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
@@ -144,6 +147,17 @@ pub fn init() {
         c"Enable ParadeDB's custom aggregate scan",
         c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
         &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.check_aggregate_scan",
+        c"Validate Aggregate scan eligibility",
+        c"When enabled, logs a warning if a query expected to use the aggregate scan cannot. \
+          This helps detect performance issues during development where queries expected \
+          to use the aggregate scan fall back to slower execution methods.",
+        &CHECK_AGGREGATE_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -332,9 +346,9 @@ pub fn init() {
     GucRegistry::define_bool_guc(
         c"paradedb.check_topk_scan",
         c"Validate Top K scan eligibility for LIMIT queries",
-        c"When enabled, logs a warning if a query with LIMIT cannot use Top K scan. \
+        c"When enabled, logs a warning if a query with LIMIT cannot use the Top K scan. \
           This helps detect performance issues during development where queries expected \
-          to use Top K optimization fall back to slower execution methods.",
+          to use the Top K optimization fall back to slower execution methods.",
         &CHECK_TOPK_SCAN,
         GucContext::Userset,
         GucFlags::default(),
@@ -395,6 +409,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn check_aggregate_scan() -> bool {
+    CHECK_AGGREGATE_SCAN.get()
 }
 
 pub fn enable_join_custom_scan() -> bool {

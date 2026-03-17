@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773726835061,
+  "lastUpdate": 1773726843495,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23012,6 +23012,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.01002101460602, max segment_count: 128.0, count: 57579"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6c588a1aa25f747a9bcf224d6e3028b46284ef2",
+          "message": "fix: Handle relabel nodes in more places in join scan planning (#4386)\n\n## What\n\n* Add a (reduced-size) repro of #2733 and of another customer query\n* Fixes handling of relabel nodes in more cases\n* Removes the `is_interesting` flag: after we have detected our\noperator, all remaining return statements are worth logging.\n\n## Why\n\nTo increase the number of places where the join scan is planned, and\nensure that we get warnings.",
+          "timestamp": "2026-03-16T22:19:07-07:00",
+          "tree_id": "618b6cffa53b00e32573f28a59c4193bb5b9dfa6",
+          "url": "https://github.com/paradedb/paradedb/commit/a6c588a1aa25f747a9bcf224d6e3028b46284ef2"
+        },
+        "date": 1773726836612,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.306559043598767, max cpu: 42.772278, count: 57789"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 233.34893481025802, max mem: 234.9296875, count: 57789"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.441979313805636, max cpu: 33.3996, count: 57789"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.78366868586582, max mem: 176.5703125, count: 57789"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34254,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33380.82733738255, max block_count: 36000.0, count: 57789"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.94512796552978, max segment_count: 129.0, count: 57789"
           }
         ]
       }

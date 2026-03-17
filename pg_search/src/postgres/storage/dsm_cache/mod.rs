@@ -48,7 +48,7 @@ mod sql;
 use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
 use crate::api::{HashMap, HashSet};
-use crate::postgres::dsm::{DsmSegment, DsmSegmentRef};
+use crate::postgres::dsm::DsmSegment;
 use crate::postgres::locks::LWLock;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -256,7 +256,7 @@ impl DsmCacheShared {
     /// # Safety
     /// Caller must hold the LWLock (shared or exclusive).
     unsafe fn collect_live_handles(&self) -> HashSet<pg_sys::dsm_handle> {
-        let mut live = HashSet::new();
+        let mut live = HashSet::default();
         for slot in self.slot_slice() {
             if slot.key.is_empty() {
                 break;
@@ -351,13 +351,13 @@ static mut PREV_OBJECT_ACCESS_HOOK: pg_sys::object_access_hook_type = None;
 // Per-backend pointer cache and state.
 // PostgreSQL backends are single-threaded, so thread-locals are safe without locks.
 thread_local! {
-    static LOCAL_CACHE: RefCell<HashMap<DsmCacheKey, (Arc<MappingGuard>, *const u8, usize)>> = RefCell::new(HashMap::new());
+    static LOCAL_CACHE: RefCell<HashMap<DsmCacheKey, (Arc<MappingGuard>, *const u8, usize)>> = RefCell::new(HashMap::default());
     /// Last seen generation.  When this differs from the shared counter,
     /// a sweep is needed before handing out any new DsmSlices.
     static LOCAL_GENERATION: Cell<u64> = const { Cell::new(0) };
     /// Guards for mappings we have attached.  Dropping an entry here decrements
     /// the Arc; the actual dsm_detach fires when the last DsmSlice is also dropped.
-    static LOCAL_HANDLES: RefCell<HashMap<pg_sys::dsm_handle, Arc<MappingGuard>>> = RefCell::new(HashMap::new());
+    static LOCAL_HANDLES: RefCell<HashMap<pg_sys::dsm_handle, Arc<MappingGuard>>> = RefCell::new(HashMap::default());
 }
 
 // ---------------------------------------------------------------------------

@@ -17,13 +17,15 @@
 
 //! SQL-callable functions for the DSM cache: diagnostics and test helpers.
 
-use super::{
-    get_or_create, invalidate_index, invalidate_segment, load_shared, tag_name, CacheKey, CacheTag,
-    DsmSlice,
-};
-use crate::postgres::dsm::DsmSegment;
+use super::{load_shared, tag_name};
 use pgrx::pg_sys;
 use pgrx::prelude::*;
+
+#[cfg(any(test, feature = "pg_test"))]
+use super::{get_or_create, invalidate_index, invalidate_segment, CacheKey, CacheTag, DsmSlice};
+#[cfg(any(test, feature = "pg_test"))]
+use crate::postgres::dsm::DsmSegment;
+#[cfg(any(test, feature = "pg_test"))]
 use std::cell::RefCell;
 
 // ---------------------------------------------------------------------------

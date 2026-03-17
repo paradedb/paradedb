@@ -109,6 +109,7 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
                 &schema,
                 |f| f.is_fast(),
                 |_| false,
+                Some(&index_expressions),
             )
         };
 

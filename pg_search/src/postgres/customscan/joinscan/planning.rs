@@ -893,7 +893,9 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 }
             }
 
-            if let Some(var) = nodecast!(Var, T_Var, expr) {
+            let check_expr = strip_wrappers(expr.cast());
+
+            if let Some(var) = nodecast!(Var, T_Var, check_expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
 
@@ -907,6 +909,30 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                         ) {
                             return false;
                         }
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return false;
+                }
+            } else {
+                // Non-Var expression — check if it matches an indexed expression
+                // so we can emit it directly from the index.
+                let mut found = false;
+                for source in sources {
+                    let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+                    let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+                        continue;
+                    };
+                    if find_matching_fast_field(
+                        expr as *mut pg_sys::Node,
+                        &index_rel.index_expressions(),
+                        schema,
+                        source.scan_info.heap_rti,
+                    )
+                    .is_some()
+                    {
                         found = true;
                         break;
                     }

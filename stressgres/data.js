@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773785357019,
+  "lastUpdate": 1773785365659,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23912,6 +23912,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.30158342207713, max segment_count: 127.0, count: 57281"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c8b01e2feaf6c2a3690c780d32253f2a6a2276a5",
+          "message": "fix: Allow aggregate scan planning warnings to be disabled. (#4394)\n\n## What\n\nAllow aggregate scan planning warnings to be disabled.\n\n## Why\n\nThe aggregate scan planning warnings are helpful for users who:\n1. are designing queries to get ideal performance\n2. are using `pdb.agg` (in which case the aggregate scan _must_ be used)\n\n...but they are not necessarily helpful for users who have turned on the\nscan globally in order to get wins whenever possible, without\nnecessarily focusing on the performance of individual queries.\n\n## How\n\nAdded the `paradedb.check_aggregate_scan`, which is obeyed unless\n`pdb.agg` is used (in which case the scan is the only possible way to\nsatisfy a query).",
+          "timestamp": "2026-03-17T14:30:00-07:00",
+          "tree_id": "60797b087787d79d2ae83cdfb5d6708161db54a9",
+          "url": "https://github.com/paradedb/paradedb/commit/c8b01e2feaf6c2a3690c780d32253f2a6a2276a5"
+        },
+        "date": 1773785358734,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.011037018403815, max cpu: 42.814667, count: 57557"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 233.15884728942612, max mem: 234.74609375, count: 57557"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.42284269862431, max cpu: 33.267326, count: 57557"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 175.52559602600465, max mem: 176.46875, count: 57557"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33907,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33443.41411122887, max block_count: 36183.0, count: 57557"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.97082891742099, max segment_count: 128.0, count: 57557"
           }
         ]
       }

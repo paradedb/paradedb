@@ -423,6 +423,11 @@ pub fn get_or_create(
     unsafe {
         let seg = pg_sys::dsm_create(data_size, pg_sys::DSM_CREATE_NULL_IF_MAXSEGMENTS as _);
         if seg.is_null() {
+            pgrx::log!(
+                "pg_search: DSM segment limit reached, cache entry unavailable (tag={:?}, size={})",
+                CacheTag::try_from(key.tag).ok(),
+                data_size,
+            );
             return None;
         }
 
@@ -451,10 +456,13 @@ pub fn get_or_create(
 
         // Try to insert into a free slot
         if !insert_slot(hdr, &key, handle, data_size as u32) {
-            // Array full
             pg_sys::LWLockRelease(lk);
             pg_sys::dsm_unpin_segment(handle);
             pg_sys::dsm_detach(seg);
+            pgrx::log!(
+                "pg_search: DSM cache array full, cache entry unavailable (tag={:?})",
+                CacheTag::try_from(key.tag).ok(),
+            );
             return None;
         }
 

@@ -176,6 +176,163 @@ struct DsmCacheShared {
     lock: *mut pg_sys::LWLock,
 }
 
+impl DsmCacheShared {
+    /// Get a pointer to the slot array (immediately after the header).
+    unsafe fn slots(&self) -> *mut DsmCacheSlot {
+        self.header.add(1) as *mut DsmCacheSlot
+    }
+
+    /// Linear scan for a matching key.  Returns `(handle, size)` if found.
+    ///
+    /// # Safety
+    /// Caller must hold the LWLock (shared or exclusive).
+    unsafe fn find_slot(&self, key: &DsmCacheKey) -> Option<(pg_sys::dsm_handle, u32)> {
+        let max = (*self.header).max_entries as usize;
+        let base = self.slots();
+        for i in 0..max {
+            let slot = &*base.add(i);
+            if slot.key == *key {
+                return Some((slot.handle, slot.size));
+            }
+            if slot.key.is_empty() {
+                break;
+            }
+        }
+        None
+    }
+
+    /// Insert into the first empty slot.  Returns false if full.
+    ///
+    /// # Safety
+    /// Caller must hold the LWLock exclusively.
+    unsafe fn insert_slot(
+        &self,
+        key: &DsmCacheKey,
+        handle: pg_sys::dsm_handle,
+        size: u32,
+    ) -> bool {
+        let max = (*self.header).max_entries as usize;
+        let base = self.slots();
+        for i in 0..max {
+            let slot = &mut *base.add(i);
+            if slot.key.is_empty() {
+                slot.key = *key;
+                slot.handle = handle;
+                slot.size = size;
+                (*self.header).count.fetch_add(1, Ordering::Relaxed);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Collect all live handles from the shared array.
+    ///
+    /// # Safety
+    /// Caller must hold the LWLock (shared or exclusive).
+    unsafe fn collect_live_handles(&self) -> std::collections::HashSet<pg_sys::dsm_handle> {
+        let mut live = std::collections::HashSet::new();
+        let max = (*self.header).max_entries as usize;
+        let base = self.slots();
+        for i in 0..max {
+            let slot = &*base.add(i);
+            if slot.key.is_empty() {
+                break;
+            }
+            live.insert(slot.handle);
+        }
+        live
+    }
+
+    /// Remove all matching entries, compacting the array.  Returns removed handles.
+    fn remove_matching(&self, predicate: impl Fn(&DsmCacheKey) -> bool) -> Vec<pg_sys::dsm_handle> {
+        // Fast path: skip the exclusive lock if the cache is empty.
+        let count = unsafe { (*self.header).count.load(Ordering::Acquire) };
+        if count == 0 {
+            return Vec::new();
+        }
+
+        let mut removed_handles = Vec::new();
+
+        unsafe {
+            pg_sys::LWLockAcquire(self.lock, pg_sys::LWLockMode::LW_EXCLUSIVE);
+
+            let max = (*self.header).max_entries as usize;
+            let base = self.slots();
+
+            let mut write_idx = 0usize;
+            for read_idx in 0..max {
+                let slot = &*base.add(read_idx);
+                if slot.key.is_empty() {
+                    break;
+                }
+                if predicate(&slot.key) {
+                    removed_handles.push(slot.handle);
+                    (*self.header).count.fetch_sub(1, Ordering::Relaxed);
+                } else {
+                    if write_idx != read_idx {
+                        std::ptr::copy_nonoverlapping(
+                            base.add(read_idx),
+                            base.add(write_idx),
+                            1,
+                        );
+                    }
+                    write_idx += 1;
+                }
+            }
+
+            for i in write_idx..max {
+                let slot = &mut *base.add(i);
+                if slot.key.is_empty() {
+                    break;
+                }
+                *slot = std::mem::zeroed();
+            }
+
+            pg_sys::LWLockRelease(self.lock);
+        }
+
+        removed_handles
+    }
+
+    /// Bump the shared generation counter.
+    fn bump_generation(&self) {
+        unsafe { (*self.header).generation.fetch_add(1, Ordering::Release) };
+    }
+
+    /// If the shared generation has changed since our last check, sweep stale mappings.
+    /// Must be called BEFORE handing out any DsmSlice for the current query.
+    fn maybe_sweep(&self) {
+        let current_gen = unsafe { (*self.header).generation.load(Ordering::Acquire) };
+        let local_gen = LOCAL_GENERATION.with(|g| g.get());
+        if current_gen == local_gen {
+            return;
+        }
+
+        LOCAL_CACHE.with(|c| c.borrow_mut().clear());
+        self.sweep_stale_mappings();
+        LOCAL_GENERATION.with(|g| g.set(current_gen));
+    }
+
+    /// Walk this backend's tracked handles and drop guards for any mappings that
+    /// are no longer in the shared array (i.e., they were invalidated by another
+    /// backend).  The actual `dsm_detach` is deferred until the last `DsmSlice`
+    /// holding the mapping is also dropped.
+    fn sweep_stale_mappings(&self) {
+        let live_handles = unsafe {
+            pg_sys::LWLockAcquire(self.lock, pg_sys::LWLockMode::LW_SHARED);
+            let h = self.collect_live_handles();
+            pg_sys::LWLockRelease(self.lock);
+            h
+        };
+
+        LOCAL_HANDLES.with(|h| {
+            h.borrow_mut()
+                .retain(|handle, _| live_handles.contains(handle));
+        });
+    }
+}
+
 static DSM_CACHE: AtomicPtr<DsmCacheShared> = AtomicPtr::new(std::ptr::null_mut());
 static mut PREV_SHMEM_REQUEST_HOOK: pg_sys::shmem_request_hook_type = None;
 static mut PREV_SHMEM_STARTUP_HOOK: pg_sys::shmem_startup_hook_type = None;
@@ -219,11 +376,6 @@ fn max_entries() -> usize {
 /// Total shared-memory bytes needed for header + slot array.
 fn shmem_size(max_entries: usize) -> usize {
     std::mem::size_of::<DsmCacheHeader>() + max_entries * std::mem::size_of::<DsmCacheSlot>()
-}
-
-/// Get a pointer to the slot array (immediately after the header).
-unsafe fn slots(header: *mut DsmCacheHeader) -> *mut DsmCacheSlot {
-    header.add(1) as *mut DsmCacheSlot
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +482,7 @@ pub fn try_get(
 ) -> Option<DsmSlice> {
     let shared = load_shared()?;
 
-    maybe_sweep(shared);
+    shared.maybe_sweep();
 
     let key = DsmCacheKey {
         index_oid,
@@ -357,7 +509,7 @@ pub fn try_get(
     unsafe {
         pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
 
-        if let Some((handle, size)) = find_slot(shared.header, &key) {
+        if let Some((handle, size)) = shared.find_slot(&key) {
             pg_sys::LWLockRelease(shared.lock);
             return resolve_and_cache(key, handle, size as usize);
         }
@@ -388,7 +540,7 @@ pub fn get_or_create(
 
     let shared = load_shared()?;
 
-    maybe_sweep(shared);
+    shared.maybe_sweep();
 
     let key = DsmCacheKey {
         index_oid,
@@ -415,7 +567,7 @@ pub fn get_or_create(
     unsafe {
         pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
 
-        if let Some((handle, size)) = find_slot(shared.header, &key) {
+        if let Some((handle, size)) = shared.find_slot(&key) {
             pg_sys::LWLockRelease(shared.lock);
 
             if let Some(slice) = resolve_and_cache(key, handle, size as usize) {
@@ -455,7 +607,7 @@ pub fn get_or_create(
         pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_EXCLUSIVE);
 
         // Check if another backend inserted while we were creating
-        if let Some((their_handle, their_size)) = find_slot(shared.header, &key) {
+        if let Some((their_handle, their_size)) = shared.find_slot(&key) {
             pg_sys::LWLockRelease(shared.lock);
             pg_sys::dsm_unpin_segment(handle);
             pg_sys::dsm_detach(seg);
@@ -463,7 +615,7 @@ pub fn get_or_create(
         }
 
         // Try to insert into a free slot
-        if !insert_slot(shared.header, &key, handle, data_size as u32) {
+        if !shared.insert_slot(&key, handle, data_size as u32) {
             pg_sys::LWLockRelease(shared.lock);
             pg_sys::dsm_unpin_segment(handle);
             pg_sys::dsm_detach(seg);
@@ -497,7 +649,11 @@ pub fn get_or_create(
 
 /// Invalidate all cached entries for a specific segment (called on merge/delete).
 pub fn invalidate_segment(index_oid: pg_sys::Oid, segment_id: &[u8; 16]) {
-    let handles = remove_matching(|k| k.index_oid == index_oid && k.segment_id == *segment_id);
+    let Some(shared) = load_shared() else {
+        return;
+    };
+    let handles =
+        shared.remove_matching(|k| k.index_oid == index_oid && k.segment_id == *segment_id);
 
     if !handles.is_empty() {
         for handle in handles {
@@ -505,13 +661,16 @@ pub fn invalidate_segment(index_oid: pg_sys::Oid, segment_id: &[u8; 16]) {
                 pg_sys::dsm_unpin_segment(handle);
             }
         }
-        bump_generation();
+        shared.bump_generation();
     }
 }
 
 /// Invalidate all cached entries for an index (called on DROP INDEX).
 pub fn invalidate_index(index_oid: pg_sys::Oid) {
-    let handles = remove_matching(|k| k.index_oid == index_oid);
+    let Some(shared) = load_shared() else {
+        return;
+    };
+    let handles = shared.remove_matching(|k| k.index_oid == index_oid);
 
     if !handles.is_empty() {
         for handle in handles {
@@ -519,133 +678,7 @@ pub fn invalidate_index(index_oid: pg_sys::Oid) {
                 pg_sys::dsm_unpin_segment(handle);
             }
         }
-        bump_generation();
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Flat-array helpers (caller must hold appropriate LWLock)
-// ---------------------------------------------------------------------------
-
-/// Linear scan for a matching key.  Returns `(handle, size)` if found.
-unsafe fn find_slot(
-    header: *mut DsmCacheHeader,
-    key: &DsmCacheKey,
-) -> Option<(pg_sys::dsm_handle, u32)> {
-    let max = (*header).max_entries as usize;
-    let base = slots(header);
-    for i in 0..max {
-        let slot = &*base.add(i);
-        if slot.key == *key {
-            return Some((slot.handle, slot.size));
-        }
-        // Empty slot means we've passed all occupied slots (they're compacted on remove)
-        if slot.key.is_empty() {
-            break;
-        }
-    }
-    None
-}
-
-/// Insert into the first empty slot.  Returns false if full.
-unsafe fn insert_slot(
-    header: *mut DsmCacheHeader,
-    key: &DsmCacheKey,
-    handle: pg_sys::dsm_handle,
-    size: u32,
-) -> bool {
-    let max = (*header).max_entries as usize;
-    let base = slots(header);
-    for i in 0..max {
-        let slot = &mut *base.add(i);
-        if slot.key.is_empty() {
-            slot.key = *key;
-            slot.handle = handle;
-            slot.size = size;
-            (*header).count.fetch_add(1, Ordering::Relaxed);
-            return true;
-        }
-    }
-    false
-}
-
-/// Remove all matching entries, compacting the array.  Returns removed handles.
-fn remove_matching(predicate: impl Fn(&DsmCacheKey) -> bool) -> Vec<pg_sys::dsm_handle> {
-    let Some(shared) = load_shared() else {
-        return Vec::new();
-    };
-    let hdr = shared.header;
-
-    // Fast path: skip the exclusive lock if the cache is empty.
-    // Acquire pairs with the Relaxed stores inside the lock to ensure
-    // we see the latest count on weakly-ordered architectures (ARM64).
-    let count = unsafe { (*hdr).count.load(Ordering::Acquire) };
-    if count == 0 {
-        return Vec::new();
-    }
-
-    let mut removed_handles = Vec::new();
-
-    unsafe {
-        pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_EXCLUSIVE);
-
-        let max = (*hdr).max_entries as usize;
-        let base = slots(hdr);
-
-        // Compact in place: write_idx tracks the next write position
-        let mut write_idx = 0usize;
-        for read_idx in 0..max {
-            let slot = &*base.add(read_idx);
-            if slot.key.is_empty() {
-                break;
-            }
-            if predicate(&slot.key) {
-                removed_handles.push(slot.handle);
-                (*hdr).count.fetch_sub(1, Ordering::Relaxed);
-            } else {
-                if write_idx != read_idx {
-                    std::ptr::copy_nonoverlapping(base.add(read_idx), base.add(write_idx), 1);
-                }
-                write_idx += 1;
-            }
-        }
-
-        // Zero out any trailing slots that were shifted
-        for i in write_idx..max {
-            let slot = &mut *base.add(i);
-            if slot.key.is_empty() {
-                break;
-            }
-            *slot = std::mem::zeroed();
-        }
-
-        pg_sys::LWLockRelease(shared.lock);
-    }
-
-    removed_handles
-}
-
-/// Collect all live handles from the shared array.
-unsafe fn collect_live_handles(
-    header: *mut DsmCacheHeader,
-) -> std::collections::HashSet<pg_sys::dsm_handle> {
-    let mut live = std::collections::HashSet::new();
-    let max = (*header).max_entries as usize;
-    let base = slots(header);
-    for i in 0..max {
-        let slot = &*base.add(i);
-        if slot.key.is_empty() {
-            break;
-        }
-        live.insert(slot.handle);
-    }
-    live
-}
-
-fn tag_name(tag: u32) -> String {
-    match CacheTag::try_from(tag) {
-        Ok(t) => format!("{t:?}"),
-        Err(_) => format!("Unknown({tag})"),
+        shared.bump_generation();
     }
 }
 
@@ -653,46 +686,11 @@ fn tag_name(tag: u32) -> String {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Bump the shared generation counter.
-fn bump_generation() {
-    if let Some(shared) = load_shared() {
-        unsafe { (*shared.header).generation.fetch_add(1, Ordering::Release) };
+fn tag_name(tag: u32) -> String {
+    match CacheTag::try_from(tag) {
+        Ok(t) => format!("{t:?}"),
+        Err(_) => format!("Unknown({tag})"),
     }
-}
-
-/// If the shared generation has changed since our last check, sweep stale mappings.
-/// Must be called BEFORE handing out any DsmSlice for the current query.
-fn maybe_sweep(shared: &DsmCacheShared) {
-    let current_gen = unsafe { (*shared.header).generation.load(Ordering::Acquire) };
-    let local_gen = LOCAL_GENERATION.with(|g| g.get());
-    if current_gen == local_gen {
-        return;
-    }
-
-    // Generation changed — clear thread-local cache and sweep stale mappings.
-    LOCAL_CACHE.with(|c| c.borrow_mut().clear());
-    sweep_stale_mappings(shared);
-    LOCAL_GENERATION.with(|g| g.set(current_gen));
-}
-
-/// Walk this backend's tracked handles and drop guards for any mappings that
-/// are no longer in the shared array (i.e., they were invalidated by another
-/// backend).  The actual `dsm_detach` is deferred until the last `DsmSlice`
-/// holding the mapping is also dropped.
-fn sweep_stale_mappings(shared: &DsmCacheShared) {
-    let live_handles = unsafe {
-        pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
-        let h = collect_live_handles(shared.header);
-        pg_sys::LWLockRelease(shared.lock);
-        h
-    };
-
-    // Remove guards for stale handles.  If no DsmSlice still references the
-    // guard, the MappingGuard drop will call dsm_detach.
-    LOCAL_HANDLES.with(|h| {
-        h.borrow_mut()
-            .retain(|handle, _| live_handles.contains(handle));
-    });
 }
 
 /// Resolve a DSM handle to a mapped pointer and cache in thread-local.
@@ -802,13 +800,16 @@ fn dsm_cache_test_invalidate_index(index_oid: pg_sys::Oid) {
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_extern]
 fn dsm_cache_test_clear_all() {
-    let handles = remove_matching(|_| true);
+    let Some(shared) = load_shared() else {
+        return;
+    };
+    let handles = shared.remove_matching(|_| true);
     for handle in handles {
         unsafe {
             pg_sys::dsm_unpin_segment(handle);
         }
     }
-    bump_generation();
+    shared.bump_generation();
 }
 
 /// Test-only: create a cache entry and hold the DsmSlice in a thread-local stash.
@@ -886,7 +887,7 @@ fn dsm_cache_entries() -> TableIterator<
         pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
 
         let max = (*shared.header).max_entries as usize;
-        let base = slots(shared.header);
+        let base = shared.slots();
         for i in 0..max {
             let slot = &*base.add(i);
             if slot.key.is_empty() {
@@ -929,7 +930,7 @@ fn dsm_cache_stats() -> TableIterator<
         pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
 
         let max = (*shared.header).max_entries as usize;
-        let base = slots(shared.header);
+        let base = shared.slots();
         for i in 0..max {
             let slot = &*base.add(i);
             if slot.key.is_empty() {

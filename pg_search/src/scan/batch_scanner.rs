@@ -429,7 +429,11 @@ impl Scanner {
                 // 1. Some(UInt64) -> The pre-filter already fetched ordinals. Emit State 1 (Term Ordinals).
                 // 2. Some(other)  -> The pre-filter fully materialized the column. Emit State 2 (Materialized).
                 // 3. None         -> The pre-filter didn't touch this column. Emit State 0 (DocAddress).
-                WhichFastField::Deferred(_, _, is_bytes) => {
+                WhichFastField::Deferred(_, field_type) => {
+                    let is_bytes = matches!(
+                        field_type.arrow_data_type(),
+                        arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+                    );
                     use arrow_schema::DataType;
 
                     match &memoized_columns[ff_index] {
@@ -437,19 +441,19 @@ impl Scanner {
                             Some(crate::scan::deferred_encode::build_state_term_ordinals(
                                 segment_ord,
                                 col_array.clone(),
-                                *is_bytes,
+                                is_bytes,
                             ))
                         }
                         Some(col_array) => {
                             Some(crate::scan::deferred_encode::build_state_hydrated(
                                 col_array.clone(),
-                                *is_bytes,
+                                is_bytes,
                             ))
                         }
                         None => Some(crate::scan::deferred_encode::build_state_doc_address(
                             segment_ord,
                             &ids,
-                            *is_bytes,
+                            is_bytes,
                         )),
                     }
                 }

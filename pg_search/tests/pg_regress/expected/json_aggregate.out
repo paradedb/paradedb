@@ -120,7 +120,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
  Aggregate
@@ -138,7 +138,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
  total_price 
 -------------
         3862
@@ -149,7 +149,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
                                                             QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -166,7 +166,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
  electronics_total 
 -------------------
               3097
@@ -177,7 +177,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('data.stock');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  Aggregate
@@ -194,7 +194,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('data.stock');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
  total_stock 
 -------------
          125
@@ -208,7 +208,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
  Aggregate
@@ -226,7 +226,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
       avg_price       
 ----------------------
  482.7500000000000000
@@ -237,7 +237,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
                                                        QUERY PLAN                                                        
 -------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -254,7 +254,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
  apple_avg_price 
 -----------------
                 
@@ -265,7 +265,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'clothing');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
                                                           QUERY PLAN                                                           
 -------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -282,7 +282,7 @@ WARNING:  Aggregate Scan not used: argument to aggregate function is neither a d
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'clothing');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
       avg_stock      
 ---------------------
  25.0000000000000000
@@ -298,7 +298,7 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
                                               QUERY PLAN                                              
 ------------------------------------------------------------------------------------------------------
  Aggregate
@@ -318,7 +318,7 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
  min_price | max_price 
 -----------+-----------
         79 |      1299
@@ -331,7 +331,7 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
                                                             QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -350,7 +350,7 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
  min_electronics_price | max_electronics_price 
 -----------------------+-----------------------
                    799 |                  1299
@@ -363,7 +363,7 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.brand');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
                                       QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
  Aggregate
@@ -382,7 +382,7 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.brand');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
  first_brand | last_brand 
 -------------+------------
  Adidas      | Samsung
@@ -403,7 +403,7 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
                                                                                                                                     QUERY PLAN                                                                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -428,7 +428,7 @@ SELECT
     MAX(metadata->>'brand') as last_brand
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression (table: json_agg_test)
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_agg_test)
  item_count | total_value |      avg_price       | min_price | max_price | first_brand | last_brand 
 ------------+-------------+----------------------+-----------+-----------+-------------+------------
           8 |        3862 | 482.7500000000000000 |        79 |      1299 | Adidas      | Samsung

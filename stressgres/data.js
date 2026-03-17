@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773769937925,
+  "lastUpdate": 1773770032494,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -51634,6 +51634,54 @@ window.BENCHMARK_DATA = {
             "value": 487.5223507618216,
             "unit": "median tps",
             "extra": "avg tps: 432.5257322116662, max tps: 719.1501511495755, count: 107866"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b850178ab35a4b5d631cee44275aacb54b59c112",
+          "message": "fix: Handle relabel nodes in more places in join scan planning (#4388)\n\n# Description\nBackport of #4386 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-17T09:23:52-07:00",
+          "tree_id": "86d058fc6d061244571249e9229a084d90ae8e3d",
+          "url": "https://github.com/paradedb/paradedb/commit/b850178ab35a4b5d631cee44275aacb54b59c112"
+        },
+        "date": 1773770025505,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 469.77291845999224,
+            "unit": "median tps",
+            "extra": "avg tps: 475.1533648571373, max tps: 637.8151877645909, count: 53910"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 550.3869775332004,
+            "unit": "median tps",
+            "extra": "avg tps: 558.3967657997749, max tps: 721.4291311307326, count: 53910"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.45741451566258,
+            "unit": "median tps",
+            "extra": "avg tps: 85.56158047212911, max tps: 93.97882879851248, count: 53910"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 443.905692205732,
+            "unit": "median tps",
+            "extra": "avg tps: 404.2087190964387, max tps: 638.4267763340375, count: 107820"
           }
         ]
       }

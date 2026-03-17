@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773789414343,
+  "lastUpdate": 1773789971408,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -54124,6 +54124,54 @@ window.BENCHMARK_DATA = {
             "value": 484.02090521294724,
             "unit": "median tps",
             "extra": "avg tps: 425.25719501548906, max tps: 627.911753880121, count: 107852"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4f47a0f09104d05a2eaf8f682d92db306fe6d6b",
+          "message": "fix: Allow aggregate scan planning warnings to be disabled. (#4402)\n\n# Description\nBackport of #4394 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-17T15:06:32-07:00",
+          "tree_id": "deabec65ce18a0f2398bac601ae6ed40c93f30b5",
+          "url": "https://github.com/paradedb/paradedb/commit/e4f47a0f09104d05a2eaf8f682d92db306fe6d6b"
+        },
+        "date": 1773789963570,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 495.45628011729895,
+            "unit": "median tps",
+            "extra": "avg tps: 495.1593650917411, max tps: 622.6072757672781, count: 53889"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 559.2075185680851,
+            "unit": "median tps",
+            "extra": "avg tps: 559.6635829047979, max tps: 780.1240487567676, count: 53889"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.19724898890087,
+            "unit": "median tps",
+            "extra": "avg tps: 88.29298132076993, max tps: 90.6898807258231, count: 53889"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 470.6996691536203,
+            "unit": "median tps",
+            "extra": "avg tps: 425.6597048347428, max tps: 643.2436050287663, count: 107778"
           }
         ]
       }

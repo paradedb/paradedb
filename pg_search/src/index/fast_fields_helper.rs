@@ -79,7 +79,7 @@ impl FFHelper {
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
-                        WhichFastField::Named(name, _) | WhichFastField::Deferred(name, _, _) => {
+                        WhichFastField::Named(name, _) | WhichFastField::Deferred(name, _) => {
                             lookup.push((name.to_string(), OnceLock::default()))
                         }
                         WhichFastField::Ctid
@@ -325,7 +325,7 @@ pub enum WhichFastField {
     TableOid,
     Score,
     Named(String, SearchFieldType),
-    Deferred(String, SearchFieldType, bool),
+    Deferred(String, SearchFieldType),
 }
 
 impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
@@ -356,7 +356,7 @@ impl WhichFastField {
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
             WhichFastField::Named(s, _) => s.clone(),
-            WhichFastField::Deferred(s, _, _) => s.clone(),
+            WhichFastField::Deferred(s, _) => s.clone(),
         }
     }
 
@@ -364,7 +364,7 @@ impl WhichFastField {
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
             WhichFastField::Named(_, field_type) => Some(field_type),
-            WhichFastField::Deferred(_, field_type, _) => Some(field_type),
+            WhichFastField::Deferred(_, field_type) => Some(field_type),
             _ => None,
         }
     }
@@ -378,8 +378,12 @@ impl WhichFastField {
             WhichFastField::Score => DataType::Float32,
             WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
             WhichFastField::Junk(_) => DataType::Null,
-            WhichFastField::Deferred(_, _, is_bytes) => {
-                crate::scan::deferred_encode::deferred_union_data_type(*is_bytes)
+            WhichFastField::Deferred(_, field_type) => {
+                let is_bytes = matches!(
+                    field_type.arrow_data_type(),
+                    arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+                );
+                crate::scan::deferred_encode::deferred_union_data_type(is_bytes)
             }
         }
     }

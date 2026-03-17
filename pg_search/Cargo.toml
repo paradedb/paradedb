@@ -37,6 +37,7 @@ derive_more = { version = "2.1.0", features = ["full"] }
 env_logger = { version = "0.11.8", optional = true }
 json5 = "0.4.1"
 memoffset = "0.9.1"
+num_enum = "0.7.3"
 once_cell = "1.21.3"
 parking_lot = "0.12.5"
 tokenizers = { path = "../tokenizers" }

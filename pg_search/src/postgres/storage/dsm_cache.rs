@@ -21,7 +21,7 @@
 //! dynamic shared memory (DSM).  Data is computed once by the first backend that needs it
 //! and shared across all backends via a shared-memory registry.
 //!
-//! Postgres DSM dynamicly created and pinned so it outlasts the creating backend, and 
+//! Postgres DSM dynamicly created and pinned so it outlasts the creating backend, and
 //! will not be dropped until this pin is removed (on segment merge / index drop) AND all
 //! backends drop references.
 //!
@@ -50,8 +50,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering};
 use tantivy::directory::OwnedBytes;
 
 // ---------------------------------------------------------------------------
@@ -98,6 +98,7 @@ struct DsmCacheHeader {
 // ---------------------------------------------------------------------------
 
 #[repr(u32)]
+#[derive(Debug, Clone, Copy, num_enum::TryFromPrimitive)]
 #[allow(dead_code)]
 pub enum CacheTag {
     /// Reserved placeholder. Real variants are added by cache consumers.
@@ -157,6 +158,7 @@ unsafe impl Send for DsmSlice {}
 unsafe impl Sync for DsmSlice {}
 
 impl DsmSlice {
+    #[allow(dead_code)] // remove when cache consumers land
     pub fn into_owned_bytes(self) -> OwnedBytes {
         OwnedBytes::new(self)
     }
@@ -206,8 +208,7 @@ fn max_entries() -> usize {
 
 /// Total shared-memory bytes needed for header + slot array.
 fn shmem_size(max_entries: usize) -> usize {
-    std::mem::size_of::<DsmCacheHeader>()
-        + max_entries * std::mem::size_of::<DsmCacheSlot>()
+    std::mem::size_of::<DsmCacheHeader>() + max_entries * std::mem::size_of::<DsmCacheSlot>()
 }
 
 /// Get a pointer to the slot array (immediately after the header).
@@ -261,11 +262,8 @@ unsafe extern "C-unwind" fn shmem_startup() {
     let size = shmem_size(max);
 
     let mut found = false;
-    let ptr = pg_sys::ShmemInitStruct(
-        c"pg_search_dsm_cache".as_ptr(),
-        size,
-        &mut found,
-    ) as *mut DsmCacheHeader;
+    let ptr = pg_sys::ShmemInitStruct(c"pg_search_dsm_cache".as_ptr(), size, &mut found)
+        as *mut DsmCacheHeader;
 
     if !found {
         // Zero-fill the entire region (header + slots).
@@ -305,6 +303,7 @@ unsafe extern "C-unwind" fn object_access_hook(
 
 /// Look up an existing DSM cache entry without creating one on miss.
 /// Returns `None` if not found or cache not initialized.
+#[allow(dead_code)] // remove when cache consumers land
 pub fn try_get(
     index_oid: pg_sys::Oid,
     segment_id: &[u8; 16],
@@ -331,10 +330,16 @@ pub fn try_get(
 
     // Thread-local fast path
     let cached = LOCAL_CACHE.with(|c| {
-        c.borrow().get(&key).map(|(guard, ptr, len)| (guard.clone(), *ptr, *len))
+        c.borrow()
+            .get(&key)
+            .map(|(guard, ptr, len)| (guard.clone(), *ptr, *len))
     });
     if let Some((guard, ptr, len)) = cached {
-        return Some(DsmSlice { ptr, len, _guard: guard });
+        return Some(DsmSlice {
+            ptr,
+            len,
+            _guard: guard,
+        });
     }
 
     // Shared array lookup
@@ -357,6 +362,7 @@ pub fn try_get(
 /// On miss, calls `fill_fn` to populate a new DSM segment.
 /// Returns `None` if the cache is not initialized, DSM creation fails (max segments reached),
 /// or the data size is zero.
+#[allow(dead_code)] // remove when cache consumers land
 pub fn get_or_create(
     index_oid: pg_sys::Oid,
     segment_id: &[u8; 16],
@@ -389,10 +395,16 @@ pub fn get_or_create(
 
     // 1. Thread-local fast path
     let cached = LOCAL_CACHE.with(|c| {
-        c.borrow().get(&key).map(|(guard, ptr, len)| (guard.clone(), *ptr, *len))
+        c.borrow()
+            .get(&key)
+            .map(|(guard, ptr, len)| (guard.clone(), *ptr, *len))
     });
     if let Some((guard, ptr, len)) = cached {
-        return Some(DsmSlice { ptr, len, _guard: guard });
+        return Some(DsmSlice {
+            ptr,
+            len,
+            _guard: guard,
+        });
     }
 
     // 2. Shared array lookup (shared lock)
@@ -413,10 +425,7 @@ pub fn get_or_create(
 
     // 3. Miss — create DSM outside the lock
     unsafe {
-        let seg = pg_sys::dsm_create(
-            data_size,
-            pg_sys::DSM_CREATE_NULL_IF_MAXSEGMENTS as _,
-        );
+        let seg = pg_sys::dsm_create(data_size, pg_sys::DSM_CREATE_NULL_IF_MAXSEGMENTS as _);
         if seg.is_null() {
             return None;
         }
@@ -460,7 +469,9 @@ pub fn get_or_create(
         // Track handle and cache pointer.
         let guard = Arc::new(MappingGuard { handle });
         LOCAL_HANDLES.with(|h| {
-            h.borrow_mut().entry(handle).or_insert_with(|| guard.clone());
+            h.borrow_mut()
+                .entry(handle)
+                .or_insert_with(|| guard.clone());
         });
         LOCAL_CACHE.with(|c| c.borrow_mut().insert(key, (guard.clone(), ptr, data_size)));
 
@@ -474,8 +485,7 @@ pub fn get_or_create(
 
 /// Invalidate all cached entries for a specific segment (called on merge/delete).
 pub fn invalidate_segment(index_oid: pg_sys::Oid, segment_id: &[u8; 16]) {
-    let handles =
-        remove_matching(|k| k.index_oid == index_oid && k.segment_id == *segment_id);
+    let handles = remove_matching(|k| k.index_oid == index_oid && k.segment_id == *segment_id);
 
     if !handles.is_empty() {
         for handle in handles {
@@ -608,7 +618,9 @@ fn remove_matching(predicate: impl Fn(&DsmCacheKey) -> bool) -> Vec<pg_sys::dsm_
 }
 
 /// Collect all live handles from the shared array.
-unsafe fn collect_live_handles(header: *mut DsmCacheHeader) -> std::collections::HashSet<pg_sys::dsm_handle> {
+unsafe fn collect_live_handles(
+    header: *mut DsmCacheHeader,
+) -> std::collections::HashSet<pg_sys::dsm_handle> {
     let mut live = std::collections::HashSet::new();
     let max = (*header).max_entries as usize;
     let base = slots(header);
@@ -622,11 +634,10 @@ unsafe fn collect_live_handles(header: *mut DsmCacheHeader) -> std::collections:
     live
 }
 
-fn tag_name(tag: u32) -> &'static str {
-    match tag {
-        #[cfg(any(test, feature = "pg_test"))]
-        999 => "Test",
-        _ => "Unknown",
+fn tag_name(tag: u32) -> String {
+    match CacheTag::try_from(tag) {
+        Ok(t) => format!("{t:?}"),
+        Err(_) => format!("Unknown({tag})"),
     }
 }
 
@@ -683,7 +694,8 @@ fn sweep_stale_mappings() {
     // Remove guards for stale handles.  If no DsmSlice still references the
     // guard, the MappingGuard drop will call dsm_detach.
     LOCAL_HANDLES.with(|h| {
-        h.borrow_mut().retain(|handle, _| live_handles.contains(handle));
+        h.borrow_mut()
+            .retain(|handle, _| live_handles.contains(handle));
     });
 }
 
@@ -695,7 +707,8 @@ fn resolve_and_cache(
 ) -> Option<DsmSlice> {
     let slice = resolve_handle(handle, size)?;
     LOCAL_CACHE.with(|c| {
-        c.borrow_mut().insert(key, (slice._guard.clone(), slice.ptr, slice.len))
+        c.borrow_mut()
+            .insert(key, (slice._guard.clone(), slice.ptr, slice.len))
     });
     Some(slice)
 }
@@ -711,12 +724,18 @@ fn resolve_handle(handle: pg_sys::dsm_handle, size: usize) -> Option<DsmSlice> {
         let seg = unsafe { pg_sys::dsm_find_mapping(handle) };
         if !seg.is_null() {
             let ptr = unsafe { pg_sys::dsm_segment_address(seg) } as *const u8;
-            return Some(DsmSlice { ptr, len: size, _guard: guard });
+            return Some(DsmSlice {
+                ptr,
+                len: size,
+                _guard: guard,
+            });
         }
         // Guard exists but mapping is gone — remove the stale guard so the
         // new one created below gets inserted (otherwise the old guard's drop
         // could detach the new mapping).
-        LOCAL_HANDLES.with(|h| { h.borrow_mut().remove(&handle); });
+        LOCAL_HANDLES.with(|h| {
+            h.borrow_mut().remove(&handle);
+        });
     }
 
     unsafe {
@@ -730,10 +749,16 @@ fn resolve_handle(handle: pg_sys::dsm_handle, size: usize) -> Option<DsmSlice> {
 
         let guard = Arc::new(MappingGuard { handle });
         LOCAL_HANDLES.with(|h| {
-            h.borrow_mut().entry(handle).or_insert_with(|| guard.clone());
+            h.borrow_mut()
+                .entry(handle)
+                .or_insert_with(|| guard.clone());
         });
 
-        Some(DsmSlice { ptr, len: size, _guard: guard })
+        Some(DsmSlice {
+            ptr,
+            len: size,
+            _guard: guard,
+        })
     }
 }
 
@@ -795,7 +820,12 @@ fn dsm_cache_test_clear_all() {
 /// Returns true if the entry was created successfully.
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_extern]
-fn dsm_cache_test_hold(index_oid: pg_sys::Oid, segment_id: String, sub_key: i32, size: i32) -> bool {
+fn dsm_cache_test_hold(
+    index_oid: pg_sys::Oid,
+    segment_id: String,
+    sub_key: i32,
+    size: i32,
+) -> bool {
     let uuid = uuid::Uuid::parse_str(&segment_id).expect("invalid segment_id UUID");
     let slice = get_or_create(
         index_oid,
@@ -872,7 +902,7 @@ fn dsm_cache_entries() -> TableIterator<
             rows.push((
                 slot.key.index_oid,
                 seg_uuid.to_string(),
-                tag_name(slot.key.tag).to_string(),
+                tag_name(slot.key.tag),
                 slot.key.sub_key as i32,
                 slot.handle as i64,
                 slot.size as i64,

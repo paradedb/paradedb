@@ -124,6 +124,9 @@ jobs:
             exit 1
           fi
 
+      - name: Verify barman-cloud is functional
+        run: docker exec paradedb barman-cloud-wal-archive --help
+
       # Useful for debugging discrepancies between local and remote ParadeDB Docker images
       - name: Print the ParadeDB Docker Image History
         run: docker history paradedb/paradedb:latest

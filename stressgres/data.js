@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773770838726,
+  "lastUpdate": 1773771701085,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -51844,6 +51844,54 @@ window.BENCHMARK_DATA = {
             "value": 443.905692205732,
             "unit": "median tps",
             "extra": "avg tps: 404.2087190964387, max tps: 638.4267763340375, count: 107820"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "25d2d5f35370f855a7f3624769d387a8da0ac06b",
+          "message": "chore: Feedback from logical late materialization change (#4387)\n\n# Description\nBackport of #4376 to `0.22.x`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-17T09:55:24-07:00",
+          "tree_id": "333a91568c5b912e691e92a1a5dc6469136bef37",
+          "url": "https://github.com/paradedb/paradedb/commit/25d2d5f35370f855a7f3624769d387a8da0ac06b"
+        },
+        "date": 1773771693879,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 499.13151636120443,
+            "unit": "median tps",
+            "extra": "avg tps: 499.572499305984, max tps: 669.5322532656478, count: 53902"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 552.7278839252249,
+            "unit": "median tps",
+            "extra": "avg tps: 556.364169954987, max tps: 825.6546589989495, count: 53902"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.95070028137064,
+            "unit": "median tps",
+            "extra": "avg tps: 84.968921399146, max tps: 93.1759074198966, count: 53902"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 466.32563552291276,
+            "unit": "median tps",
+            "extra": "avg tps: 423.7208578204474, max tps: 651.3152260003144, count: 107804"
           }
         ]
       }

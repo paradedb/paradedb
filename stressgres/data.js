@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773769009061,
+  "lastUpdate": 1773769112128,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -39470,6 +39470,60 @@ window.BENCHMARK_DATA = {
             "value": 16.36263354134697,
             "unit": "median tps",
             "extra": "avg tps: 16.209805199496635, max tps: 20.86915088308438, count: 55698"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b850178ab35a4b5d631cee44275aacb54b59c112",
+          "message": "fix: Handle relabel nodes in more places in join scan planning (#4388)\n\n# Description\nBackport of #4386 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-17T09:23:52-07:00",
+          "tree_id": "86d058fc6d061244571249e9229a084d90ae8e3d",
+          "url": "https://github.com/paradedb/paradedb/commit/b850178ab35a4b5d631cee44275aacb54b59c112"
+        },
+        "date": 1773769104319,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.835754120783484,
+            "unit": "median tps",
+            "extra": "avg tps: 29.564641414513655, max tps: 32.581826765411584, count: 55472"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.64418129969854,
+            "unit": "median tps",
+            "extra": "avg tps: 270.331407361419, max tps: 2617.644870966504, count: 55472"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 576.3945597360557,
+            "unit": "median tps",
+            "extra": "avg tps: 558.231264937071, max tps: 768.9566904654936, count: 55472"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 161.34102304235185,
+            "unit": "median tps",
+            "extra": "avg tps: 175.63031332332238, max tps: 1259.5684108728067, count: 110944"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.850940166767339,
+            "unit": "median tps",
+            "extra": "avg tps: 15.704282271672389, max tps: 19.077762639361147, count: 55472"
           }
         ]
       }

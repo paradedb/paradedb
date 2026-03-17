@@ -53,6 +53,7 @@
                           "documentation/indexing/indexing-json",
                           "documentation/indexing/indexing-arrays",
                           "documentation/indexing/indexing-partial",
+                          "documentation/indexing/columnar",
                           "documentation/indexing/reindexing",
                           "documentation/indexing/verify-index"
                         ]

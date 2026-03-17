@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773727753239,
+  "lastUpdate": 1773727762158,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34516,6 +34516,108 @@ window.BENCHMARK_DATA = {
             "value": 162.46875,
             "unit": "median mem",
             "extra": "avg mem: 180.76764064358568, max mem: 221.0234375, count: 56327"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6c588a1aa25f747a9bcf224d6e3028b46284ef2",
+          "message": "fix: Handle relabel nodes in more places in join scan planning (#4386)\n\n## What\n\n* Add a (reduced-size) repro of #2733 and of another customer query\n* Fixes handling of relabel nodes in more cases\n* Removes the `is_interesting` flag: after we have detected our\noperator, all remaining return statements are worth logging.\n\n## Why\n\nTo increase the number of places where the join scan is planned, and\nensure that we get warnings.",
+          "timestamp": "2026-03-16T22:19:07-07:00",
+          "tree_id": "618b6cffa53b00e32573f28a59c4193bb5b9dfa6",
+          "url": "https://github.com/paradedb/paradedb/commit/a6c588a1aa25f747a9bcf224d6e3028b46284ef2"
+        },
+        "date": 1773727755339,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.057390006927298884, max background_merging: 2.0, count: 56299"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.632460546752308, max cpu: 9.648242, count: 56299"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 28.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.754151106147535, max mem: 28.7734375, count: 56299"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.991084239494684, max cpu: 28.09756, count: 56299"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 188.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 184.13531414023782, max mem: 188.36328125, count: 56299"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 60794,
+            "unit": "median block_count",
+            "extra": "avg block_count: 60555.16694790316, max block_count: 60794.0, count: 56299"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.9165526918773, max segment_count: 57.0, count: 56299"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.581741972042249, max cpu: 15.106216, count: 56299"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 134.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 123.30844596207304, max mem: 150.36328125, count: 56299"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.201966491991194, max cpu: 32.71665, count: 56299"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 225.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 223.45427427663014, max mem: 225.38671875, count: 56299"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.919561173243398, max cpu: 33.802814, count: 56299"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 180.27428981309615, max mem: 221.09375, count: 56299"
           }
         ]
       }

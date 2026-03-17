@@ -43,8 +43,9 @@
 //!   backends have swept. This has negligible impact, even if run per query.
 //! - DROP: an `object_access_hook` fires on `DROP TABLE` / `DROP INDEX` to clean up entries.
 
+mod sql;
+
 use pgrx::pg_sys;
-use pgrx::prelude::*;
 use stable_deref_trait::StableDeref;
 use crate::api::{HashMap, HashSet};
 use std::cell::{Cell, RefCell};
@@ -60,15 +61,15 @@ use tantivy::directory::OwnedBytes;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(C)]
-struct DsmCacheKey {
-    index_oid: pg_sys::Oid,
-    segment_id: [u8; 16],
-    tag: u32,
-    sub_key: u32,
+pub(super) struct DsmCacheKey {
+    pub(super) index_oid: pg_sys::Oid,
+    pub(super) segment_id: [u8; 16],
+    pub(super) tag: u32,
+    pub(super) sub_key: u32,
 }
 
 impl DsmCacheKey {
-    fn is_empty(&self) -> bool {
+    pub(super) fn is_empty(&self) -> bool {
         // An empty slot has index_oid == 0 (InvalidOid)
         self.index_oid == pg_sys::Oid::INVALID
     }
@@ -76,21 +77,21 @@ impl DsmCacheKey {
 
 /// One slot in the shared flat array.
 #[repr(C)]
-struct DsmCacheSlot {
-    key: DsmCacheKey,
-    handle: pg_sys::dsm_handle,
-    size: u32,
+pub(super) struct DsmCacheSlot {
+    pub(super) key: DsmCacheKey,
+    pub(super) handle: pg_sys::dsm_handle,
+    pub(super) size: u32,
 }
 
 /// Header for the shared-memory region (followed by `max_entries` DsmCacheSlots).
 #[repr(C)]
-struct DsmCacheHeader {
+pub(super) struct DsmCacheHeader {
     /// Number of occupied slots.
-    count: AtomicU32,
+    pub(super) count: AtomicU32,
     /// Maximum number of slots (set once at init, never changes).
-    max_entries: u32,
+    pub(super) max_entries: u32,
     /// Invalidation generation counter.
-    generation: AtomicU64,
+    pub(super) generation: AtomicU64,
 }
 
 // ---------------------------------------------------------------------------
@@ -171,14 +172,14 @@ impl DsmSlice {
 
 /// Combined pointer to the shared-memory header and its protecting LWLock.
 /// Both are initialized together in `shmem_startup` and share the same lifecycle.
-struct DsmCacheShared {
-    header: *mut DsmCacheHeader,
-    lock: *mut pg_sys::LWLock,
+pub(super) struct DsmCacheShared {
+    pub(super) header: *mut DsmCacheHeader,
+    pub(super) lock: *mut pg_sys::LWLock,
 }
 
 impl DsmCacheShared {
     /// Get a pointer to the slot array (immediately after the header).
-    unsafe fn slots(&self) -> *mut DsmCacheSlot {
+    pub(super) unsafe fn slots(&self) -> *mut DsmCacheSlot {
         self.header.add(1) as *mut DsmCacheSlot
     }
 
@@ -245,7 +246,7 @@ impl DsmCacheShared {
     }
 
     /// Remove all matching entries, compacting the array.  Returns removed handles.
-    fn remove_matching(&self, predicate: impl Fn(&DsmCacheKey) -> bool) -> Vec<pg_sys::dsm_handle> {
+    pub(super) fn remove_matching(&self, predicate: impl Fn(&DsmCacheKey) -> bool) -> Vec<pg_sys::dsm_handle> {
         // Fast path: skip the exclusive lock if the cache is empty.
         let count = unsafe { (*self.header).count.load(Ordering::Acquire) };
         if count == 0 {
@@ -296,7 +297,7 @@ impl DsmCacheShared {
     }
 
     /// Bump the shared generation counter.
-    fn bump_generation(&self) {
+    pub(super) fn bump_generation(&self) {
         unsafe { (*self.header).generation.fetch_add(1, Ordering::Release) };
     }
 
@@ -356,7 +357,7 @@ thread_local! {
 
 /// Load the shared header+lock pair.  Returns `None` if the cache has not
 /// been initialized (e.g. extension not loaded via shared_preload_libraries).
-fn load_shared() -> Option<&'static DsmCacheShared> {
+pub(super) fn load_shared() -> Option<&'static DsmCacheShared> {
     let ptr = DSM_CACHE.load(Ordering::Relaxed);
     if ptr.is_null() {
         return None;
@@ -686,7 +687,7 @@ pub fn invalidate_index(index_oid: pg_sys::Oid) {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-fn tag_name(tag: u32) -> String {
+pub(super) fn tag_name(tag: u32) -> String {
     match CacheTag::try_from(tag) {
         Ok(t) => format!("{t:?}"),
         Err(_) => format!("Unknown({tag})"),
@@ -756,193 +757,3 @@ fn resolve_handle(handle: pg_sys::dsm_handle, size: usize) -> Option<DsmSlice> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Test-only SQL functions
-// ---------------------------------------------------------------------------
-
-#[cfg(any(test, feature = "pg_test"))]
-thread_local! {
-    /// Stash for holding a DsmSlice across SQL calls, used to test refcounting.
-    static HELD_SLICE: RefCell<Option<DsmSlice>> = RefCell::new(None);
-}
-
-/// Test-only: insert a cache entry with the Test tag and a payload of `size` zero-bytes.
-#[cfg(any(test, feature = "pg_test"))]
-#[pg_extern]
-fn pg_test_dsm_cache_insert(index_oid: pg_sys::Oid, segment_id: String, sub_key: i32, size: i32) {
-    let uuid = uuid::Uuid::parse_str(&segment_id).expect("invalid segment_id UUID");
-    get_or_create(
-        index_oid,
-        uuid.as_bytes(),
-        CacheTag::Test,
-        sub_key as u32,
-        size as usize,
-        |buf| buf.fill(0),
-    );
-}
-
-/// Test-only: invalidate all cache entries for a given segment.
-#[cfg(any(test, feature = "pg_test"))]
-#[pg_extern]
-fn pg_test_dsm_cache_invalidate_segment(index_oid: pg_sys::Oid, segment_id: String) {
-    let uuid = uuid::Uuid::parse_str(&segment_id).expect("invalid segment_id UUID");
-    invalidate_segment(index_oid, uuid.as_bytes());
-}
-
-/// Test-only: invalidate all cache entries for a given index.
-#[cfg(any(test, feature = "pg_test"))]
-#[pg_extern]
-fn pg_test_dsm_cache_invalidate_index(index_oid: pg_sys::Oid) {
-    invalidate_index(index_oid);
-}
-
-/// Test-only: remove all entries from the cache.
-#[cfg(any(test, feature = "pg_test"))]
-#[pg_extern]
-fn pg_test_dsm_cache_clear_all() {
-    let Some(shared) = load_shared() else {
-        return;
-    };
-    let handles = shared.remove_matching(|_| true);
-    for handle in handles {
-        unsafe {
-            pg_sys::dsm_unpin_segment(handle);
-        }
-    }
-    shared.bump_generation();
-}
-
-/// Test-only: create a cache entry and hold the DsmSlice in a thread-local stash.
-/// Writes a known pattern (0xAB) so we can verify reads later.
-/// Returns true if the entry was created successfully.
-#[cfg(any(test, feature = "pg_test"))]
-#[pg_extern]
-fn pg_test_dsm_cache_hold(
-    index_oid: pg_sys::Oid,
-    segment_id: String,
-    sub_key: i32,
-    size: i32,
-) -> bool {
-    let uuid = uuid::Uuid::parse_str(&segment_id).expect("invalid segment_id UUID");
-    let slice = get_or_create(
-        index_oid,
-        uuid.as_bytes(),
-        CacheTag::Test,
-        sub_key as u32,
-        size as usize,
-        |buf| buf.fill(0xAB),
-    );
-    let ok = slice.is_some();
-    HELD_SLICE.with(|h| *h.borrow_mut() = slice);
-    ok
-}
-
-/// Test-only: read from the held DsmSlice.
-/// Returns true if the held slice is still readable and contains the expected pattern.
-#[cfg(any(test, feature = "pg_test"))]
-#[pg_extern]
-fn pg_test_dsm_cache_read_held() -> bool {
-    HELD_SLICE.with(|h| {
-        let borrow = h.borrow();
-        match borrow.as_ref() {
-            Some(slice) => {
-                let bytes: &[u8] = slice;
-                !bytes.is_empty() && bytes.iter().all(|&b| b == 0xAB)
-            }
-            None => false,
-        }
-    })
-}
-
-/// Test-only: drop the held DsmSlice, releasing the Arc<MappingGuard>.
-#[cfg(any(test, feature = "pg_test"))]
-#[pg_extern]
-fn pg_test_dsm_cache_release() {
-    HELD_SLICE.with(|h| *h.borrow_mut() = None);
-}
-
-// ---------------------------------------------------------------------------
-// SQL-callable diagnostics
-// ---------------------------------------------------------------------------
-
-#[pg_extern]
-fn dsm_cache_entries() -> TableIterator<
-    'static,
-    (
-        name!(index_oid, pg_sys::Oid),
-        name!(segment_id, String),
-        name!(tag, String),
-        name!(sub_key, i32),
-        name!(dsm_handle, i64),
-        name!(size_bytes, i64),
-    ),
-> {
-    let Some(shared) = load_shared() else {
-        return TableIterator::new(Vec::new());
-    };
-
-    let mut rows = Vec::new();
-
-    unsafe {
-        pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
-
-        let max = (*shared.header).max_entries as usize;
-        let base = shared.slots();
-        for i in 0..max {
-            let slot = &*base.add(i);
-            if slot.key.is_empty() {
-                break;
-            }
-            let seg_uuid = uuid::Uuid::from_bytes(slot.key.segment_id);
-            rows.push((
-                slot.key.index_oid,
-                seg_uuid.to_string(),
-                tag_name(slot.key.tag),
-                slot.key.sub_key as i32,
-                slot.handle as i64,
-                slot.size as i64,
-            ));
-        }
-
-        pg_sys::LWLockRelease(shared.lock);
-    }
-
-    TableIterator::new(rows)
-}
-
-#[pg_extern]
-fn dsm_cache_stats() -> TableIterator<
-    'static,
-    (
-        name!(entries, i64),
-        name!(max_entries, i64),
-        name!(total_bytes, i64),
-    ),
-> {
-    let Some(shared) = load_shared() else {
-        return TableIterator::once((0i64, 0i64, 0i64));
-    };
-
-    let mut count = 0i64;
-    let mut total_bytes = 0i64;
-
-    unsafe {
-        pg_sys::LWLockAcquire(shared.lock, pg_sys::LWLockMode::LW_SHARED);
-
-        let max = (*shared.header).max_entries as usize;
-        let base = shared.slots();
-        for i in 0..max {
-            let slot = &*base.add(i);
-            if slot.key.is_empty() {
-                break;
-            }
-            count += 1;
-            total_bytes += slot.size as i64;
-        }
-
-        let max_entries = (*shared.header).max_entries as i64;
-        pg_sys::LWLockRelease(shared.lock);
-
-        TableIterator::once((count, max_entries, total_bytes))
-    }
-}

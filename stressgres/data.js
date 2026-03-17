@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773768229615,
+  "lastUpdate": 1773768999455,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18898,6 +18898,42 @@ window.BENCHMARK_DATA = {
             "value": 5.324289877577041,
             "unit": "median tps",
             "extra": "avg tps: 4.785963477417889, max tps: 5.970196914667696, count: 57334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "25d2d5f35370f855a7f3624769d387a8da0ac06b",
+          "message": "chore: Feedback from logical late materialization change (#4387)\n\n# Description\nBackport of #4376 to `0.22.x`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-17T09:55:24-07:00",
+          "tree_id": "333a91568c5b912e691e92a1a5dc6469136bef37",
+          "url": "https://github.com/paradedb/paradedb/commit/25d2d5f35370f855a7f3624769d387a8da0ac06b"
+        },
+        "date": 1773768992457,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.648023428053855,
+            "unit": "median tps",
+            "extra": "avg tps: 6.527726201991059, max tps: 9.865312422159773, count: 57281"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.356189919255036,
+            "unit": "median tps",
+            "extra": "avg tps: 4.810220056736411, max tps: 6.027456351417591, count: 57281"
           }
         ]
       }

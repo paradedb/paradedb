@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773786375313,
+  "lastUpdate": 1773786733987,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19582,6 +19582,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3751072095542245,
             "unit": "median tps",
             "extra": "avg tps: 4.817780150086802, max tps: 6.021853329223747, count: 57557"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dd16f1844e0c6c3857c8ebd9ce991fa37ae25b84",
+          "message": "fix: Fix casts in aggregate scan target lists. (#4401)\n\n## Ticket(s) Closed\n\n- Closes #4396\n\n## What\n\nFixes use of casts in aggregate scan target lists.\n\n## Why\n\nSee #4396.",
+          "timestamp": "2026-03-17T14:53:14-07:00",
+          "tree_id": "7c24ca04c3e96ff3bda5d1cb43c29e1ef2738b6d",
+          "url": "https://github.com/paradedb/paradedb/commit/dd16f1844e0c6c3857c8ebd9ce991fa37ae25b84"
+        },
+        "date": 1773786705928,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.492763819879679,
+            "unit": "median tps",
+            "extra": "avg tps: 6.406888606683686, max tps: 9.87695994404246, count: 57598"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.075965150184484,
+            "unit": "median tps",
+            "extra": "avg tps: 4.5648482405816635, max tps: 5.606351585322463, count: 57598"
           }
         ]
       }

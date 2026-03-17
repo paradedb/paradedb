@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773722316428,
+  "lastUpdate": 1773723227103,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26370,6 +26370,54 @@ window.BENCHMARK_DATA = {
             "value": 5.5258743103974215,
             "unit": "median tps",
             "extra": "avg tps: 5.548846918722371, max tps: 7.446587156874108, count: 56390"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63f837b2d73b20fee5e5b40d05b363ae493c3080",
+          "message": "chore: Feedback from logical late materialization change (#4376)\n\n## What\n\nApply feedback for #4342 which arrived after merging.\n\n## Why\n\nIt was good feedback!\n\n## How\n\nOf note: to avoid partial string column name matching, introduces\n`trace_column` to translate a given `Column` reference to its origin in\nthe plan.",
+          "timestamp": "2026-03-16T21:03:22-07:00",
+          "tree_id": "b5f55f88c2f3f5aad0a868dcc08c467094cef60f",
+          "url": "https://github.com/paradedb/paradedb/commit/63f837b2d73b20fee5e5b40d05b363ae493c3080"
+        },
+        "date": 1773723220494,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1075.711392413939,
+            "unit": "median tps",
+            "extra": "avg tps: 1079.8176889634447, max tps: 1125.4324416248257, count: 56327"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1276.0225642451965,
+            "unit": "median tps",
+            "extra": "avg tps: 1266.0073220960733, max tps: 1286.0419091663211, count: 56327"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1798.760232452431,
+            "unit": "median tps",
+            "extra": "avg tps: 1785.290833883399, max tps: 1951.5297155320584, count: 56327"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.31270894470174,
+            "unit": "median tps",
+            "extra": "avg tps: 5.359597268746694, max tps: 8.088252017768143, count: 56327"
           }
         ]
       }

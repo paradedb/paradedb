@@ -505,8 +505,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless' AND s.name = 'TechCorp'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -517,17 +517,16 @@ ORDER BY p.name
          Order By: p.name asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[name@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     TantivyLookupExec: decode=[name]
-           :       SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
-           :           ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
-           :             CooperativeExec
-           :               PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
-           :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
-           :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=3, segmented_thresholds=true, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+           :   TantivyLookupExec: decode=[name]
+           :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
+           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 -- =============================================================================
 -- TEST 10: Fallback — DISTINCT with non-fast-field column

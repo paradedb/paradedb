@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773729505835,
+  "lastUpdate": 1773766189793,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5534,6 +5534,78 @@ window.BENCHMARK_DATA = {
             "value": 78.6812734947935,
             "unit": "median tps",
             "extra": "avg tps: 120.75441739701044, max tps: 919.1032860699787, count: 55216"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b850178ab35a4b5d631cee44275aacb54b59c112",
+          "message": "fix: Handle relabel nodes in more places in join scan planning (#4388)\n\n# Description\nBackport of #4386 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-17T09:23:52-07:00",
+          "tree_id": "86d058fc6d061244571249e9229a084d90ae8e3d",
+          "url": "https://github.com/paradedb/paradedb/commit/b850178ab35a4b5d631cee44275aacb54b59c112"
+        },
+        "date": 1773766183338,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 127.3336690088022,
+            "unit": "median tps",
+            "extra": "avg tps: 127.85487533600185, max tps: 143.08900382468957, count: 54879"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 419.63009140232805,
+            "unit": "median tps",
+            "extra": "avg tps: 428.1134634719143, max tps: 520.4400216294873, count: 54879"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2772.8708442549846,
+            "unit": "median tps",
+            "extra": "avg tps: 2763.2496694148344, max tps: 2796.042579687151, count: 54879"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 382.7110393481297,
+            "unit": "median tps",
+            "extra": "avg tps: 385.7758405322883, max tps: 566.225893781911, count: 54879"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2879.4699349755783,
+            "unit": "median tps",
+            "extra": "avg tps: 2877.087365165512, max tps: 2974.0772398140693, count: 109758"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 459.9995306471456,
+            "unit": "median tps",
+            "extra": "avg tps: 457.93759780573436, max tps: 548.9172908901821, count: 54879"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1799.0224056634693,
+            "unit": "median tps",
+            "extra": "avg tps: 1796.1436883187673, max tps: 1832.1076562609044, count: 54879"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 47.791741712246484,
+            "unit": "median tps",
+            "extra": "avg tps: 76.88148193099924, max tps: 301.0267193573802, count: 54879"
           }
         ]
       }

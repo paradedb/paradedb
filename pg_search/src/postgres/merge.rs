@@ -522,12 +522,23 @@ pub unsafe fn garbage_collect_index(
     free_entries(indexrel, entries, current_xid);
 }
 
-/// Chase down all the files in a segment and return them to the FSM
+/// Chase down all the files in a segment and return them to the FSM.
+///
+/// Also invalidates DSM cache entries for each freed segment, since at this
+/// point the segment has been removed from both `SEGMENT_METAS` and
+/// `SEGMENT_METAS_GARBAGE` and is truly unreachable.
 pub fn free_entries(
     indexrel: &PgSearchRelation,
     freeable_entries: Vec<SegmentMetaEntry>,
     current_xid: pg_sys::FullTransactionId,
 ) {
+    for entry in &freeable_entries {
+        crate::postgres::storage::dsm_cache::invalidate_segment(
+            indexrel.oid(),
+            entry.segment_id().uuid_bytes(),
+        );
+    }
+
     let mut bman = BufferManager::new(indexrel);
     bman.fsm().extend_with_when_recyclable(
         &mut bman,

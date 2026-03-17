@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773787282631,
+  "lastUpdate": 1773787292934,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24512,6 +24512,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.99482620924337, max segment_count: 131.0, count: 57598"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4f47a0f09104d05a2eaf8f682d92db306fe6d6b",
+          "message": "fix: Allow aggregate scan planning warnings to be disabled. (#4402)\n\n# Description\nBackport of #4394 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-17T15:06:32-07:00",
+          "tree_id": "deabec65ce18a0f2398bac601ae6ed40c93f30b5",
+          "url": "https://github.com/paradedb/paradedb/commit/e4f47a0f09104d05a2eaf8f682d92db306fe6d6b"
+        },
+        "date": 1773787284366,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.895935037418457, max cpu: 42.687748, count: 57748"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 234.5172191434119, max mem: 237.1796875, count: 57748"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.538265597416586, max cpu: 33.466137, count: 57748"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 176.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.78696745991203, max mem: 176.1796875, count: 57748"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33981,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33501.08086860151, max block_count: 36051.0, count: 57748"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.16026529057284, max segment_count: 129.0, count: 57748"
           }
         ]
       }

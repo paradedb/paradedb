@@ -46,8 +46,8 @@
 use pgrx::pg_sys;
 use pgrx::prelude::*;
 use stable_deref_trait::StableDeref;
+use crate::api::{HashMap, HashSet};
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -230,8 +230,8 @@ impl DsmCacheShared {
     ///
     /// # Safety
     /// Caller must hold the LWLock (shared or exclusive).
-    unsafe fn collect_live_handles(&self) -> std::collections::HashSet<pg_sys::dsm_handle> {
-        let mut live = std::collections::HashSet::new();
+    unsafe fn collect_live_handles(&self) -> HashSet<pg_sys::dsm_handle> {
+        let mut live = HashSet::new();
         let max = (*self.header).max_entries as usize;
         let base = self.slots();
         for i in 0..max {

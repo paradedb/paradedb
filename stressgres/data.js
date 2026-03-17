@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773724111956,
+  "lastUpdate": 1773724978693,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -49864,6 +49864,54 @@ window.BENCHMARK_DATA = {
             "value": 486.35914679086636,
             "unit": "median tps",
             "extra": "avg tps: 437.10455073395485, max tps: 617.501226497777, count: 107862"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63f837b2d73b20fee5e5b40d05b363ae493c3080",
+          "message": "chore: Feedback from logical late materialization change (#4376)\n\n## What\n\nApply feedback for #4342 which arrived after merging.\n\n## Why\n\nIt was good feedback!\n\n## How\n\nOf note: to avoid partial string column name matching, introduces\n`trace_column` to translate a given `Column` reference to its origin in\nthe plan.",
+          "timestamp": "2026-03-16T21:03:22-07:00",
+          "tree_id": "b5f55f88c2f3f5aad0a868dcc08c467094cef60f",
+          "url": "https://github.com/paradedb/paradedb/commit/63f837b2d73b20fee5e5b40d05b363ae493c3080"
+        },
+        "date": 1773724971868,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 493.89020046076377,
+            "unit": "median tps",
+            "extra": "avg tps: 497.278150799341, max tps: 636.0002076735371, count: 53918"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 551.9406649699091,
+            "unit": "median tps",
+            "extra": "avg tps: 557.5934548444874, max tps: 759.0434140193952, count: 53918"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.03732056189875,
+            "unit": "median tps",
+            "extra": "avg tps: 84.10076227311532, max tps: 94.209967506888, count: 53918"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 482.8198096917047,
+            "unit": "median tps",
+            "extra": "avg tps: 426.93235748895177, max tps: 664.8711395344092, count: 107836"
           }
         ]
       }

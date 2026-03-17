@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773767116190,
+  "lastUpdate": 1773767126093,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23312,6 +23312,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.94512796552978, max segment_count: 129.0, count: 57789"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b850178ab35a4b5d631cee44275aacb54b59c112",
+          "message": "fix: Handle relabel nodes in more places in join scan planning (#4388)\n\n# Description\nBackport of #4386 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-17T09:23:52-07:00",
+          "tree_id": "86d058fc6d061244571249e9229a084d90ae8e3d",
+          "url": "https://github.com/paradedb/paradedb/commit/b850178ab35a4b5d631cee44275aacb54b59c112"
+        },
+        "date": 1773767119207,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.041102549389304, max cpu: 42.899704, count: 57334"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 233.65305320305143, max mem: 235.3125, count: 57334"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.55233215476368, max cpu: 33.333336, count: 57334"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 176.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.93561998007291, max mem: 177.046875, count: 57334"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34317,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33551.064010883594, max block_count: 36031.0, count: 57334"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.32814734712387, max segment_count: 127.0, count: 57334"
           }
         ]
       }

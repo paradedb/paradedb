@@ -266,6 +266,13 @@ unsafe extern "C-unwind" fn shmem_startup() {
     let ptr = pg_sys::ShmemInitStruct(c"pg_search_dsm_cache".as_ptr(), size, &mut found)
         as *mut DsmCacheHeader;
 
+    // Since we're loaded via shared_preload_libraries, _PG_init (and therefore
+    // shmem_startup) is called exactly once.  found == true would indicate a bug.
+    assert!(
+        !found,
+        "pg_search_dsm_cache: shared memory already initialized"
+    );
+
     if !found {
         // Zero-fill the entire region (header + slots).
         std::ptr::write_bytes(ptr as *mut u8, 0, size);

@@ -179,9 +179,11 @@ jobs:
     needs: publish-paradedb-docker-image
     if: ${{ !contains(github.ref, '-rc.') }}
     env:
-      # ORM repos to notify on new releases — add new repos here
+      # ORM repos to notify on new releases
       ORM_REPOS: |
         paradedb/django-paradedb
+        paradedb/rails-paradedb
+        paradedb/sqlalchemy-paradedb
 
     steps:
       - name: Retrieve GitHub Release Version
@@ -199,7 +201,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
         run: |
           while IFS= read -r repo; do
-            repo=$(echo "$repo" | xargs)  # trim whitespace
+            repo=$(echo "$repo" | xargs)
             [ -z "$repo" ] && continue
             echo "Dispatching to $repo..."
             gh api "repos/$repo/dispatches" \

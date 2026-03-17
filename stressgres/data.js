@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773768038410,
+  "lastUpdate": 1773768081973,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5606,6 +5606,78 @@ window.BENCHMARK_DATA = {
             "value": 47.791741712246484,
             "unit": "median tps",
             "extra": "avg tps: 76.88148193099924, max tps: 301.0267193573802, count: 54879"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "25d2d5f35370f855a7f3624769d387a8da0ac06b",
+          "message": "chore: Feedback from logical late materialization change (#4387)\n\n# Description\nBackport of #4376 to `0.22.x`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-17T09:55:24-07:00",
+          "tree_id": "333a91568c5b912e691e92a1a5dc6469136bef37",
+          "url": "https://github.com/paradedb/paradedb/commit/25d2d5f35370f855a7f3624769d387a8da0ac06b"
+        },
+        "date": 1773767942639,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.23287950781977,
+            "unit": "median tps",
+            "extra": "avg tps: 129.13602569530525, max tps: 142.6420473210318, count: 55168"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 457.85883411058103,
+            "unit": "median tps",
+            "extra": "avg tps: 457.1725906536482, max tps: 539.134917974088, count: 55168"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2839.8844196971204,
+            "unit": "median tps",
+            "extra": "avg tps: 2829.0783622136823, max tps: 2848.5561985221148, count: 55168"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 420.328329196863,
+            "unit": "median tps",
+            "extra": "avg tps: 420.20256470780726, max tps: 520.4558092496744, count: 55168"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2999.015721450819,
+            "unit": "median tps",
+            "extra": "avg tps: 3009.5584641873843, max tps: 3058.954521188937, count: 110336"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 433.1609359939313,
+            "unit": "median tps",
+            "extra": "avg tps: 432.15597397082024, max tps: 510.26785710430664, count: 55168"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1824.3366598606503,
+            "unit": "median tps",
+            "extra": "avg tps: 1806.774355477157, max tps: 1830.8826464568333, count: 55168"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 115.96519293348427,
+            "unit": "median tps",
+            "extra": "avg tps: 164.29407283915657, max tps: 354.2471914813803, count: 55168"
           }
         ]
       }

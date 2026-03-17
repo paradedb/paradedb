@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773786743068,
+  "lastUpdate": 1773787139161,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -40682,6 +40682,60 @@ window.BENCHMARK_DATA = {
             "value": 15.421910788502435,
             "unit": "median tps",
             "extra": "avg tps: 15.364804754071473, max tps: 19.802194296991804, count: 55496"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c8b01e2feaf6c2a3690c780d32253f2a6a2276a5",
+          "message": "fix: Allow aggregate scan planning warnings to be disabled. (#4394)\n\n## What\n\nAllow aggregate scan planning warnings to be disabled.\n\n## Why\n\nThe aggregate scan planning warnings are helpful for users who:\n1. are designing queries to get ideal performance\n2. are using `pdb.agg` (in which case the aggregate scan _must_ be used)\n\n...but they are not necessarily helpful for users who have turned on the\nscan globally in order to get wins whenever possible, without\nnecessarily focusing on the performance of individual queries.\n\n## How\n\nAdded the `paradedb.check_aggregate_scan`, which is obeyed unless\n`pdb.agg` is used (in which case the scan is the only possible way to\nsatisfy a query).",
+          "timestamp": "2026-03-17T14:30:00-07:00",
+          "tree_id": "60797b087787d79d2ae83cdfb5d6708161db54a9",
+          "url": "https://github.com/paradedb/paradedb/commit/c8b01e2feaf6c2a3690c780d32253f2a6a2276a5"
+        },
+        "date": 1773787131925,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.9755092909933,
+            "unit": "median tps",
+            "extra": "avg tps: 29.712393390174864, max tps: 30.60257596787291, count: 55434"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.4985288335996,
+            "unit": "median tps",
+            "extra": "avg tps: 271.2434540244695, max tps: 2667.721525722096, count: 55434"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 571.2247290215914,
+            "unit": "median tps",
+            "extra": "avg tps: 555.6302604791078, max tps: 822.9280731508871, count: 55434"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 165.1056163586478,
+            "unit": "median tps",
+            "extra": "avg tps: 179.44012509974826, max tps: 1057.8793517052686, count: 110868"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.61077006442771,
+            "unit": "median tps",
+            "extra": "avg tps: 15.526348254549463, max tps: 19.799406667220524, count: 55434"
           }
         ]
       }

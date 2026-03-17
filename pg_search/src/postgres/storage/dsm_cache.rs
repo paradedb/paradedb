@@ -118,6 +118,11 @@ struct MappingGuard {
     handle: pg_sys::dsm_handle,
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here. Using impl_safe_drop
+// would leak the DSM mapping on panic, and since DSM segments are globally pinned,
+// that leaked memory would never be reclaimed.  dsm_find_mapping and dsm_detach
+// are lightweight operations that do not raise PostgreSQL errors, so calling them
+// during unwind is safe.
 impl Drop for MappingGuard {
     fn drop(&mut self) {
         let seg = unsafe { pg_sys::dsm_find_mapping(self.handle) };

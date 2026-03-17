@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773786285255,
+  "lastUpdate": 1773786366257,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5822,6 +5822,78 @@ window.BENCHMARK_DATA = {
             "value": 35.734861900023446,
             "unit": "median tps",
             "extra": "avg tps: 33.68280873696106, max tps: 213.12575453177283, count: 55043"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4f47a0f09104d05a2eaf8f682d92db306fe6d6b",
+          "message": "fix: Allow aggregate scan planning warnings to be disabled. (#4402)\n\n# Description\nBackport of #4394 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-17T15:06:32-07:00",
+          "tree_id": "deabec65ce18a0f2398bac601ae6ed40c93f30b5",
+          "url": "https://github.com/paradedb/paradedb/commit/e4f47a0f09104d05a2eaf8f682d92db306fe6d6b"
+        },
+        "date": 1773786358989,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 125.1379725180974,
+            "unit": "median tps",
+            "extra": "avg tps: 125.05937049410883, max tps: 137.33904965287013, count: 55198"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 412.48214416351925,
+            "unit": "median tps",
+            "extra": "avg tps: 411.6954272535641, max tps: 524.0339191107302, count: 55198"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2715.5789513347772,
+            "unit": "median tps",
+            "extra": "avg tps: 2712.852177801786, max tps: 2798.2945686124876, count: 55198"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 388.3910502654356,
+            "unit": "median tps",
+            "extra": "avg tps: 385.6684167156723, max tps: 492.41446074953785, count: 55198"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2798.1549088535494,
+            "unit": "median tps",
+            "extra": "avg tps: 2799.872790681416, max tps: 2948.7105139350288, count: 110396"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 414.2856106065205,
+            "unit": "median tps",
+            "extra": "avg tps: 413.5156541826496, max tps: 516.7008519081809, count: 55198"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1869.0916307617144,
+            "unit": "median tps",
+            "extra": "avg tps: 1853.177307937184, max tps: 1879.214362096576, count: 55198"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 41.342083513739404,
+            "unit": "median tps",
+            "extra": "avg tps: 87.09743521888929, max tps: 354.91759984559667, count: 55198"
           }
         ]
       }

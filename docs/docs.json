@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.22.0",
+        "version": "v0.22.1",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -340,6 +340,7 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.22.1",
                   "changelog/0.22.0",
                   "changelog/0.21.15",
                   "changelog/0.21.14",

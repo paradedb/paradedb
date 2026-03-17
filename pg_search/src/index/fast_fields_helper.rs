@@ -18,10 +18,13 @@
 use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
+use crate::index::reader::dsm_column;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 use crate::schema::SearchFieldType;
+
+use pgrx::pg_sys;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
@@ -55,14 +58,19 @@ pub struct CanonicalColumn {
 /// A cache of fast field columns for a single segment, indexed by FFIndex.
 type ColumnCache = Vec<(String, OnceLock<FFType>)>;
 
+/// Per-segment cache entry: fast field readers, column cache, ctid cache, and segment identity.
+type SegmentCacheEntry = (FastFieldReaders, ColumnCache, OnceLock<FFType>, [u8; 16]);
+
 /// A helper for tracking specific "fast field" readers from a [`SearchIndexReader`] reference
 ///
 /// They're organized by index positions and not names to eliminate as much runtime overhead as
 /// possible when looking up the value of a specific fast field.
 #[derive(Default)]
 pub struct FFHelper {
-    // A cache of columns and a ctid column for each segment.
-    segment_caches: Vec<(FastFieldReaders, ColumnCache, OnceLock<FFType>)>,
+    /// Index OID for DSM cache lookups. None when DSM caching is not available.
+    index_oid: Option<pg_sys::Oid>,
+    /// A cache of columns, a ctid column, and segment_id for each segment.
+    segment_caches: Vec<SegmentCacheEntry>,
 }
 
 impl FFHelper {
@@ -74,8 +82,9 @@ impl FFHelper {
         let segment_caches = reader
             .segment_readers()
             .iter()
-            .map(|reader| {
-                let fast_fields_reader = reader.fast_fields().clone();
+            .map(|seg_reader| {
+                let fast_fields_reader = seg_reader.fast_fields().clone();
+                let segment_id = *seg_reader.segment_id().uuid_bytes();
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
@@ -90,26 +99,29 @@ impl FFHelper {
                         }
                     }
                 }
-                (fast_fields_reader, lookup, OnceLock::default())
+                (fast_fields_reader, lookup, OnceLock::default(), segment_id)
             })
             .collect();
-        Self { segment_caches }
+        Self {
+            index_oid: Some(reader.index_oid()),
+            segment_caches,
+        }
     }
 
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {
-        let (ff_readers, _, ctid) = &self.segment_caches[segment_ord as usize];
-        ctid.get_or_init(|| FFType::new_ctid(ff_readers))
+        let (ff_readers, _, ctid, segment_id) = &self.segment_caches[segment_ord as usize];
+        ctid.get_or_init(|| FFType::new_ctid_cached(ff_readers, self.index_oid, segment_id))
     }
 
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
-        let (ff_readers, columns, _) = &self.segment_caches[segment_ord as usize];
+        let (ff_readers, columns, _, _) = &self.segment_caches[segment_ord as usize];
         let column = &columns[field];
         column.1.get_or_init(|| FFType::new(ff_readers, &column.0))
     }
 
     #[track_caller]
     pub fn value(&self, field: FFIndex, doc_address: DocAddress) -> Option<TantivyValue> {
-        let (ff_readers, columns, _) = &self.segment_caches[doc_address.segment_ord as usize];
+        let (ff_readers, columns, _, _) = &self.segment_caches[doc_address.segment_ord as usize];
         let column = &columns[field];
         Some(
             column
@@ -184,6 +196,21 @@ impl FFType {
     /// should be a known field name in the Tantivy index
     pub fn new_ctid(ffr: &FastFieldReaders) -> Self {
         Self::U64(ffr.u64("ctid").expect("ctid should be a u64 fast field"))
+    }
+
+    /// Construct a DSM-cached [`FFType`] for the ctid field.
+    /// Falls back to the normal path if caching is unavailable.
+    pub fn new_ctid_cached(
+        ffr: &FastFieldReaders,
+        index_oid: Option<pg_sys::Oid>,
+        segment_id: &[u8; 16],
+    ) -> Self {
+        if let Some(oid) = index_oid.filter(|_| crate::gucs::enable_dsm_ctid()) {
+            if let Some(column) = dsm_column::create_cached_ctid_column(ffr, oid, segment_id) {
+                return Self::U64(column);
+            }
+        }
+        Self::new_ctid(ffr)
     }
 
     /// Construct the proper [`FFType`] for the specified `field_name`, which

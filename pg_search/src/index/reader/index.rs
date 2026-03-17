@@ -112,6 +112,7 @@ impl TopKSearchResults {
 
     fn new_for_score(
         searcher: &Searcher,
+        index_oid: Option<pgrx::pg_sys::Oid>,
         results: impl IntoIterator<Item = (Score, DocAddress)>,
         aggregation_results: Option<IntermediateAggregationResults>,
     ) -> Self {
@@ -124,10 +125,12 @@ impl TopKSearchResults {
                     let ctid = ff_lookup
                         .entry(doc_address.segment_ord)
                         .or_insert_with(|| {
-                            FFType::new_ctid(
-                                searcher
-                                    .segment_reader(doc_address.segment_ord)
-                                    .fast_fields(),
+                            let seg_reader =
+                                searcher.segment_reader(doc_address.segment_ord);
+                            FFType::new_ctid_cached(
+                                seg_reader.fast_fields(),
+                                index_oid,
+                                seg_reader.segment_id().uuid_bytes(),
                             )
                         })
                         .as_u64(doc_address.doc_id)
@@ -146,10 +149,15 @@ impl TopKSearchResults {
     ///
     /// TODO: We could in theory actually render that field using a virtual tuple (for the right
     /// query), similar to what we do in fast-fields execution.
-    fn new_for_discarded_field<T>(searcher: &Searcher, results: TopKWithAggregate<T>) -> Self {
+    fn new_for_discarded_field<T>(
+        searcher: &Searcher,
+        index_oid: Option<pgrx::pg_sys::Oid>,
+        results: TopKWithAggregate<T>,
+    ) -> Self {
         let (results, aggregation_results) = results;
         Self::new_for_score(
             searcher,
+            index_oid,
             results
                 .into_iter()
                 .map(|((_, score), doc)| (score.unwrap_or(1.0), doc)),
@@ -171,6 +179,7 @@ impl TopKSearchResults {
 /// May be consumed via `Iterator`, or directly via its methods in a segment-aware fashion.
 pub struct MultiSegmentSearchResults {
     searcher: Searcher,
+    index_oid: Option<pgrx::pg_sys::Oid>,
     ctid_column: Option<FFType>,
     iterators: Vec<ScorerIter>,
     lazy_iterators: Option<Box<dyn Iterator<Item = ScorerIter> + Send>>,
@@ -244,6 +253,7 @@ impl MultiSegmentSearchResults {
     pub fn from_single_segment(searcher: Searcher, scorer_iter: ScorerIter) -> Self {
         Self {
             searcher,
+            index_oid: None,
             ctid_column: None,
             iterators: vec![scorer_iter],
             lazy_iterators: None,
@@ -261,11 +271,14 @@ impl Iterator for MultiSegmentSearchResults {
             let last = self.current_segment()?;
             match last.next() {
                 Some((score, doc_address)) => {
+                    let index_oid = self.index_oid;
                     let ctid_ff = self.ctid_column.get_or_insert_with(|| {
-                        FFType::new_ctid(
-                            self.searcher
-                                .segment_reader(doc_address.segment_ord)
-                                .fast_fields(),
+                        let seg_reader =
+                            self.searcher.segment_reader(doc_address.segment_ord);
+                        FFType::new_ctid_cached(
+                            seg_reader.fast_fields(),
+                            index_oid,
+                            seg_reader.segment_id().uuid_bytes(),
                         )
                     });
                     let scored = SearchIndexScore {
@@ -511,6 +524,10 @@ impl SearchIndexReader {
             .map(|space| space.total().get_bytes())?)
     }
 
+    pub fn index_oid(&self) -> pgrx::pg_sys::Oid {
+        self.index_rel.oid()
+    }
+
     pub fn segment_readers(&self) -> &[SegmentReader] {
         self.searcher.segment_readers()
     }
@@ -621,6 +638,7 @@ impl SearchIndexReader {
 
         MultiSegmentSearchResults {
             searcher: self.searcher.clone(),
+            index_oid: Some(self.index_oid()),
             ctid_column: Default::default(),
             iterators,
             lazy_iterators: None,
@@ -684,6 +702,7 @@ impl SearchIndexReader {
 
         MultiSegmentSearchResults {
             searcher: self.searcher.clone(),
+            index_oid: Some(self.index_oid()),
             ctid_column: Default::default(),
             iterators: vec![],
             lazy_iterators: Some(Box::new(lazy_iterators)),
@@ -741,6 +760,7 @@ impl SearchIndexReader {
                 match field.field_entry().field_type().value_type() {
                     tantivy::schema::Type::Str => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
+                        Some(self.index_oid()),
                         self.top_in_segments(
                             segment_ids,
                             (SortByString::for_field(sort_field), order),
@@ -752,6 +772,7 @@ impl SearchIndexReader {
                     ),
                     tantivy::schema::Type::U64 => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
+                        Some(self.index_oid()),
                         self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<u64>::for_field(sort_field), order),
@@ -763,6 +784,7 @@ impl SearchIndexReader {
                     ),
                     tantivy::schema::Type::I64 => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
+                        Some(self.index_oid()),
                         self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<i64>::for_field(sort_field), order),
@@ -774,6 +796,7 @@ impl SearchIndexReader {
                     ),
                     tantivy::schema::Type::F64 => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
+                        Some(self.index_oid()),
                         self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<f64>::for_field(sort_field), order),
@@ -785,6 +808,7 @@ impl SearchIndexReader {
                     ),
                     tantivy::schema::Type::Bool => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
+                        Some(self.index_oid()),
                         self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<bool>::for_field(sort_field), order),
@@ -796,6 +820,7 @@ impl SearchIndexReader {
                     ),
                     tantivy::schema::Type::Date => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
+                        Some(self.index_oid()),
                         self.top_in_segments(
                             segment_ids,
                             (
@@ -810,6 +835,7 @@ impl SearchIndexReader {
                     ),
                     tantivy::schema::Type::Bytes => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
+                        Some(self.index_oid()),
                         self.top_in_segments(
                             segment_ids,
                             (SortByBytes::for_field(sort_field), order),
@@ -849,6 +875,7 @@ impl SearchIndexReader {
                 );
                 TopKSearchResults::new_for_score(
                     &self.searcher,
+                    Some(self.index_oid()),
                     top_docs.into_iter().map(|((f, _), doc)| (f, doc)),
                     aggregation_results,
                 )
@@ -1054,6 +1081,7 @@ impl SearchIndexReader {
 
                 TopKSearchResults::new_for_score(
                     &self.searcher,
+                    Some(self.index_oid()),
                     top_docs
                         .into_iter()
                         .map(|(score, doc_address)| (score.score, doc_address)),
@@ -1068,7 +1096,12 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
-                TopKSearchResults::new_for_score(&self.searcher, top_docs, aggregation_results)
+                TopKSearchResults::new_for_score(
+                    &self.searcher,
+                    Some(self.index_oid()),
+                    top_docs,
+                    aggregation_results,
+                )
             }
         }
     }

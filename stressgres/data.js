@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773723227103,
+  "lastUpdate": 1773723235103,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34066,6 +34066,108 @@ window.BENCHMARK_DATA = {
             "value": 162.58984375,
             "unit": "median mem",
             "extra": "avg mem: 180.8396878879234, max mem: 220.9921875, count: 56390"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63f837b2d73b20fee5e5b40d05b363ae493c3080",
+          "message": "chore: Feedback from logical late materialization change (#4376)\n\n## What\n\nApply feedback for #4342 which arrived after merging.\n\n## Why\n\nIt was good feedback!\n\n## How\n\nOf note: to avoid partial string column name matching, introduces\n`trace_column` to translate a given `Column` reference to its origin in\nthe plan.",
+          "timestamp": "2026-03-16T21:03:22-07:00",
+          "tree_id": "b5f55f88c2f3f5aad0a868dcc08c467094cef60f",
+          "url": "https://github.com/paradedb/paradedb/commit/63f837b2d73b20fee5e5b40d05b363ae493c3080"
+        },
+        "date": 1773723228706,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07900296483036555, max background_merging: 2.0, count: 56327"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6745659468851315, max cpu: 9.648242, count: 56327"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 25.51673889187246, max mem: 25.52734375, count: 56327"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0563244483774685, max cpu: 27.853, count: 56327"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 182.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 179.5794788411863, max mem: 183.79296875, count: 56327"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51479,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51349.84289949758, max block_count: 51479.0, count: 56327"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.94922506080565, max segment_count: 55.0, count: 56327"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.602552796154307, max cpu: 9.458128, count: 56327"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 112.57049308613098, max mem: 137.68359375, count: 56327"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.752935346239034, max cpu: 9.648242, count: 56327"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 164.07884124176684, max mem: 168.4453125, count: 56327"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.842276008603157, max cpu: 33.768845, count: 56327"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 180.76764064358568, max mem: 221.0234375, count: 56327"
           }
         ]
       }

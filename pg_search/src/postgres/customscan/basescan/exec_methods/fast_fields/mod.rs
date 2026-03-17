@@ -330,31 +330,18 @@ pub unsafe fn pullup_fast_fields(
             // the attribute number. To support cases where the column is indexed via an
             // expression (e.g. `col::pdb.literal`), we create a synthetic Var to match
             // against index expressions.
-            let mut dummy_var = pg_sys::Var {
-                xpr: pg_sys::Expr {
-                    type_: pg_sys::NodeTag::T_Var,
-                },
-                varno: rti as _,
-                varattno: attno as i16,
-                vartype: pg_sys::InvalidOid,
-                vartypmod: -1,
-                varcollid: pg_sys::InvalidOid,
-                varlevelsup: 0,
-                varnosyn: 0,
-                varattnosyn: 0,
-                location: -1,
-                #[cfg(not(feature = "pg15"))]
-                varnullingrels: std::ptr::null_mut(),
-                #[cfg(feature = "pg18")]
-                varreturningtype: pg_sys::InvalidOid.into(),
-            };
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
-                dummy_var.vartype = att.atttypid;
-                dummy_var.vartypmod = att.atttypmod;
-                dummy_var.varcollid = att.attcollation;
+                let dummy_var = pg_sys::makeVar(
+                    rti as _,
+                    attno as pg_sys::AttrNumber,
+                    att.atttypid,
+                    att.atttypmod,
+                    att.attcollation,
+                    0,
+                );
 
                 if let Some(ff) = find_matching_fast_field(
-                    &mut dummy_var as *mut _ as *mut pg_sys::Node,
+                    dummy_var as *mut pg_sys::Node,
                     &index_expressions,
                     index.schema().ok()?,
                     rti,

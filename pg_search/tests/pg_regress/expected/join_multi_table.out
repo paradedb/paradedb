@@ -166,6 +166,7 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
 ORDER BY p.id;
+WARNING:  JoinScan not used: query must have a LIMIT clause
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp

@@ -21,6 +21,7 @@ use super::{
     get_or_create, invalidate_index, invalidate_segment, load_shared, tag_name, CacheKey, CacheTag,
     DsmSlice,
 };
+use crate::postgres::dsm::DsmSegment;
 use pgrx::pg_sys;
 use pgrx::prelude::*;
 use std::cell::RefCell;
@@ -73,9 +74,7 @@ fn pg_test_dsm_cache_clear_all() {
     };
     let handles = shared.remove_matching(|_| true);
     for handle in handles {
-        unsafe {
-            pg_sys::dsm_unpin_segment(handle);
-        }
+        unsafe { DsmSegment::unpin(handle) };
     }
     shared.bump_generation();
 }

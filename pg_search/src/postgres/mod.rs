@@ -52,6 +52,7 @@ pub mod composite;
 mod condition_variable;
 pub mod customscan;
 pub mod datetime;
+pub mod dsm;
 #[cfg(not(any(feature = "pg17", feature = "pg18")))]
 pub mod fake_aminsertcleanup;
 pub mod heap;

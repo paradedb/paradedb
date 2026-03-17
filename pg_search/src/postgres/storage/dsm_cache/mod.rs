@@ -48,6 +48,7 @@ mod sql;
 use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
 use crate::api::{HashMap, HashSet};
+use crate::postgres::dsm::{DsmSegment, DsmSegmentRef};
 use crate::postgres::locks::LWLock;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -138,23 +139,15 @@ impl CacheKey {
 // ---------------------------------------------------------------------------
 
 /// Ref-counted guard that keeps a DSM mapping alive.  When the last clone is
-/// dropped, `dsm_detach` is called to release the per-backend mapping.
+/// dropped, the owned `DsmSegment` is dropped which calls `dsm_detach` to
+/// release the per-backend mapping.
+///
+/// If the segment handle has no mapping in this backend (e.g. because of a
+/// race during invalidation), the `DsmSegment` may already be `None` and the
+/// drop is a no-op.
 struct MappingGuard {
-    handle: pg_sys::dsm_handle,
-}
-
-// NOTE: We intentionally do NOT use `impl_safe_drop!` here. Using impl_safe_drop
-// would leak the DSM mapping on panic, and since DSM segments are globally pinned,
-// that leaked memory would never be reclaimed.  dsm_find_mapping and dsm_detach
-// are lightweight operations that do not raise PostgreSQL errors, so calling them
-// during unwind is safe.
-impl Drop for MappingGuard {
-    fn drop(&mut self) {
-        let seg = unsafe { pg_sys::dsm_find_mapping(self.handle) };
-        if !seg.is_null() {
-            unsafe { pg_sys::dsm_detach(seg) };
-        }
-    }
+    /// Owned segment — dropping it calls `dsm_detach`.
+    _seg: Option<DsmSegment>,
 }
 
 // SAFETY: DSM mappings are per-process; MappingGuard only exists within a PG backend.
@@ -573,71 +566,78 @@ pub fn get_or_create(
     }
 
     // 3. Miss — create DSM outside the lock
-    unsafe {
-        let seg = pg_sys::dsm_create(data_size, pg_sys::DSM_CREATE_NULL_IF_MAXSEGMENTS as _);
-        if seg.is_null() {
+    let Some(seg) = DsmSegment::create(data_size) else {
+        pgrx::log!(
+            "pg_search: DSM segment limit reached, cache entry unavailable (tag={:?}, size={})",
+            CacheTag::try_from(key.tag).ok(),
+            data_size,
+        );
+        return None;
+    };
+
+    unsafe { fill_fn(seg.as_mut_slice(data_size)) };
+
+    // Pin the segment BEFORE making it visible in the shared array.
+    // Otherwise another backend could find the entry and call
+    // dsm_unpin_segment before we've pinned it.
+    seg.pin();
+    let handle = seg.handle();
+
+    // 4. Insert into array (exclusive lock), with double-check.
+    //    Three outcomes: Raced (another backend inserted), Full, or Inserted.
+    enum InsertResult {
+        Raced(pg_sys::dsm_handle, u32),
+        Full,
+        Inserted,
+    }
+
+    let result = unsafe {
+        let _guard = shared.lock.acquire_exclusive();
+
+        if let Some((their_handle, their_size)) = shared.find_slot(&key) {
+            InsertResult::Raced(their_handle, their_size)
+        } else if !shared.insert_slot(&key, handle, data_size as u32) {
+            InsertResult::Full
+        } else {
+            InsertResult::Inserted
+        }
+    };
+
+    match result {
+        InsertResult::Raced(their_handle, their_size) => {
+            unsafe { DsmSegment::unpin(handle) };
+            drop(seg);
+            return resolve_and_cache(key, their_handle, their_size as usize);
+        }
+        InsertResult::Full => {
+            unsafe { DsmSegment::unpin(handle) };
+            drop(seg);
             pgrx::log!(
-                "pg_search: DSM segment limit reached, cache entry unavailable (tag={:?}, size={})",
+                "pg_search: DSM cache array full, cache entry unavailable (tag={:?})",
                 CacheTag::try_from(key.tag).ok(),
-                data_size,
             );
             return None;
         }
-
-        let ptr = pg_sys::dsm_segment_address(seg) as *mut u8;
-        let buf = std::slice::from_raw_parts_mut(ptr, data_size);
-        fill_fn(buf);
-
-        let handle = pg_sys::dsm_segment_handle(seg);
-
-        // Pin the segment BEFORE making it visible in the shared array.
-        // Otherwise another backend could find the entry and call
-        // dsm_unpin_segment before we've pinned it.
-        pg_sys::dsm_pin_segment(seg);
-        pg_sys::dsm_pin_mapping(seg);
-
-        // 4. Insert into array (exclusive lock), with double-check
-        {
-            let _guard = shared.lock.acquire_exclusive();
-
-            // Check if another backend inserted while we were creating
-            if let Some((their_handle, their_size)) = shared.find_slot(&key) {
-                drop(_guard);
-                pg_sys::dsm_unpin_segment(handle);
-                pg_sys::dsm_detach(seg);
-                return resolve_and_cache(key, their_handle, their_size as usize);
-            }
-
-            // Try to insert into a free slot
-            if !shared.insert_slot(&key, handle, data_size as u32) {
-                drop(_guard);
-                pg_sys::dsm_unpin_segment(handle);
-                pg_sys::dsm_detach(seg);
-                pgrx::log!(
-                    "pg_search: DSM cache array full, cache entry unavailable (tag={:?})",
-                    CacheTag::try_from(key.tag).ok(),
-                );
-                return None;
-            }
-        }
-
-        let ptr = pg_sys::dsm_segment_address(seg) as *const u8;
-
-        // Track handle and cache pointer.
-        let guard = Arc::new(MappingGuard { handle });
-        LOCAL_HANDLES.with(|h| {
-            h.borrow_mut()
-                .entry(handle)
-                .or_insert_with(|| guard.clone());
-        });
-        LOCAL_CACHE.with(|c| c.borrow_mut().insert(key, (guard.clone(), ptr, data_size)));
-
-        Some(DsmSlice {
-            ptr,
-            len: data_size,
-            _guard: guard,
-        })
+        InsertResult::Inserted => {}
     }
+
+    let ptr = seg.address() as *const u8;
+
+    // Track handle and cache pointer.  The MappingGuard takes ownership
+    // of the DsmSegment, keeping the mapping alive.
+    let guard = Arc::new(MappingGuard { _seg: Some(seg) });
+    LOCAL_HANDLES.with(|h| {
+        h.borrow_mut()
+            .entry(handle)
+            .or_insert_with(|| guard.clone());
+    });
+    LOCAL_CACHE.with(|c| c.borrow_mut().insert(key, (guard.clone(), ptr, data_size)));
+
+    Some(DsmSlice {
+        ptr,
+        len: data_size,
+        _guard: guard,
+    })
 }
 
 /// Invalidate all cached entries for a specific segment (called on merge/delete).
@@ -647,15 +647,7 @@ pub fn invalidate_segment(index_oid: pg_sys::Oid, segment_id: &[u8; 16]) {
     };
     let handles =
         shared.remove_matching(|k| k.index_oid == index_oid && k.segment_id == *segment_id);
-
-    if !handles.is_empty() {
-        for handle in handles {
-            unsafe {
-                pg_sys::dsm_unpin_segment(handle);
-            }
-        }
-        shared.bump_generation();
-    }
+    unpin_and_bump(shared, handles);
 }
 
 /// Invalidate all cached entries for an index (called on DROP INDEX).
@@ -664,12 +656,13 @@ pub fn invalidate_index(index_oid: pg_sys::Oid) {
         return;
     };
     let handles = shared.remove_matching(|k| k.index_oid == index_oid);
+    unpin_and_bump(shared, handles);
+}
 
+fn unpin_and_bump(shared: &DsmCacheShared, handles: Vec<pg_sys::dsm_handle>) {
     if !handles.is_empty() {
         for handle in handles {
-            unsafe {
-                pg_sys::dsm_unpin_segment(handle);
-            }
+            unsafe { DsmSegment::unpin(handle) };
         }
         shared.bump_generation();
     }
@@ -701,18 +694,16 @@ fn resolve_and_cache(
 }
 
 /// Resolve a DSM handle to a mapped pointer.
-/// Uses `dsm_find_mapping` first (reuses existing pinned mapping),
-/// falls back to `dsm_attach` + `dsm_pin_mapping` on first access.
+/// Uses `DsmSegment::find_mapping` first (reuses existing pinned mapping),
+/// falls back to `DsmSegment::attach` + `pin_mapping` on first access.
 fn resolve_handle(handle: pg_sys::dsm_handle, size: usize) -> Option<DsmSlice> {
     // Check if we already have a guard for this handle.
     let existing_guard = LOCAL_HANDLES.with(|h| h.borrow().get(&handle).cloned());
 
     if let Some(guard) = existing_guard {
-        let seg = unsafe { pg_sys::dsm_find_mapping(handle) };
-        if !seg.is_null() {
-            let ptr = unsafe { pg_sys::dsm_segment_address(seg) } as *const u8;
+        if let Some(seg_ref) = DsmSegment::find_mapping(handle) {
             return Some(DsmSlice {
-                ptr,
+                ptr: seg_ref.address(),
                 len: size,
                 _guard: guard,
             });
@@ -725,27 +716,22 @@ fn resolve_handle(handle: pg_sys::dsm_handle, size: usize) -> Option<DsmSlice> {
         });
     }
 
-    unsafe {
-        // Slow path: first access in this backend — attach and pin
-        let seg = pg_sys::dsm_attach(handle);
-        if seg.is_null() {
-            return None;
-        }
-        pg_sys::dsm_pin_mapping(seg);
-        let ptr = pg_sys::dsm_segment_address(seg) as *const u8;
+    // Slow path: first access in this backend — attach and pin
+    let seg = DsmSegment::attach(handle)?;
+    seg.pin_mapping();
+    let ptr = seg.address() as *const u8;
 
-        let guard = Arc::new(MappingGuard { handle });
-        LOCAL_HANDLES.with(|h| {
-            h.borrow_mut()
-                .entry(handle)
-                .or_insert_with(|| guard.clone());
-        });
+    let guard = Arc::new(MappingGuard { _seg: Some(seg) });
+    LOCAL_HANDLES.with(|h| {
+        h.borrow_mut()
+            .entry(handle)
+            .or_insert_with(|| guard.clone());
+    });
 
-        Some(DsmSlice {
-            ptr,
-            len: size,
-            _guard: guard,
-        })
-    }
+    Some(DsmSlice {
+        ptr,
+        len: size,
+        _guard: guard,
+    })
 }
 

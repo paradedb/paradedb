@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773787292934,
+  "lastUpdate": 1773787647710,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28410,6 +28410,54 @@ window.BENCHMARK_DATA = {
             "value": 5.410798266022684,
             "unit": "median tps",
             "extra": "avg tps: 5.43261549265336, max tps: 9.316991739769414, count: 56613"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dd16f1844e0c6c3857c8ebd9ce991fa37ae25b84",
+          "message": "fix: Fix casts in aggregate scan target lists. (#4401)\n\n## Ticket(s) Closed\n\n- Closes #4396\n\n## What\n\nFixes use of casts in aggregate scan target lists.\n\n## Why\n\nSee #4396.",
+          "timestamp": "2026-03-17T14:53:14-07:00",
+          "tree_id": "7c24ca04c3e96ff3bda5d1cb43c29e1ef2738b6d",
+          "url": "https://github.com/paradedb/paradedb/commit/dd16f1844e0c6c3857c8ebd9ce991fa37ae25b84"
+        },
+        "date": 1773787640121,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1112.0218385461264,
+            "unit": "median tps",
+            "extra": "avg tps: 1112.681940562026, max tps: 1153.9919102170415, count: 56075"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1255.5627745790205,
+            "unit": "median tps",
+            "extra": "avg tps: 1246.0050326814874, max tps: 1269.3774345277711, count: 56075"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1096.7424849608424,
+            "unit": "median tps",
+            "extra": "avg tps: 1007.7559112421153, max tps: 1495.6054920369945, count: 56075"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.430207563147708,
+            "unit": "median tps",
+            "extra": "avg tps: 5.473560246965284, max tps: 6.743346518688693, count: 56075"
           }
         ]
       }

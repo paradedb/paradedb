@@ -41,6 +41,22 @@ MockItem.search(:id)
         .limit(10)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(MockItem.rating, pdb.agg(facets.value_count(field="id")).label("agg"))
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+    .limit(10)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -84,6 +100,23 @@ MockItem.search(:id)
         )
         .order(:rating)
         .limit(10)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(MockItem.rating, pdb.agg(facets.value_count(field="id")).label("agg"))
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+    .order_by(MockItem.rating)
+    .limit(10)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

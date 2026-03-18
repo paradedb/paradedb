@@ -32,6 +32,28 @@ MockItem.search(:id)
         )
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.range(
+                field="rating",
+                ranges=[{"to": 3.0}, {"from": 3.0, "to": 6.0}],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response

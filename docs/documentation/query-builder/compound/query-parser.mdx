@@ -29,6 +29,20 @@ MockItem.search(:id)
         .select(:description, :rating, :category)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.parse(MockItem.id, "description:(sleek shoes) AND rating:>3"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 Please refer to the [Tantivy docs](https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html) for an overview of
@@ -59,6 +73,20 @@ MockItem.search(:id)
         .select(:description, :rating, :category)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.parse(MockItem.id, "description:(sleek shoes) AND rating:>3", lenient=True))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Conjunction Mode
@@ -84,6 +112,20 @@ MockItem.objects.filter(
 MockItem.search(:id)
         .parse("description:(sleek shoes)", conjunction_mode: true)
         .select(:description, :rating, :category)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.parse(MockItem.id, "description:(sleek shoes)", conjunction_mode=True))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

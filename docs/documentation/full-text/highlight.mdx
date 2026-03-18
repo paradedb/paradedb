@@ -46,6 +46,21 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.id, pdb.snippet(MockItem.description).label("snippet"))
+    .where(search.match_any(MockItem.description, "shoes"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 <ParamField body="start_tag" default="<b>">
@@ -87,6 +102,28 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.snippet(
+            MockItem.description,
+            start_tag="<i>",
+            end_tag="</i>",
+        ).label("snippet"),
+    )
+    .where(search.match_any(MockItem.description, "shoes"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Multiple Snippets
@@ -117,6 +154,21 @@ MockItem.search(:description)
         .with_snippets(:description, max_chars: 15)
         .select(:id)
         .limit(5)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.id, pdb.snippets(MockItem.description, max_num_chars=15).label("snippets"))
+    .where(search.match_any(MockItem.description, "artistic vase"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -183,6 +235,21 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.id, pdb.snippets(MockItem.description, max_num_chars=15, limit=1).label("snippets"))
+    .where(search.match_any(MockItem.description, "running"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 To get the second snippet (by skipping the first one):
@@ -211,6 +278,24 @@ MockItem.search(:description)
         .with_snippets(:description, max_chars: 15, limit: 1, offset: 1)
         .select(:id)
         .limit(5)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.snippets(MockItem.description, max_num_chars=15, limit=1, offset=1).label("snippets"),
+    )
+    .where(search.match_any(MockItem.description, "running"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -247,6 +332,24 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.snippets(MockItem.description, max_num_chars=15, sort_by="position").label("snippets"),
+    )
+    .where(search.match_any(MockItem.description, "artistic vase"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Byte Offsets
@@ -279,6 +382,25 @@ MockItem.search(:description)
         .with_snippet_positions(:description)
         .select(:id)
         .limit(5)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.snippet(MockItem.description).label("snippet"),
+        pdb.snippet_positions(MockItem.description).label("snippet_positions"),
+    )
+    .where(search.match_any(MockItem.description, "shoes"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

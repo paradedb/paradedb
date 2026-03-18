@@ -141,8 +141,11 @@ pub struct JoinScanState {
     /// Populated from PrivateData during create_custom_scan_state.
     pub output_columns: Vec<OutputColumnInfo>,
 
-    /// Maximum allowed memory for execution (from work_mem, in bytes).
+    /// Maximum allowed memory for execution per operation (from work_mem, in bytes).
     pub max_memory: usize,
+    /// Used to compute the maximum amount of memory that hash-based operations can use.
+    /// The final limit is determined by multiplying work_mem by hash_mem_multiplier.
+    pub hash_mem_multiplier: f64,
 
     /// Serialized DataFusion LogicalPlan from planning phase.
     pub logical_plan: Option<bytes::Bytes>,

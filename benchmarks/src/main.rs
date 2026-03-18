@@ -647,32 +647,14 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
     }
 }
 
-/// Split a compound SQL statement into setup statements and the final query.
-///
-/// Compound statements like `SET work_mem TO '4GB'; SET enable_seqscan TO off; SELECT ...`
-/// are split on `; ` boundaries. The leading statements are treated as setup (executed once
-/// before each timed run) and the last statement is the query to benchmark via EXPLAIN ANALYZE.
-fn split_query(query: &str) -> (Vec<&str>, &str) {
-    // Find the last `; ` boundary to split setup from the main query.
-    match query.rfind("; ") {
-        Some(pos) => {
-            let setup_part = &query[..pos];
-            let main_query = query[pos + 2..].trim();
-            let setup_statements: Vec<&str> = setup_part.split("; ").map(|s| s.trim()).collect();
-            (setup_statements, main_query)
-        }
-        None => (vec![], query),
-    }
-}
-
 /// Execute a benchmark query multiple times on a single reused connection.
 ///
-/// Uses `EXPLAIN (ANALYZE, FORMAT JSON)` to measure server-side execution time, which
-/// excludes client-side overhead (row transfer, deserialization, async runtime) and gives
-/// an accurate measurement of actual query performance.
+/// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
+/// necessary for compatibility with custom scan providers. Compound statements
+/// (e.g., `SET ...; SELECT ...`) are handled natively by the simple protocol.
 ///
-/// Compound statements (e.g., `SET ...; SELECT ...`) are split: setup statements run
-/// normally, and only the final statement is timed via EXPLAIN ANALYZE.
+/// Timing uses `Instant` around `execute()`, which consumes the entire result set from
+/// the wire without per-row object allocation, matching how `psql` with `\timing` works.
 ///
 /// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
 async fn execute_query_multiple_times(
@@ -681,28 +663,21 @@ async fn execute_query_multiple_times(
     times: usize,
     fail_on_error: bool,
 ) -> Option<(Vec<f64>, usize)> {
-    let (setup_statements, main_query) = split_query(query);
-    let explain_query = format!("EXPLAIN (ANALYZE, FORMAT JSON) {main_query}");
-
     let mut results = Vec::new();
     let mut num_results = 0;
 
     for i in 0..times {
-        // Execute setup statements (SET commands, etc.) before each timed run.
-        for setup in &setup_statements {
-            if let Err(err) = sqlx::query(setup).execute(&mut *conn).await {
-                if fail_on_error {
-                    panic!("Failed to execute setup statement `{setup}`: {err}");
-                } else {
-                    eprintln!("WARNING: Skipping query due to setup error: {err}");
-                    return None;
+        let start = Instant::now();
+        let result = sqlx::raw_sql(query).execute(&mut *conn).await;
+        let elapsed = start.elapsed();
+
+        match result {
+            Ok(r) => {
+                results.push(elapsed.as_secs_f64() * 1000.0);
+                if i == 0 {
+                    num_results = r.rows_affected() as usize;
                 }
             }
-        }
-
-        // Run EXPLAIN ANALYZE to get server-side execution time.
-        let row = match sqlx::query(&explain_query).fetch_one(&mut *conn).await {
-            Ok(row) => row,
             Err(err) => {
                 if fail_on_error {
                     panic!("Failed to execute benchmark query: {err}");
@@ -711,22 +686,6 @@ async fn execute_query_multiple_times(
                     return None;
                 }
             }
-        };
-
-        let json_str: String = row.get(0);
-        let json: serde_json::Value =
-            serde_json::from_str(&json_str).expect("Failed to parse EXPLAIN ANALYZE JSON output");
-
-        let execution_time = json[0]["Execution Time"]
-            .as_f64()
-            .expect("Failed to extract Execution Time from EXPLAIN ANALYZE output");
-        results.push(execution_time);
-
-        if i == 0 {
-            num_results = json[0]["Plan"]["Actual Rows"]
-                .as_u64()
-                .expect("Failed to extract Actual Rows from EXPLAIN ANALYZE output")
-                as usize;
         }
     }
 

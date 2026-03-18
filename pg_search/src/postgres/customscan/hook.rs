@@ -41,6 +41,14 @@ unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
     path.flags ^= Flags::Force as u32; // make sure to clear this flag because it's special to us
 
+    // Force means our custom path is not interchangeable with native PostgreSQL paths.
+    // Clear both complete and partial candidates up front so neither a regular path nor a
+    // Gather-built parallel path can outcompete us.
+    if forced {
+        (*rel).pathlist = std::ptr::null_mut();
+        (*rel).partial_pathlist = std::ptr::null_mut();
+    }
+
     let mut custom_path = PgMemoryContexts::CurrentMemoryContext
         .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
 
@@ -65,9 +73,6 @@ unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
 
         // will be added down below
         custom_path = copy.cast();
-    } else if forced {
-        // remove all the existing possible paths
-        (*rel).pathlist = std::ptr::null_mut();
     }
 
     // add this path for consideration

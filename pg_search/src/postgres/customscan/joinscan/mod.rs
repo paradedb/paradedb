@@ -151,7 +151,7 @@ mod translator;
 
 use self::build::{CtidColumn, JoinCSClause, RelNode, RelationAlias};
 use self::explain::{format_join_level_expr, get_attname_safe};
-use self::memory::PanicOnOOMMemoryPool;
+use self::memory::create_memory_pool;
 use self::planning::{
     collect_join_sources, collect_required_fields, ensure_score_bubbling,
     expr_uses_scores_from_source, extract_join_conditions, extract_orderby, extract_score_pathkey,
@@ -182,13 +182,10 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::{deserialize_logical_plan, serialize_logical_plan};
-use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
-use datafusion::physical_plan::joins::{HashJoinExec, SortMergeJoinExec};
+use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
-use datafusion::physical_plan::sorts::sort::SortExec;
-use datafusion::physical_plan::{displayable, ExecutionPlanProperties};
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
@@ -1042,9 +1039,6 @@ impl CustomScan for JoinScan {
             unsafe {
                 let planstate = state.planstate();
                 pg_sys::ExecAssignExprContext(estate, planstate);
-
-                state.custom_state_mut().max_memory = (pg_sys::work_mem as usize) * 1024;
-                state.custom_state_mut().hash_mem_multiplier = pg_sys::hash_mem_multiplier;
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
                 state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             }
@@ -1104,12 +1098,13 @@ impl CustomScan for JoinScan {
                 let plan = runtime
                     .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
                     .expect("Failed to create execution plan");
-                let total_memory_budget = estimate_plan_memory(
+
+                let memory_pool = create_memory_pool(
                     &plan,
-                    state.custom_state().max_memory,
-                    state.custom_state().hash_mem_multiplier,
+                    pg_sys::work_mem as usize * 1024,
+                    pg_sys::hash_mem_multiplier,
                 );
-                let memory_pool = Arc::new(PanicOnOOMMemoryPool::new(total_memory_budget));
+
                 let task_ctx = Arc::new(
                     TaskContext::default()
                         .with_session_config(ctx.state().config().clone())
@@ -1364,27 +1359,4 @@ fn render_plan_with_metrics(
     for child in plan.children() {
         render_plan_with_metrics(child.as_ref(), indent + 1, include_timing, lines);
     }
-}
-
-fn estimate_plan_memory(
-    plan: &Arc<dyn ExecutionPlan>,
-    work_mem: usize,
-    hash_mem_multiplier: f64,
-) -> usize {
-    let mut total_memory = 0usize;
-    plan.apply(|node| {
-        let partitions = node.output_partitioning().partition_count();
-        let any_node = node.as_any();
-        if any_node.downcast_ref::<HashJoinExec>().is_some() {
-            total_memory += (work_mem as f64 * hash_mem_multiplier) as usize * partitions;
-        } else if any_node.downcast_ref::<SortExec>().is_some()
-            || any_node.downcast_ref::<SortMergeJoinExec>().is_some()
-        {
-            total_memory += work_mem * partitions;
-        }
-        Ok(TreeNodeRecursion::Continue)
-    })
-    .expect("Failed to traverse plan for estimating memory");
-
-    total_memory.max(work_mem)
 }

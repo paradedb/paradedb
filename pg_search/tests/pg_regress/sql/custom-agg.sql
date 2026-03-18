@@ -1190,8 +1190,7 @@ FROM mvcc_test
 WHERE description @@@ 'test'
 ORDER BY id DESC LIMIT 3;
 
--- Test 68: pdb.agg() in GROUP BY context with solve_mvcc = false should ERROR
--- solve_mvcc=false is only allowed in Top K (window function) context
+-- Test 68: pdb.agg() in GROUP BY context with solve_mvcc = false should work
 SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false)
 FROM mvcc_test
 WHERE description @@@ 'test'

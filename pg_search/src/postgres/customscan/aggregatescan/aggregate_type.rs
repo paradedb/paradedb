@@ -340,6 +340,37 @@ impl AggregateType {
         }
     }
 
+    /// Determines if MVCC filtering should be enabled for a group of aggregates.
+    /// Validates that there are no contradicting solve_mvcc settings among custom aggregates.
+    pub fn resolve_mvcc_enabled<'a>(aggregates: impl Iterator<Item = &'a AggregateType>) -> bool {
+        let custom_mvcc_settings: Vec<MvccVisibility> = aggregates
+            .filter_map(|agg_type| {
+                if let AggregateType::Custom {
+                    mvcc_visibility, ..
+                } = agg_type
+                {
+                    Some(*mvcc_visibility)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if !custom_mvcc_settings.is_empty() {
+            let has_enabled = custom_mvcc_settings.contains(&MvccVisibility::Enabled);
+            let has_disabled = custom_mvcc_settings.contains(&MvccVisibility::Disabled);
+            if has_enabled && has_disabled {
+                pgrx::error!(
+                    "pdb.agg() calls have contradicting solve_mvcc settings. \
+                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
+                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
+                );
+            }
+        }
+
+        !custom_mvcc_settings.contains(&MvccVisibility::Disabled)
+    }
+
     pub fn result_type_oid(&self) -> pg_sys::Oid {
         match &self {
             AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,

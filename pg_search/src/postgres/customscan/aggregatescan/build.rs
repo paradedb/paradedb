@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{FieldName, HashSet, MvccVisibility, OrderByFeature};
+use crate::api::{FieldName, HashSet, OrderByFeature};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::filterquery::{new_filter_query, FilterQuery};
@@ -126,22 +126,8 @@ pub trait CollectAggregations {
 
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
-        // Validate that no custom aggregate has solve_mvcc=false in GROUP BY context.
-        // solve_mvcc=false is only allowed in Top K (window function) context.
-        for agg in self.aggregates() {
-            if let AggregateType::Custom {
-                mvcc_visibility, ..
-            } = agg
-            {
-                if *mvcc_visibility == MvccVisibility::Disabled {
-                    pgrx::error!(
-                        "pdb.agg() with solve_mvcc=false is only supported in window function context \
-                         (with OVER clause). GROUP BY aggregates always use MVCC filtering for correctness. \
-                         Remove the second argument or use solve_mvcc=true."
-                    );
-                }
-            }
-        }
+        // Validate that no contradicting solve_mvcc settings exist among custom aggregates
+        self.mvcc_enabled();
 
         // Validate that all fields referenced in custom aggregates exist in the index schema
         if self.indexrelid != pg_sys::InvalidOid {
@@ -302,6 +288,12 @@ impl AggregateCSClause {
 
     pub fn has_groupby(&self) -> bool {
         !self.targetlist.grouping_columns().is_empty()
+    }
+
+    /// Determines if MVCC filtering should be enabled for this aggregate scan.
+    /// Also validates that there are no contradicting solve_mvcc settings among custom aggregates.
+    pub fn mvcc_enabled(&self) -> bool {
+        AggregateType::resolve_mvcc_enabled(self.aggregates())
     }
 
     pub fn planner_should_replace_aggrefs(&self) -> bool {

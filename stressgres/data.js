@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773877254500,
+  "lastUpdate": 1773877264472,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -39766,6 +39766,108 @@ window.BENCHMARK_DATA = {
             "value": 162.54296875,
             "unit": "median mem",
             "extra": "avg mem: 180.7788833746206, max mem: 220.93359375, count: 56010"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f33a629477b9b31b438b3d7b29d08114c574c411",
+          "message": "fix: Expose `pdb.agg(.., solve_mvcc=bool)` argument in all cases (#4416)\n\n## What\n\nThe `pdb.agg` `solve_mvcc` argument was only exposed on window\nfunctions, but is also helpful on aggregate functions in general.\n\nAdditionally, the new argument had not been included in upgrade scripts,\nand so was not exposed to consumers who had upgraded.\n\n## Why\n\nTo allow for higher performance aggregates in cases where users don't\nneed mvcc accuracy.",
+          "timestamp": "2026-03-18T15:50:16-07:00",
+          "tree_id": "0ee6d546a6f13b79e04c5a3f4788603fca91bcd1",
+          "url": "https://github.com/paradedb/paradedb/commit/f33a629477b9b31b438b3d7b29d08114c574c411"
+        },
+        "date": 1773877256289,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07807056721750781, max background_merging: 2.0, count: 55975"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.77076211629298, max cpu: 9.504951, count: 55975"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 28.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.990019260830728, max mem: 28.01171875, count: 55975"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.018884783031628, max cpu: 28.486649, count: 55975"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 183.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 180.62325619696293, max mem: 184.43359375, count: 55975"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51452,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51312.21164805717, max block_count: 51452.0, count: 55975"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.23210361768647, max segment_count: 56.0, count: 55975"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.67007651401526, max cpu: 23.255816, count: 55975"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 145.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 134.5019136612327, max mem: 157.94921875, count: 55975"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8133249532043365, max cpu: 27.799229, count: 55975"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 187.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 183.8299981157883, max mem: 187.984375, count: 55975"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.868385986748713, max cpu: 33.566433, count: 55975"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 181.38438107134883, max mem: 221.04296875, count: 55975"
           }
         ]
       }

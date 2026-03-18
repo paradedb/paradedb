@@ -497,41 +497,6 @@ unsafe extern "C-unwind" fn object_access_hook(
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Look up an existing DSM cache entry without creating one on miss.
-/// Returns `None` if not found or cache not initialized.
-pub fn try_get(key: &CacheKey) -> Option<DsmSlice> {
-    let shared = load_shared()?;
-
-    shared.maybe_sweep();
-
-    let key = key.to_internal();
-
-    // Thread-local fast path
-    let cached = LOCAL_CACHE.with(|c| {
-        c.borrow()
-            .get(&key)
-            .map(|(guard, ptr, len)| (guard.clone(), *ptr, *len))
-    });
-    if let Some((guard, ptr, len)) = cached {
-        return Some(DsmSlice {
-            ptr,
-            len,
-            _guard: guard,
-        });
-    }
-
-    // Shared array lookup
-    let found = unsafe {
-        let _guard = shared.lock.acquire_shared();
-        shared.find_slot(&key)
-    };
-    if let Some((handle, size)) = found {
-        return resolve_and_cache(key, handle, size as usize);
-    }
-
-    None
-}
-
 /// Get or create a cached DSM entry.
 ///
 /// On miss, calls `fill_fn` to populate a new DSM segment.
@@ -542,10 +507,23 @@ pub fn get_or_create(
     data_size: usize,
     fill_fn: impl FnOnce(&mut [u8]),
 ) -> Option<DsmSlice> {
-    if data_size == 0 {
-        return None;
-    }
+    get_or_create_lazy(key, || Some((data_size, fill_fn)))
+}
 
+/// Get or create a cached DSM entry, deferring expensive work until a true miss.
+///
+/// Like [`get_or_create`], but the `create_fn` closure is only called after all
+/// cache checks (thread-local and shared array) confirm a miss.  This avoids
+/// paying the cost of computing the data size and fill function on cache hits
+/// or when another backend has already populated the entry.
+///
+/// `create_fn` returns `Some((data_size, fill_fn))` on success, or `None` to
+/// skip caching (e.g. wrong codec).
+pub fn get_or_create_lazy<F, W>(key: &CacheKey, create_fn: F) -> Option<DsmSlice>
+where
+    F: FnOnce() -> Option<(usize, W)>,
+    W: FnOnce(&mut [u8]),
+{
     let shared = load_shared()?;
 
     shared.maybe_sweep();
@@ -578,7 +556,13 @@ pub fn get_or_create(
         // Segment gone (race with invalidation) — fall through to create
     }
 
-    // 3. Miss — create DSM outside the lock
+    // 3. Miss — run the (potentially expensive) create_fn
+    let (data_size, fill_fn) = create_fn()?;
+    if data_size == 0 {
+        return None;
+    }
+
+    // 4. Allocate DSM outside the lock
     let Some(mut seg) = DsmSegment::create(data_size) else {
         pgrx::log!(
             "pg_search: DSM segment limit reached, cache entry unavailable (tag={:?}, size={})",
@@ -596,7 +580,7 @@ pub fn get_or_create(
     seg.pin();
     let handle = seg.handle();
 
-    // 4. Insert into array (exclusive lock), with double-check.
+    // 5. Insert into array (exclusive lock), with double-check.
     //    Three outcomes: Raced (another backend inserted), Full, or Inserted.
     enum InsertResult {
         Raced(pg_sys::dsm_handle, u32),

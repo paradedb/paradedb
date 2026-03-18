@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773861177544,
+  "lastUpdate": 1773861189239,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -52326,6 +52326,114 @@ window.BENCHMARK_DATA = {
             "value": 171.53515625,
             "unit": "median mem",
             "extra": "avg mem: 168.6162946488817, max mem: 172.12890625, count: 55576"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4fd0a655e1faf7dd437d860caea1d78e6ba0b2e2",
+          "message": "fix: Clear partial_pathlist for forced parallel custom scan paths (#4414)\n\n## Summary\n\n- Fixes `pdb.score()` panic (`ERROR: Unsupported query shape / CONTEXT:\nparallel worker`) when the planner chooses a native Parallel Index Scan\non the BM25 index over ParadeDB's Parallel Custom Scan\n- The bug: `add_path()` in `hook.rs` cleared `rel->pathlist` for forced\npaths but not `rel->partial_pathlist`, so PostgreSQL's native Parallel\nIndex Scan remained as a competing partial path and could win the cost\ncomparison\n- The fix: when a path is forced, clear both `pathlist` and\n`partial_pathlist` before adding our custom path\n\n## Reproduction\n\nDerived from the user scenario in\nhttps://github.com/orgs/paradedb/discussions/3678#discussioncomment-16184504\n— `pdb.ngram` field + heap filter on non-indexed column (`end_date IS\nNULL`) + `paradedb.score()` + parallel workers + ~300K rows. The\nregression test (`issue_3678.sql`) reproduces this deterministically.\n\nWithout the fix:\n- Test 1 (EXPLAIN) shows `Parallel Index Scan` instead of `Parallel\nCustom Scan`\n- Test 2 (execution) fails with:\n```\nERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678\nCONTEXT:  parallel worker\n```\n\nFixes https://github.com/orgs/paradedb/discussions/3678",
+          "timestamp": "2026-03-18T23:37:09+05:30",
+          "tree_id": "1ee8f1d14a59eee75736e5b792eaa889ff3e3713",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd0a655e1faf7dd437d860caea1d78e6ba0b2e2"
+        },
+        "date": 1773861179645,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.969879563660335, max cpu: 42.64561, count: 55482"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 174.56428027896436, max mem: 176.99609375, count: 55482"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.670085503241644, max cpu: 37.354088, count: 55482"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 119.70049175577215, max mem: 121.16796875, count: 55482"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.400252401307561, max cpu: 23.59882, count: 55482"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 175.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 145.59696916060614, max mem: 177.91015625, count: 55482"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16656,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17007.23005659493, max block_count: 31823.0, count: 55482"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.535959581303499, max cpu: 4.729064, count: 55482"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 112.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 97.96925058464907, max mem: 139.21484375, count: 55482"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.88718863775639, max segment_count: 38.0, count: 55482"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.48916107264841, max cpu: 37.354088, count: 110964"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 178.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 161.74105534086505, max mem: 181.1640625, count: 110964"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.183396345778702, max cpu: 28.015566, count: 55482"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.83485297033272, max mem: 172.359375, count: 55482"
           }
         ]
       }

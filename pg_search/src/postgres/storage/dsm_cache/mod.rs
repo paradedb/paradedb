@@ -104,10 +104,11 @@ pub(super) struct DsmCacheHeader {
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, num_enum::TryFromPrimitive)]
-#[allow(dead_code)]
 pub enum CacheTag {
     /// Reserved placeholder. Real variants are added by cache consumers.
     Reserved = 0,
+    /// Fieldnorm data for a segment component.
+    FieldNorms = 1,
     /// Used by tests only.
     #[cfg(any(test, debug_assertions))]
     Test = 999,
@@ -190,7 +191,6 @@ unsafe impl Send for DsmSlice {}
 unsafe impl Sync for DsmSlice {}
 
 impl DsmSlice {
-    #[allow(dead_code)] // remove when cache consumers land
     pub fn into_owned_bytes(self) -> OwnedBytes {
         OwnedBytes::new(self)
     }
@@ -499,7 +499,6 @@ unsafe extern "C-unwind" fn object_access_hook(
 
 /// Look up an existing DSM cache entry without creating one on miss.
 /// Returns `None` if not found or cache not initialized.
-#[allow(dead_code)] // remove when cache consumers land
 pub fn try_get(key: &CacheKey) -> Option<DsmSlice> {
     let shared = load_shared()?;
 
@@ -538,7 +537,6 @@ pub fn try_get(key: &CacheKey) -> Option<DsmSlice> {
 /// On miss, calls `fill_fn` to populate a new DSM segment.
 /// Returns `None` if the cache is not initialized, DSM creation fails (max segments reached),
 /// or the data size is zero.
-#[allow(dead_code)] // remove when cache consumers land
 pub fn get_or_create(
     key: &CacheKey,
     data_size: usize,

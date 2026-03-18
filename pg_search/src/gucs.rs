@@ -126,6 +126,9 @@ static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Enable DSM caching of fieldnorm data.
+static ENABLE_DSM_FIELDNORMS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -376,6 +379,15 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_dsm_fieldnorms",
+        c"Enable DSM caching of fieldnorm data",
+        c"When enabled, fieldnorm data is cached in dynamic shared memory so it is parsed once and shared across all backends.",
+        &ENABLE_DSM_FIELDNORMS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.dynamic_filter_batch_size",
         c"Scanner batch size override for dynamic filter pushdown",
@@ -555,6 +567,10 @@ pub fn dynamic_filter_batch_size() -> i32 {
 
 pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn enable_dsm_fieldnorms() -> bool {
+    ENABLE_DSM_FIELDNORMS.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

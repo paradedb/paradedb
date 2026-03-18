@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773859347000,
+  "lastUpdate": 1773859355866,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25712,6 +25712,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.00890730191611, max segment_count: 127.0, count: 57930"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4fd0a655e1faf7dd437d860caea1d78e6ba0b2e2",
+          "message": "fix: Clear partial_pathlist for forced parallel custom scan paths (#4414)\n\n## Summary\n\n- Fixes `pdb.score()` panic (`ERROR: Unsupported query shape / CONTEXT:\nparallel worker`) when the planner chooses a native Parallel Index Scan\non the BM25 index over ParadeDB's Parallel Custom Scan\n- The bug: `add_path()` in `hook.rs` cleared `rel->pathlist` for forced\npaths but not `rel->partial_pathlist`, so PostgreSQL's native Parallel\nIndex Scan remained as a competing partial path and could win the cost\ncomparison\n- The fix: when a path is forced, clear both `pathlist` and\n`partial_pathlist` before adding our custom path\n\n## Reproduction\n\nDerived from the user scenario in\nhttps://github.com/orgs/paradedb/discussions/3678#discussioncomment-16184504\n— `pdb.ngram` field + heap filter on non-indexed column (`end_date IS\nNULL`) + `paradedb.score()` + parallel workers + ~300K rows. The\nregression test (`issue_3678.sql`) reproduces this deterministically.\n\nWithout the fix:\n- Test 1 (EXPLAIN) shows `Parallel Index Scan` instead of `Parallel\nCustom Scan`\n- Test 2 (execution) fails with:\n```\nERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678\nCONTEXT:  parallel worker\n```\n\nFixes https://github.com/orgs/paradedb/discussions/3678",
+          "timestamp": "2026-03-18T23:37:09+05:30",
+          "tree_id": "1ee8f1d14a59eee75736e5b792eaa889ff3e3713",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd0a655e1faf7dd437d860caea1d78e6ba0b2e2"
+        },
+        "date": 1773859348758,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.896746633723673, max cpu: 42.64561, count: 57796"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 233.20403721981194, max mem: 234.77734375, count: 57796"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.61054953386709, max cpu: 33.168808, count: 57796"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.35987919795488, max mem: 176.140625, count: 57796"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34159,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33522.906048861514, max block_count: 36541.0, count: 57796"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.2135268876739, max segment_count: 133.0, count: 57796"
           }
         ]
       }

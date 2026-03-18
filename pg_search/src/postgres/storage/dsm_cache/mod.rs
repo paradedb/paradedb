@@ -139,15 +139,22 @@ impl CacheKey {
 // ---------------------------------------------------------------------------
 
 /// Ref-counted guard that keeps a DSM mapping alive.  When the last clone is
-/// dropped, the owned `DsmSegment` is dropped which calls `dsm_detach` to
-/// release the per-backend mapping.
+/// dropped, `dsm_detach` is called to release the per-backend mapping.
 ///
-/// If the segment handle has no mapping in this backend (e.g. because of a
-/// race during invalidation), the `DsmSegment` may already be `None` and the
-/// drop is a no-op.
+/// Uses `dsm_find_mapping` to check whether the mapping still exists before
+/// detaching — this is safe during backend shutdown because Postgres's
+/// `dsm_backend_shutdown` may have already detached the segment.
 struct MappingGuard {
-    /// Owned segment — dropping it calls `dsm_detach`.
-    _seg: Option<DsmSegment>,
+    handle: pg_sys::dsm_handle,
+}
+
+impl Drop for MappingGuard {
+    fn drop(&mut self) {
+        let seg = unsafe { pg_sys::dsm_find_mapping(self.handle) };
+        if !seg.is_null() {
+            unsafe { pg_sys::dsm_detach(seg) };
+        }
+    }
 }
 
 // SAFETY: DSM mappings are per-process; MappingGuard only exists within a PG backend.
@@ -623,9 +630,12 @@ pub fn get_or_create(
 
     let ptr = seg.address() as *const u8;
 
-    // Track handle and cache pointer.  The MappingGuard takes ownership
-    // of the DsmSegment, keeping the mapping alive.
-    let guard = Arc::new(MappingGuard { _seg: Some(seg) });
+    // Track handle and cache pointer.  We forget the DsmSegment so its Drop
+    // doesn't call dsm_detach — the mapping is kept alive by dsm_pin_mapping.
+    // MappingGuard stores just the handle and uses dsm_find_mapping + dsm_detach
+    // on drop, which is safe even if dsm_backend_shutdown has already detached it.
+    std::mem::forget(seg);
+    let guard = Arc::new(MappingGuard { handle });
     LOCAL_HANDLES.with(|h| {
         h.borrow_mut()
             .entry(handle)
@@ -720,8 +730,9 @@ fn resolve_handle(handle: pg_sys::dsm_handle, size: usize) -> Option<DsmSlice> {
     let seg = DsmSegment::attach(handle)?;
     seg.pin_mapping();
     let ptr = seg.address() as *const u8;
+    std::mem::forget(seg);
 
-    let guard = Arc::new(MappingGuard { _seg: Some(seg) });
+    let guard = Arc::new(MappingGuard { handle });
     LOCAL_HANDLES.with(|h| {
         h.borrow_mut()
             .entry(handle)

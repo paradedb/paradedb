@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773876340900,
+  "lastUpdate": 1773877254500,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30846,6 +30846,54 @@ window.BENCHMARK_DATA = {
             "value": 5.355598244441704,
             "unit": "median tps",
             "extra": "avg tps: 5.372606668017269, max tps: 6.509256689720136, count: 56010"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f33a629477b9b31b438b3d7b29d08114c574c411",
+          "message": "fix: Expose `pdb.agg(.., solve_mvcc=bool)` argument in all cases (#4416)\n\n## What\n\nThe `pdb.agg` `solve_mvcc` argument was only exposed on window\nfunctions, but is also helpful on aggregate functions in general.\n\nAdditionally, the new argument had not been included in upgrade scripts,\nand so was not exposed to consumers who had upgraded.\n\n## Why\n\nTo allow for higher performance aggregates in cases where users don't\nneed mvcc accuracy.",
+          "timestamp": "2026-03-18T15:50:16-07:00",
+          "tree_id": "0ee6d546a6f13b79e04c5a3f4788603fca91bcd1",
+          "url": "https://github.com/paradedb/paradedb/commit/f33a629477b9b31b438b3d7b29d08114c574c411"
+        },
+        "date": 1773877246961,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1118.1721177116985,
+            "unit": "median tps",
+            "extra": "avg tps: 1121.2059582854324, max tps: 1181.25381114979, count: 55975"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1211.0391004391631,
+            "unit": "median tps",
+            "extra": "avg tps: 1199.0261521733617, max tps: 1283.0343079903455, count: 55975"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1766.4854132891116,
+            "unit": "median tps",
+            "extra": "avg tps: 1711.8855016987968, max tps: 1918.4291312372654, count: 55975"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.411562370262537,
+            "unit": "median tps",
+            "extra": "avg tps: 5.442919404804083, max tps: 7.608895313997906, count: 55975"
           }
         ]
       }

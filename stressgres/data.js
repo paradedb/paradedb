@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773870335932,
+  "lastUpdate": 1773870345073,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17592,6 +17592,138 @@ window.BENCHMARK_DATA = {
             "value": 55.15625,
             "unit": "median mem",
             "extra": "avg mem: 54.08115995348922, max mem: 67.73046875, count: 55041"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "74dcf036462d119442920a829810c720403fb90a",
+          "message": "fix(joinscan): align memory pool allocation with postgres work_mem semantics (#4413)\n\n# Ticket(s) Closed\n\n- Closes #4355\n\n## What\nInstead of using a single `work_mem` pool for the entire joinscan,\ncompute a scaled memory budget by walking the physical plan and\nallocating `work_mem` per operator per partition , matching how Postgres\nactually applies `work_mem`.\n\n## Why\nPreviously `work_mem` was treated as a total budget shared across all\noperators in the joinscan. Postgres applies `work_mem` independently to\neach memory-consuming operation, so a query with multiple hash joins or\nsorts should get `N × work_mem` total, not a single shared `work_mem`.\n\n## How\n- Added `estimate_plan_memory()` which walks the physical plan using\n`.apply()` and computes the total budget as:\n- `SortExec` / `SortMergeJoinExec` → `work_mem × partition_count` per\nnode\n- `HashJoinExec` → `work_mem × hash_mem_multiplier × partition_count`\nper node\n- Added `hash_mem_multiplier` field to `JoinScanState`\n- `hash_mem_multiplier` is read directly from `pg_sys` to stay in sync\nwith Postgres config\n- Updated `work_mem` overrides in benchmarks and regression tests to\nreflect new per-op semantics\n\n## Tests\n- Existing `join_execution_limits` regression test still triggers OOM\ncorrectly , the error now reflects the properly scaled limit (`196608`\nbytes instead of `65536`)",
+          "timestamp": "2026-03-18T14:25:55-07:00",
+          "tree_id": "e6992e6886c8062bf119ae0972eb0ccfbdf562fa",
+          "url": "https://github.com/paradedb/paradedb/commit/74dcf036462d119442920a829810c720403fb90a"
+        },
+        "date": 1773870337735,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.733584876398854, max cpu: 24.242424, count: 55060"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.18298887009626, max mem: 74.0859375, count: 55060"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.749245099953203, max cpu: 19.257774, count: 55060"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 62.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.2127612916591, max mem: 73.15234375, count: 55060"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.582532693639614, max cpu: 9.375, count: 55060"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.38220208636034, max mem: 37.73046875, count: 55060"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.453892693715199, max cpu: 9.266409, count: 55060"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.71938169723938, max mem: 72.0390625, count: 55060"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.553964589036032, max cpu: 9.430255, count: 110120"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 59.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.6016163120346, max mem: 70.8671875, count: 110120"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1769,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1773.887014166364, max block_count: 3111.0, count: 55060"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.744605884489648, max segment_count: 18.0, count: 55060"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.79239702999157, max cpu: 18.86051, count: 55060"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.05519993813567, max mem: 72.984375, count: 55060"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.518163385943158, max cpu: 4.7571855, count: 55060"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.94738204629041, max mem: 62.9375, count: 55060"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.772607376612141, max cpu: 4.6021094, count: 55060"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.57799119710316, max mem: 66.67578125, count: 55060"
           }
         ]
       }

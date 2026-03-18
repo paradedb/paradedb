@@ -35,7 +35,7 @@ use std::cell::RefCell;
 #[cfg(any(test, feature = "pg_test"))]
 thread_local! {
     /// Stash for holding a DsmSlice across SQL calls, used to test refcounting.
-    static HELD_SLICE: RefCell<Option<DsmSlice>> = RefCell::new(None);
+    static HELD_SLICE: RefCell<Option<DsmSlice>> = const { RefCell::new(None) };
 }
 
 /// Test-only: insert a cache entry with the Test tag and a payload of `size` zero-bytes.

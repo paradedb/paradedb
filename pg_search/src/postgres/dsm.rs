@@ -83,7 +83,7 @@ impl DsmSegment {
     /// # Safety
     /// `len` must not exceed the segment's allocated size.
     /// Caller must ensure no other backend is concurrently writing.
-    pub unsafe fn as_mut_slice(&self, len: usize) -> &mut [u8] {
+    pub unsafe fn as_mut_slice(&mut self, len: usize) -> &mut [u8] {
         std::slice::from_raw_parts_mut(self.address(), len)
     }
 

@@ -47,7 +47,7 @@ mod sql;
 
 use crate::api::{HashMap, HashSet};
 use crate::postgres::dsm::DsmSegment;
-use crate::postgres::locks::LWLock;
+use crate::postgres::locks::{LWLock, LWLockExclusiveGuard};
 use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
 use std::cell::{Cell, RefCell};
@@ -56,6 +56,8 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tantivy::directory::OwnedBytes;
+
+type LocalCacheMap = HashMap<DsmCacheKey, (Arc<MappingGuard>, *const u8, usize)>;
 
 // ---------------------------------------------------------------------------
 // Cache key & entry — stored in a flat shared-memory array
@@ -214,8 +216,10 @@ impl DsmCacheShared {
     /// Get the slot array as a mutable slice.
     ///
     /// # Safety
-    /// Caller must hold the LWLock exclusively.
-    unsafe fn slot_slice_mut(&self) -> &mut [DsmCacheSlot] {
+    /// The returned slice aliases shared memory; the caller must not create
+    /// overlapping mutable references.
+    #[allow(clippy::mut_from_ref)] // Shared memory — exclusive guard passed in to prove lock is held
+    unsafe fn slot_slice_mut(&self, _guard: &LWLockExclusiveGuard<'_>) -> &mut [DsmCacheSlot] {
         let max = (*self.header).max_entries as usize;
         std::slice::from_raw_parts_mut(self.header.add(1) as *mut DsmCacheSlot, max)
     }
@@ -239,9 +243,9 @@ impl DsmCacheShared {
     /// Insert into the first empty slot.  Returns false if full.
     ///
     /// # Safety
-    /// Caller must hold the LWLock exclusively.
-    unsafe fn insert_slot(&self, key: &DsmCacheKey, handle: pg_sys::dsm_handle, size: u32) -> bool {
-        for slot in self.slot_slice_mut() {
+    /// The underlying shared memory must not have overlapping mutable references.
+    unsafe fn insert_slot(&self, key: &DsmCacheKey, handle: pg_sys::dsm_handle, size: u32, guard: &LWLockExclusiveGuard<'_>) -> bool {
+        for slot in self.slot_slice_mut(guard) {
             if slot.key.is_empty() {
                 slot.key = *key;
                 slot.handle = handle;
@@ -282,8 +286,8 @@ impl DsmCacheShared {
         let mut removed_handles = Vec::new();
 
         unsafe {
-            let _guard = self.lock.acquire_exclusive();
-            let slots = self.slot_slice_mut();
+            let guard = self.lock.acquire_exclusive();
+            let slots = self.slot_slice_mut(&guard);
 
             let mut write_idx = 0usize;
             for read_idx in 0..slots.len() {
@@ -356,7 +360,7 @@ static mut PREV_OBJECT_ACCESS_HOOK: pg_sys::object_access_hook_type = None;
 // Per-backend pointer cache and state.
 // PostgreSQL backends are single-threaded, so thread-locals are safe without locks.
 thread_local! {
-    static LOCAL_CACHE: RefCell<HashMap<DsmCacheKey, (Arc<MappingGuard>, *const u8, usize)>> = RefCell::new(HashMap::default());
+    static LOCAL_CACHE: RefCell<LocalCacheMap> = RefCell::new(HashMap::default());
     /// Last seen generation.  When this differs from the shared counter,
     /// a sweep is needed before handing out any new DsmSlices.
     static LOCAL_GENERATION: Cell<u64> = const { Cell::new(0) };
@@ -571,7 +575,7 @@ pub fn get_or_create(
     }
 
     // 3. Miss — create DSM outside the lock
-    let Some(seg) = DsmSegment::create(data_size) else {
+    let Some(mut seg) = DsmSegment::create(data_size) else {
         pgrx::log!(
             "pg_search: DSM segment limit reached, cache entry unavailable (tag={:?}, size={})",
             CacheTag::try_from(key.tag).ok(),
@@ -597,11 +601,11 @@ pub fn get_or_create(
     }
 
     let result = unsafe {
-        let _guard = shared.lock.acquire_exclusive();
+        let guard = shared.lock.acquire_exclusive();
 
         if let Some((their_handle, their_size)) = shared.find_slot(&key) {
             InsertResult::Raced(their_handle, their_size)
-        } else if !shared.insert_slot(&key, handle, data_size as u32) {
+        } else if !shared.insert_slot(&key, handle, data_size as u32, &guard) {
             InsertResult::Full
         } else {
             InsertResult::Inserted

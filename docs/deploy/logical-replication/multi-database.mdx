@@ -1,7 +1,7 @@
 ---
 title: Multi-Database Replication for Microservices
 description: Consolidate multiple microservice databases into a single ParadeDB instance for app-wide search and cross-database joins
-canonical: https://docs.paradedb.com/deploy/self-hosted/logical-replication/multi-database
+canonical: https://docs.paradedb.com/deploy/logical-replication/multi-database
 ---
 
 ## Problem Statement
@@ -16,7 +16,7 @@ However, table naming collisions can occur since each microservice and its datab
 
 ## Logical Replication Background
 
-Postgres' Logical Replication is designed from the perspective of one source database and one destination database. Logical replication carries `table_name` and `schema_name` as part of the WAL (Write-Ahead Log) being emitted. It does not have native primitives to allow any schema or table name mutations in the middle.
+Postgres' Logical Replication is designed from the perspective of one source database and one destination database. Logical replication resolves tables by their schema-qualified name. It does not have native primitives to remap schema or table names during replication.
 
 ## Solution
 
@@ -124,7 +124,7 @@ COMMIT;
 
 After completing the schema migration for all source databases:
 
-1. Configure each source database as a publisher following the [getting started guide](/deploy/self-hosted/logical-replication/getting-started)
+1. Configure each source database as a publisher following the [getting started guide](/deploy/logical-replication/getting-started)
 2. Set up ParadeDB as a subscriber for all source databases
 3. Create publications on each source database for their respective schemas:
 

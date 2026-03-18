@@ -144,7 +144,6 @@ LIMIT 10;
 -- =====================================================================
 -- 4. Tuple Semi Join
 -- =====================================================================
--- This is not supported yet
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, category
 FROM table_a
@@ -155,6 +154,43 @@ WHERE (id, category) IN (
 )
 AND id @@@ pdb.all()
 ORDER BY id ASC
+LIMIT 10;
+
+SELECT id, category
+FROM table_a
+WHERE (id, category) IN (
+    SELECT a_id, category
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ pdb.all()
+ORDER BY id ASC
+LIMIT 10;
+
+-- =====================================================================
+-- 5. SELECT * and ORDER BY varchar column (RelabelType wrapper reproduction)
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT *
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY category ASC, id ASC
+LIMIT 10;
+
+SELECT *
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY category ASC, id ASC
 LIMIT 10;
 
 -- Cleanup

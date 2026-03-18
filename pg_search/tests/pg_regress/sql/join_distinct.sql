@@ -312,6 +312,21 @@ ORDER BY p.name
     LIMIT 10;
 
 -- =============================================================================
+-- TEST 9b: WHERE clause anchoring for LateMaterializeNode
+-- =============================================================================
+-- Verify that when a deferred column (e.g. s.name) is used in a WHERE clause,
+-- LateMaterializeNode correctly anchors below the Filter node so it can be evaluated.
+
+EXPLAIN
+(COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name, s.name AS supplier_name
+FROM dist_products p
+         JOIN dist_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.name = 'TechCorp'
+ORDER BY p.name
+    LIMIT 10;
+
+-- =============================================================================
 -- TEST 10: Fallback — DISTINCT with non-fast-field column
 -- =============================================================================
 -- 'description' is indexed but NOT a fast field (it's a text field without

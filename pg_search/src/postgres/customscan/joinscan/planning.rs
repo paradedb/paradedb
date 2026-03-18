@@ -550,14 +550,17 @@ unsafe fn extract_equi_keys_from_subplan(
             if is_equality_op {
                 let mut var_node = std::ptr::null_mut::<pg_sys::Var>();
 
-                if (*arg0).type_ == pg_sys::NodeTag::T_Var
-                    && (*arg1).type_ == pg_sys::NodeTag::T_Param
+                let stripped_arg0 = strip_wrappers(arg0);
+                let stripped_arg1 = strip_wrappers(arg1);
+
+                if (*stripped_arg0).type_ == pg_sys::NodeTag::T_Var
+                    && (*stripped_arg1).type_ == pg_sys::NodeTag::T_Param
                 {
-                    var_node = arg0 as *mut pg_sys::Var;
-                } else if (*arg1).type_ == pg_sys::NodeTag::T_Var
-                    && (*arg0).type_ == pg_sys::NodeTag::T_Param
+                    var_node = stripped_arg0 as *mut pg_sys::Var;
+                } else if (*stripped_arg1).type_ == pg_sys::NodeTag::T_Var
+                    && (*stripped_arg0).type_ == pg_sys::NodeTag::T_Param
                 {
-                    var_node = arg1 as *mut pg_sys::Var;
+                    var_node = stripped_arg1 as *mut pg_sys::Var;
                 }
 
                 if !var_node.is_null() {
@@ -654,36 +657,40 @@ unsafe fn extract_join_conditions_from_list(
                 let opno = (*opexpr).opno;
                 let is_equality_op = lookup_operator(opno) == Some("=");
 
-                if is_equality_op
-                    && (*arg0).type_ == pg_sys::NodeTag::T_Var
-                    && (*arg1).type_ == pg_sys::NodeTag::T_Var
-                {
-                    let var0 = arg0 as *mut pg_sys::Var;
-                    let var1 = arg1 as *mut pg_sys::Var;
+                if is_equality_op {
+                    let stripped_arg0 = strip_wrappers(arg0);
+                    let stripped_arg1 = strip_wrappers(arg1);
 
-                    let varno0 = (*var0).varno as pg_sys::Index;
-                    let varno1 = (*var1).varno as pg_sys::Index;
-                    let attno0 = (*var0).varattno;
-                    let attno1 = (*var1).varattno;
+                    if (*stripped_arg0).type_ == pg_sys::NodeTag::T_Var
+                        && (*stripped_arg1).type_ == pg_sys::NodeTag::T_Var
+                    {
+                        let var0 = stripped_arg0 as *mut pg_sys::Var;
+                        let var1 = stripped_arg1 as *mut pg_sys::Var;
 
-                    // Try to map vars to sources
-                    let source0 = find_source_for_var(sources, varno0, attno0);
-                    let source1 = find_source_for_var(sources, varno1, attno1);
+                        let varno0 = (*var0).varno as pg_sys::Index;
+                        let varno1 = (*var1).varno as pg_sys::Index;
+                        let attno0 = (*var0).varattno;
+                        let attno1 = (*var1).varattno;
 
-                    if let (Some((rti0, att0)), Some((rti1, att1))) = (source0, source1) {
-                        let type_oid = (*var0).vartype;
-                        let (typlen, typbyval) = get_type_info(type_oid);
+                        // Try to map vars to sources
+                        let source0 = find_source_for_var(sources, varno0, attno0);
+                        let source1 = find_source_for_var(sources, varno1, attno1);
 
-                        result.equi_keys.push(JoinKeyPair {
-                            outer_rti: rti0,
-                            outer_attno: att0,
-                            inner_rti: rti1,
-                            inner_attno: att1,
-                            type_oid,
-                            typlen,
-                            typbyval,
-                        });
-                        is_equi_join = true;
+                        if let (Some((rti0, att0)), Some((rti1, att1))) = (source0, source1) {
+                            let type_oid = (*var0).vartype;
+                            let (typlen, typbyval) = get_type_info(type_oid);
+
+                            result.equi_keys.push(JoinKeyPair {
+                                outer_rti: rti0,
+                                outer_attno: att0,
+                                inner_rti: rti1,
+                                inner_attno: att1,
+                                type_oid,
+                                typlen,
+                                typbyval,
+                            });
+                            is_equi_join = true;
+                        }
                     }
                 }
             }
@@ -1180,12 +1187,7 @@ pub(super) unsafe fn extract_orderby(
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
 
-            let mut check_expr = expr;
-            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
-                if !phv.is_null() && !(*phv).phexpr.is_null() {
-                    check_expr = (*phv).phexpr;
-                }
-            }
+            let check_expr = strip_wrappers(expr.cast()).cast::<pg_sys::Expr>();
 
             // Check if ordering by score
             let mut score_found = false;
@@ -1211,7 +1213,7 @@ pub(super) unsafe fn extract_orderby(
                 break;
             }
 
-            if let Some(var) = nodecast!(Var, T_Var, expr) {
+            if let Some(var) = nodecast!(Var, T_Var, check_expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
 

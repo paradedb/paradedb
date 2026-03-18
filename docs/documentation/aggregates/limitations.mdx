@@ -38,6 +38,25 @@ MockItem.where(rating: 5).count
 MockItem.search(:id).match_all.where(rating: 5).count
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+# Not pushed down.
+count_without_operator_stmt = select(func.count(MockItem.id)).where(MockItem.rating == 5)
+
+# Pushed down.
+count_with_operator_stmt = select(func.count(MockItem.id)).where(
+    MockItem.rating == 5,
+    search.all(MockItem.id),
+)
+
+with Session(engine) as session:
+    count_without_operator = session.execute(count_without_operator_stmt).scalar_one()
+    count_with_operator = session.execute(count_with_operator_stmt).scalar_one()
+```
+
 </CodeGroup>
 
 If your query does not contain a ParadeDB operator, a way to "force" aggregate pushdown is to append the [all query](/documentation/query-builder/compound/all) to the query's

@@ -56,6 +56,30 @@ MockItem.search(:id)
         .limit(5)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+standard_topn_stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.rating.is_not(None))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+paradedb_topn_stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.rating.is_not(None), search.all(MockItem.id))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    standard_rows = session.execute(standard_topn_stmt).all()
+    paradedb_rows = session.execute(paradedb_topn_stmt).all()
+```
+
 </CodeGroup>
 
 This is useful for cases where queries that don't contain a ParadeDB operator can be more efficiently executed by ParadeDB vs. standard Postgres,

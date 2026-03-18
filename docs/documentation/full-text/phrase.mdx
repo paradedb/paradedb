@@ -40,6 +40,20 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 This query returns:
@@ -108,6 +122,20 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, "shoes running", slop=2))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Using a Custom Tokenizer
@@ -133,6 +161,20 @@ MockItem.objects.filter(
 MockItem.search(:description)
         .phrase("running shoes", tokenizer: "whitespace")
         .select(:description, :rating, :category)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, "running shoes", tokenizer="whitespace"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -163,6 +205,20 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, ["running", "shoes"]))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 Adding slop is supported:
@@ -184,6 +240,20 @@ MockItem.objects.extra(
 MockItem.search(:description)
         .phrase(%w[shoes running], slop: 2)
         .select(:description, :rating, :category)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, ["shoes", "running"], slop=2))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

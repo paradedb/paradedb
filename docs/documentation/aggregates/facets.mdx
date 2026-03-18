@@ -49,6 +49,29 @@ rows = relation.to_a
 aggregates = relation.aggregates
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, literal_column, select
+from sqlalchemy.orm import Session
+
+stmt = (
+    select(
+        MockItem.id,
+        MockItem.description,
+        MockItem.rating,
+        func.pdb.agg(literal_column('\'{"value_count": {"field": "id"}}\'')).over().label("agg"),
+    )
+    .where(
+        MockItem.id.op("@@@")(func.pdb.all()),
+        MockItem.category.op("===")(literal_column("'electronics'")),
+    )
+    .order_by(MockItem.rating.desc())
+    .limit(3)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response

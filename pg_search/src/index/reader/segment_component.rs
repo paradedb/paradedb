@@ -81,13 +81,9 @@ impl SegmentComponentReader {
                         tag: dsm_cache::CacheTag::FieldNorms,
                         sub_key: range.start as u32,
                     };
-                    if let Some(dsm_slice) = dsm_cache::get_or_create(
-                        &key,
-                        range.len(),
-                        |buf| {
-                            self.block_list.get_bytes_range_into(range.clone(), buf);
-                        },
-                    ) {
+                    if let Some(dsm_slice) = dsm_cache::get_or_create(&key, range.len(), |buf| {
+                        self.block_list.get_bytes_range_into(range.clone(), buf);
+                    }) {
                         return Ok(dsm_slice.into_owned_bytes());
                     }
                 }

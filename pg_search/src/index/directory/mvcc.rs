@@ -193,8 +193,7 @@ impl MVCCDirectory {
                 let file_entry = entry
                     .file_entry(uuid_string, path)
                     .expect("No such path for {entry:?}: {path:?}");
-                let is_fieldnorm =
-                    path.extension().and_then(|e| e.to_str()) == Some("fieldnorm");
+                let is_fieldnorm = path.extension().and_then(|e| e.to_str()) == Some("fieldnorm");
                 let cache_info = CacheInfo {
                     index_oid: self.indexrel.oid(),
                     segment_id: *segment_id.uuid_bytes(),

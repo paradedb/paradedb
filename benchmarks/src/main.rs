@@ -267,8 +267,14 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
             panic!("Failed to clear caches before query: {err}");
         }
         println!("Query Type: {query_type}\nQuery: {query}");
-        let result =
-            execute_query_multiple_times(&mut conn, &query, args.runs, args.fail_on_error).await;
+        let result = execute_query_multiple_times(
+            &mut conn,
+            &query_type,
+            &query,
+            args.runs,
+            args.fail_on_error,
+        )
+        .await;
         match result {
             Some((runtimes_ms, num_results)) => {
                 println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
@@ -659,6 +665,7 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
 /// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
 async fn execute_query_multiple_times(
     conn: &mut PgConnection,
+    query_type: &str,
     query: &str,
     times: usize,
     fail_on_error: bool,
@@ -680,9 +687,9 @@ async fn execute_query_multiple_times(
             }
             Err(err) => {
                 if fail_on_error {
-                    panic!("Failed to execute benchmark query: {err}");
+                    panic!("Failed to execute benchmark query `{query_type}`:  {err}");
                 } else {
-                    eprintln!("WARNING: Skipping query due to error: {err}");
+                    eprintln!("WARNING: Skipping query `{query_type}` due to error: {err}");
                     return None;
                 }
             }

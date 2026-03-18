@@ -42,7 +42,16 @@ runs:
           echo "Unknown dataset!"
           exit 1
         fi
-        cargo run -- --url postgresql://localhost:288${{ env.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ inputs.dataset }} --runs 10 --output json --fail-on-error ${{ inputs.fail_on_error }}
+
+        # Run the benchmark.
+        cargo run --release -- \
+          --url postgresql://localhost:288${{ env.pg_version }}/postgres \
+          --rows ${NUM_ROWS} \
+          --type pg_search \
+          --dataset ${{ inputs.dataset }} \
+          --runs 10 \
+          --output json \
+          --fail-on-error ${{ inputs.fail_on_error }}
 
         # Format row count for display (e.g., 100000 -> 100K, 1000000 -> 1M)
         if [ ${NUM_ROWS} -ge 1000000000 ]; then

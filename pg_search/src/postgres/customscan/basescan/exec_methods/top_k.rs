@@ -17,7 +17,7 @@
 
 use std::cell::RefCell;
 
-use crate::api::{HashMap, MvccVisibility, OrderByInfo};
+use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{
     SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
@@ -197,36 +197,7 @@ impl TopKScanExecState {
         // Determine if MVCC filtering should be enabled.
         // Check for contradicting solve_mvcc settings - error if some have true and some have false.
         // Only consider Custom aggregates (pdb.agg) since standard SQL aggregates always use default.
-        let custom_mvcc_settings: Vec<MvccVisibility> = combined_agg_types
-            .iter()
-            .filter_map(|agg_type| {
-                if let AggregateType::Custom {
-                    mvcc_visibility, ..
-                } = agg_type
-                {
-                    Some(*mvcc_visibility)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Check for contradicting settings
-        if !custom_mvcc_settings.is_empty() {
-            let has_enabled = custom_mvcc_settings.contains(&MvccVisibility::Enabled);
-            let has_disabled = custom_mvcc_settings.contains(&MvccVisibility::Disabled);
-            if has_enabled && has_disabled {
-                pgrx::error!(
-                    "pdb.agg() calls have contradicting solve_mvcc settings. \
-                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
-                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
-                );
-            }
-        }
-
-        // If any custom aggregate has MVCC disabled, disable for all.
-        // Standard SQL aggregates always use MVCC enabled (default behavior).
-        let mvcc_enabled = !custom_mvcc_settings.contains(&MvccVisibility::Disabled);
+        let mvcc_enabled = AggregateType::resolve_mvcc_enabled(combined_agg_types.iter());
 
         // Convert aggregates to Tantivy Aggregations
         let mut aggregations: tantivy::aggregation::agg_req::Aggregations = Default::default();

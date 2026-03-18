@@ -168,3 +168,64 @@ LIMIT 1;
 (1 row)
 
 DROP TABLE delete_agg_test;
+-- =====================================================================
+-- SECTION 3: MVCC Visibility Settings
+-- =====================================================================
+CREATE TABLE mvcc_agg_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT
+);
+CREATE INDEX mvcc_agg_test_idx ON mvcc_agg_test
+USING bm25 (id, category)
+WITH (
+    key_field = 'id',
+    text_fields = '{"category": {"fast": true}}'
+);
+INSERT INTO mvcc_agg_test (category) VALUES ('A'), ('B'), ('A');
+-- Test solve_mvcc=false in standard aggregate
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.mvcc_agg_test
+   Output: pdb.agg_fn('AGG'::text)
+   Index: mvcc_agg_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"category"}})
+     Aggregate Definition: {"0":{"value_count":{"field":"category","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+      agg       
+----------------
+ {"value": 3.0}
+(1 row)
+
+-- Test solve_mvcc=false with GROUP BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.mvcc_agg_test
+   Output: category, pdb.agg_fn('AGG'::text)
+   Index: mvcc_agg_test_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"id"}})
+     Group By: category
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"id","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
+ category |      agg       
+----------+----------------
+ A        | {"value": 2.0}
+ B        | {"value": 1.0}
+(2 rows)
+
+-- Test conflicting MVCC settings (should error)
+SELECT
+    pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false),
+    pdb.agg('{"value_count": {"field": "category"}}'::jsonb, true)
+FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+ERROR:  pdb.agg() calls have contradicting solve_mvcc settings. All pdb.agg() calls in a query must use the same solve_mvcc value. Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all.
+DROP TABLE mvcc_agg_test;

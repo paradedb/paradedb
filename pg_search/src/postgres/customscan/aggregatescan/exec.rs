@@ -66,12 +66,13 @@ pub fn aggregation_results_iter(
 
     // Use the GUC for term aggregation bucket limits (single source of truth).
     let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
+    let mvcc_enabled = aggregate_clause.mvcc_enabled();
 
     let result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
-        true,
+        mvcc_enabled,
         gucs::adjust_work_mem().get().try_into().unwrap(),
         bucket_limit,
         expr_context,

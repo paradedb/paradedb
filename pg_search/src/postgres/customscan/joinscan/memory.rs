@@ -15,25 +15,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::common::DataFusionError;
 use datafusion::execution::memory_pool::{MemoryPool, MemoryReservation};
+use datafusion::physical_plan::joins::{HashJoinExec, SortMergeJoinExec};
+use datafusion::physical_plan::sorts::sort::SortExec;
+use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
+use std::sync::Arc;
 
-/// A memory pool that panics when the memory limit is exceeded.
-///
-/// This is used to enforce `work_mem` limits in `JoinScan` and prevent
-/// DataFusion from attempting to spill to disk (which is not yet implemented safely).
-///
-/// TODO: Instead of panicking, implement a `MemoryPool` that integrates with PostgreSQL's
-/// temporary file management (BufFile/VFD) to allow DataFusion to spill to disk when
-/// `work_mem` is exceeded.
+// TODO: Instead of panicking, implement a `MemoryPool` that integrates with PostgreSQL's
+// temporary file management (BufFile/VFD) to allow DataFusion to spill to disk when
+// `work_mem` is exceeded.
 #[derive(Debug)]
-pub struct PanicOnOOMMemoryPool {
+struct PanicOnOOMMemoryPool {
     pool: datafusion::execution::memory_pool::GreedyMemoryPool,
     limit: usize,
 }
 
 impl PanicOnOOMMemoryPool {
-    pub fn new(limit: usize) -> Self {
+    fn new(limit: usize) -> Self {
         Self {
             pool: datafusion::execution::memory_pool::GreedyMemoryPool::new(limit),
             limit,
@@ -76,4 +76,32 @@ impl MemoryPool for PanicOnOOMMemoryPool {
     fn reserved(&self) -> usize {
         self.pool.reserved()
     }
+}
+
+/// Returns a memory pool that panics when the memory limit is exceeded.
+///
+/// This is used to enforce `work_mem` limits in `JoinScan` and prevent
+/// DataFusion from attempting to spill to disk (which is not yet implemented safely).
+pub fn create_memory_pool(
+    plan: &Arc<dyn ExecutionPlan>,
+    work_mem: usize,
+    hash_mem_multiplier: f64,
+) -> Arc<dyn MemoryPool> {
+    // estimate memory by walking through the plan
+    let mut total_memory = 0usize;
+    plan.apply(|node| {
+        let partitions = node.output_partitioning().partition_count();
+        let any_node = node.as_any();
+        if any_node.downcast_ref::<HashJoinExec>().is_some() {
+            total_memory += (work_mem as f64 * hash_mem_multiplier) as usize * partitions;
+        } else if any_node.downcast_ref::<SortExec>().is_some()
+            || any_node.downcast_ref::<SortMergeJoinExec>().is_some()
+        {
+            total_memory += work_mem * partitions;
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })
+    .expect("Failed to traverse plan for estimating memory");
+
+    Arc::new(PanicOnOOMMemoryPool::new(total_memory.max(work_mem)))
 }

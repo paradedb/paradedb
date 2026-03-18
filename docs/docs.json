@@ -54,6 +54,7 @@
                           "documentation/indexing/indexing-arrays",
                           "documentation/indexing/indexing-composite",
                           "documentation/indexing/indexing-partial",
+                          "documentation/indexing/columnar",
                           "documentation/indexing/reindexing",
                           "documentation/indexing/verify-index"
                         ]

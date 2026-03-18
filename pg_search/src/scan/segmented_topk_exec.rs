@@ -183,6 +183,42 @@ impl SegmentedTopKExec {
             metrics: ExecutionPlanMetricsSet::new(),
         }
     }
+
+    fn create_mat_row_converter(
+        sort_exprs: &LexOrdering,
+        deferred_columns: &[DeferredSortColumn],
+        ffhelper: &FFHelper,
+        schema: &arrow_schema::Schema,
+    ) -> Result<RowConverter> {
+        let materialized_sort_fields: Vec<SortField> = sort_exprs
+            .iter()
+            .map(|expr| {
+                let is_deferred = expr
+                    .expr
+                    .as_any()
+                    .downcast_ref::<datafusion::physical_expr::expressions::Column>()
+                    .and_then(|c| {
+                        deferred_columns
+                            .iter()
+                            .find(|d| d.sort_col_idx == c.index())
+                    });
+                let data_type = if let Some(deferred) = is_deferred {
+                    let col = ffhelper.column(0, deferred.canonical.ff_index);
+                    match col {
+                        FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
+                        _ => arrow_schema::DataType::Utf8View,
+                    }
+                } else {
+                    expr.expr
+                        .data_type(schema)
+                        .unwrap_or(arrow_schema::DataType::Utf8View)
+                };
+                SortField::new_with_options(data_type, expr.options)
+            })
+            .collect();
+
+        Ok(RowConverter::new(materialized_sort_fields)?)
+    }
 }
 
 impl DisplayAs for SegmentedTopKExec {
@@ -273,6 +309,13 @@ impl ExecutionPlan for SegmentedTopKExec {
 
         let row_converter = RowConverter::new(sort_fields)?;
 
+        let mat_row_converter = Self::create_mat_row_converter(
+            &self.sort_exprs,
+            &self.deferred_columns,
+            &self.ffhelper,
+            self.properties.eq_properties.schema(),
+        )?;
+
         let mut state = SegmentedTopKState {
             sort_exprs: self.sort_exprs.clone(),
             deferred_columns: self.deferred_columns.clone(),
@@ -285,7 +328,8 @@ impl ExecutionPlan for SegmentedTopKExec {
             batches: Vec::new(),
             row_ordinals: Vec::new(),
             pass_through_rows: Vec::new(),
-            global_heap: BinaryHeap::new(),
+            last_segment_cutoffs: HashMap::default(),
+            mat_row_converter,
             last_published_global: None,
             rows_input,
             rows_output,
@@ -382,15 +426,18 @@ struct SegmentedTopKState {
     /// ordinal comparison. These are included in the final sort + limit.
     pass_through_rows: Vec<(usize, usize)>,
 
-    /// Global K-sized max-heap across all segments.
-    /// The worst entry (heap root) defines the global threshold.
-    /// `SegmentOrdinal` is stored so we can look up the string for
-    /// the worst entry's deferred ordinals via `FFHelper::ord_to_str`.
-    global_heap: BinaryHeap<(OwnedRow, SegmentOrdinal)>,
-    /// Cache of the last published global heap root to avoid redundant
-    /// `ord_to_str` lookups and `DynamicFilterPhysicalExpr` updates when
-    /// the threshold hasn't changed.
-    last_published_global: Option<(OwnedRow, SegmentOrdinal)>,
+    /// For each segment heap that has reached size `k`, we cache the resolved values
+    /// of its current worst row (the root of the heap).
+    /// Tuple: (local ordinal OwnedRow, materialized ScalarValues, materialized OwnedRow)
+    last_segment_cutoffs:
+        HashMap<SegmentOrdinal, (OwnedRow, Vec<datafusion::common::ScalarValue>, OwnedRow)>,
+
+    /// Row converter for materialized sorts, used to compare resolved thresholds lexicographically.
+    mat_row_converter: RowConverter,
+
+    /// Cache of the last published global threshold to avoid redundant filter updates.
+    /// Stores the best of the worst materialized rows across segments.
+    last_published_global: Option<OwnedRow>,
 
     rows_input: Count,
     rows_output: Count,
@@ -468,35 +515,12 @@ impl SegmentedTopKState {
 
                 let heap_val = converted_rows.row(row_idx).owned();
                 Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
-                Self::update_cutoff_heap_pair(
-                    &mut self.global_heap,
-                    (heap_val.clone(), seg_ord),
-                    self.k,
-                );
                 self.row_ordinals
                     .push((batch_idx, row_idx, seg_ord, heap_val));
             }
         }
 
-        // Update the dynamic filter with the global threshold (materialized strings).
-        // This is pushed down through DataFusion's standard filter pushdown to the
-        // scanner, where `try_rewrite_binary` translates it to per-segment ordinals.
-        // Skip if the global heap root hasn't changed since the last publish to avoid
-        // redundant ord_to_str lookups and filter updates.
-        if self.global_heap.len() >= self.k {
-            let current_worst = self.global_heap.peek().cloned();
-            let changed = match (&current_worst, &self.last_published_global) {
-                (Some(cur), Some(prev)) => cur != prev,
-                (Some(_), None) => true,
-                _ => false,
-            };
-            if changed {
-                if let Some(expr) = self.build_global_filter_expression() {
-                    let _ = self.dynamic_filter.update(expr);
-                    self.last_published_global = current_worst;
-                }
-            }
-        }
+        self.publish_global_threshold()?;
 
         // Buffer pass-through rows (State 2 + NULL ordinals) for the final sort.
         for (row_idx, &is_pt) in pass_through.iter().enumerate() {
@@ -750,20 +774,113 @@ impl SegmentedTopKState {
         survivors
     }
 
-    /// Same as `update_cutoff_heap` but for `(OwnedRow, SegmentOrdinal)` pairs.
-    fn update_cutoff_heap_pair(
-        heap: &mut BinaryHeap<(OwnedRow, SegmentOrdinal)>,
-        entry: (OwnedRow, SegmentOrdinal),
-        k: usize,
-    ) {
-        if heap.len() < k {
-            heap.push(entry);
-        } else if let Some(worst) = heap.peek() {
-            if &entry < worst {
-                heap.pop();
-                heap.push(entry);
+    /// Evaluates the current local thresholds across all segments to determine
+    /// if a new global threshold can be published.
+    ///
+    /// This method is responsible for computing a safe, conservative global threshold
+    /// by finding the "best of the worst" materialized cutoff among all full segments.
+    /// By only resolving the worst entry of each segment rather than every row, it
+    /// minimizes the overhead of translating segment-local ordinals into global strings.
+    fn publish_global_threshold(&mut self) -> Result<()> {
+        let mut best_worst_mat_row: Option<OwnedRow> = None;
+        let mut best_worst_values: Option<Vec<datafusion::common::ScalarValue>> = None;
+
+        // 1. Examine the "worst" row (the root of the heap) for each segment that
+        //    has reached size `K`.
+        let full_segment_heaps: Vec<(SegmentOrdinal, OwnedRow)> = self
+            .segment_heaps
+            .iter()
+            .filter(|(_, heap)| heap.len() >= self.k)
+            .filter_map(|(&seg_ord, heap)| heap.peek().map(|row| (seg_ord, row.clone())))
+            .collect();
+
+        for (seg_ord, worst_local) in full_segment_heaps {
+            // 2. Resolve the local ordinal threshold into a materialized row.
+            let (mat_values, mat_row) = self.resolve_segment_cutoff(seg_ord, &worst_local)?;
+
+            // 3. Find the "best of the worst" (minimum of maximums) among all segments'
+            //    thresholds. If we use a bound greater than any full segment's local cutoff,
+            //    we might prune competitive rows in other segments. By taking the tightest
+            //    upper bound across all full segments, we ensure a mathematically safe
+            //    threshold for global pruning.
+            match &best_worst_mat_row {
+                None => {
+                    best_worst_mat_row = Some(mat_row);
+                    best_worst_values = Some(mat_values);
+                }
+                Some(current_best) => {
+                    if &mat_row < current_best {
+                        best_worst_mat_row = Some(mat_row);
+                        best_worst_values = Some(mat_values);
+                    }
+                }
             }
         }
+
+        // 4. Finally, if the newly calculated global threshold is better than the one
+        //    we previously published, build a new dynamic filter expression and
+        //    push it down to the scanner.
+        let (Some(best_row), Some(best_values)) = (best_worst_mat_row, best_worst_values) else {
+            return Ok(());
+        };
+
+        let changed = match &self.last_published_global {
+            Some(prev) => &best_row != prev,
+            None => true,
+        };
+
+        if changed {
+            if let Some(expr) = Self::build_lexicographic_filter(&self.sort_exprs, &best_values) {
+                let _ = self.dynamic_filter.update(expr);
+                self.last_published_global = Some(best_row);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Resolves a segment-local ordinal threshold into a globally comparable materialized row.
+    ///
+    /// It attempts to reuse previously resolved values if the local threshold hasn't changed.
+    /// If the threshold is new, it pays the cost to decode the segment-local ordinals via
+    /// `FFHelper::ord_to_str` and then constructs a materialized `OwnedRow`.
+    fn resolve_segment_cutoff(
+        &mut self,
+        seg_ord: SegmentOrdinal,
+        worst_local: &OwnedRow,
+    ) -> Result<(Vec<datafusion::common::ScalarValue>, OwnedRow)> {
+        // a. Compare this local threshold with a cached version from the previous
+        //    batch. If the threshold hasn't changed, reuse the materialized string
+        //    values. If it has changed, pay the cost to resolve the segment-local
+        //    ordinals into global string/bytes values via `resolve_global_threshold_values`.
+        if let Some((cached_local, vals, row)) = self.last_segment_cutoffs.get(&seg_ord) {
+            if cached_local == worst_local {
+                return Ok((vals.clone(), row.clone()));
+            }
+        }
+
+        let arrays = self
+            .row_converter
+            .convert_rows(std::iter::once(worst_local.row()))?;
+
+        let values = self.resolve_global_threshold_values(&arrays, seg_ord)?;
+
+        let val_arrays = values
+            .iter()
+            .map(|v| v.to_array())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // b. Convert these materialized scalar values into an `OwnedRow` using
+        //    `mat_row_converter`. This enables fast, correct lexicographical comparison
+        //    of values across different segments.
+        let converted = self.mat_row_converter.convert_columns(&val_arrays)?;
+
+        let mat_row = converted.row(0).owned();
+        self.last_segment_cutoffs.insert(
+            seg_ord,
+            (worst_local.clone(), values.clone(), mat_row.clone()),
+        );
+        Ok((values, mat_row))
     }
 
     /// Resolve threshold values for the global filter.
@@ -775,7 +892,7 @@ impl SegmentedTopKState {
         &self,
         arrays: &[ArrayRef],
         seg_ord: SegmentOrdinal,
-    ) -> Option<Vec<datafusion::common::ScalarValue>> {
+    ) -> Result<Vec<datafusion::common::ScalarValue>> {
         use datafusion::common::ScalarValue;
 
         let mut values = Vec::with_capacity(self.sort_exprs.len());
@@ -791,44 +908,49 @@ impl SegmentedTopKState {
                 });
 
             let value = if let Some(deferred) = is_deferred {
-                let term_ord = arrays[i].as_any().downcast_ref::<UInt64Array>()?.value(0);
+                let term_ord = arrays[i]
+                    .as_any()
+                    .downcast_ref::<UInt64Array>()
+                    .ok_or_else(|| {
+                        datafusion::error::DataFusionError::Internal(
+                            "Expected UInt64Array for deferred ordinal".to_string(),
+                        )
+                    })?
+                    .value(0);
                 let col = self.ffhelper.column(seg_ord, deferred.canonical.ff_index);
                 match col {
                     FFType::Text(str_col) => {
                         let mut s = String::new();
-                        str_col.ord_to_str(term_ord, &mut s).ok()?;
+                        str_col.ord_to_str(term_ord, &mut s).map_err(|e| {
+                            datafusion::error::DataFusionError::Internal(format!(
+                                "Failed to resolve string ordinal: {}",
+                                e
+                            ))
+                        })?;
                         ScalarValue::Utf8View(Some(s))
                     }
                     FFType::Bytes(bytes_col) => {
                         let mut b = Vec::new();
-                        bytes_col.ord_to_bytes(term_ord, &mut b).ok()?;
+                        bytes_col.ord_to_bytes(term_ord, &mut b).map_err(|e| {
+                            datafusion::error::DataFusionError::Internal(format!(
+                                "Failed to resolve bytes ordinal: {}",
+                                e
+                            ))
+                        })?;
                         ScalarValue::BinaryView(Some(b))
                     }
-                    _ => return None,
+                    _ => {
+                        return Err(datafusion::error::DataFusionError::Internal(
+                            "Unexpected column type for deferred field".to_string(),
+                        ));
+                    }
                 }
             } else {
-                ScalarValue::try_from_array(&arrays[i], 0).ok()?
+                ScalarValue::try_from_array(&arrays[i], 0)?
             };
             values.push(value);
         }
-        Some(values)
-    }
-
-    /// Build a global filter expression using materialized string values.
-    ///
-    /// Unlike `build_filter_expression` which emits UInt64 ordinal literals
-    /// (only valid within one segment), this converts deferred ordinals back
-    /// to string literals via `FFHelper::ord_to_str`. The scanner's
-    /// `pre_filter::try_rewrite_binary` automatically translates string
-    /// literals to per-segment ordinal bounds.
-    fn build_global_filter_expression(&self) -> Option<Arc<dyn PhysicalExpr>> {
-        let (worst_row, worst_seg_ord) = self.global_heap.peek()?;
-        let arrays = self
-            .row_converter
-            .convert_rows(std::iter::once(worst_row.row()))
-            .ok()?;
-        let values = self.resolve_global_threshold_values(&arrays, *worst_seg_ord)?;
-        Self::build_lexicographic_filter(&self.sort_exprs, &values)
+        Ok(values)
     }
 
     /// Compact buffered batches by discarding rows that cannot survive the
@@ -1141,5 +1263,230 @@ impl SegmentedTopKState {
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
 
         Ok(Some(result))
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+
+    use std::collections::BTreeSet;
+
+    use crate::index::fast_fields_helper::WhichFastField;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::reader::index::SearchIndexReader;
+    use crate::postgres::rel::PgSearchRelation;
+    use crate::query::SearchQueryInput;
+    use crate::scan::deferred_encode::{build_state_doc_address, deferred_union_data_type};
+    use crate::scan::segmented_topk_exec::DeferredSortColumn;
+    use crate::schema::SearchFieldType;
+
+    use arrow_schema::{Field, Schema};
+    use datafusion::execution::TaskContext;
+    use datafusion::physical_expr::expressions::Column;
+    use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
+    use datafusion::physical_plan::test::TestMemoryExec;
+    use datafusion::physical_plan::ExecutionPlan;
+    use futures::StreamExt;
+    use pgrx::prelude::*;
+    use proptest::prelude::*;
+
+    fn setup_test_table() {
+        Spi::run(
+            r#"
+            DROP TABLE IF EXISTS segmented_topk_test;
+            CREATE TABLE segmented_topk_test (
+                id SERIAL PRIMARY KEY,
+                name TEXT,
+                sort_col TEXT
+            );
+            INSERT INTO segmented_topk_test (name, sort_col)
+            SELECT 'lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor ' ||
+                   'incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis ' ||
+                   'nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. ' ||
+                   'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu ' ||
+                   'fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in ' ||
+                   'culpa qui officia deserunt mollit anim id est laborum.',
+                   'val_' || lpad(id::text, 6, '0')
+            FROM generate_series(1, 35000) id;
+            "#,
+        )
+        .expect("failed to setup test table");
+    }
+
+    #[pg_test]
+    fn test_segmented_topk_exec() {
+        setup_test_table();
+
+        // Force the single builder to create many segments by artificially restricting memory.
+        Spi::run("SET max_parallel_workers = 0;").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 0;").unwrap();
+        Spi::run("SET maintenance_work_mem = '15MB';").unwrap();
+
+        // Create an index with target_segment_count = 4 to guarantee multiple segments.
+        Spi::run(
+            r#"
+            CREATE INDEX segmented_topk_test_idx ON segmented_topk_test 
+            USING bm25 (id, name, sort_col) 
+            WITH (
+                key_field = 'id', 
+                target_segment_count = 4, 
+                text_fields = '{"sort_col": {"fast": true}}'
+            );
+            "#,
+        )
+        .unwrap();
+
+        let index_oid =
+            Spi::get_one::<pgrx::pg_sys::Oid>("SELECT 'segmented_topk_test_idx'::regclass;")
+                .unwrap()
+                .unwrap();
+        let index_rel = PgSearchRelation::open(index_oid);
+
+        let reader = SearchIndexReader::open(
+            &index_rel,
+            SearchQueryInput::All,
+            false,
+            MvccSatisfies::Snapshot,
+        )
+        .unwrap();
+
+        assert_eq!(reader.total_segment_count(), 4);
+
+        let fields = vec![
+            WhichFastField::Named(
+                "sort_col".to_string(),
+                SearchFieldType::Text(pgrx::pg_sys::TEXTOID),
+            ),
+            WhichFastField::Named(
+                "id".to_string(),
+                SearchFieldType::I64(pgrx::pg_sys::INT4OID),
+            ),
+        ];
+        let ffhelper = Arc::new(crate::index::fast_fields_helper::FFHelper::with_fields(
+            &reader, &fields,
+        ));
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("sort_col", deferred_union_data_type(false), true),
+            Field::new("id", arrow_schema::DataType::Int64, true),
+        ]));
+
+        let segment_readers = reader.segment_readers();
+
+        let max_docs_per_segment: Vec<u32> =
+            segment_readers.iter().map(|sr| sr.max_doc()).collect();
+
+        // Proptest to pick random subsets of doc_ids from the existing segments
+        proptest!(|(
+            subset_selector in proptest::collection::vec(
+                proptest::collection::vec(any::<bool>(), 0..1000),
+                max_docs_per_segment.len()
+            )
+        )| {
+            let mut batches = vec![];
+            let mut all_selected_ids = BTreeSet::new();
+
+            for (seg_ord, segment_reader) in segment_readers.iter().enumerate() {
+                let max_doc = segment_reader.max_doc();
+                let ffr = segment_reader.fast_fields();
+                let id_col = ffr.i64("id").expect("id field missing");
+
+                let mut doc_ids = vec![];
+
+                // Use the random boolean selector to pick doc_ids
+                let selectors = subset_selector.get(seg_ord);
+                for doc_id in 0..max_doc {
+                    // Default to selecting the document if we don't have enough booleans
+                    let should_select = selectors.and_then(|s| s.get(doc_id as usize)).copied().unwrap_or(true);
+                    if should_select {
+                        doc_ids.push(doc_id);
+                        let val = id_col.first(doc_id).unwrap_or_default();
+                        all_selected_ids.insert(val);
+                    }
+                }
+
+                if doc_ids.is_empty() {
+                    continue;
+                }
+
+                let name_array = build_state_doc_address(seg_ord as u32, &doc_ids, false);
+                let mut id_builder = arrow_array::builder::Int64Builder::with_capacity(doc_ids.len());
+
+                for doc_id in &doc_ids {
+                    let val = id_col.first(*doc_id).unwrap_or_default();
+                    id_builder.append_value(val);
+                }
+                let id_array = Arc::new(id_builder.finish()) as ArrayRef;
+
+                let batch = RecordBatch::try_new(schema.clone(), vec![name_array, id_array]).unwrap();
+                batches.push(batch);
+            }
+
+            if batches.is_empty() {
+                return Ok(());
+            }
+
+            let memory_exec = TestMemoryExec::try_new_exec(&[batches], schema.clone(), None).unwrap();
+
+            let sort_exprs = LexOrdering::new(vec![
+                PhysicalSortExpr {
+                    expr: Arc::new(Column::new("sort_col", 0)),
+                    options: datafusion::arrow::compute::SortOptions {
+                        descending: false,
+                        nulls_first: false,
+                    },
+                }
+            ]).unwrap();
+
+            let deferred_columns = vec![
+                DeferredSortColumn {
+                    sort_col_idx: 0,
+                    canonical: crate::index::fast_fields_helper::CanonicalColumn {
+                        indexrelid: index_oid.to_u32(),
+                        ff_index: 0,
+                    }
+                }
+            ];
+
+            let topk_exec = SegmentedTopKExec::new(
+                memory_exec,
+                sort_exprs,
+                deferred_columns,
+                ffhelper.clone(),
+                10,
+            );
+
+            let task_ctx = Arc::new(TaskContext::default());
+            let mut stream = topk_exec.execute(0, task_ctx).unwrap();
+
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+
+            let mut result_ids = vec![];
+
+            runtime.block_on(async {
+                while let Some(batch) = stream.next().await {
+                    let batch = batch.unwrap();
+                    let col = batch.column(1); // 'id' column
+                    let array = col.as_any().downcast_ref::<arrow_array::Int64Array>().unwrap();
+                    for i in 0..array.len() {
+                        if array.is_valid(i) {
+                            result_ids.push(array.value(i));
+                        }
+                    }
+                }
+            });
+
+            let expected_limit = all_selected_ids.len().min(10);
+            prop_assert_eq!(result_ids.len(), expected_limit);
+
+            // Because sort_col is lpad(id, 6, '0'), numeric sort matches string sort!
+            // We just grab the smallest K items from our BTreeSet.
+            let expected_ids: Vec<i64> = all_selected_ids.into_iter().take(expected_limit).collect();
+            prop_assert_eq!(result_ids, expected_ids);
+        });
     }
 }

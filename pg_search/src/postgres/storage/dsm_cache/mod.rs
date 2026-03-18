@@ -244,7 +244,13 @@ impl DsmCacheShared {
     ///
     /// # Safety
     /// The underlying shared memory must not have overlapping mutable references.
-    unsafe fn insert_slot(&self, key: &DsmCacheKey, handle: pg_sys::dsm_handle, size: u32, guard: &LWLockExclusiveGuard<'_>) -> bool {
+    unsafe fn insert_slot(
+        &self,
+        key: &DsmCacheKey,
+        handle: pg_sys::dsm_handle,
+        size: u32,
+        guard: &LWLockExclusiveGuard<'_>,
+    ) -> bool {
         for slot in self.slot_slice_mut(guard) {
             if slot.key.is_empty() {
                 slot.key = *key;

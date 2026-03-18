@@ -169,8 +169,14 @@ macro_rules! lwlock_guard {
     };
 }
 
-lwlock_guard!(LWLockSharedGuard, "RAII guard for a shared (read) `LWLock`.");
-lwlock_guard!(LWLockExclusiveGuard, "RAII guard for an exclusive (write) `LWLock`.");
+lwlock_guard!(
+    LWLockSharedGuard,
+    "RAII guard for a shared (read) `LWLock`."
+);
+lwlock_guard!(
+    LWLockExclusiveGuard,
+    "RAII guard for an exclusive (write) `LWLock`."
+);
 
 #[derive(Copy, Clone, Debug)]
 pub enum AdvisoryLockLevel {

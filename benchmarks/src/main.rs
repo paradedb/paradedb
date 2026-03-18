@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use clap::Parser;
-use futures::TryStreamExt;
 use paradedb::median;
 use paradedb::micro_benchmarks::benchmark_columnar;
 use sqlx::{Connection, PgConnection, Row};
@@ -648,11 +647,32 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
     }
 }
 
+/// Split a compound SQL statement into setup statements and the final query.
+///
+/// Compound statements like `SET work_mem TO '4GB'; SET enable_seqscan TO off; SELECT ...`
+/// are split on `; ` boundaries. The leading statements are treated as setup (executed once
+/// before each timed run) and the last statement is the query to benchmark via EXPLAIN ANALYZE.
+fn split_query(query: &str) -> (Vec<&str>, &str) {
+    // Find the last `; ` boundary to split setup from the main query.
+    match query.rfind("; ") {
+        Some(pos) => {
+            let setup_part = &query[..pos];
+            let main_query = query[pos + 2..].trim();
+            let setup_statements: Vec<&str> = setup_part.split("; ").map(|s| s.trim()).collect();
+            (setup_statements, main_query)
+        }
+        None => (vec![], query),
+    }
+}
+
 /// Execute a benchmark query multiple times on a single reused connection.
 ///
-/// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
-/// necessary for compatibility with custom scan providers. Compound statements
-/// (e.g., `SET ...; SELECT ...`) are handled natively by the simple protocol.
+/// Uses `EXPLAIN (ANALYZE, FORMAT JSON)` to measure server-side execution time, which
+/// excludes client-side overhead (row transfer, deserialization, async runtime) and gives
+/// an accurate measurement of actual query performance.
+///
+/// Compound statements (e.g., `SET ...; SELECT ...`) are split: setup statements run
+/// normally, and only the final statement is timed via EXPLAIN ANALYZE.
 ///
 /// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
 async fn execute_query_multiple_times(
@@ -661,33 +681,52 @@ async fn execute_query_multiple_times(
     times: usize,
     fail_on_error: bool,
 ) -> Option<(Vec<f64>, usize)> {
+    let (setup_statements, main_query) = split_query(query);
+    let explain_query = format!("EXPLAIN (ANALYZE, FORMAT JSON) {main_query}");
+
     let mut results = Vec::new();
     let mut num_results = 0;
 
     for i in 0..times {
-        let start = Instant::now();
-        let mut stream = sqlx::raw_sql(query).fetch(&mut *conn);
-        let mut count = 0usize;
-        loop {
-            match stream.try_next().await {
-                Ok(Some(_row)) => {
-                    count += 1;
-                }
-                Ok(None) => break,
-                Err(err) => {
-                    if fail_on_error {
-                        panic!("Failed to execute benchmark query: {err}");
-                    } else {
-                        eprintln!("WARNING: Skipping query due to error: {err}");
-                        return None;
-                    }
+        // Execute setup statements (SET commands, etc.) before each timed run.
+        for setup in &setup_statements {
+            if let Err(err) = sqlx::query(setup).execute(&mut *conn).await {
+                if fail_on_error {
+                    panic!("Failed to execute setup statement `{setup}`: {err}");
+                } else {
+                    eprintln!("WARNING: Skipping query due to setup error: {err}");
+                    return None;
                 }
             }
         }
-        let elapsed = start.elapsed();
-        results.push(elapsed.as_secs_f64() * 1000.0);
+
+        // Run EXPLAIN ANALYZE to get server-side execution time.
+        let row = match sqlx::query(&explain_query).fetch_one(&mut *conn).await {
+            Ok(row) => row,
+            Err(err) => {
+                if fail_on_error {
+                    panic!("Failed to execute benchmark query: {err}");
+                } else {
+                    eprintln!("WARNING: Skipping query due to error: {err}");
+                    return None;
+                }
+            }
+        };
+
+        let json_str: String = row.get(0);
+        let json: serde_json::Value =
+            serde_json::from_str(&json_str).expect("Failed to parse EXPLAIN ANALYZE JSON output");
+
+        let execution_time = json[0]["Execution Time"]
+            .as_f64()
+            .expect("Failed to extract Execution Time from EXPLAIN ANALYZE output");
+        results.push(execution_time);
+
         if i == 0 {
-            num_results = count;
+            num_results = json[0]["Plan"]["Actual Rows"]
+                .as_u64()
+                .expect("Failed to extract Actual Rows from EXPLAIN ANALYZE output")
+                as usize;
         }
     }
 

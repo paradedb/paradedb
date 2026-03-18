@@ -203,7 +203,7 @@ jobs:
       - name: Compile & install pg_search extension (system)
         if: matrix.pg_impl == 'system'
         working-directory: pg_search/
-        run: cargo pgrx install --sudo block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Source LLVM coverage environment (pgrx)
         if: matrix.pg_impl == 'pgrx'

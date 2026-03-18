@@ -617,18 +617,6 @@ fn queries(file: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Split a compound SQL string into individual statements.
-///
-/// For example, `"SET foo TO on; SELECT COUNT(*) FROM bar"` becomes
-/// `["SET foo TO on", "SELECT COUNT(*) FROM bar"]`.
-fn split_statements(query: &str) -> Vec<&str> {
-    query
-        .split(';')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
 fn extract_index_name(statement: &str) -> &str {
     statement
         .split_whitespace()
@@ -648,31 +636,20 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
 
 /// Execute a benchmark query multiple times on a single reused connection.
 ///
-/// Compound statements (e.g., `SET ...; SELECT ...`) are split: setup statements run once,
-/// and only the final statement is timed across all runs.
+/// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
+/// necessary for compatibility with custom scan providers. Compound statements
+/// (e.g., `SET ...; SELECT ...`) are handled natively by the simple protocol.
 async fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f64>, usize) {
     let mut conn = PgConnection::connect(url)
         .await
         .expect("Failed to connect to database");
-
-    let statements = split_statements(query);
-    let (setup, benchmark) = statements.split_at(statements.len() - 1);
-    let benchmark_query = benchmark[0];
-
-    // Execute setup statements (e.g., SET GUCs) once on the connection.
-    for stmt in setup {
-        sqlx::query(stmt)
-            .execute(&mut conn)
-            .await
-            .expect("Failed to execute setup statement");
-    }
 
     let mut results = Vec::new();
     let mut num_results = 0;
 
     for i in 0..times {
         let start = Instant::now();
-        let rows = sqlx::query(benchmark_query)
+        let rows = sqlx::raw_sql(query)
             .fetch_all(&mut conn)
             .await
             .expect("Failed to execute benchmark query");

@@ -9,7 +9,7 @@ For a typical `SELECT ... FROM files JOIN documents ... ORDER BY title LIMIT K`:
 ```txt
 ProjectionExec
   TantivyLookupExec                   ← materializes deferred strings for final K rows only
-    SegmentedTopKExec                 ← per-segment pruning + global threshold + final sort + LIMIT K
+    SegmentedTopKExec                 ← global threshold pruning + final sort + LIMIT K
       HashJoinExec                    ← join on fast fields
         PgSearchScan (documents)      ← BM25 search
         PgSearchScan (files)          ← lazy scan, deferred columns, receives dynamic filters
@@ -46,14 +46,9 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 
 String columns are emitted as a [3-way `UnionArray`](../../scan/deferred_encode.rs) (doc_address | term_ordinal | materialized) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../scan/table_provider.rs) is made in [`try_enable_late_materialization()`][defer-decision].
 
-### 5. Two Pruning Paths
+### 5. Pruning Path
 
-| Path                     | Source                           | Mechanism                                                                       | When Active                                                            |
-| ------------------------ | -------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| **Global threshold**     | [`SegmentedTopKExec`][topk-exec] | [`DynamicFilterPhysicalExpr`][global-filter] pushed to scan via filter pushdown | After first K rows fill [global heap][global-heap] (during collection) |
-| **Per-segment ordinals** | [`SegmentedTopKExec`][topk-exec] | [`SegmentedThresholds`][seg-thresholds] side-channel                            | After per-segment heap fills (intra-segment)                           |
-
-The **global threshold** is the primary pruning mechanism. It works during the [collection phase][collect-batch] because `SegmentedTopKExec` and [`PgSearchScan`][scan-plan] share an `Arc<DynamicFilterPhysicalExpr>` — no row flow required. The [scanner reads `current()`][scanner-next] on every batch and translates string literals to per-segment ordinal bounds via [`try_rewrite_binary`][rewrite-binary].
+The **global threshold** is the primary pruning mechanism. After the first K rows fill the [global heap][global-heap] (during the [collection phase][collect-batch]), a [`DynamicFilterPhysicalExpr`][global-filter] is pushed down to the scan via filter pushdown. This works because [`SegmentedTopKExec`][topk-exec] and [`PgSearchScan`][scan-plan] share an `Arc<DynamicFilterPhysicalExpr>` — no row flow required. The [scanner reads `current()`][scanner-next] on every batch and translates string literals to per-segment ordinal bounds via [`try_rewrite_binary`][rewrite-binary].
 
 ### 6. Execution Result
 
@@ -81,7 +76,7 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 | [`tantivy_lookup_exec.rs`][lookup-exec]               | Dictionary decode + [filter passthrough][lookup-passthrough]                                                                        |
 | [`filter_passthrough_exec.rs`][filter-passthrough]    | Transparent wrapper enabling filter pushdown through blocking nodes                                                                 |
 | [`batch_scanner.rs`](../../scan/batch_scanner.rs)     | [`Scanner::next()`][scanner-next] — batch iteration, pre-filter, visibility                                                         |
-| [`execution_plan.rs`](../../scan/execution_plan.rs)   | [`PgSearchScanPlan`][scan-plan] — [dynamic filter integration][scan-thresholds]                                                     |
+| [`execution_plan.rs`](../../scan/execution_plan.rs)   | [`PgSearchScanPlan`][scan-plan] — dynamic filter integration                                                                        |
 | [`pre_filter.rs`](../../scan/pre_filter.rs)           | [`try_rewrite_binary`][rewrite-binary], [`collect_filters`][collect-filters]                                                        |
 | [`deferred_encode.rs`](../../scan/deferred_encode.rs) | 3-way UnionArray construction and unpacking                                                                                         |
 
@@ -100,7 +95,6 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 [second-pushdown]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/scan_state.rs#L213
 [smj-enforcer]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/planner.rs#L60
 [topk-exec]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_exec.rs#L150
-[seg-thresholds]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_exec.rs#L123
 [collect-batch]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_exec.rs#L483
 [global-filter]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_exec.rs#L924
 [global-heap]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_exec.rs#L447
@@ -110,7 +104,6 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 [lookup-exec]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/tantivy_lookup_exec.rs#L60
 [lookup-passthrough]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/tantivy_lookup_exec.rs#L232
 [scan-plan]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/execution_plan.rs#L89
-[scan-thresholds]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/execution_plan.rs#L198
 [scanner-next]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/batch_scanner.rs#L259
 [rewrite-binary]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/pre_filter.rs#L383
 [collect-filters]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/pre_filter.rs#L254

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773878154963,
+  "lastUpdate": 1773878171060,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -44714,6 +44714,60 @@ window.BENCHMARK_DATA = {
             "value": 15.139740022131674,
             "unit": "median tps",
             "extra": "avg tps: 15.103554317954483, max tps: 21.84569802390151, count: 55519"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e8e944da74dca4c4ee18eb296a2436ac604bc88",
+          "message": "fix(joinscan): align memory pool allocation with postgres work_mem semantics (#4417)\n\n# Description\nBackport of #4413 to `0.22.x`.\n\nCo-authored-by: pantShrey <121197985+pantShrey@users.noreply.github.com>",
+          "timestamp": "2026-03-18T15:50:13-07:00",
+          "tree_id": "7b2efd3ee102636b98893007617d1ab84de3d598",
+          "url": "https://github.com/paradedb/paradedb/commit/9e8e944da74dca4c4ee18eb296a2436ac604bc88"
+        },
+        "date": 1773878163294,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 28.642730185754914,
+            "unit": "median tps",
+            "extra": "avg tps: 28.660640007695488, max tps: 33.001728187061715, count: 55507"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.49243387041216,
+            "unit": "median tps",
+            "extra": "avg tps: 272.1311315690464, max tps: 2819.850634626772, count: 55507"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 612.332674623968,
+            "unit": "median tps",
+            "extra": "avg tps: 599.7271700452428, max tps: 780.7344913880614, count: 55507"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 165.810077206372,
+            "unit": "median tps",
+            "extra": "avg tps: 177.07576824592226, max tps: 943.5416660679153, count: 111014"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.193252587115285,
+            "unit": "median tps",
+            "extra": "avg tps: 15.219647291505012, max tps: 19.585516033007, count: 55507"
           }
         ]
       }

@@ -18,8 +18,8 @@
 //! DataFusion `ExecutionPlan` implementations for scanning `pg_search` indexes.
 //!
 //! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
-//! how `PgSearchScanPlan` integrates with the JoinScan physical plan, dynamic
-//! filters, and segmented thresholds.
+//! how `PgSearchScanPlan` integrates with the JoinScan physical plan and
+//! dynamic filters.
 //!
 //! This module provides the `PgSearchScanPlan`, which handles scanning of `pg_search`
 //! index segments. It supports both single-partition (serial) and multi-partition

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Per-segment Top K with ordinal pruning and global threshold.
+//! Per-segment Top K with global threshold pruning.
 //!
 //! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
 //! how this node fits into the overall physical plan and pruning pipeline.

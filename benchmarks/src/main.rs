@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use clap::Parser;
+use futures::TryStreamExt;
 use paradedb::median;
 use paradedb::micro_benchmarks::benchmark_columnar;
 use sqlx::{Connection, PgConnection, Row};
@@ -74,6 +75,11 @@ struct Args {
 
     #[arg(long, default_value = "100000")]
     batch_size: usize,
+
+    /// Whether to fail on query errors. Set to false for backfills against older versions
+    /// that may not support all query syntax.
+    #[arg(long, default_value = "true")]
+    fail_on_error: bool,
 }
 
 #[tokio::main]
@@ -198,6 +204,9 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
     let mut utility_conn = PgConnection::connect(&args.url)
         .await
         .expect("Failed to connect to database");
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .expect("Failed to connect to database");
 
     if args.vacuum {
         sqlx::query("VACUUM ANALYZE")
@@ -256,18 +265,25 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
     let mut results = Vec::new();
     for (query_type, query) in all_queries {
         if let Err(err) = clear_caches(&mut utility_conn).await {
-            eprintln!("WARNING: Failed to clear caches before query: {err}");
+            panic!("Failed to clear caches before query: {err}");
         }
         println!("Query Type: {query_type}\nQuery: {query}");
-        let (runtimes_ms, num_results) =
-            execute_query_multiple_times(&args.url, &query, args.runs).await;
-        println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
-        results.push(QueryResult {
-            query_type,
-            query,
-            runtimes_ms,
-            num_results,
-        });
+        let result =
+            execute_query_multiple_times(&mut conn, &query, args.runs, args.fail_on_error).await;
+        match result {
+            Some((runtimes_ms, num_results)) => {
+                println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
+                results.push(QueryResult {
+                    query_type,
+                    query,
+                    runtimes_ms,
+                    num_results,
+                });
+            }
+            None => {
+                println!("Skipped (query error)\n");
+            }
+        }
     }
 
     results
@@ -313,20 +329,19 @@ async fn write_test_info_csv(args: &Args) {
     writeln!(file, "Vacuum,{}", args.vacuum).unwrap();
 
     if args.r#type == "pg_search" {
-        if let Ok(mut conn) = PgConnection::connect(&args.url).await {
-            if let Ok(row) =
-                sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
-                    .fetch_one(&mut conn)
-                    .await
-            {
-                let version: String = row.get(0);
-                let githash: String = row.get(1);
-                let build_mode: String = row.get(2);
-                writeln!(file, "pg_search Version,{version}").unwrap();
-                writeln!(file, "pg_search Git Hash,{githash}").unwrap();
-                writeln!(file, "pg_search Build Mode,{build_mode}").unwrap();
-            }
-        }
+        let mut conn = PgConnection::connect(&args.url)
+            .await
+            .expect("Failed to connect to database for version info");
+        let row = sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
+            .fetch_one(&mut conn)
+            .await
+            .expect("Failed to fetch paradedb.version_info()");
+        let version: String = row.get(0);
+        let githash: String = row.get(1);
+        let build_mode: String = row.get(2);
+        writeln!(file, "pg_search Version,{version}").unwrap();
+        writeln!(file, "pg_search Git Hash,{githash}").unwrap();
+        writeln!(file, "pg_search Build Mode,{build_mode}").unwrap();
     }
 }
 
@@ -430,20 +445,19 @@ async fn write_test_info(file: &mut File, args: &Args) {
     writeln!(file, "| Vacuum      | {} |", args.vacuum).unwrap();
 
     if args.r#type == "pg_search" {
-        if let Ok(mut conn) = PgConnection::connect(&args.url).await {
-            if let Ok(row) =
-                sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
-                    .fetch_one(&mut conn)
-                    .await
-            {
-                let version: String = row.get(0);
-                let githash: String = row.get(1);
-                let build_mode: String = row.get(2);
-                writeln!(file, "| pg_search Version | {version} |").unwrap();
-                writeln!(file, "| pg_search Git Hash | {githash} |").unwrap();
-                writeln!(file, "| pg_search Build Mode | {build_mode} |").unwrap();
-            }
-        }
+        let mut conn = PgConnection::connect(&args.url)
+            .await
+            .expect("Failed to connect to database for version info");
+        let row = sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
+            .fetch_one(&mut conn)
+            .await
+            .expect("Failed to fetch paradedb.version_info()");
+        let version: String = row.get(0);
+        let githash: String = row.get(1);
+        let build_mode: String = row.get(2);
+        writeln!(file, "| pg_search Version | {version} |").unwrap();
+        writeln!(file, "| pg_search Git Hash | {githash} |").unwrap();
+        writeln!(file, "| pg_search Build Mode | {build_mode} |").unwrap();
     }
 }
 
@@ -639,28 +653,45 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
 /// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
 /// necessary for compatibility with custom scan providers. Compound statements
 /// (e.g., `SET ...; SELECT ...`) are handled natively by the simple protocol.
-async fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f64>, usize) {
-    let mut conn = PgConnection::connect(url)
-        .await
-        .expect("Failed to connect to database");
-
+///
+/// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
+async fn execute_query_multiple_times(
+    conn: &mut PgConnection,
+    query: &str,
+    times: usize,
+    fail_on_error: bool,
+) -> Option<(Vec<f64>, usize)> {
     let mut results = Vec::new();
     let mut num_results = 0;
 
     for i in 0..times {
         let start = Instant::now();
-        let rows = sqlx::raw_sql(query)
-            .fetch_all(&mut conn)
-            .await
-            .expect("Failed to execute benchmark query");
+        let mut stream = sqlx::raw_sql(query).fetch(&mut *conn);
+        let mut count = 0usize;
+        loop {
+            match stream.try_next().await {
+                Ok(Some(_row)) => {
+                    count += 1;
+                }
+                Ok(None) => break,
+                Err(err) => {
+                    if fail_on_error {
+                        panic!("Failed to execute benchmark query: {err}");
+                    } else {
+                        eprintln!("WARNING: Skipping query due to error: {err}");
+                        return None;
+                    }
+                }
+            }
+        }
         let elapsed = start.elapsed();
         results.push(elapsed.as_secs_f64() * 1000.0);
         if i == 0 {
-            num_results = rows.len();
+            num_results = count;
         }
     }
 
-    (results, num_results)
+    Some((results, num_results))
 }
 
 fn drop_os_page_cache() -> Result<(), String> {

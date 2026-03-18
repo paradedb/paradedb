@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773872209901,
+  "lastUpdate": 1773873078675,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -43706,6 +43706,60 @@ window.BENCHMARK_DATA = {
             "value": 15.252220681107191,
             "unit": "median tps",
             "extra": "avg tps: 15.244049276410657, max tps: 21.983822083345043, count: 55482"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "74dcf036462d119442920a829810c720403fb90a",
+          "message": "fix(joinscan): align memory pool allocation with postgres work_mem semantics (#4413)\n\n# Ticket(s) Closed\n\n- Closes #4355\n\n## What\nInstead of using a single `work_mem` pool for the entire joinscan,\ncompute a scaled memory budget by walking the physical plan and\nallocating `work_mem` per operator per partition , matching how Postgres\nactually applies `work_mem`.\n\n## Why\nPreviously `work_mem` was treated as a total budget shared across all\noperators in the joinscan. Postgres applies `work_mem` independently to\neach memory-consuming operation, so a query with multiple hash joins or\nsorts should get `N × work_mem` total, not a single shared `work_mem`.\n\n## How\n- Added `estimate_plan_memory()` which walks the physical plan using\n`.apply()` and computes the total budget as:\n- `SortExec` / `SortMergeJoinExec` → `work_mem × partition_count` per\nnode\n- `HashJoinExec` → `work_mem × hash_mem_multiplier × partition_count`\nper node\n- Added `hash_mem_multiplier` field to `JoinScanState`\n- `hash_mem_multiplier` is read directly from `pg_sys` to stay in sync\nwith Postgres config\n- Updated `work_mem` overrides in benchmarks and regression tests to\nreflect new per-op semantics\n\n## Tests\n- Existing `join_execution_limits` regression test still triggers OOM\ncorrectly , the error now reflects the properly scaled limit (`196608`\nbytes instead of `65536`)",
+          "timestamp": "2026-03-18T14:25:55-07:00",
+          "tree_id": "e6992e6886c8062bf119ae0972eb0ccfbdf562fa",
+          "url": "https://github.com/paradedb/paradedb/commit/74dcf036462d119442920a829810c720403fb90a"
+        },
+        "date": 1773873071316,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.057100173800972,
+            "unit": "median tps",
+            "extra": "avg tps: 28.821400252806278, max tps: 31.794034749786267, count: 55500"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 241.3534028960923,
+            "unit": "median tps",
+            "extra": "avg tps: 267.59816230519215, max tps: 2729.1419611997553, count: 55500"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 587.8195243165039,
+            "unit": "median tps",
+            "extra": "avg tps: 573.7750481839263, max tps: 1188.754699346578, count: 55500"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.5186132332272,
+            "unit": "median tps",
+            "extra": "avg tps: 175.05123577050372, max tps: 986.9082949021845, count: 111000"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.338375098285876,
+            "unit": "median tps",
+            "extra": "avg tps: 15.136226807736422, max tps: 20.87912996498403, count: 55500"
           }
         ]
       }

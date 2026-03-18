@@ -78,7 +78,7 @@ struct Args {
 
     /// Whether to fail on query errors. Set to false for backfills against older versions
     /// that may not support all query syntax.
-    #[arg(long, default_value = "true")]
+    #[arg(long, default_value_t = true, num_args = 1)]
     fail_on_error: bool,
 }
 

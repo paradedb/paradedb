@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773859355866,
+  "lastUpdate": 1773860269390,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29850,6 +29850,54 @@ window.BENCHMARK_DATA = {
             "value": 5.357933836378084,
             "unit": "median tps",
             "extra": "avg tps: 5.397421702410648, max tps: 7.414467463325987, count: 56037"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4fd0a655e1faf7dd437d860caea1d78e6ba0b2e2",
+          "message": "fix: Clear partial_pathlist for forced parallel custom scan paths (#4414)\n\n## Summary\n\n- Fixes `pdb.score()` panic (`ERROR: Unsupported query shape / CONTEXT:\nparallel worker`) when the planner chooses a native Parallel Index Scan\non the BM25 index over ParadeDB's Parallel Custom Scan\n- The bug: `add_path()` in `hook.rs` cleared `rel->pathlist` for forced\npaths but not `rel->partial_pathlist`, so PostgreSQL's native Parallel\nIndex Scan remained as a competing partial path and could win the cost\ncomparison\n- The fix: when a path is forced, clear both `pathlist` and\n`partial_pathlist` before adding our custom path\n\n## Reproduction\n\nDerived from the user scenario in\nhttps://github.com/orgs/paradedb/discussions/3678#discussioncomment-16184504\n— `pdb.ngram` field + heap filter on non-indexed column (`end_date IS\nNULL`) + `paradedb.score()` + parallel workers + ~300K rows. The\nregression test (`issue_3678.sql`) reproduces this deterministically.\n\nWithout the fix:\n- Test 1 (EXPLAIN) shows `Parallel Index Scan` instead of `Parallel\nCustom Scan`\n- Test 2 (execution) fails with:\n```\nERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678\nCONTEXT:  parallel worker\n```\n\nFixes https://github.com/orgs/paradedb/discussions/3678",
+          "timestamp": "2026-03-18T23:37:09+05:30",
+          "tree_id": "1ee8f1d14a59eee75736e5b792eaa889ff3e3713",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd0a655e1faf7dd437d860caea1d78e6ba0b2e2"
+        },
+        "date": 1773860261938,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1106.5276390710656,
+            "unit": "median tps",
+            "extra": "avg tps: 1108.5793951862577, max tps: 1162.8432770923675, count: 56077"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 632.3135273448588,
+            "unit": "median tps",
+            "extra": "avg tps: 581.5268655765768, max tps: 1191.4657726298553, count: 56077"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1894.0595614399992,
+            "unit": "median tps",
+            "extra": "avg tps: 1859.9380851577218, max tps: 2066.6437091962216, count: 56077"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.190814694360499,
+            "unit": "median tps",
+            "extra": "avg tps: 5.246990068336709, max tps: 8.30858531188514, count: 56077"
           }
         ]
       }

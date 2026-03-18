@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773873981134,
+  "lastUpdate": 1773875391060,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6254,6 +6254,78 @@ window.BENCHMARK_DATA = {
             "value": 58.45025808200016,
             "unit": "median tps",
             "extra": "avg tps: 94.89900300269309, max tps: 297.61058446091425, count: 55060"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e8e944da74dca4c4ee18eb296a2436ac604bc88",
+          "message": "fix(joinscan): align memory pool allocation with postgres work_mem semantics (#4417)\n\n# Description\nBackport of #4413 to `0.22.x`.\n\nCo-authored-by: pantShrey <121197985+pantShrey@users.noreply.github.com>",
+          "timestamp": "2026-03-18T15:50:13-07:00",
+          "tree_id": "7b2efd3ee102636b98893007617d1ab84de3d598",
+          "url": "https://github.com/paradedb/paradedb/commit/9e8e944da74dca4c4ee18eb296a2436ac604bc88"
+        },
+        "date": 1773875383516,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 130.33164973030287,
+            "unit": "median tps",
+            "extra": "avg tps: 131.04898675624796, max tps: 173.47779339750204, count: 55099"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 433.5366703373421,
+            "unit": "median tps",
+            "extra": "avg tps: 437.19274981686794, max tps: 574.3570380290662, count: 55099"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2943.3508856700737,
+            "unit": "median tps",
+            "extra": "avg tps: 2924.2291908692996, max tps: 2949.1516389338562, count: 55099"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 398.0141880635794,
+            "unit": "median tps",
+            "extra": "avg tps: 399.38814462520526, max tps: 461.7639586396175, count: 55099"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3044.846369206804,
+            "unit": "median tps",
+            "extra": "avg tps: 3073.0910953969064, max tps: 3153.2513433903396, count: 110198"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 440.6525354844233,
+            "unit": "median tps",
+            "extra": "avg tps: 443.6946544255345, max tps: 583.7468021997914, count: 55099"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1822.1877311167636,
+            "unit": "median tps",
+            "extra": "avg tps: 1819.6133358071145, max tps: 1834.7143302827178, count: 55099"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 36.32486396131169,
+            "unit": "median tps",
+            "extra": "avg tps: 51.05806755149257, max tps: 255.6229496425113, count: 55099"
           }
         ]
       }

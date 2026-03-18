@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773791185480,
+  "lastUpdate": 1773792046123,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -54484,6 +54484,54 @@ window.BENCHMARK_DATA = {
             "value": 470.6996691536203,
             "unit": "median tps",
             "extra": "avg tps: 425.6597048347428, max tps: 643.2436050287663, count: 107778"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d8b950ef294aceff175067f5f51f082f1184fe15",
+          "message": "fix: Fix casts in aggregate scan target lists. (#4404)\n\n# Description\nBackport of #4401 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-17T15:40:57-07:00",
+          "tree_id": "7c7ffc7bb93ad630760294e2afeab90a0dfdb832",
+          "url": "https://github.com/paradedb/paradedb/commit/d8b950ef294aceff175067f5f51f082f1184fe15"
+        },
+        "date": 1773792038660,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 507.25499377523283,
+            "unit": "median tps",
+            "extra": "avg tps: 511.43956401464595, max tps: 606.3977950196156, count: 53916"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 559.4002684178691,
+            "unit": "median tps",
+            "extra": "avg tps: 566.8008185721394, max tps: 712.9985481923561, count: 53916"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.89330539986459,
+            "unit": "median tps",
+            "extra": "avg tps: 86.90862995211633, max tps: 96.68028069394722, count: 53916"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 476.1118596478984,
+            "unit": "median tps",
+            "extra": "avg tps: 426.02239240542406, max tps: 649.6537952184899, count: 107832"
           }
         ]
       }

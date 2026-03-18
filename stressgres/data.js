@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773876318251,
+  "lastUpdate": 1773876331293,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21298,6 +21298,42 @@ window.BENCHMARK_DATA = {
             "value": 5.302257899308609,
             "unit": "median tps",
             "extra": "avg tps: 4.75101229664487, max tps: 5.931802295211349, count: 57543"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e8e944da74dca4c4ee18eb296a2436ac604bc88",
+          "message": "fix(joinscan): align memory pool allocation with postgres work_mem semantics (#4417)\n\n# Description\nBackport of #4413 to `0.22.x`.\n\nCo-authored-by: pantShrey <121197985+pantShrey@users.noreply.github.com>",
+          "timestamp": "2026-03-18T15:50:13-07:00",
+          "tree_id": "7b2efd3ee102636b98893007617d1ab84de3d598",
+          "url": "https://github.com/paradedb/paradedb/commit/9e8e944da74dca4c4ee18eb296a2436ac604bc88"
+        },
+        "date": 1773876316103,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.740882731463118,
+            "unit": "median tps",
+            "extra": "avg tps: 6.6105338336569925, max tps: 9.997365712161473, count: 57571"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.353506769529469,
+            "unit": "median tps",
+            "extra": "avg tps: 4.801375624728241, max tps: 5.993010493347363, count: 57571"
           }
         ]
       }

@@ -19,6 +19,7 @@ mod fixtures;
 
 use async_std::task::block_on;
 use fixtures::*;
+use serial_test::serial;
 use sqlx::PgConnection;
 
 const FAKE_OID: i64 = 99999;
@@ -37,6 +38,7 @@ fn clear_cache(conn: &mut PgConnection) {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_insert_and_lookup() {
     let (_db, ref mut conn) = new_conn();
     clear_cache(conn);
@@ -55,6 +57,7 @@ fn dsm_cache_insert_and_lookup() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_entries_have_correct_fields() {
     let (_db, ref mut conn) = new_conn();
     clear_cache(conn);
@@ -79,6 +82,7 @@ fn dsm_cache_entries_have_correct_fields() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_multiple_entries() {
     let (_db, ref mut conn) = new_conn();
     clear_cache(conn);
@@ -101,6 +105,7 @@ fn dsm_cache_multiple_entries() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_multiple_sub_keys() {
     let (_db, ref mut conn) = new_conn();
     clear_cache(conn);
@@ -123,6 +128,7 @@ fn dsm_cache_multiple_sub_keys() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_duplicate_insert_is_idempotent() {
     let (_db, ref mut conn) = new_conn();
     clear_cache(conn);
@@ -147,6 +153,7 @@ fn dsm_cache_duplicate_insert_is_idempotent() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_invalidate_segment() {
     let (_db, ref mut conn) = new_conn();
     clear_cache(conn);
@@ -178,6 +185,7 @@ fn dsm_cache_invalidate_segment() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_invalidate_index() {
     let (_db, ref mut conn) = new_conn();
     clear_cache(conn);
@@ -203,6 +211,7 @@ fn dsm_cache_invalidate_index() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_invalidate_segment_with_sub_keys() {
     let (_db, ref mut conn) = new_conn();
     clear_cache(conn);
@@ -234,6 +243,7 @@ fn dsm_cache_invalidate_segment_with_sub_keys() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_visible_across_connections() {
     let (db, ref mut conn_a) = new_conn();
     let mut conn_b = block_on(async { db.connection().await });
@@ -255,6 +265,7 @@ fn dsm_cache_visible_across_connections() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_invalidation_across_connections() {
     let (db, ref mut conn_a) = new_conn();
     let mut conn_b = block_on(async { db.connection().await });
@@ -290,6 +301,7 @@ fn dsm_cache_invalidation_across_connections() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_drop_index_clears_entries_across_connections() {
     let (db, ref mut conn_a) = new_conn();
     let mut conn_b = block_on(async { db.connection().await });
@@ -330,6 +342,7 @@ fn dsm_cache_drop_index_clears_entries_across_connections() {
 }
 
 #[test]
+#[serial]
 fn dsm_cache_refcount_keeps_mapping_alive_after_invalidation() {
     let (db, ref mut conn_a) = new_conn();
     let mut conn_b = block_on(async { db.connection().await });

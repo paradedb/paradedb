@@ -21,25 +21,25 @@ use super::{load_shared, tag_name};
 use pgrx::pg_sys;
 use pgrx::prelude::*;
 
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 use super::{get_or_create, invalidate_index, invalidate_segment, CacheKey, CacheTag, DsmSlice};
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 use crate::postgres::dsm::DsmSegment;
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 use std::cell::RefCell;
 
 // ---------------------------------------------------------------------------
 // Test-only SQL functions
 // ---------------------------------------------------------------------------
 
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 thread_local! {
     /// Stash for holding a DsmSlice across SQL calls, used to test refcounting.
     static HELD_SLICE: RefCell<Option<DsmSlice>> = const { RefCell::new(None) };
 }
 
 /// Test-only: insert a cache entry with the Test tag and a payload of `size` zero-bytes.
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 #[pg_extern]
 fn pg_test_dsm_cache_insert(index_oid: pg_sys::Oid, segment_id: String, sub_key: i32, size: i32) {
     let uuid = uuid::Uuid::parse_str(&segment_id).expect("invalid segment_id UUID");
@@ -53,7 +53,7 @@ fn pg_test_dsm_cache_insert(index_oid: pg_sys::Oid, segment_id: String, sub_key:
 }
 
 /// Test-only: invalidate all cache entries for a given segment.
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 #[pg_extern]
 fn pg_test_dsm_cache_invalidate_segment(index_oid: pg_sys::Oid, segment_id: String) {
     let uuid = uuid::Uuid::parse_str(&segment_id).expect("invalid segment_id UUID");
@@ -61,14 +61,14 @@ fn pg_test_dsm_cache_invalidate_segment(index_oid: pg_sys::Oid, segment_id: Stri
 }
 
 /// Test-only: invalidate all cache entries for a given index.
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 #[pg_extern]
 fn pg_test_dsm_cache_invalidate_index(index_oid: pg_sys::Oid) {
     invalidate_index(index_oid);
 }
 
 /// Test-only: remove all entries from the cache.
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 #[pg_extern]
 fn pg_test_dsm_cache_clear_all() {
     let Some(shared) = load_shared() else {
@@ -84,7 +84,7 @@ fn pg_test_dsm_cache_clear_all() {
 /// Test-only: create a cache entry and hold the DsmSlice in a thread-local stash.
 /// Writes a known pattern (0xAB) so we can verify reads later.
 /// Returns true if the entry was created successfully.
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 #[pg_extern]
 fn pg_test_dsm_cache_hold(
     index_oid: pg_sys::Oid,
@@ -107,7 +107,7 @@ fn pg_test_dsm_cache_hold(
 
 /// Test-only: read from the held DsmSlice.
 /// Returns true if the held slice is still readable and contains the expected pattern.
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 #[pg_extern]
 fn pg_test_dsm_cache_read_held() -> bool {
     HELD_SLICE.with(|h| {
@@ -123,7 +123,7 @@ fn pg_test_dsm_cache_read_held() -> bool {
 }
 
 /// Test-only: drop the held DsmSlice, releasing the Arc<MappingGuard>.
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(any(test, debug_assertions))]
 #[pg_extern]
 fn pg_test_dsm_cache_release() {
     HELD_SLICE.with(|h| *h.borrow_mut() = None);

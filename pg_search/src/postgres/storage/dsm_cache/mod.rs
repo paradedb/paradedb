@@ -109,7 +109,7 @@ pub enum CacheTag {
     /// Reserved placeholder. Real variants are added by cache consumers.
     Reserved = 0,
     /// Used by tests only.
-    #[cfg(any(test, feature = "pg_test"))]
+    #[cfg(any(test, debug_assertions))]
     Test = 999,
 }
 

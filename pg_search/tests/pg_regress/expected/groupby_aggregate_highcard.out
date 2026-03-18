@@ -58,7 +58,7 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating, id
 ORDER BY rating, id
 LIMIT 5 OFFSET 5;
-WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column (table: products)
+WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
                             QUERY PLAN                             
 -------------------------------------------------------------------
  Limit

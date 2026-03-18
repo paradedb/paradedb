@@ -95,34 +95,46 @@ jobs:
             --tmpfs /var/lib/postgresql:size=1G \
             paradedb/paradedb:latest
 
-      # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
-      - name: Check for Errors in the ParadeDB Docker Image
-        working-directory: docker/
+      - name: Wait for PostgreSQL to be ready
         run: |
-          CONTAINER_ID=$(docker ps -aq --filter "name=paradedb")
-          CONTAINER_STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_ID)
-          echo "paradedb container ID: $CONTAINER_ID"
-          echo "Container status: $CONTAINER_STATUS"
-
-          echo ""
-          echo "Sleeping 30 seconds to give Postgres the time to fully initialize and run initdb..."
-          sleep 30
-
-          echo ""
-          echo "Printing logs for the ParadeDB Docker container..."
-          docker logs $CONTAINER_ID
-
-          # Fail the run if the container failed to start
-          if [ "$CONTAINER_STATUS" = "exited" ]; then
-            echo "Error: Container failed to start properly"
+          echo "Waiting for PostgreSQL to accept connections..."
+          for i in $(seq 1 60); do
+            if docker exec paradedb pg_isready -U myuser -d mydatabase > /dev/null 2>&1; then
+              echo "PostgreSQL is ready after ${i}s"
+              break
+            fi
+            if [ "$(docker inspect -f '{{.State.Status}}' paradedb)" = "exited" ]; then
+              echo "Error: Container exited during startup"
+              docker logs paradedb
+              exit 1
+            fi
+            sleep 1
+          done
+          if ! docker exec paradedb pg_isready -U myuser -d mydatabase > /dev/null 2>&1; then
+            echo "Error: PostgreSQL did not become ready within 60s"
+            docker logs paradedb
             exit 1
           fi
 
-          # Fail the run if there are any Postgres ERRORs in the logs
-          if docker logs $CONTAINER_ID | grep -q ERROR; then
-            echo "Error: ParadeDB Docker container logs contain an error"
+      - name: Check for PostgreSQL errors in container logs
+        run: |
+          echo "Container logs:"
+          docker logs paradedb
+
+          # Match actual PostgreSQL log-level ERROR lines, not incidental occurrences of the word
+          if docker logs paradedb 2>&1 | grep -qE "^[0-9T:.Z -]*(ERROR|FATAL|PANIC):"; then
+            echo "Error: PostgreSQL container logs contain errors"
             exit 1
           fi
+
+      - name: Verify PostgreSQL accepts queries and extensions are available
+        run: |
+          docker exec paradedb psql -U myuser -d mydatabase -c "SELECT 1;"
+          docker exec paradedb psql -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
+          docker exec paradedb psql -U myuser -d mydatabase -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
+
+      - name: Verify barman-cloud is functional
+        run: docker exec paradedb barman-cloud-wal-archive --help
 
       # Useful for debugging discrepancies between local and remote ParadeDB Docker images
       - name: Print the ParadeDB Docker Image History

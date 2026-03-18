@@ -480,7 +480,7 @@ SELECT category, COUNT(DISTINCT rating), SUM(price)
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category;
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678) (table: products)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -503,7 +503,7 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678) (table: products)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     2 | 2529.96
@@ -1271,6 +1271,38 @@ ORDER BY cnt DESC;
 -----
    5
 (1 row)
+
+-- Test 8.9: Target list parsing with cast and alias
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT d.category AS label, COUNT(*)::int AS count
+FROM products d
+WHERE d.description @@@ 'laptop'
+GROUP BY d.category
+ORDER BY count DESC;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, ((pdb.agg_fn('COUNT(*)'::text))::integer)
+   Sort Key: ((pdb.agg_fn('COUNT(*)'::text))::integer) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products d
+         Output: category, (pdb.agg_fn('COUNT(*)'::text))::integer
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: category
+           Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT d.category AS label, COUNT(*)::int AS count
+FROM products d
+WHERE d.description @@@ 'laptop'
+GROUP BY d.category
+ORDER BY count DESC;
+    label    | count 
+-------------+-------
+ Electronics |     2
+ Toys        |     1
+(2 rows)
 
 -- =====================================================================
 -- Cleanup

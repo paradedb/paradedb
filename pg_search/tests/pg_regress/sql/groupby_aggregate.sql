@@ -645,6 +645,20 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 ORDER BY cnt DESC;
 
+-- Test 8.9: Target list parsing with cast and alias
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT d.category AS label, COUNT(*)::int AS count
+FROM products d
+WHERE d.description @@@ 'laptop'
+GROUP BY d.category
+ORDER BY count DESC;
+
+SELECT d.category AS label, COUNT(*)::int AS count
+FROM products d
+WHERE d.description @@@ 'laptop'
+GROUP BY d.category
+ORDER BY count DESC;
+
 -- =====================================================================
 -- Cleanup
 -- =====================================================================

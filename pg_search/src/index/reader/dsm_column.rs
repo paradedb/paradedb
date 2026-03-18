@@ -194,22 +194,15 @@ pub fn create_cached_ctid_column(
         sub_key: 0,
     };
 
-    // Fast path: DSM cache hit
-    if let Some(dsm) = dsm_cache::try_get(&key) {
-        return build_column_from_dsm(dsm, &column_file_slice);
-    }
+    // Single call: cache checks run first; tantivy parse only on true miss.
+    let dsm = dsm_cache::get_or_create_lazy(&key, || {
+        let (reader, data_section_offset) = load_blockwise_linear(&column_file_slice)?;
+        let (stats, parts) = reader.into_parts();
 
-    // Slow path: let tantivy parse, extract parts, store in DSM
-    let (reader, data_section_offset) = load_blockwise_linear(&column_file_slice)?;
-    let (stats, parts) = reader.into_parts();
+        let num_blocks = parts.len() as u32;
+        let dsm_size = HEADER_SIZE + parts.len() * BLOCK_META_SIZE;
 
-    let num_blocks = parts.len() as u32;
-    let dsm_size = HEADER_SIZE + parts.len() * BLOCK_META_SIZE;
-
-    let dsm = dsm_cache::get_or_create(
-        &key,
-        dsm_size,
-        |buf| {
+        let fill_fn = move |buf: &mut [u8]| {
             let header = DsmHeader {
                 min_value: stats.min_value,
                 max_value: stats.max_value,
@@ -247,8 +240,10 @@ pub fn create_cached_ctid_column(
                 }
                 data_start += data_len;
             }
-        },
-    )?;
+        };
+
+        Some((dsm_size, fill_fn))
+    })?;
 
     build_column_from_dsm(dsm, &column_file_slice)
 }

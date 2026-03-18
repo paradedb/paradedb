@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773862109758,
+  "lastUpdate": 1773870335932,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6182,6 +6182,78 @@ window.BENCHMARK_DATA = {
             "value": 59.44913894448009,
             "unit": "median tps",
             "extra": "avg tps: 78.89940684769921, max tps: 860.1810164931109, count: 55041"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "74dcf036462d119442920a829810c720403fb90a",
+          "message": "fix(joinscan): align memory pool allocation with postgres work_mem semantics (#4413)\n\n# Ticket(s) Closed\n\n- Closes #4355\n\n## What\nInstead of using a single `work_mem` pool for the entire joinscan,\ncompute a scaled memory budget by walking the physical plan and\nallocating `work_mem` per operator per partition , matching how Postgres\nactually applies `work_mem`.\n\n## Why\nPreviously `work_mem` was treated as a total budget shared across all\noperators in the joinscan. Postgres applies `work_mem` independently to\neach memory-consuming operation, so a query with multiple hash joins or\nsorts should get `N × work_mem` total, not a single shared `work_mem`.\n\n## How\n- Added `estimate_plan_memory()` which walks the physical plan using\n`.apply()` and computes the total budget as:\n- `SortExec` / `SortMergeJoinExec` → `work_mem × partition_count` per\nnode\n- `HashJoinExec` → `work_mem × hash_mem_multiplier × partition_count`\nper node\n- Added `hash_mem_multiplier` field to `JoinScanState`\n- `hash_mem_multiplier` is read directly from `pg_sys` to stay in sync\nwith Postgres config\n- Updated `work_mem` overrides in benchmarks and regression tests to\nreflect new per-op semantics\n\n## Tests\n- Existing `join_execution_limits` regression test still triggers OOM\ncorrectly , the error now reflects the properly scaled limit (`196608`\nbytes instead of `65536`)",
+          "timestamp": "2026-03-18T14:25:55-07:00",
+          "tree_id": "e6992e6886c8062bf119ae0972eb0ccfbdf562fa",
+          "url": "https://github.com/paradedb/paradedb/commit/74dcf036462d119442920a829810c720403fb90a"
+        },
+        "date": 1773870328637,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 126.61695503833357,
+            "unit": "median tps",
+            "extra": "avg tps: 127.23933980568137, max tps: 148.3861161402699, count: 55060"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 449.40760119699587,
+            "unit": "median tps",
+            "extra": "avg tps: 451.8319867346072, max tps: 563.111797005242, count: 55060"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2776.665189675329,
+            "unit": "median tps",
+            "extra": "avg tps: 2768.8995329432532, max tps: 2790.919800842559, count: 55060"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 385.34724908605597,
+            "unit": "median tps",
+            "extra": "avg tps: 390.4457232715853, max tps: 498.2388502241701, count: 55060"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2887.724334538495,
+            "unit": "median tps",
+            "extra": "avg tps: 2894.896766539041, max tps: 2939.323592971663, count: 110120"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 452.3200642273167,
+            "unit": "median tps",
+            "extra": "avg tps: 454.2184912307835, max tps: 563.1059071978221, count: 55060"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1850.4724991037936,
+            "unit": "median tps",
+            "extra": "avg tps: 1842.972717495494, max tps: 1855.1329458432467, count: 55060"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 58.45025808200016,
+            "unit": "median tps",
+            "extra": "avg tps: 94.89900300269309, max tps: 297.61058446091425, count: 55060"
           }
         ]
       }

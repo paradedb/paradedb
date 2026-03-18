@@ -1,7 +1,0 @@
-query-filters:
-  - exclude:
-      id: actions/unpinned-tag
-  - exclude:
-      problem.severity: warning
-  - exclude:
-      problem.severity: recommendation

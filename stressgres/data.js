@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773877264472,
+  "lastUpdate": 1773877273805,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30894,6 +30894,54 @@ window.BENCHMARK_DATA = {
             "value": 5.411562370262537,
             "unit": "median tps",
             "extra": "avg tps: 5.442919404804083, max tps: 7.608895313997906, count: 55975"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e8e944da74dca4c4ee18eb296a2436ac604bc88",
+          "message": "fix(joinscan): align memory pool allocation with postgres work_mem semantics (#4417)\n\n# Description\nBackport of #4413 to `0.22.x`.\n\nCo-authored-by: pantShrey <121197985+pantShrey@users.noreply.github.com>",
+          "timestamp": "2026-03-18T15:50:13-07:00",
+          "tree_id": "7b2efd3ee102636b98893007617d1ab84de3d598",
+          "url": "https://github.com/paradedb/paradedb/commit/9e8e944da74dca4c4ee18eb296a2436ac604bc88"
+        },
+        "date": 1773877266623,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 787.1459813307989,
+            "unit": "median tps",
+            "extra": "avg tps: 724.9081822515608, max tps: 1067.5128941778298, count: 56373"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1284.0726742549296,
+            "unit": "median tps",
+            "extra": "avg tps: 1268.3132217579805, max tps: 1289.441658663892, count: 56373"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1868.2514127262157,
+            "unit": "median tps",
+            "extra": "avg tps: 1818.4046591519234, max tps: 2043.6964457836687, count: 56373"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.1941048318953476,
+            "unit": "median tps",
+            "extra": "avg tps: 5.252814109349535, max tps: 6.65125592838912, count: 56373"
           }
         ]
       }

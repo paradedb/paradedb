@@ -78,7 +78,7 @@ JOIN large_suppliers ls ON lo.supplier_id = ls.id
 WHERE lo.description @@@ 'wireless'
 ORDER BY lo.id
 LIMIT 10;
-ERROR:  JoinScan: Out of memory! Query exceeded work_mem limit of 65536 bytes.
+ERROR:  JoinScan: Out of memory! Query exceeded work_mem limit of 196608 bytes.
 -- Reset work_mem
 RESET work_mem;
 -- =============================================================================
@@ -139,7 +139,7 @@ JOIN mem_test_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-ERROR:  JoinScan: Out of memory! Query exceeded work_mem limit of 65536 bytes.
+ERROR:  JoinScan: Out of memory! Query exceeded work_mem limit of 196608 bytes.
 RESET work_mem;
 -- =============================================================================
 -- TEST 3: Large result set (functional, not performance)

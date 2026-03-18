@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773876331293,
+  "lastUpdate": 1773876340900,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26612,6 +26612,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.39221104217715, max segment_count: 128.0, count: 57543"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e8e944da74dca4c4ee18eb296a2436ac604bc88",
+          "message": "fix(joinscan): align memory pool allocation with postgres work_mem semantics (#4417)\n\n# Description\nBackport of #4413 to `0.22.x`.\n\nCo-authored-by: pantShrey <121197985+pantShrey@users.noreply.github.com>",
+          "timestamp": "2026-03-18T15:50:13-07:00",
+          "tree_id": "7b2efd3ee102636b98893007617d1ab84de3d598",
+          "url": "https://github.com/paradedb/paradedb/commit/9e8e944da74dca4c4ee18eb296a2436ac604bc88"
+        },
+        "date": 1773876332985,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.779864230149016, max cpu: 42.814667, count: 57571"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 233.2300832884612, max mem: 234.8125, count: 57571"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.501722631263842, max cpu: 33.168808, count: 57571"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.1522799022077, max mem: 175.7109375, count: 57571"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34344,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33604.73946952459, max block_count: 36231.0, count: 57571"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.16199128033212, max segment_count: 129.0, count: 57571"
           }
         ]
       }

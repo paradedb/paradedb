@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773876309104,
+  "lastUpdate": 1773876318251,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26516,6 +26516,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.06384567301014, max segment_count: 127.0, count: 57592"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f33a629477b9b31b438b3d7b29d08114c574c411",
+          "message": "fix: Expose `pdb.agg(.., solve_mvcc=bool)` argument in all cases (#4416)\n\n## What\n\nThe `pdb.agg` `solve_mvcc` argument was only exposed on window\nfunctions, but is also helpful on aggregate functions in general.\n\nAdditionally, the new argument had not been included in upgrade scripts,\nand so was not exposed to consumers who had upgraded.\n\n## Why\n\nTo allow for higher performance aggregates in cases where users don't\nneed mvcc accuracy.",
+          "timestamp": "2026-03-18T15:50:16-07:00",
+          "tree_id": "0ee6d546a6f13b79e04c5a3f4788603fca91bcd1",
+          "url": "https://github.com/paradedb/paradedb/commit/f33a629477b9b31b438b3d7b29d08114c574c411"
+        },
+        "date": 1773876310791,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.093404135788425, max cpu: 42.72997, count: 57543"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 233.2848024385025, max mem: 235.03515625, count: 57543"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.56740106317569, max cpu: 33.20158, count: 57543"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.262430446036, max mem: 175.7890625, count: 57543"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33889,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33414.155987696155, max block_count: 35931.0, count: 57543"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.39221104217715, max segment_count: 128.0, count: 57543"
           }
         ]
       }

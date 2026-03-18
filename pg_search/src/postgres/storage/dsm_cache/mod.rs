@@ -45,16 +45,16 @@
 
 mod sql;
 
-use pgrx::pg_sys;
-use stable_deref_trait::StableDeref;
 use crate::api::{HashMap, HashSet};
 use crate::postgres::dsm::DsmSegment;
 use crate::postgres::locks::LWLock;
+use pgrx::pg_sys;
+use stable_deref_trait::StableDeref;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::ops::Deref;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
 use tantivy::directory::OwnedBytes;
 
 // ---------------------------------------------------------------------------
@@ -240,12 +240,7 @@ impl DsmCacheShared {
     ///
     /// # Safety
     /// Caller must hold the LWLock exclusively.
-    unsafe fn insert_slot(
-        &self,
-        key: &DsmCacheKey,
-        handle: pg_sys::dsm_handle,
-        size: u32,
-    ) -> bool {
+    unsafe fn insert_slot(&self, key: &DsmCacheKey, handle: pg_sys::dsm_handle, size: u32) -> bool {
         for slot in self.slot_slice_mut() {
             if slot.key.is_empty() {
                 slot.key = *key;
@@ -274,7 +269,10 @@ impl DsmCacheShared {
     }
 
     /// Remove all matching entries, compacting the array.  Returns removed handles.
-    pub(super) fn remove_matching(&self, predicate: impl Fn(&DsmCacheKey) -> bool) -> Vec<pg_sys::dsm_handle> {
+    pub(super) fn remove_matching(
+        &self,
+        predicate: impl Fn(&DsmCacheKey) -> bool,
+    ) -> Vec<pg_sys::dsm_handle> {
         // Fast path: skip the exclusive lock if the cache is empty.
         let count = unsafe { (*self.header).count.load(Ordering::Acquire) };
         if count == 0 {
@@ -745,4 +743,3 @@ fn resolve_handle(handle: pg_sys::dsm_handle, size: usize) -> Option<DsmSlice> {
         _guard: guard,
     })
 }
-

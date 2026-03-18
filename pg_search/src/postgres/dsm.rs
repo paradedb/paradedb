@@ -36,8 +36,7 @@ impl DsmSegment {
     ///
     /// Returns `None` if the maximum number of DSM segments has been reached.
     pub fn create(size: usize) -> Option<Self> {
-        let seg =
-            unsafe { pg_sys::dsm_create(size, pg_sys::DSM_CREATE_NULL_IF_MAXSEGMENTS as _) };
+        let seg = unsafe { pg_sys::dsm_create(size, pg_sys::DSM_CREATE_NULL_IF_MAXSEGMENTS as _) };
         if seg.is_null() {
             return None;
         }

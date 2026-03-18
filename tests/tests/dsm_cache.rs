@@ -129,7 +129,7 @@ fn dsm_cache_duplicate_insert_is_idempotent() {
 
     format!(
         "SELECT paradedb.pg_test_dsm_cache_insert('{FAKE_OID}'::oid, '{FAKE_SEGMENT}', 0, 256)"
-   )
+    )
     .execute(conn);
     // Insert same key again
     format!(
@@ -140,7 +140,10 @@ fn dsm_cache_duplicate_insert_is_idempotent() {
     let (entries, _, _): (i64, i64, i64) =
         "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn);
 
-    assert_eq!(entries, 1, "duplicate insert should not create a second entry");
+    assert_eq!(
+        entries, 1,
+        "duplicate insert should not create a second entry"
+    );
 }
 
 #[test]
@@ -168,7 +171,10 @@ fn dsm_cache_invalidate_segment() {
         "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn);
 
     assert_eq!(entries, 1, "only one segment should remain");
-    assert_eq!(total_bytes, 256, "only the second segment's bytes should remain");
+    assert_eq!(
+        total_bytes, 256,
+        "only the second segment's bytes should remain"
+    );
 }
 
 #[test]
@@ -187,10 +193,7 @@ fn dsm_cache_invalidate_index() {
     .execute(conn);
 
     // Invalidate the entire index
-    format!(
-        "SELECT paradedb.pg_test_dsm_cache_invalidate_index('{FAKE_OID}'::oid)"
-    )
-    .execute(conn);
+    format!("SELECT paradedb.pg_test_dsm_cache_invalidate_index('{FAKE_OID}'::oid)").execute(conn);
 
     let (entries, _, total_bytes): (i64, i64, i64) =
         "SELECT * FROM paradedb.dsm_cache_stats()".fetch_one(conn);
@@ -299,8 +302,7 @@ fn dsm_cache_drop_index_clears_entries_across_connections() {
 
     // Get the real index OID
     let (index_oid,): (i64,) =
-        "SELECT oid::int8 FROM pg_class WHERE relname = 'test_dsm_drop_idx'"
-            .fetch_one(conn_a);
+        "SELECT oid::int8 FROM pg_class WHERE relname = 'test_dsm_drop_idx'".fetch_one(conn_a);
 
     // Insert fake cache entries under that real index OID
     format!(
@@ -366,14 +368,16 @@ fn dsm_cache_refcount_keeps_mapping_alive_after_invalidation() {
 
     // 4. Connection A releases its reference
     "SELECT paradedb.pg_test_dsm_cache_release()".execute(conn_a);
-    let (readable,): (bool,) =
-        "SELECT paradedb.pg_test_dsm_cache_read_held()".fetch_one(conn_a);
+    let (readable,): (bool,) = "SELECT paradedb.pg_test_dsm_cache_read_held()".fetch_one(conn_a);
     assert!(!readable, "conn_a: should have nothing held after release");
 
     // 5. Connection B can STILL read — its Arc<MappingGuard> keeps the mapping alive
     let (readable,): (bool,) =
         "SELECT paradedb.pg_test_dsm_cache_read_held()".fetch_one(&mut conn_b);
-    assert!(readable, "conn_b: should still be readable after conn_a released");
+    assert!(
+        readable,
+        "conn_b: should still be readable after conn_a released"
+    );
 
     // 6. Connection B releases — last reference, dsm_detach fires
     "SELECT paradedb.pg_test_dsm_cache_release()".execute(&mut conn_b);

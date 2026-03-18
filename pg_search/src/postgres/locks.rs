@@ -121,7 +121,10 @@ impl LWLock {
         unsafe {
             pg_sys::LWLockAcquire(self.lock, pg_sys::LWLockMode::LW_SHARED);
         }
-        LWLockGuard { lock: self.lock, _marker: PhantomData }
+        LWLockGuard {
+            lock: self.lock,
+            _marker: PhantomData,
+        }
     }
 
     /// Acquire the lock in exclusive (write) mode.
@@ -130,7 +133,10 @@ impl LWLock {
         unsafe {
             pg_sys::LWLockAcquire(self.lock, pg_sys::LWLockMode::LW_EXCLUSIVE);
         }
-        LWLockGuard { lock: self.lock, _marker: PhantomData }
+        LWLockGuard {
+            lock: self.lock,
+            _marker: PhantomData,
+        }
     }
 }
 

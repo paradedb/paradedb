@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773875391060,
+  "lastUpdate": 1773875402116,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6326,6 +6326,78 @@ window.BENCHMARK_DATA = {
             "value": 36.32486396131169,
             "unit": "median tps",
             "extra": "avg tps: 51.05806755149257, max tps: 255.6229496425113, count: 55099"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f33a629477b9b31b438b3d7b29d08114c574c411",
+          "message": "fix: Expose `pdb.agg(.., solve_mvcc=bool)` argument in all cases (#4416)\n\n## What\n\nThe `pdb.agg` `solve_mvcc` argument was only exposed on window\nfunctions, but is also helpful on aggregate functions in general.\n\nAdditionally, the new argument had not been included in upgrade scripts,\nand so was not exposed to consumers who had upgraded.\n\n## Why\n\nTo allow for higher performance aggregates in cases where users don't\nneed mvcc accuracy.",
+          "timestamp": "2026-03-18T15:50:16-07:00",
+          "tree_id": "0ee6d546a6f13b79e04c5a3f4788603fca91bcd1",
+          "url": "https://github.com/paradedb/paradedb/commit/f33a629477b9b31b438b3d7b29d08114c574c411"
+        },
+        "date": 1773875384916,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 130.51844100333483,
+            "unit": "median tps",
+            "extra": "avg tps: 131.0737505495415, max tps: 145.80962237248897, count: 55048"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 433.03462477556747,
+            "unit": "median tps",
+            "extra": "avg tps: 435.3036164384374, max tps: 532.3363647284255, count: 55048"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2847.164767728179,
+            "unit": "median tps",
+            "extra": "avg tps: 2833.272479469502, max tps: 2869.7918058484815, count: 55048"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 381.01032948919226,
+            "unit": "median tps",
+            "extra": "avg tps: 388.6064437676845, max tps: 460.03686078206795, count: 55048"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2997.9783969238456,
+            "unit": "median tps",
+            "extra": "avg tps: 3030.036628620485, max tps: 3135.0121551787206, count: 110096"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 448.72016851084476,
+            "unit": "median tps",
+            "extra": "avg tps: 450.2852091527865, max tps: 518.4555047255895, count: 55048"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1959.9653178663395,
+            "unit": "median tps",
+            "extra": "avg tps: 1949.3388866772032, max tps: 1967.0051912522508, count: 55048"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 117.03681019957634,
+            "unit": "median tps",
+            "extra": "avg tps: 126.7288708222753, max tps: 871.8198192543151, count: 55048"
           }
         ]
       }

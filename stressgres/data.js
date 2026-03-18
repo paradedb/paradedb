@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773871279123,
+  "lastUpdate": 1773871288937,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26012,6 +26012,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.2135268876739, max segment_count: 133.0, count: 57796"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "74dcf036462d119442920a829810c720403fb90a",
+          "message": "fix(joinscan): align memory pool allocation with postgres work_mem semantics (#4413)\n\n# Ticket(s) Closed\n\n- Closes #4355\n\n## What\nInstead of using a single `work_mem` pool for the entire joinscan,\ncompute a scaled memory budget by walking the physical plan and\nallocating `work_mem` per operator per partition , matching how Postgres\nactually applies `work_mem`.\n\n## Why\nPreviously `work_mem` was treated as a total budget shared across all\noperators in the joinscan. Postgres applies `work_mem` independently to\neach memory-consuming operation, so a query with multiple hash joins or\nsorts should get `N × work_mem` total, not a single shared `work_mem`.\n\n## How\n- Added `estimate_plan_memory()` which walks the physical plan using\n`.apply()` and computes the total budget as:\n- `SortExec` / `SortMergeJoinExec` → `work_mem × partition_count` per\nnode\n- `HashJoinExec` → `work_mem × hash_mem_multiplier × partition_count`\nper node\n- Added `hash_mem_multiplier` field to `JoinScanState`\n- `hash_mem_multiplier` is read directly from `pg_sys` to stay in sync\nwith Postgres config\n- Updated `work_mem` overrides in benchmarks and regression tests to\nreflect new per-op semantics\n\n## Tests\n- Existing `join_execution_limits` regression test still triggers OOM\ncorrectly , the error now reflects the properly scaled limit (`196608`\nbytes instead of `65536`)",
+          "timestamp": "2026-03-18T14:25:55-07:00",
+          "tree_id": "e6992e6886c8062bf119ae0972eb0ccfbdf562fa",
+          "url": "https://github.com/paradedb/paradedb/commit/74dcf036462d119442920a829810c720403fb90a"
+        },
+        "date": 1773871280896,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.08449856932802, max cpu: 42.899704, count: 57592"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 233.16564135969406, max mem: 234.75390625, count: 57592"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.482519608840022, max cpu: 33.366436, count: 57592"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 174.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 175.0551952473868, max mem: 175.83984375, count: 57592"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34246,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33489.42274968746, max block_count: 35967.0, count: 57592"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.06384567301014, max segment_count: 127.0, count: 57592"
           }
         ]
       }

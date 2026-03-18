@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773798001338,
+  "lastUpdate": 1773858432363,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6110,6 +6110,78 @@ window.BENCHMARK_DATA = {
             "value": 58.937072553549285,
             "unit": "median tps",
             "extra": "avg tps: 65.5614047212743, max tps: 454.9983847557341, count: 55142"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4fd0a655e1faf7dd437d860caea1d78e6ba0b2e2",
+          "message": "fix: Clear partial_pathlist for forced parallel custom scan paths (#4414)\n\n## Summary\n\n- Fixes `pdb.score()` panic (`ERROR: Unsupported query shape / CONTEXT:\nparallel worker`) when the planner chooses a native Parallel Index Scan\non the BM25 index over ParadeDB's Parallel Custom Scan\n- The bug: `add_path()` in `hook.rs` cleared `rel->pathlist` for forced\npaths but not `rel->partial_pathlist`, so PostgreSQL's native Parallel\nIndex Scan remained as a competing partial path and could win the cost\ncomparison\n- The fix: when a path is forced, clear both `pathlist` and\n`partial_pathlist` before adding our custom path\n\n## Reproduction\n\nDerived from the user scenario in\nhttps://github.com/orgs/paradedb/discussions/3678#discussioncomment-16184504\n— `pdb.ngram` field + heap filter on non-indexed column (`end_date IS\nNULL`) + `paradedb.score()` + parallel workers + ~300K rows. The\nregression test (`issue_3678.sql`) reproduces this deterministically.\n\nWithout the fix:\n- Test 1 (EXPLAIN) shows `Parallel Index Scan` instead of `Parallel\nCustom Scan`\n- Test 2 (execution) fails with:\n```\nERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678\nCONTEXT:  parallel worker\n```\n\nFixes https://github.com/orgs/paradedb/discussions/3678",
+          "timestamp": "2026-03-18T23:37:09+05:30",
+          "tree_id": "1ee8f1d14a59eee75736e5b792eaa889ff3e3713",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd0a655e1faf7dd437d860caea1d78e6ba0b2e2"
+        },
+        "date": 1773858424766,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.17166841050638,
+            "unit": "median tps",
+            "extra": "avg tps: 129.16100838390477, max tps: 147.58713146476362, count: 55041"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 443.7863208250109,
+            "unit": "median tps",
+            "extra": "avg tps: 442.02855049479314, max tps: 549.4970705166385, count: 55041"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2953.984310566166,
+            "unit": "median tps",
+            "extra": "avg tps: 2941.854671787657, max tps: 2962.886574968886, count: 55041"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 399.72824430271277,
+            "unit": "median tps",
+            "extra": "avg tps: 397.1142854047139, max tps: 475.0686355411198, count: 55041"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3059.146510129986,
+            "unit": "median tps",
+            "extra": "avg tps: 3074.3636405245857, max tps: 3145.024753304637, count: 110082"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 438.57495529881896,
+            "unit": "median tps",
+            "extra": "avg tps: 436.844043280736, max tps: 598.1427300145216, count: 55041"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1853.1678562522075,
+            "unit": "median tps",
+            "extra": "avg tps: 1843.7469844133159, max tps: 1906.0206805016876, count: 55041"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 59.44913894448009,
+            "unit": "median tps",
+            "extra": "avg tps: 78.89940684769921, max tps: 860.1810164931109, count: 55041"
           }
         ]
       }

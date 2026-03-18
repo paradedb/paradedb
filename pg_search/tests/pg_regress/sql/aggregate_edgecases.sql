@@ -104,3 +104,40 @@ ORDER BY id
 LIMIT 1;
 
 DROP TABLE delete_agg_test;
+
+-- =====================================================================
+-- SECTION 3: MVCC Visibility Settings
+-- =====================================================================
+
+CREATE TABLE mvcc_agg_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT
+);
+
+CREATE INDEX mvcc_agg_test_idx ON mvcc_agg_test
+USING bm25 (id, category)
+WITH (
+    key_field = 'id',
+    text_fields = '{"category": {"fast": true}}'
+);
+
+INSERT INTO mvcc_agg_test (category) VALUES ('A'), ('B'), ('A');
+
+-- Test solve_mvcc=false in standard aggregate
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"value_count": {"field": "category"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+
+-- Test solve_mvcc=false with GROUP BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
+SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false) FROM mvcc_agg_test WHERE id @@@ paradedb.all() GROUP BY category ORDER BY category;
+
+-- Test conflicting MVCC settings (should error)
+SELECT
+    pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false),
+    pdb.agg('{"value_count": {"field": "category"}}'::jsonb, true)
+FROM mvcc_agg_test WHERE id @@@ paradedb.all();
+
+DROP TABLE mvcc_agg_test;
+

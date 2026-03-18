@@ -75,7 +75,7 @@ LIMIT 3;
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (19 rows)
 
 SELECT f.id, f.title
@@ -123,7 +123,7 @@ LIMIT 3;
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (19 rows)
 
 SELECT f.id, f.title
@@ -169,7 +169,7 @@ LIMIT 3;
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=50, rows_scanned=100]
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=50, rows_scanned=100]
 (17 rows)
 
 -- =============================================================================
@@ -436,7 +436,7 @@ LIMIT 5;
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title, id@3 as id]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (19 rows)
 
 SELECT f.id, f.title
@@ -504,7 +504,7 @@ LIMIT 5;
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title, content@3 as content]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (19 rows)
 
 SELECT f.id, f.title, f.content
@@ -681,7 +681,7 @@ LIMIT 5;
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=25.52 K, output_bytes=966.1 KB, output_batches=4]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=24.48 K, rows_scanned=50.00 K]
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=24.48 K, rows_scanned=50.00 K]
 (17 rows)
 
 SELECT f.id, f.title

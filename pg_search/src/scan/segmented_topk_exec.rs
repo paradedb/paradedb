@@ -104,8 +104,6 @@ use std::sync::Arc;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
-
-
 #[derive(Clone, Debug)]
 pub struct DeferredSortColumn {
     pub sort_col_idx: usize,
@@ -480,8 +478,6 @@ impl SegmentedTopKState {
             }
         }
 
-
-
         // Update the dynamic filter with the global threshold (materialized strings).
         // This is pushed down through DataFusion's standard filter pushdown to the
         // scanner, where `try_rewrite_binary` translates it to per-segment ordinals.
@@ -657,7 +653,6 @@ impl SegmentedTopKState {
 
         Ok(global_term_ords)
     }
-
 
     /// Build a chained lexicographic filter expression from threshold values.
     ///

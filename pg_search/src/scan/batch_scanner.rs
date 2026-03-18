@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-
 use crate::index::fast_fields_helper::{
     build_arrow_schema, ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, WhichFastField,
 };
@@ -204,8 +203,6 @@ impl Scanner {
         self.batch_size = size.min(MAX_BATCH_SIZE);
     }
 
-
-
     /// Returns the estimated number of rows that will be produced by this scanner.
     pub fn estimated_rows(&self) -> u64 {
         self.search_results.estimated_doc_count()
@@ -279,10 +276,22 @@ impl Scanner {
                     break;
                 }
                 for &ff_index in &pre_filter.required_columns {
-                    ensure_column_fetched(&mut memoized_columns, ffhelper, segment_ord, ff_index, &ids);
+                    ensure_column_fetched(
+                        &mut memoized_columns,
+                        ffhelper,
+                        segment_ord,
+                        ff_index,
+                        &ids,
+                    );
                 }
                 let mask = pre_filter
-                    .apply_arrow(ffhelper, segment_ord, &memoized_columns, pre_filters.schema, ids.len())
+                    .apply_arrow(
+                        ffhelper,
+                        segment_ord,
+                        &memoized_columns,
+                        pre_filters.schema,
+                        ids.len(),
+                    )
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
                 compact_with_mask(&mut ids, &mut scores, &mut memoized_columns, &mask);
             }

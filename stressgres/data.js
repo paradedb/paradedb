@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773889013633,
+  "lastUpdate": 1773889934904,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32634,6 +32634,54 @@ window.BENCHMARK_DATA = {
             "value": 5.31997157495142,
             "unit": "median tps",
             "extra": "avg tps: 5.336609555207275, max tps: 6.338995294348268, count: 56462"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42e3ae0a334196164cda90ea05890554e8caafcf",
+          "message": "fix: Bound Tantivy datetime conversions in proptests. (#4423)\n\n# Description\nBackport of #4410 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-18T19:21:48-07:00",
+          "tree_id": "7e506d567e376a5f49eb967aef2517bbbe95a87b",
+          "url": "https://github.com/paradedb/paradedb/commit/42e3ae0a334196164cda90ea05890554e8caafcf"
+        },
+        "date": 1773889926544,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1131.50020866857,
+            "unit": "median tps",
+            "extra": "avg tps: 1135.053910276229, max tps: 1193.3869183282086, count: 56039"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1214.0324623925926,
+            "unit": "median tps",
+            "extra": "avg tps: 1209.406099152562, max tps: 1235.511408240872, count: 56039"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1942.9600692046604,
+            "unit": "median tps",
+            "extra": "avg tps: 1910.3971417663997, max tps: 2096.8688608197094, count: 56039"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.368885453928296,
+            "unit": "median tps",
+            "extra": "avg tps: 5.384291543963863, max tps: 7.230239214561182, count: 56039"
           }
         ]
       }

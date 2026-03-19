@@ -263,6 +263,40 @@ LIMIT 10;
 (2 rows)
 
 -- =============================================================================
+-- TEST 5: ORDER BY a score function alias on a specific relation
+-- =============================================================================
+-- This query reproduces an issue where sorting by a score function
+-- on a specific relation (p.id) would fail with a SchemaError if the
+-- score was incorrectly resolved against the ordering side (or another relation)
+-- due to losing the Range Table Index (RTI) during planning.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    p.name,
+    paradedb.score(p.id) as relevance
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE
+    p.description @@@ 'wireless'
+    AND s.contact_info @@@ 'technology'
+ORDER BY
+    relevance DESC
+LIMIT 10;
+ERROR:  Failed to create execution plan: SchemaError(FieldNotFound { field: Column { relation: Some(Bare { table: "s_0" }), name: "score" }, valid_fields: [Column { relation: Some(Bare { table: "s_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "p_1" }), name: "score" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }] }, Some(""))
+SELECT
+    p.id,
+    p.name,
+    paradedb.score(p.id) as relevance
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE
+    p.description @@@ 'wireless'
+    AND s.contact_info @@@ 'technology'
+ORDER BY
+    relevance DESC
+LIMIT 10;
+ERROR:  Failed to create execution plan: SchemaError(FieldNotFound { field: Column { relation: Some(Bare { table: "s_0" }), name: "score" }, valid_fields: [Column { relation: Some(Bare { table: "s_0" }), name: "ctid_0" }, Column { relation: Some(Bare { table: "p_1" }), name: "score" }, Column { relation: Some(Bare { table: "p_1" }), name: "ctid_1" }] }, Some(""))
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS products CASCADE;

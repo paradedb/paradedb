@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773889934904,
+  "lastUpdate": 1773889944700,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42166,6 +42166,108 @@ window.BENCHMARK_DATA = {
             "value": 162.66796875,
             "unit": "median mem",
             "extra": "avg mem: 181.4395095788982, max mem: 221.00390625, count: 56462"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42e3ae0a334196164cda90ea05890554e8caafcf",
+          "message": "fix: Bound Tantivy datetime conversions in proptests. (#4423)\n\n# Description\nBackport of #4410 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-18T19:21:48-07:00",
+          "tree_id": "7e506d567e376a5f49eb967aef2517bbbe95a87b",
+          "url": "https://github.com/paradedb/paradedb/commit/42e3ae0a334196164cda90ea05890554e8caafcf"
+        },
+        "date": 1773889936601,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07964096432841414, max background_merging: 2.0, count: 56039"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.781100812746643, max cpu: 9.504951, count: 56039"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.22979783052874, max mem: 26.30078125, count: 56039"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.946394540024542, max cpu: 28.042841, count: 56039"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 186.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 182.67792373112923, max mem: 186.5703125, count: 56039"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51462,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51320.75156587377, max block_count: 51462.0, count: 56039"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.85426221024643, max segment_count: 56.0, count: 56039"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.740199885681388, max cpu: 23.692005, count: 56039"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 166.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 149.7282313991149, max mem: 172.6875, count: 56039"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7746184387969235, max cpu: 9.504951, count: 56039"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 164.23271063176983, max mem: 168.5859375, count: 56039"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.758214632505695, max cpu: 33.83686, count: 56039"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 181.73987681848803, max mem: 221.05078125, count: 56039"
           }
         ]
       }

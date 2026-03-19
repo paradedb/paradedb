@@ -84,10 +84,10 @@ Under the hood, the BM25 index is built on an [LSM tree](https://docs.paradedb.c
 CREATE INDEX idx ON docs USING bm25 (id, title, body, rating) WITH (key_field='id');
 
 -- Search with BM25 scoring
-SELECT title, pdb.score(id) FROM docs WHERE body ||| 'search ranking' ORDER BY score DESC LIMIT 10;
+SELECT title, pdb.score(id) AS score FROM docs WHERE body ||| 'search ranking' ORDER BY score DESC LIMIT 10;
 
 -- Fuzzy search
-SELECT title FROM docs WHERE title ||| 'postgras~1';
+SELECT title FROM docs WHERE title ||| 'postgras'::pdb.fuzzy(1);
 
 -- Faceted aggregation alongside results
 SELECT title, pdb.agg('{"terms": {"field": "rating"}}') OVER () FROM docs WHERE body ||| 'search';
@@ -103,7 +103,7 @@ BM25 relevance ranking, phrase matching, fuzzy search with typo tolerance, regex
 
 ```sql
 -- Fuzzy search with typo tolerance
-SELECT title FROM docs WHERE title ||| 'postgras~1';
+SELECT title FROM docs WHERE title ||| 'postgras'::pdb.fuzzy(1);
 
 -- Phrase matching
 SELECT title FROM docs WHERE title ||| '"full-text search"';

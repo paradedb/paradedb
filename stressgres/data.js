@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773879478043,
+  "lastUpdate": 1773880002339,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21778,6 +21778,42 @@ window.BENCHMARK_DATA = {
             "value": 5.414523592312472,
             "unit": "median tps",
             "extra": "avg tps: 4.8501534012152145, max tps: 6.042086663981483, count: 57787"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "20fc70fcd817d760ae7b90c08b9d52675df629a9",
+          "message": "fix: Expose `pdb.agg(.., solve_mvcc=bool)` argument in all cases (#4419)\n\n# Description\nBackport of #4416 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-18T16:51:49-07:00",
+          "tree_id": "02d55bf0c6d76a491126eaedccefa8d78e17d6d4",
+          "url": "https://github.com/paradedb/paradedb/commit/20fc70fcd817d760ae7b90c08b9d52675df629a9"
+        },
+        "date": 1773879994936,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.743464166204501,
+            "unit": "median tps",
+            "extra": "avg tps: 6.60855298540577, max tps: 9.987462333469, count: 57804"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.423000200937605,
+            "unit": "median tps",
+            "extra": "avg tps: 4.874579400022548, max tps: 6.086559029221632, count: 57804"
           }
         ]
       }

@@ -295,6 +295,8 @@ pub fn date_time_to_ts_nanos(date_time: tantivy::DateTime) -> i64 {
 mod tests {
     use super::*;
 
+    use crate::postgres::datetime::{MAX_SAFE_TANTIVY_NANOS, MIN_SAFE_TANTIVY_NANOS};
+
     use std::sync::Arc;
 
     use crate::postgres::types::TantivyValue;
@@ -364,10 +366,9 @@ mod tests {
             }
         });
     }
-
     #[pg_test]
     fn test_arrow_int64_as_timestamp_to_datum() {
-        proptest!(|(original_nanos in any::<i64>())| {
+        proptest!(|(original_nanos in MIN_SAFE_TANTIVY_NANOS..MAX_SAFE_TANTIVY_NANOS)| {
             let create_ts_array = |v: i64| {
                 let mut builder = Int64Builder::with_capacity(1);
                 builder.append_value(v);
@@ -528,7 +529,7 @@ mod tests {
 
     #[pg_test]
     fn test_arrow_timestamp_to_datum() {
-        proptest!(|(original_nanos in any::<i64>())| {
+        proptest!(|(original_nanos in MIN_SAFE_TANTIVY_NANOS..MAX_SAFE_TANTIVY_NANOS)| {
             let create_ts_array = |v: i64| {
                 let mut builder = TimestampNanosecondBuilder::with_capacity(1);
                 builder.append_value(v);

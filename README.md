@@ -49,7 +49,7 @@ Star and watch this repository to follow along. See our [current projects](https
 
 ## Why ParadeDB?
 
-Postgres is the world's most loved relational database and the heart of most companies' data stacks. Yet, adding modern search and analytics still requires bolting on external systems like Elasticsearch, which introduces ETL pipelines, data sync issues, and operational complexity.
+Postgres is the world's most loved relational database and the heart of many companies' data stacks. Yet, adding modern search and analytics still requires bolting on external systems like Elasticsearch, which introduces ETL pipelines, data sync issues, and operational complexity.
 
 Rather than reinvent the wheel, ParadeDB takes a composable building blocks approach: we assemble best-in-class open-source components into a single Postgres extension. We use [pgrx](https://github.com/pgcentralfoundation/pgrx) to bridge Postgres and Rust, [Tantivy](https://github.com/quickwit-oss/tantivy) to bring state-of-the-art full-text search (a Rust-based alternative to Lucene), and [Apache DataFusion](https://github.com/apache/datafusion) to bring state-of-the-art OLAP processing. The result is Elastic-quality search and analytics that is 100% Postgres native. Run it directly inside your existing Postgres as an extension or as a [sidecar replica cluster](https://cloudnative-pg.io/docs/1.28/replica_cluster/) with native Postgres replication — a pattern already common today for Postgres OLAP workloads.
 

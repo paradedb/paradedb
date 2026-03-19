@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773880002339,
+  "lastUpdate": 1773880011700,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27212,6 +27212,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.89495907384014, max segment_count: 129.0, count: 57787"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "20fc70fcd817d760ae7b90c08b9d52675df629a9",
+          "message": "fix: Expose `pdb.agg(.., solve_mvcc=bool)` argument in all cases (#4419)\n\n# Description\nBackport of #4416 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-18T16:51:49-07:00",
+          "tree_id": "02d55bf0c6d76a491126eaedccefa8d78e17d6d4",
+          "url": "https://github.com/paradedb/paradedb/commit/20fc70fcd817d760ae7b90c08b9d52675df629a9"
+        },
+        "date": 1773880004164,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.021662015501093, max cpu: 42.857143, count: 57804"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 233.1719530520163, max mem: 234.76953125, count: 57804"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.471815549437334, max cpu: 33.333336, count: 57804"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.7157423956387, max mem: 176.44140625, count: 57804"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34166,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33561.926735174035, max block_count: 36161.0, count: 57804"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.14052660715521, max segment_count: 130.0, count: 57804"
           }
         ]
       }

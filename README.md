@@ -194,9 +194,7 @@ Prebuilt binaries available for Debian, Ubuntu, RHEL, and macOS on the [Releases
 
 ## Contributing
 
-We welcome contributions of all sizes! Check out our [good first issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue) to get started, or join [Slack](https://paradedb.com/slack) to connect with the team. See our [Contributing Guide](/CONTRIBUTING.md) for details.
-
-This project is released with a [Contributor Code of Conduct](/CODE_OF_CONDUCT.md). By participating, you agree to follow its terms.
+We welcome contributions of all sizes! Check out our [good first issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue) to get started, or join [Slack](https://paradedb.com/slack) to connect with the team. See our [Contributing Guide](/CONTRIBUTING.md) and [Code of Conduct](/CODE_OF_CONDUCT.md) for details.
 
 ## License
 

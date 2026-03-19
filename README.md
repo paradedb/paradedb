@@ -106,20 +106,6 @@ LIMIT 5;
 
 For full documentation, visit [docs.paradedb.com](https://docs.paradedb.com).
 
-## Features
-
-### Columnar Analytics
-
-Non-text fields are automatically stored in columnar format, enabling fast filtering, sorting, and aggregation pushdown directly into the index.
-
-### Hybrid Search
-
-Combine BM25 full-text search with pgvector similarity search for semantic + keyword hybrid queries.
-
-### JOINs
-
-Search across normalized Postgres tables with `INNER`, `SEMI`, and `ANTI` joins — no denormalization required. More join types coming soon.
-
 ## Integrations
 
 ParadeDB integrates with the tools you already use, with more coming.

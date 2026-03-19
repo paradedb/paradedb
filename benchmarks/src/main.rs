@@ -19,6 +19,7 @@ use clap::Parser;
 use paradedb::median;
 use paradedb::micro_benchmarks::benchmark_columnar;
 use sqlx::{Connection, PgConnection, Row};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -234,7 +235,11 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
             Some(path)
         })
         .collect::<Vec<_>>();
-    query_paths.sort_by_key(|path| benchmark_query_sort_key(path));
+    let query_types = query_paths
+        .iter()
+        .map(|path| benchmark_query_type(path))
+        .collect::<HashSet<_>>();
+    query_paths.sort_by_key(|path| benchmark_query_sort_key(path, &query_types));
 
     let mut results = Vec::new();
     for path in query_paths {
@@ -628,28 +633,31 @@ fn benchmark_query(file: &Path) -> String {
     }
 }
 
-fn benchmark_query_sort_key(file: &Path) -> (String, usize) {
-    let stem = file
-        .file_stem()
-        .unwrap_or_else(|| panic!("Failed to get file stem for `{}`", file.display()))
-        .to_string_lossy();
+fn benchmark_query_sort_key(file: &Path, query_types: &HashSet<String>) -> (String, usize, String) {
+    let query_type = benchmark_query_type(file);
 
-    match stem.rsplit_once("-alternative-") {
-        Some((base, suffix)) => match suffix.parse::<usize>() {
-            Ok(idx) => (base.to_string(), idx),
-            Err(_) => (stem.into_owned(), 0),
-        },
-        None => (stem.into_owned(), 0),
+    let mut base = None;
+    for (idx, _) in query_type.match_indices('-') {
+        let prefix = &query_type[..idx];
+        if query_types.contains(prefix) {
+            base = Some(prefix.to_string());
+        }
+    }
+
+    match base {
+        Some(base) => {
+            let variant = query_type[base.len() + 1..].to_string();
+            (base, 1, variant)
+        }
+        None => (query_type, 0, String::new()),
     }
 }
 
 fn benchmark_query_type(file: &Path) -> String {
-    let (base, idx) = benchmark_query_sort_key(file);
-    if idx == 0 {
-        base
-    } else {
-        format!("{base} - alternative {idx}")
-    }
+    file.file_stem()
+        .unwrap_or_else(|| panic!("Failed to get file stem for `{}`", file.display()))
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn extract_index_name(statement: &str) -> &str {

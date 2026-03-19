@@ -126,28 +126,6 @@ ParadeDB integrates with the tools you already use, with more coming.
 - [DigitalOcean](https://docs.paradedb.com/deploy/cloud-platforms/digitalocean) — droplet deployment
 - More coming (Porter, and others)
 
-## Deployment
-
-<table>
-  <tr>
-    <td><b>Kubernetes</b></td>
-    <td>Helm chart via CloudNativePG</td>
-    <td><a href="https://docs.paradedb.com/deploy/self-hosted/kubernetes">Guide</a></td>
-  </tr>
-  <tr>
-    <td><b>Extension</b></td>
-    <td>Install <code>pg_search</code> into existing Postgres 15+</td>
-    <td><a href="https://docs.paradedb.com/deploy/self-hosted/extension">Guide</a></td>
-  </tr>
-  <tr>
-    <td><b>Logical Replication</b></td>
-    <td>Replicate from RDS, Aurora, Cloud SQL, AlloyDB</td>
-    <td><a href="https://docs.paradedb.com/deploy/logical-replication/getting-started">Guide</a></td>
-  </tr>
-</table>
-
-Prebuilt binaries available for Debian, Ubuntu, RHEL, and macOS on the [Releases](https://github.com/paradedb/paradedb/releases) page.
-
 ## Community & Support
 
 - [Slack](https://paradedb.com/slack) — ask questions, share what you're building

@@ -48,9 +48,7 @@ Star and watch this repository to follow along. See our [current projects](https
 
 ## How It Works
 
-ParadeDB assembles best-in-class open-source components into a single Postgres extension. We use [pgrx](https://github.com/pgcentralfoundation/pgrx) to bridge Postgres and Rust, [Tantivy](https://github.com/quickwit-oss/tantivy) for full-text search, and [Apache DataFusion](https://github.com/apache/datafusion) for OLAP processing. The result is Elastic-quality search and analytics that is 100% Postgres native — install it directly into your existing Postgres or run it as a [sidecar replica cluster](https://cloudnative-pg.io/docs/1.28/replica_cluster/) with native Postgres replication.
-
-For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or [architecture docs](https://docs.paradedb.com/welcome/architecture).
+ParadeDB assembles best-in-class open-source components into a single Postgres extension. We use [pgrx](https://github.com/pgcentralfoundation/pgrx) to bridge Postgres and Rust, [Tantivy](https://github.com/quickwit-oss/tantivy) for full-text search, and [Apache DataFusion](https://github.com/apache/datafusion) for OLAP processing. The result is Elastic-quality search and analytics that is 100% Postgres native. For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or [architecture docs](https://docs.paradedb.com/welcome/architecture).
 
 ```sql
 -- Create a test table with mock data

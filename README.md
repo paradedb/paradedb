@@ -47,6 +47,7 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
   - [x] Bucket & Metrics. [Docs](https://docs.paradedb.com/documentation/full-text/aggregations)
   - [x] Facets. [Docs](https://docs.paradedb.com/documentation/full-text/facets)
 - [x] JOINs. [Docs](https://docs.paradedb.com/documentation/joins/overview)
+- [x] Fast Ingest. [Docs](https://docs.paradedb.com/documentation/performance-tuning/writes)
 - [ ] Vector Search (coming soon)
 - [ ] Hybrid Search (coming soon)
 

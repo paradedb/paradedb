@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773945585351,
+  "lastUpdate": 1773946486440,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -62404,6 +62404,54 @@ window.BENCHMARK_DATA = {
             "value": 499.39581441640354,
             "unit": "median tps",
             "extra": "avg tps: 439.5473950999911, max tps: 683.3267727969051, count: 107808"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9",
+          "message": "fix: Track the rti of the score-providing relation for an ORDER BY (#4426)\n\n## What\n\nFix tracking of the providing-rti of the `pdb.score()` function, and\nremove the concept of the \"ordering side\".\n\n## Why\n\nA query failure was exposed in #4411 which had to do with losing track\nof which relation was providing the score for `pdb.score()`.\n\n## Tests\n\nAdded and fixed a repro.",
+          "timestamp": "2026-03-19T10:33:02-07:00",
+          "tree_id": "73766fc7c3e49387b97fdde1a78732ade46c582d",
+          "url": "https://github.com/paradedb/paradedb/commit/e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9"
+        },
+        "date": 1773946478367,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 505.50563808510475,
+            "unit": "median tps",
+            "extra": "avg tps: 505.94246104154837, max tps: 647.2037051549182, count: 53897"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 544.9610064391535,
+            "unit": "median tps",
+            "extra": "avg tps: 545.9651073685758, max tps: 728.0303818726842, count: 53897"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.91340199409443,
+            "unit": "median tps",
+            "extra": "avg tps: 88.94558689074262, max tps: 95.6610585128772, count: 53897"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 475.5732300655885,
+            "unit": "median tps",
+            "extra": "avg tps: 433.1751642254476, max tps: 667.1247047261311, count: 107794"
           }
         ]
       }

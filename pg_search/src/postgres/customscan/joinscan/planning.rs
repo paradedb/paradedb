@@ -32,7 +32,6 @@ use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
-use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
@@ -997,54 +996,32 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
     true
 }
 
-/// Extract ORDER BY score pathkey for the ordering side.
-///
-/// This checks if the query has an ORDER BY clause with paradedb.score()
-/// referencing the ordering side relation. If found, returns the OrderByStyle
-/// that can be used to declare pathkeys on the CustomPath, eliminating the
-/// need for PostgreSQL to add a separate Sort node.
-///
-/// Returns None if:
-/// - No ORDER BY clause exists
-/// - ORDER BY doesn't use paradedb.score()
-/// - Score function references a different relation
-pub(super) unsafe fn extract_score_pathkey(
+/// Check if any pathkey (ORDER BY clause) uses paradedb.score() referencing a specific relation.
+pub(super) unsafe fn pathkey_uses_scores_from_source(
     root: *mut pg_sys::PlannerInfo,
-    ordering_side: &JoinSource,
-) -> Option<OrderByStyle> {
+    source: &JoinSource,
+) -> bool {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
-        return None;
+        return false;
     }
 
-    let pathkey_ptr = pathkeys.iter_ptr().next()?;
-    let pathkey = pathkey_ptr;
-    let equivclass = (*pathkey).pk_eclass;
-    let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+    for pathkey_ptr in pathkeys.iter_ptr() {
+        let pathkey = pathkey_ptr;
+        let equivclass = (*pathkey).pk_eclass;
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
-    for member in members.iter_ptr() {
-        let expr = (*member).em_expr;
+        for member in members.iter_ptr() {
+            let expr = (*member).em_expr;
+            let check_expr = strip_wrappers(expr.cast()).cast::<pg_sys::Expr>();
 
-        if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
-            if !phv.is_null() && !(*phv).phexpr.is_null() {
-                if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
-                    if is_score_func_recursive(funcexpr.cast(), ordering_side) {
-                        return Some(OrderByStyle::Score {
-                            pathkey,
-                            rti: ordering_side.scan_info.heap_rti,
-                        });
-                    }
-                }
+            if is_score_func_recursive(check_expr, source) {
+                return true;
             }
-        } else if is_score_func_recursive(expr.cast(), ordering_side) {
-            return Some(OrderByStyle::Score {
-                pathkey,
-                rti: ordering_side.scan_info.heap_rti,
-            });
         }
     }
 
-    None
+    false
 }
 
 /// Recursively peels `RelabelType` and `PlaceHolderVar` wrappers to get the underlying node.

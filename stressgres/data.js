@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773960236472,
+  "lastUpdate": 1773964728715,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6902,6 +6902,78 @@ window.BENCHMARK_DATA = {
             "value": 75.17802557405406,
             "unit": "median tps",
             "extra": "avg tps: 92.05219742632866, max tps: 877.4954874794557, count: 55186"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b20263cd4af395f65592d9d416ad88f2ee96c8c",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4431)\n\n## What\n\nForce the \"preserved\" side of a semi/anti join to be partitioned, even\nif is smaller than the non-preserved side(s).\n\n## Why\n\nCurrently, when the joinscan would not be able to use optimal\npartitioning for a semi/anti join, it refuses to run, with:\n> JoinScan not used: SEMI JOIN requires the left side to be the largest\nsource\n\nThis is reasonable, but the problem is that this is based on estimates\nthat change based on the data distribution and WHERE clause selectivity,\nrather than based on the shape of the query itself. That means that if\nyou've written a query that uses `pdb.score` and tested it on a\nparticular set of data, it might begin failing (with an \"Unsupported\nquery shape\" error) on a different set of data.\n\n## How\n\nAdd and use `with_forced_partitioning`.",
+          "timestamp": "2026-03-19T16:38:58-07:00",
+          "tree_id": "8f11d6e8f3fe6b167b131a7034a277d147015767",
+          "url": "https://github.com/paradedb/paradedb/commit/0b20263cd4af395f65592d9d416ad88f2ee96c8c"
+        },
+        "date": 1773964719725,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 132.42050194449283,
+            "unit": "median tps",
+            "extra": "avg tps: 132.50032919342857, max tps: 147.04211776086726, count: 54951"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 408.47621735804773,
+            "unit": "median tps",
+            "extra": "avg tps: 411.3525510628401, max tps: 561.7162829099038, count: 54951"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2849.1769830852177,
+            "unit": "median tps",
+            "extra": "avg tps: 2838.608906660814, max tps: 2863.810940394195, count: 54951"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 373.55379236073315,
+            "unit": "median tps",
+            "extra": "avg tps: 376.58930034361856, max tps: 561.1431698438968, count: 54951"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2977.847370476769,
+            "unit": "median tps",
+            "extra": "avg tps: 2979.24757102684, max tps: 3043.163417080902, count: 109902"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 404.73669394079474,
+            "unit": "median tps",
+            "extra": "avg tps: 408.2425972576204, max tps: 523.5363858066612, count: 54951"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1878.395961464544,
+            "unit": "median tps",
+            "extra": "avg tps: 1870.6459920023547, max tps: 1884.5468210436795, count: 54951"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 47.422938433632275,
+            "unit": "median tps",
+            "extra": "avg tps: 85.12480534628519, max tps: 357.72202613755604, count: 54951"
           }
         ]
       }

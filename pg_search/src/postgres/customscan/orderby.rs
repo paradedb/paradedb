@@ -140,35 +140,39 @@ unsafe fn extract_any_var_from_expr(node: *mut pg_sys::Node) -> Option<*mut pg_s
     if node.is_null() {
         return None;
     }
-    if let Some(var) = nodecast!(Var, T_Var, node) {
-        return Some(var);
-    }
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-        for arg in args.iter_ptr() {
-            if let Some(var) = extract_any_var_from_expr(arg) {
-                return Some(var);
-            }
+    match (*node).type_ {
+        pg_sys::NodeTag::T_Var => Some(node as *mut pg_sys::Var),
+        pg_sys::NodeTag::T_FuncExpr => {
+            let args = PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::FuncExpr)).args);
+            let result = args
+                .iter_ptr()
+                .find_map(|arg| extract_any_var_from_expr(arg));
+            result
         }
-    }
-    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
-        return extract_any_var_from_expr((*relabel).arg as *mut pg_sys::Node);
-    }
-    if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, node) {
-        let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-        for arg in args.iter_ptr() {
-            if let Some(var) = extract_any_var_from_expr(arg) {
-                return Some(var);
-            }
+        pg_sys::NodeTag::T_OpExpr => {
+            let args = PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::OpExpr)).args);
+            let result = args
+                .iter_ptr()
+                .find_map(|arg| extract_any_var_from_expr(arg));
+            result
         }
+        pg_sys::NodeTag::T_RelabelType => {
+            extract_any_var_from_expr((*(node as *mut pg_sys::RelabelType)).arg.cast())
+        }
+        pg_sys::NodeTag::T_CoerceViaIO => {
+            extract_any_var_from_expr((*(node as *mut pg_sys::CoerceViaIO)).arg.cast())
+        }
+        pg_sys::NodeTag::T_CoerceToDomain => {
+            extract_any_var_from_expr((*(node as *mut pg_sys::CoerceToDomain)).arg.cast())
+        }
+        _ => None,
     }
-    if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
-        return extract_any_var_from_expr((*coerce).arg as *mut pg_sys::Node);
-    }
-    if let Some(coerce) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
-        return extract_any_var_from_expr((*coerce).arg as *mut pg_sys::Node);
-    }
-    None
+}
+
+pub struct IndexExpressionInfo<'a> {
+    pub index_expressions: &'a PgList<pg_sys::Expr>,
+    pub schema: &'a SearchIndexSchema,
+    pub heap_rti: pg_sys::Index,
 }
 
 /// Analyzes an ORDER BY expression to determine its type and extract the underlying variable.
@@ -186,9 +190,7 @@ unsafe fn extract_any_var_from_expr(node: *mut pg_sys::Node) -> Option<*mut pg_s
 pub unsafe fn analyze_sort_expression(
     node: *mut pg_sys::Node,
     context: VarContext,
-    index_expressions: Option<&PgList<pg_sys::Expr>>,
-    schema: Option<&SearchIndexSchema>,
-    heap_rti: Option<pg_sys::Index>,
+    index_info: Option<&IndexExpressionInfo>,
 ) -> Option<(SortExpressionType, *mut pg_sys::Var, Option<FieldName>)> {
     if let Some(var) = extract_score_var(node) {
         return Some((SortExpressionType::Score, var, None));
@@ -206,8 +208,13 @@ pub unsafe fn analyze_sort_expression(
 
     // This handles arbitrary expressions like upper(col), trim(col), col1 + col2, etc.
     // that were used when building the BM25 index.
-    if let (Some(idx_exprs), Some(schema), Some(rti)) = (index_expressions, schema, heap_rti) {
-        if let Some(fast_field) = find_matching_fast_field(node, idx_exprs, schema.clone(), rti) {
+    if let Some(info) = index_info {
+        if let Some(fast_field) = find_matching_fast_field(
+            node,
+            info.index_expressions,
+            info.schema.clone(),
+            info.heap_rti,
+        ) {
             let field_name = FieldName::from(fast_field.name());
             if let Some(var) = extract_any_var_from_expr(node) {
                 return Some((SortExpressionType::IndexedExpression, var, Some(field_name)));
@@ -317,12 +324,16 @@ where
                 }
             }
 
+            let index_info = index_expressions.map(|idx_exprs| IndexExpressionInfo {
+                index_expressions: idx_exprs,
+                schema,
+                heap_rti: rti,
+            });
+
             if let Some((sort_type, var, field_name_opt)) = analyze_sort_expression(
                 expr_to_analyze.cast(),
                 VarContext::from_planner(root),
-                index_expressions,
-                Some(schema),
-                Some(rti),
+                index_info.as_ref(),
             ) {
                 // Verify the var belongs to the correct relation (either the relation itself or its parent)
                 if !is_varno_valid_for_relation(root, (*var).varno as pg_sys::Index, rti) {
@@ -427,21 +438,16 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
         let expr = (*te).expr as *mut pg_sys::Node;
 
         // Pass index expressions if we have them (after first sort clause identifies the relation)
-        let (idx_exprs_ref, schema_ref, rti_opt) = match &target_relation_info {
-            Some((_, _, schema, idx_exprs)) => {
-                (Some(idx_exprs), Some(schema), Some(1 as pg_sys::Index))
-            }
-            None => (None, None, None),
-        };
+        let index_info = target_relation_info.as_ref().map(|(_, _, schema, idx_exprs)| IndexExpressionInfo {
+                index_expressions: idx_exprs,
+                schema,
+                heap_rti: 1 as pg_sys::Index,
+            });
 
         // Use analyze_sort_expression to identify the sort key type and underlying variable
-        let Some((sort_type, var, field_name_opt)) = analyze_sort_expression(
-            expr,
-            VarContext::from_query(parse),
-            idx_exprs_ref,
-            schema_ref,
-            rti_opt,
-        ) else {
+        let Some((sort_type, var, field_name_opt)) =
+            analyze_sort_expression(expr, VarContext::from_query(parse), index_info.as_ref())
+        else {
             return false;
         };
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773881432380,
+  "lastUpdate": 1773881441827,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27512,6 +27512,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.14052660715521, max segment_count: 130.0, count: 57804"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b69b80d16d276ca5c975c5cfb6b472103493057d",
+          "message": "refactor(scan): unify threshold pruning under DynamicFilterPhysicalExpr (#4420)\n\n# Description\nBackport of #4375 to `0.22.x`.\n\nCo-authored-by: Rajesh Jha <136908732+rajiknows@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-18T17:15:18-07:00",
+          "tree_id": "84067b03b00fbbb97c6c77e691754e926ffc9d01",
+          "url": "https://github.com/paradedb/paradedb/commit/b69b80d16d276ca5c975c5cfb6b472103493057d"
+        },
+        "date": 1773881434163,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.928391048489193, max cpu: 42.814667, count: 57756"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 233.0712279892998, max mem: 234.6640625, count: 57756"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.602315145455545, max cpu: 33.3996, count: 57756"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.4622343079074, max mem: 176.3828125, count: 57756"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34077,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33482.97465198421, max block_count: 35764.0, count: 57756"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.82226954775261, max segment_count: 127.0, count: 57756"
           }
         ]
       }

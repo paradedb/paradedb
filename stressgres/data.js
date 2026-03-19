@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773956548414,
+  "lastUpdate": 1773957479075,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22978,6 +22978,42 @@ window.BENCHMARK_DATA = {
             "value": 5.335237498587149,
             "unit": "median tps",
             "extra": "avg tps: 4.7930879236043555, max tps: 5.99797520152405, count: 57568"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc3004a0eca73e104b0923460036afcc27322b6d",
+          "message": "fix: Track the rti of the score-providing relation for an ORDER BY (#4429)\n\n# Description\nBackport of #4426 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-19T14:22:26-07:00",
+          "tree_id": "9120b7f530f10d0183281897ccd8549fca4fdde7",
+          "url": "https://github.com/paradedb/paradedb/commit/bc3004a0eca73e104b0923460036afcc27322b6d"
+        },
+        "date": 1773957470133,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.496848187818999,
+            "unit": "median tps",
+            "extra": "avg tps: 6.382886406397734, max tps: 9.740863639823202, count: 57823"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.3318141062064095,
+            "unit": "median tps",
+            "extra": "avg tps: 4.784087901013301, max tps: 5.988866804086791, count: 57823"
           }
         ]
       }

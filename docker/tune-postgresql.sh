@@ -1,4 +1,5 @@
 #!/bin/bash
+
 set -Eeuo pipefail
 
 PGDATA=${PGDATA:-/var/lib/postgresql/data}
@@ -20,22 +21,20 @@ tune_param() {
     chown postgres:postgres "$CONF_FILE" 2>/dev/null || echo "ParadeDB auto-tune: Warning: could not chown $CONF_FILE"
   fi
 
-  # 1. If user provided a Docker env var override, always force overwrite
   if [ -n "$env_override" ]; then
+    # 1. If user provided a Docker env var override, always force overwrite
     if grep -qE "^\s*$param\s*=" "$CONF_FILE"; then
       sed -i "s|^\s*$param\s*=.*|$param = '$env_override'|" "$CONF_FILE"
     else
       echo "$param = '$env_override'" >> "$CONF_FILE"
     fi
     echo "ParadeDB auto-tune: $param = $env_override (via env var)"
-
-  # 2. Otherwise, only tune if parameter is NOT already in file (respect ALTER SYSTEM)
   elif ! grep -qE "^\s*$param\s*=" "$CONF_FILE" 2>/dev/null; then
+    # 2. Otherwise, only tune if parameter is NOT already in file (respect ALTER SYSTEM)
     echo "$param = '$value'" >> "$CONF_FILE"
     echo "ParadeDB auto-tune: $param = $value (auto-tuned)"
-
-  # 3. Parameter already exists and no env override - skip tuning
   else
+    # 3. Parameter already exists and no env override - skip tuning
     echo "ParadeDB auto-tune: $param is already set in $CONF_FILE, skipping auto-tune"
   fi
 }

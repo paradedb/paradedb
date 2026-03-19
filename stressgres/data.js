@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773879469102,
+  "lastUpdate": 1773879478043,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27116,6 +27116,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.16199128033212, max segment_count: 129.0, count: 57571"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "136908732+rajiknows@users.noreply.github.com",
+            "name": "Rajesh Jha",
+            "username": "rajiknows"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3cf8ccdac9482137d915a81206f52ed8ed9d1f47",
+          "message": "refactor(scan): unify threshold pruning under DynamicFilterPhysicalExpr (#4375)\n\nRemove `SegmentedThresholds` per-segment side-channel; rely on the\nglobal threshold pushed via standard filter pushdown instead.\n\n# Ticket(s) Closed\n\n* Closes #4257\n\n## What\n\nRemove the per-segment threshold propagation mechanism\n(`SegmentedThresholds`) that previously passed ordinal bounds from\n`SegmentedTopKExec` to the scan layer. The system now relies solely on\nthe global threshold published through `DynamicFilterPhysicalExpr`,\nwhich is pushed down through the standard DataFusion filter pushdown\npath.\n\nThis simplifies the pruning pipeline and removes redundant threshold\nhandling between the execution and scan layers.\n\n## Why\n\nThe previous design had two parallel pruning mechanisms.\n\n### 1. Per-segment thresholds (side-channel)\n\n`SegmentedTopKExec` published ordinal thresholds through the following\npath:\n\n```\nSegmentedThresholds -> wire_thresholds_to_scan -> PgSearchScanPlan -> Scanner::next()\n```\n\nThis required:\n\n* a custom optimizer tree walk\n* additional plumbing in the execution plan\n* duplicated memoized-column logic in the scanner\n\n### 2. Global threshold (standard path)\n\n`SegmentedTopKExec` also published materialized string literals through:\n\n```\nDynamicFilterPhysicalExpr -> DataFusion filter pushdown -> PgSearchScanPlan -> pre_filter::try_rewrite_binary\n```\n\n`pre_filter::try_rewrite_binary` automatically translates string bounds\ninto segment-local ordinal bounds during scan execution.\n\nBecause this mechanism already performs the necessary conversion at scan\ntime, the explicit per-segment threshold side-channel became redundant.\n\nRemoving the side-channel:\n\n* eliminates duplicated code paths\n* simplifies the execution/scan interface\n* allows future scan-level optimizations (predicate ordering, combined\npruning statistics) to operate on a single unified filter set\n\n## How\n\n### segmented_topk_exec.rs\n\n* Removed the `SegmentedThresholds` mechanism and all per-segment\nthreshold publishing.\n* Removed the per-segment ordinal variant of `build_filter_expression`.\n* Retained the global threshold publication through\n`build_global_filter_expression` and `DynamicFilterPhysicalExpr`.\n\n### segmented_topk_rule.rs\n\n* Removed the optimizer wiring that propagated `SegmentedThresholds` to\nthe scan layer (`wire_thresholds_to_scan`).\n\n### execution_plan.rs\n\n* Removed the execution-plan plumbing used to carry\n`SegmentedThresholds` down to the scan.\n\n### batch_scanner.rs\n\n* Removed the per-segment threshold check in the scanner.\n* Pruning now relies entirely on filter expressions rewritten by\n`pre_filter::try_rewrite_binary`.\n\n## Tests\n\nRegression test expectations were updated.\n\n`EXPLAIN` plan output no longer includes the annotation:\n\n```\nsegmented_thresholds=true\n```\n\nAll pruning behavior is now driven through the standard filter pushdown\npath.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-18T16:42:46-07:00",
+          "tree_id": "e73e098be058dc65539ce4cf1604acf6cfc2c2ac",
+          "url": "https://github.com/paradedb/paradedb/commit/3cf8ccdac9482137d915a81206f52ed8ed9d1f47"
+        },
+        "date": 1773879471007,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.977635366919802, max cpu: 42.899704, count: 57787"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 233.11085044808954, max mem: 234.7421875, count: 57787"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.39056020026469, max cpu: 33.168808, count: 57787"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.29055782172028, max mem: 175.6796875, count: 57787"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34374,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33419.41196116774, max block_count: 35804.0, count: 57787"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.89495907384014, max segment_count: 129.0, count: 57787"
           }
         ]
       }

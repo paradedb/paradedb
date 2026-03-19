@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773942791025,
+  "lastUpdate": 1773943715071,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22738,6 +22738,42 @@ window.BENCHMARK_DATA = {
             "value": 5.334772250979368,
             "unit": "median tps",
             "extra": "avg tps: 4.781345506971641, max tps: 5.984178520947223, count: 57475"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9",
+          "message": "fix: Track the rti of the score-providing relation for an ORDER BY (#4426)\n\n## What\n\nFix tracking of the providing-rti of the `pdb.score()` function, and\nremove the concept of the \"ordering side\".\n\n## Why\n\nA query failure was exposed in #4411 which had to do with losing track\nof which relation was providing the score for `pdb.score()`.\n\n## Tests\n\nAdded and fixed a repro.",
+          "timestamp": "2026-03-19T10:33:02-07:00",
+          "tree_id": "73766fc7c3e49387b97fdde1a78732ade46c582d",
+          "url": "https://github.com/paradedb/paradedb/commit/e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9"
+        },
+        "date": 1773943707039,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.70874656624692,
+            "unit": "median tps",
+            "extra": "avg tps: 6.5924643880146725, max tps: 9.976194827066132, count: 57568"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.335237498587149,
+            "unit": "median tps",
+            "extra": "avg tps: 4.7930879236043555, max tps: 5.99797520152405, count: 57568"
           }
         ]
       }

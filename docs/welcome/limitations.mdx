@@ -14,16 +14,7 @@ If you're working with very large datasets, please [reach out to us](mailto:supp
 
 ## Join Support
 
-ParadeDB supports all PostgreSQL `JOIN`s:
-
-- `INNER JOIN`
-- `LEFT / RIGHT / FULL OUTER JOIN`
-- `CROSS JOIN`
-- `LATERAL`
-- Semi and Anti `JOIN`s
-
-For the most part you can mix search and relational queries without changing your SQL. However, `JOIN`s do incur
-some performance tradeoffs. See the [joins guide](/documentation/joins/overview) for more details.
+ParadeDB supports all PostgreSQL `JOIN` types. As of v0.22.0, ParadeDB includes [join pushdown](/documentation/joins/overview) (beta) for `INNER`, `SEMI`, and `ANTI` joins, which pushes search predicates directly into the index for significantly better performance. Other join types work correctly but fall back to standard Postgres execution. See the [joins guide](/documentation/joins/overview) for more details.
 
 ## Covering Index
 
@@ -37,4 +28,4 @@ However, this means that all columns must be defined up front at index creation 
 A commonly known limitation of Postgres logical replication is that DDL (Data Definition Language) statements are not replicated. This includes operations like `CREATE TABLE` or `CREATE INDEX`.
 
 If ParadeDB is running as a logical replica of a primary Postgres, DDL statements from the primary must be executed manually on the replica.
-We recommend version-controlling your schema changes and applying them in a coordinated, repeatable way — either through a migration tool or deployment automation — to keep source and target databases in sync.
+We recommend version-controlling your schema changes and applying them in a coordinated, repeatable way — either through a migration tool or deployment automation — to keep source and target databases in sync. See the [logical replication guide](/deploy/logical-replication/getting-started) for more details.

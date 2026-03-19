@@ -128,7 +128,7 @@ Highly optimized `ORDER BY ... LIMIT` queries with automatic parallelization acr
 
 ### JOINs
 
-Search across normalized Postgres tables with `INNER`, `LEFT`, `RIGHT`, `FULL`, `CROSS`, and `LATERAL` joins — no denormalization required.
+Search across normalized Postgres tables with `INNER`, `SEMI`, and `ANTI` joins — no denormalization required. More join types coming soon.
 
 ## Integrations
 

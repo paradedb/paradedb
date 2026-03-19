@@ -10,15 +10,16 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 
 ### JOIN Improvements
 
+- **Join pushdown (beta)**. [Join pushdown](/documentation/joins/overview) is available for `INNER`, `SEMI`, and `ANTI` joins, pushing search predicates directly into the index for significantly better performance.
 - **Scoring and highlighting across JOINs**. BM25 score and snippet functions can be used in `JOIN` queries.
 - **Smarter JOIN planning for search indexes**. Apply index-aware optimizations and cost estimation strategies when multiple BM25-indexed tables are joined.
-- **Faster JOIN performance through predicate pushdown**. Search predicates are selectively pushed down to relevant tables based on indexability and selectivity, improving `JOIN` query speed.
+- **More join types for pushdown**. Extending pushdown support to `LEFT`, `RIGHT`, `FULL OUTER`, `CROSS`, and `LATERAL` joins.
 
 ### Ecosystem Integrations
 
 - **ORMs**. Official support for more ORMs, like Prisma and others, is coming. [Django](https://github.com/paradedb/django-paradedb), [Rails](https://github.com/paradedb/rails-paradedb), and [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb) are already available.
 - **AI Frameworks**. Official support for LangChain, LLamaIndex, CrewAI, and others are coming.
-- **PaaS Providers**. Official tutorials for hosting ParadeDB on more platform-as-a-service providers like Porter.run and others is coming. [Railway](/deploy/cloud-platforms/railway), [DigitalOcean](/deploy/cloud-platforms/digitalocean), and [Render](/deploy/cloud-platforms/render) are already available.
+- **PaaS Providers**. Official tutorials for hosting ParadeDB on more platform-as-a-service providers like Porter.run and others is coming. [Railway](/deploy/cloud-platforms/railway), [Render](/deploy/cloud-platforms/render), and [DigitalOcean](/deploy/cloud-platforms/digitalocean) are already available.
 
 ## Long Term
 

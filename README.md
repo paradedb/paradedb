@@ -110,8 +110,8 @@ ParadeDB integrates with the tools you already use, with more coming.
 ### ORMs & Frameworks
 
 - [Django](https://github.com/paradedb/django-paradedb) — native Django ORM integration for ParadeDB queries
-- [Rails](https://github.com/paradedb/rails-paradedb) — Active Record integration for Ruby on Rails
 - [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb) — Python SQLAlchemy support
+- [Rails](https://github.com/paradedb/rails-paradedb) — Active Record integration for Ruby on Rails
 - More coming (Prisma, and others)
 
 ### AI Agents

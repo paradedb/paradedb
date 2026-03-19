@@ -56,7 +56,7 @@ Rather than reinvent the wheel, ParadeDB takes a composable building blocks appr
 For a deeper dive into this architecture, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/).
 
 |                           | **Postgres (tsvector)** | **Elasticsearch** | **ParadeDB** |
-| ------------------------- | :---------------------: | :---------------: | :----------: |
+| :------------------------ | :---------------------: | :---------------: | :----------: |
 | BM25 relevance scoring    |           ❌            |        ✅         |      ✅      |
 | Fuzzy matching            |           ❌            |        ✅         |      ✅      |
 | Faceted aggregations      |           ❌            |        ✅         |      ✅      |

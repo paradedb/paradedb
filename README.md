@@ -54,8 +54,6 @@ Postgres is the world's most loved relational database and the heart of many com
 
 Rather than reinvent the wheel, ParadeDB assembles best-in-class open-source components into a single Postgres extension. We use [pgrx](https://github.com/pgcentralfoundation/pgrx) to bridge Postgres and Rust, [Tantivy](https://github.com/quickwit-oss/tantivy) for full-text search, and [Apache DataFusion](https://github.com/apache/datafusion) for OLAP processing. The result is Elastic-quality search and analytics that is 100% Postgres native — install it directly into your existing Postgres or run it as a [sidecar replica cluster](https://cloudnative-pg.io/docs/1.28/replica_cluster/) with native replication.
 
-For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or consult our [architecture docs](https://docs.paradedb.com/welcome/architecture).
-
 |                           | **Postgres (tsvector)** | **Elasticsearch** | **ParadeDB** |
 | :------------------------ | :---------------------: | :---------------: | :----------: |
 | BM25 relevance scoring    |           ❌            |        ✅         |      ✅      |
@@ -78,7 +76,7 @@ ParadeDB is a Postgres extension — it runs inside your existing database, not 
 2. **Create a BM25 index** on any table. The index is a covering index that stores all indexed columns in both an inverted index (for full-text search) and a columnar index (for fast analytics)
 3. **Query with SQL**. ParadeDB introduces custom operators like `|||` for search. When a query uses these operators, ParadeDB's custom scan takes over — pushing filters, aggregates, and sorting directly into the index for maximum performance
 
-Under the hood, the BM25 index is built on an [LSM tree](https://docs.paradedb.com/welcome/architecture) powered by [Tantivy](https://github.com/quickwit-oss/tantivy) (a Rust-based search library inspired by Lucene). Writes are buffered in memory and flushed as immutable segments, making inserts and updates fast. Reads are automatically parallelized across Postgres workers.
+Under the hood, the BM25 index is built on an [LSM tree](https://docs.paradedb.com/welcome/architecture) powered by [Tantivy](https://github.com/quickwit-oss/tantivy) (a Rust-based search library inspired by Lucene). Writes are buffered in memory and flushed as immutable segments, making inserts and updates fast. Reads are automatically parallelized across Postgres workers. For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or consult our [architecture docs](https://docs.paradedb.com/welcome/architecture).
 
 ```sql
 -- Create an index

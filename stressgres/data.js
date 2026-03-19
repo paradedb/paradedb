@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773882198305,
+  "lastUpdate": 1773882396464,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31938,6 +31938,54 @@ window.BENCHMARK_DATA = {
             "value": 5.159830808177752,
             "unit": "median tps",
             "extra": "avg tps: 5.22131382939875, max tps: 7.68036673075267, count: 56411"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b69b80d16d276ca5c975c5cfb6b472103493057d",
+          "message": "refactor(scan): unify threshold pruning under DynamicFilterPhysicalExpr (#4420)\n\n# Description\nBackport of #4375 to `0.22.x`.\n\nCo-authored-by: Rajesh Jha <136908732+rajiknows@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-18T17:15:18-07:00",
+          "tree_id": "84067b03b00fbbb97c6c77e691754e926ffc9d01",
+          "url": "https://github.com/paradedb/paradedb/commit/b69b80d16d276ca5c975c5cfb6b472103493057d"
+        },
+        "date": 1773882388714,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1085.0171157617103,
+            "unit": "median tps",
+            "extra": "avg tps: 1085.5786006124663, max tps: 1124.4101532388513, count: 56258"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1250.7252519849005,
+            "unit": "median tps",
+            "extra": "avg tps: 1248.5681117040995, max tps: 1274.8342557388091, count: 56258"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1796.8397296801718,
+            "unit": "median tps",
+            "extra": "avg tps: 1773.7416388515878, max tps: 1945.9922020397032, count: 56258"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.315493021968704,
+            "unit": "median tps",
+            "extra": "avg tps: 5.337129979879319, max tps: 7.26088595587821, count: 56258"
           }
         ]
       }

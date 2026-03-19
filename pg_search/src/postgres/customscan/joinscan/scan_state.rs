@@ -547,14 +547,17 @@ fn build_clause_df<'a>(
             let mut sort_exprs = Vec::new();
             for info in &join_clause.order_by {
                 let expr = match &info.feature {
-                    OrderByFeature::Score => {
+                    OrderByFeature::Score { rti } => {
                         if !distinct_col_map.is_empty() {
                             resolve_distinct_col(true, 0, 0, "")
                         } else {
                             join_clause
-                                .ordering_side_index()
-                                .map(|idx| {
-                                    let source = &plan_sources[idx];
+                                .plan
+                                .sources()
+                                .iter()
+                                .enumerate()
+                                .find(|(_, s)| s.scan_info.heap_rti == *rti)
+                                .map(|(idx, source)| {
                                     let alias =
                                         RelationAlias::new(source.scan_info.alias.as_deref())
                                             .execution(idx);
@@ -728,7 +731,7 @@ fn build_source_df<'a>(
                             }
                         }
                     }
-                    OrderByFeature::Score => {
+                    OrderByFeature::Score { .. } => {
                         // Score is not a late-materialized column, skip
                     }
                 }

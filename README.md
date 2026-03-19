@@ -40,10 +40,12 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 - [x] **Real-Time Indexing** — data is searchable the instant it's written, with full ACID guarantees. [Docs](https://docs.paradedb.com/welcome/guarantees)
 - [x] **Faceted Aggregations** — counts, averages, histograms, and more returned alongside search results. [Docs](https://docs.paradedb.com/documentation/aggregates/facets)
 - [x] **Columnar Analytics** — fast filtering, sorting, and aggregates via built-in columnar storage. [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
-- [x] **Hybrid Search** — combine BM25 text search with pgvector similarity search. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
-- [ ] **Vector Search** — performant filtered vector search without pgvector (coming soon)
 - [x] **JOINs** — search across normalized tables without denormalization. [Docs](https://docs.paradedb.com/documentation/joins/overview)
 - [x] **Standard SQL** — no custom DSL, works with every Postgres tool, ORM, and driver
+- [x] **Hybrid Search** — combine BM25 text search with pgvector similarity search. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
+- [ ] **Vector Search** — performant filtered vector search without pgvector (coming soon)
+
+Star and watch this repo to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).
 
 ## How It Works
 

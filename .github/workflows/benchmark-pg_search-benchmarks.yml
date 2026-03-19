@@ -16,7 +16,7 @@ on:
       - "**/*.rs"
       - "**/*.toml"
   pull_request:
-    types: [labeled, synchronize]
+    types: [labeled]
   workflow_dispatch:
     inputs:
       commit:

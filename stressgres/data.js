@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773883312531,
+  "lastUpdate": 1773883936150,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6614,6 +6614,78 @@ window.BENCHMARK_DATA = {
             "value": 34.40924184297954,
             "unit": "median tps",
             "extra": "avg tps: 47.8010544444322, max tps: 347.3295298948842, count: 54639"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f1c5af54c843131187bd7e387a2f3733d6852952",
+          "message": "fix: Bound Tantivy datetime conversions in proptests. (#4410)\n\n## What\n\nBound the range of proptested datetime conversions.\n\n## Why\n\n#4156 tightened the validation of these types.",
+          "timestamp": "2026-03-18T18:12:38-07:00",
+          "tree_id": "9a5874bccafddf881924e7e7a831e66a6a83c1b1",
+          "url": "https://github.com/paradedb/paradedb/commit/f1c5af54c843131187bd7e387a2f3733d6852952"
+        },
+        "date": 1773883928143,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 126.36630496889356,
+            "unit": "median tps",
+            "extra": "avg tps: 126.28555865344319, max tps: 141.50952093329323, count: 55046"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 405.5464095091957,
+            "unit": "median tps",
+            "extra": "avg tps: 404.6377485399517, max tps: 514.7526611318458, count: 55046"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2792.6062000826387,
+            "unit": "median tps",
+            "extra": "avg tps: 2780.298069615062, max tps: 2838.4073224330177, count: 55046"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 372.3502275019022,
+            "unit": "median tps",
+            "extra": "avg tps: 372.79307661255865, max tps: 584.1944554337913, count: 55046"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2934.2421344743584,
+            "unit": "median tps",
+            "extra": "avg tps: 2988.5068202529746, max tps: 3087.2625553212665, count: 110092"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 444.08948679296293,
+            "unit": "median tps",
+            "extra": "avg tps: 443.916435827857, max tps: 536.6655253579827, count: 55046"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1930.283645783892,
+            "unit": "median tps",
+            "extra": "avg tps: 1917.5055515943761, max tps: 1939.6507684066437, count: 55046"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 47.92248271588322,
+            "unit": "median tps",
+            "extra": "avg tps: 81.40358526057875, max tps: 294.6922536162792, count: 55046"
           }
         ]
       }

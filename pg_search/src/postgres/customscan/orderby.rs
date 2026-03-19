@@ -438,9 +438,13 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
         let expr = (*te).expr as *mut pg_sys::Node;
 
         // Pass index expressions if we have them (after first sort clause identifies the relation)
-        let index_info = target_relation_info.as_ref().map(|(_, _, schema, idx_exprs)| IndexExpressionInfo {
+        let index_info = target_relation_info
+            .as_ref()
+            .map(|(_, _, schema, idx_exprs)| IndexExpressionInfo {
                 index_expressions: idx_exprs,
                 schema,
+                // TODO: heap_rti should use the actual varno from target_relation_info
+                // rather than hardcoded 1. Only matters for the #3455 window function path.
                 heap_rti: 1 as pg_sys::Index,
             });
 

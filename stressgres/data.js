@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773885822799,
+  "lastUpdate": 1773886713924,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -46730,6 +46730,60 @@ window.BENCHMARK_DATA = {
             "value": 16.118527250064027,
             "unit": "median tps",
             "extra": "avg tps: 15.987277109918798, max tps: 19.427987589790085, count: 55452"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f1c5af54c843131187bd7e387a2f3733d6852952",
+          "message": "fix: Bound Tantivy datetime conversions in proptests. (#4410)\n\n## What\n\nBound the range of proptested datetime conversions.\n\n## Why\n\n#4156 tightened the validation of these types.",
+          "timestamp": "2026-03-18T18:12:38-07:00",
+          "tree_id": "9a5874bccafddf881924e7e7a831e66a6a83c1b1",
+          "url": "https://github.com/paradedb/paradedb/commit/f1c5af54c843131187bd7e387a2f3733d6852952"
+        },
+        "date": 1773886706125,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 28.63263020249563,
+            "unit": "median tps",
+            "extra": "avg tps: 28.535384071993, max tps: 31.61003059289883, count: 55504"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 131.03442634814752,
+            "unit": "median tps",
+            "extra": "avg tps: 170.45671763122218, max tps: 2725.790719364048, count: 55504"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 547.5761883993571,
+            "unit": "median tps",
+            "extra": "avg tps: 541.4142281116556, max tps: 790.1222752164623, count: 55504"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 160.55640749145041,
+            "unit": "median tps",
+            "extra": "avg tps: 141.81483568603772, max tps: 921.446411076951, count: 111008"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.730900907694457,
+            "unit": "median tps",
+            "extra": "avg tps: 14.68006581729563, max tps: 21.547099405970172, count: 55504"
           }
         ]
       }

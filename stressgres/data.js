@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773888091977,
+  "lastUpdate": 1773889004080,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22498,6 +22498,42 @@ window.BENCHMARK_DATA = {
             "value": 5.232144435764764,
             "unit": "median tps",
             "extra": "avg tps: 4.672714178401383, max tps: 5.89465492738541, count: 57543"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "42e3ae0a334196164cda90ea05890554e8caafcf",
+          "message": "fix: Bound Tantivy datetime conversions in proptests. (#4423)\n\n# Description\nBackport of #4410 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-18T19:21:48-07:00",
+          "tree_id": "7e506d567e376a5f49eb967aef2517bbbe95a87b",
+          "url": "https://github.com/paradedb/paradedb/commit/42e3ae0a334196164cda90ea05890554e8caafcf"
+        },
+        "date": 1773888996077,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.54200096628802,
+            "unit": "median tps",
+            "extra": "avg tps: 6.445206803487417, max tps: 9.76361335262573, count: 57475"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.334772250979368,
+            "unit": "median tps",
+            "extra": "avg tps: 4.781345506971641, max tps: 5.984178520947223, count: 57475"
           }
         ]
       }

@@ -30,13 +30,8 @@ For hobby, development, or staging environments, ParadeDB Community can be deplo
 
 ## Self-Hosted ParadeDB
 
-For hobby, development, or staging environments, [ParadeDB Community](https://github.com/paradedb/paradedb) can be deployed
-inside [Kubernetes](/deploy/self-hosted/kubernetes) or as an [extension](/deploy/self-hosted/extension) inside an existing self-hosted Postgres.
-
-For production environments, we recommend deploying the [ParadeDB Enterprise](/deploy/enterprise) binary inside Kubernetes. This unlocks support for
-[logical replication](/deploy/logical-replication/getting-started) and [high availability](/deploy/self-hosted/high-availability/configuration), which must be configured separately.
+ParadeDB can be deployed as an [extension](/deploy/self-hosted/extension) inside an existing self-hosted Postgres or via our [Kubernetes Helm chart](/deploy/self-hosted/kubernetes), which is based on the [CloudNativePG](https://cloudnative-pg.io/) Helm chart. When self-hosting, we always recommend configuring [high availability](/deploy/self-hosted/high-availability/configuration).
 
 ## ParadeDB BYOC
 
-[ParadeDB BYOC (Bring Your Own Cloud)](/deploy/byoc) is a managed deployment of ParadeDB Enterprise inside your AWS or GCP account.
-Please [contact sales](mailto:sales@paradedb.com) for access.
+[ParadeDB BYOC (Bring Your Own Cloud)](/deploy/byoc) is a managed deployment of ParadeDB Enterprise inside your AWS or GCP account. Please [contact sales](mailto:sales@paradedb.com) for access.

@@ -180,19 +180,6 @@ ParadeDB integrates with the tools you already use, with more coming.
 
 Prebuilt binaries available for Debian, Ubuntu, RHEL, and macOS on the [Releases](https://github.com/paradedb/paradedb/releases) page.
 
-## Trusted in Production
-
-ParadeDB launched in the **Y Combinator S23** batch and has been deployed **over 400,000 times** in the past 12 months. It powers search and analytics at:
-
-<table>
-  <tr>
-    <td width="25%" align="center"><b>Alibaba Cloud</b><br/>Asia-Pacific's largest cloud provider<br/><a href="https://www.paradedb.com/customers/case-study-alibaba">Case study</a></td>
-    <td width="25%" align="center"><b>Bilt Rewards</b><br/>$36B+ in processed payments<br/><a href="https://www.paradedb.com/customers/case-study-bilt">Case study</a></td>
-    <td width="25%" align="center"><b>Modern Treasury</b><br/>Automated payment operations</td>
-    <td width="25%" align="center"><b>Span</b><br/>AI developer productivity</td>
-  </tr>
-</table>
-
 ## Community & Support
 
 - [Slack](https://paradedb.com/slack) — ask questions, share what you're building

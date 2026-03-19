@@ -34,7 +34,7 @@ SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip = '192.168.0.1'::ine
  Sort
    Output: ((ip)::text)
    Sort Key: ((tbl_inet.ip)::text)
-   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+   ->  Custom Scan (ParadeDB Base Scan) on public.tbl_inet
          Output: (ip)::text
          Table: tbl_inet
          Index: idx_inet
@@ -56,7 +56,7 @@ SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip > '192.168.0.1'::ine
  Sort
    Output: ((ip)::text)
    Sort Key: ((tbl_inet.ip)::text)
-   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+   ->  Custom Scan (ParadeDB Base Scan) on public.tbl_inet
          Output: (ip)::text
          Table: tbl_inet
          Index: idx_inet
@@ -79,7 +79,7 @@ SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip < '192.168.0.1'::ine
  Sort
    Output: ((ip)::text)
    Sort Key: ((tbl_inet.ip)::text)
-   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+   ->  Custom Scan (ParadeDB Base Scan) on public.tbl_inet
          Output: (ip)::text
          Table: tbl_inet
          Index: idx_inet
@@ -102,7 +102,7 @@ SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip <= '192.168.0.1'::in
  Sort
    Output: ((ip)::text)
    Sort Key: ((tbl_inet.ip)::text)
-   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+   ->  Custom Scan (ParadeDB Base Scan) on public.tbl_inet
          Output: (ip)::text
          Table: tbl_inet
          Index: idx_inet
@@ -126,7 +126,7 @@ SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip >= '192.168.0.1'::in
  Sort
    Output: ((ip)::text)
    Sort Key: ((tbl_inet.ip)::text)
-   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+   ->  Custom Scan (ParadeDB Base Scan) on public.tbl_inet
          Output: (ip)::text
          Table: tbl_inet
          Index: idx_inet
@@ -150,7 +150,7 @@ SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip <> '192.168.0.1'::in
  Sort
    Output: ((ip)::text)
    Sort Key: ((tbl_inet.ip)::text)
-   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+   ->  Custom Scan (ParadeDB Base Scan) on public.tbl_inet
          Output: (ip)::text
          Table: tbl_inet
          Index: idx_inet
@@ -175,7 +175,7 @@ SELECT ip::text FROM tbl_inet WHERE ip @@@ pdb.all() AND ip = ANY(ARRAY['10.0.0.
  Sort
    Output: ((ip)::text)
    Sort Key: ((tbl_inet.ip)::text)
-   ->  Custom Scan (ParadeDB Scan) on public.tbl_inet
+   ->  Custom Scan (ParadeDB Base Scan) on public.tbl_inet
          Output: (ip)::text
          Table: tbl_inet
          Index: idx_inet

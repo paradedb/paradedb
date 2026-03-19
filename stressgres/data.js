@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773879091434,
+  "lastUpdate": 1773879106387,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -58852,6 +58852,54 @@ window.BENCHMARK_DATA = {
             "value": 479.3821709143614,
             "unit": "median tps",
             "extra": "avg tps: 433.673089454227, max tps: 656.0069699178632, count: 107900"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e8e944da74dca4c4ee18eb296a2436ac604bc88",
+          "message": "fix(joinscan): align memory pool allocation with postgres work_mem semantics (#4417)\n\n# Description\nBackport of #4413 to `0.22.x`.\n\nCo-authored-by: pantShrey <121197985+pantShrey@users.noreply.github.com>",
+          "timestamp": "2026-03-18T15:50:13-07:00",
+          "tree_id": "7b2efd3ee102636b98893007617d1ab84de3d598",
+          "url": "https://github.com/paradedb/paradedb/commit/9e8e944da74dca4c4ee18eb296a2436ac604bc88"
+        },
+        "date": 1773879089516,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 493.736572449079,
+            "unit": "median tps",
+            "extra": "avg tps: 496.5994359924103, max tps: 673.3349835651555, count: 53870"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 598.0606087570721,
+            "unit": "median tps",
+            "extra": "avg tps: 599.8548750405729, max tps: 768.376818588632, count: 53870"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 80.85740446223568,
+            "unit": "median tps",
+            "extra": "avg tps: 80.95425288731501, max tps: 97.71375183790539, count: 53870"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 469.3600647530303,
+            "unit": "median tps",
+            "extra": "avg tps: 432.4343201397205, max tps: 636.3024051963, count: 107740"
           }
         ]
       }

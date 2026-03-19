@@ -1,13 +1,12 @@
 #!/bin/bash
-
 set -Eeuo pipefail
 
 PGDATA=${PGDATA:-/var/lib/postgresql/data}
 
 # NOTE: This script writes directly to postgresql.auto.conf, which is the same file
-# used by PostgreSQL's 'ALTER SYSTEM' command. Manual 'ALTER SYSTEM' changes to 
-# tuned parameters will be preserved on container restart unless overridden by PG_TUNE_* 
-# environment variables. To permanently pin a specific value, users must use PG_TUNE_* 
+# used by PostgreSQL's 'ALTER SYSTEM' command. Manual 'ALTER SYSTEM' changes to
+# tuned parameters will be preserved on container restart unless overridden by PG_TUNE_*
+# environment variables. To permanently pin a specific value, users must use PG_TUNE_*
 # environment variables.
 CONF_FILE="$PGDATA/postgresql.auto.conf"
 
@@ -34,7 +33,7 @@ tune_param() {
   elif ! grep -qE "^\s*$param\s*=" "$CONF_FILE" 2>/dev/null; then
     echo "$param = '$value'" >> "$CONF_FILE"
     echo "ParadeDB auto-tune: $param = $value (auto-tuned)"
-  
+
   # 3. Parameter already exists and no env override - skip tuning
   else
     echo "ParadeDB auto-tune: $param is already set in $CONF_FILE, skipping auto-tune"
@@ -58,13 +57,12 @@ if [ ! -d "$PGDATA" ]; then
 fi
 
 # To handle large numbers that appear in scientific notation (8.3e+09), which Bash math cannot process but awk can.
-
 if [ -f /sys/fs/cgroup/memory.max ] && [ "$(cat /sys/fs/cgroup/memory.max)" != "max" ]; then
   TOTAL_RAM_MB=$(awk "BEGIN {printf \"%.0f\", $(cat /sys/fs/cgroup/memory.max) / 1024 / 1024}")
 elif [ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
   CGROUP_V1_LIMIT=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
   # cgroup v1 reports ~2^63 when no limit is set -- fall through to /proc/meminfo
-  if [ "$CGROUP_V1_LIMIT" -lt 68719476736 ]; then  # < 64TB = real limit
+  if [ "$CGROUP_V1_LIMIT" -lt 68719476736 ]; then # < 64TB = real limit
     TOTAL_RAM_MB=$(awk "BEGIN {printf \"%.0f\", $CGROUP_V1_LIMIT / 1024 / 1024}")
   else
     TOTAL_RAM_MB=$(grep MemTotal /proc/meminfo | awk '{printf "%.0f", $2 / 1024}')
@@ -76,7 +74,6 @@ fi
 
 # Safety floor: Do not auto-tune on very small instances (< 512MB)
 # to prevent misconfiguration issues.
-
 if [ -z "$TOTAL_RAM_MB" ] || [ "$TOTAL_RAM_MB" -lt 512 ]; then
   echo "ParadeDB auto-tune: System RAM ($TOTAL_RAM_MB MB) is too low. Skipping."
   exit 0
@@ -84,19 +81,11 @@ fi
 
 CPU_COUNT=$(nproc)
 
-# shared_buffers: 25% of RAM
-# effective_cache_size: 75% of RAM
-# maintenance_work_mem: min(2GB, RAM/16)
-# work_mem: (RAM - shared_buffers) / (max_connections * 3) -> assuming default 100 connections
-# wal_buffers: min(64MB, shared_buffers / 32)
-
 SB_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.25)}")
 ECS_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.75)}")
 MWM_MB=$(awk "BEGIN {m=int($TOTAL_RAM_MB / 16); print (m > 2048 ? 2048 : m)}")
-
 MAX_CONN=${PG_TUNE_MAX_CONNECTIONS:-100}
 WM_MB=$(awk "BEGIN {w=int(($TOTAL_RAM_MB - $SB_MB) / ($MAX_CONN * 3)); print (w < 4 ? 4 : w)}")
-
 WAL_MB=$(awk "BEGIN {w=int($SB_MB / 32); print (w > 64 ? 64 : w)}")
 
 PARALLEL_GATHER=$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p < 1 ? 1 : p)}")

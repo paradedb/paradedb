@@ -93,15 +93,15 @@ ParadeDB integrates with the tools you already use, with more coming.
 
 ### ORMs & Frameworks
 
-- [Django](https://github.com/paradedb/django-paradedb) — native Django ORM integration for ParadeDB queries
-- [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb) — Python SQLAlchemy support
-- [Rails](https://github.com/paradedb/rails-paradedb) — Active Record integration for Ruby on Rails
+- [Django](https://github.com/paradedb/django-paradedb)
+- [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb)
+- [Rails](https://github.com/paradedb/rails-paradedb)
 - More coming (Prisma, and others)
 
 ### AI Agents
 
-- [Agent Skills](https://github.com/paradedb/agent-skills) — give AI coding agents full ParadeDB knowledge via `npx skills add paradedb/agent-skills`
-- [MCP Integration](https://docs.paradedb.com/mcp) — Model Context Protocol support for AI assistants
+- [Agent Skills](https://github.com/paradedb/agent-skills)
+- [MCP Integration](https://docs.paradedb.com/mcp)
 
 ### PaaS & Cloud Platforms
 

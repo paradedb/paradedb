@@ -43,7 +43,7 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 - [x] **Columnar Analytics** — fast filtering, sorting, and aggregates via built-in columnar storage. [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
 - [x] **JOINs** — search across normalized tables without denormalization. [Docs](https://docs.paradedb.com/documentation/joins/overview)
 - [x] **Standard SQL** — no custom DSL, works with every Postgres tool, ORM, and driver
-- [x] **Hybrid Search** — combine BM25 text search with pgvector similarity search. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
+- [x] **Hybrid Search** — combine BM25 text search with pgvector similarity search
 - [ ] **Vector Search** — performant filtered vector search without pgvector (coming soon)
 
 Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).

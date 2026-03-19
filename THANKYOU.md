@@ -15,12 +15,6 @@ open-source relational database system. With more than three decades of active d
 it has proven architecture and a strong reputation for reliability, data integrity,
 and correctness. ParadeDB's core is built on PostgreSQL.
 
-## Apache DataFusion
-
-[Apache DataFusion](https://github.com/apache/datafusion) is an extensible query execution framework,
-written in Rust, that uses Apache Arrow as its in-memory format. ParadeDB uses DataFusion to power
-our OLAP and analytical processing capabilities.
-
 ## pgrx
 
 [pgrx](https://github.com/pgcentralfoundation/pgrx) is a powerful toolset for
@@ -35,6 +29,12 @@ the first PGRX extension and primary example, for the architecture of our own ex
 [Tantivy](https://github.com/quickwit-oss/tantivy) is a full-text search library
 inspired by Apache Lucene, written entirely in Rust. ParadeDB uses Tantivy to power
 part of our search functionalities.
+
+## Apache DataFusion
+
+[Apache DataFusion](https://github.com/apache/datafusion) is an extensible query execution framework,
+written in Rust, that uses Apache Arrow as its in-memory format. ParadeDB uses DataFusion to power
+our OLAP and analytical processing capabilities.
 
 ## Docker
 

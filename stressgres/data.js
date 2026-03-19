@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773878180602,
+  "lastUpdate": 1773878540391,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6398,6 +6398,78 @@ window.BENCHMARK_DATA = {
             "value": 117.03681019957634,
             "unit": "median tps",
             "extra": "avg tps: 126.7288708222753, max tps: 871.8198192543151, count: 55048"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "136908732+rajiknows@users.noreply.github.com",
+            "name": "Rajesh Jha",
+            "username": "rajiknows"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3cf8ccdac9482137d915a81206f52ed8ed9d1f47",
+          "message": "refactor(scan): unify threshold pruning under DynamicFilterPhysicalExpr (#4375)\n\nRemove `SegmentedThresholds` per-segment side-channel; rely on the\nglobal threshold pushed via standard filter pushdown instead.\n\n# Ticket(s) Closed\n\n* Closes #4257\n\n## What\n\nRemove the per-segment threshold propagation mechanism\n(`SegmentedThresholds`) that previously passed ordinal bounds from\n`SegmentedTopKExec` to the scan layer. The system now relies solely on\nthe global threshold published through `DynamicFilterPhysicalExpr`,\nwhich is pushed down through the standard DataFusion filter pushdown\npath.\n\nThis simplifies the pruning pipeline and removes redundant threshold\nhandling between the execution and scan layers.\n\n## Why\n\nThe previous design had two parallel pruning mechanisms.\n\n### 1. Per-segment thresholds (side-channel)\n\n`SegmentedTopKExec` published ordinal thresholds through the following\npath:\n\n```\nSegmentedThresholds -> wire_thresholds_to_scan -> PgSearchScanPlan -> Scanner::next()\n```\n\nThis required:\n\n* a custom optimizer tree walk\n* additional plumbing in the execution plan\n* duplicated memoized-column logic in the scanner\n\n### 2. Global threshold (standard path)\n\n`SegmentedTopKExec` also published materialized string literals through:\n\n```\nDynamicFilterPhysicalExpr -> DataFusion filter pushdown -> PgSearchScanPlan -> pre_filter::try_rewrite_binary\n```\n\n`pre_filter::try_rewrite_binary` automatically translates string bounds\ninto segment-local ordinal bounds during scan execution.\n\nBecause this mechanism already performs the necessary conversion at scan\ntime, the explicit per-segment threshold side-channel became redundant.\n\nRemoving the side-channel:\n\n* eliminates duplicated code paths\n* simplifies the execution/scan interface\n* allows future scan-level optimizations (predicate ordering, combined\npruning statistics) to operate on a single unified filter set\n\n## How\n\n### segmented_topk_exec.rs\n\n* Removed the `SegmentedThresholds` mechanism and all per-segment\nthreshold publishing.\n* Removed the per-segment ordinal variant of `build_filter_expression`.\n* Retained the global threshold publication through\n`build_global_filter_expression` and `DynamicFilterPhysicalExpr`.\n\n### segmented_topk_rule.rs\n\n* Removed the optimizer wiring that propagated `SegmentedThresholds` to\nthe scan layer (`wire_thresholds_to_scan`).\n\n### execution_plan.rs\n\n* Removed the execution-plan plumbing used to carry\n`SegmentedThresholds` down to the scan.\n\n### batch_scanner.rs\n\n* Removed the per-segment threshold check in the scanner.\n* Pruning now relies entirely on filter expressions rewritten by\n`pre_filter::try_rewrite_binary`.\n\n## Tests\n\nRegression test expectations were updated.\n\n`EXPLAIN` plan output no longer includes the annotation:\n\n```\nsegmented_thresholds=true\n```\n\nAll pruning behavior is now driven through the standard filter pushdown\npath.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-18T16:42:46-07:00",
+          "tree_id": "e73e098be058dc65539ce4cf1604acf6cfc2c2ac",
+          "url": "https://github.com/paradedb/paradedb/commit/3cf8ccdac9482137d915a81206f52ed8ed9d1f47"
+        },
+        "date": 1773878532876,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 125.15302698689818,
+            "unit": "median tps",
+            "extra": "avg tps: 125.08512797537398, max tps: 146.61552326240545, count: 55198"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 416.38094903050126,
+            "unit": "median tps",
+            "extra": "avg tps: 414.89688914695836, max tps: 554.7383730997536, count: 55198"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2771.965006184122,
+            "unit": "median tps",
+            "extra": "avg tps: 2758.157070061886, max tps: 2784.10969392194, count: 55198"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 385.72569794368593,
+            "unit": "median tps",
+            "extra": "avg tps: 383.0393085846738, max tps: 513.0284428098978, count: 55198"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2916.686881431372,
+            "unit": "median tps",
+            "extra": "avg tps: 2911.8613173051176, max tps: 2935.447172797545, count: 110396"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 418.37565207493407,
+            "unit": "median tps",
+            "extra": "avg tps: 416.76992514167097, max tps: 546.8823680790747, count: 55198"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1844.7986793867467,
+            "unit": "median tps",
+            "extra": "avg tps: 1831.2317142636334, max tps: 1853.1028212496888, count: 55198"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 48.46121061888577,
+            "unit": "median tps",
+            "extra": "avg tps: 62.08967619048433, max tps: 219.11166434371782, count: 55198"
           }
         ]
       }

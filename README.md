@@ -45,7 +45,7 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 - [x] **Hybrid Search** — combine BM25 text search with pgvector similarity search. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
 - [ ] **Vector Search** — performant filtered vector search without pgvector (coming soon)
 
-Star and watch this repo to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).
+Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).
 
 ## Why ParadeDB?
 
@@ -198,4 +198,4 @@ We welcome contributions of all sizes! Check out our [good first issues](https:/
 
 ## License
 
-ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE) and as commercial software. For commercial licensing, please contact us at [sales@paradedb.com](mailto:sales@paradedb.com).
+ParadeDB Community is licensed under the [GNU Affero General Public License v3.0](LICENSE). [ParadeDB Enterprise](https://docs.paradedb.com/deploy/enterprise) is available under a commercial license — contact us at [sales@paradedb.com](mailto:sales@paradedb.com) for details.

@@ -55,6 +55,12 @@ ParadeDB assembles best-in-class open-source components into a single Postgres e
 For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or [architecture docs](https://docs.paradedb.com/welcome/architecture).
 
 ```sql
+-- Create a test table with mock data
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+
 -- Create a BM25 index
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)

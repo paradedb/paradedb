@@ -9,7 +9,6 @@
 
 <h3 align="center">
   <a href="https://docs.paradedb.com">Docs</a> &bull;
-  <a href="https://docs.paradedb.com/documentation/getting-started/quickstart">Quickstart</a> &bull;
   <a href="https://paradedb.com/slack">Slack</a> &bull;
   <a href="https://paradedb.com/blog/">Blog</a> &bull;
   <a href="https://docs.paradedb.com/changelog/">Changelog</a> &bull;
@@ -44,56 +43,31 @@ curl -fsSL https://paradedb.com/install.sh | sh
 - [x] **JOINs** — search across normalized tables without denormalization. [Docs](https://docs.paradedb.com/documentation/joins/overview)
 - [x] **Standard SQL** — no custom DSL, works with every Postgres tool, ORM, and driver
 
-## Quickstart
+## How It Works
 
-Get a ParadeDB instance running in seconds:
+ParadeDB is a Postgres extension — it runs inside your existing database, not alongside it.
 
-```bash
-docker run --name paradedb -e POSTGRES_PASSWORD=password -p 5432:5432 -d paradedb/paradedb
-```
+1. **Install** `pg_search` into any Postgres 15+ instance, or use the [ParadeDB Docker image](https://hub.docker.com/r/paradedb/paradedb) which comes pre-configured
+2. **Create a BM25 index** on any table. The index is a covering index that stores all indexed columns in both an inverted index (for full-text search) and a columnar index (for fast analytics)
+3. **Query with SQL**. ParadeDB introduces custom operators like `|||` for search. When a query uses these operators, ParadeDB's custom scan takes over — pushing filters, aggregates, and sorting directly into the index for maximum performance
 
-Connect and start searching:
-
-```bash
-psql -h localhost -U postgres
-```
+Under the hood, the BM25 index is built on an [LSM tree](https://docs.paradedb.com/welcome/architecture) powered by [Tantivy](https://github.com/quickwit-oss/tantivy) (a Rust-based search library inspired by Lucene). Writes are buffered in memory and flushed as immutable segments, making inserts and updates fast. Reads are automatically parallelized across Postgres workers.
 
 ```sql
--- Create a table
-CREATE TABLE docs (
-  id SERIAL PRIMARY KEY,
-  title TEXT,
-  body TEXT,
-  rating INT
-);
+-- Create an index
+CREATE INDEX idx ON docs USING bm25 (id, title, body, rating) WITH (key_field='id');
 
-INSERT INTO docs (title, body, rating) VALUES
-  ('PostgreSQL Full-Text Search', 'How to use tsvector and tsquery in Postgres', 3),
-  ('BM25 Scoring Explained', 'BM25 is the industry standard for relevance ranking in search', 5),
-  ('Elasticsearch vs ParadeDB', 'ParadeDB brings search directly inside Postgres', 4);
+-- Search with BM25 scoring
+SELECT title, pdb.score(id) FROM docs WHERE body ||| 'search ranking' ORDER BY score DESC LIMIT 10;
 
--- Create a BM25 index
-CREATE INDEX docs_idx ON docs USING bm25 (id, title, body, rating) WITH (key_field='id');
+-- Fuzzy search
+SELECT title FROM docs WHERE title ||| 'postgras~1';
 
--- Full-text search with BM25 scoring
-SELECT title, pdb.score(id) AS score
-FROM docs
-WHERE body ||| 'search ranking'
-ORDER BY score DESC
-LIMIT 10;
+-- Faceted aggregation alongside results
+SELECT title, pdb.agg('{"terms": {"field": "rating"}}') OVER () FROM docs WHERE body ||| 'search';
 ```
 
-```text
-            title             |   score
-------------------------------+-----------
- BM25 Scoring Explained       | 4.3297405
- PostgreSQL Full-Text Search  | 2.1844535
-(2 rows)
-```
-
-That's it — full-text search with BM25 scoring in pure SQL. No Elasticsearch, no sync pipeline, no new query language.
-
-For more, see the [full quickstart guide](https://docs.paradedb.com/documentation/getting-started/quickstart).
+For full documentation, visit [docs.paradedb.com](https://docs.paradedb.com).
 
 ## Why ParadeDB?
 

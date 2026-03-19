@@ -64,8 +64,8 @@ For a deeper dive into this architecture, see our [CMU Database Group talk](http
 | Highlighting & snippets   |         Partial         |        ✅         |      ✅      |
 | Real-time indexing        |           ✅            |        ❌         |      ✅      |
 | ACID transactions         |           ✅            |        ❌         |      ✅      |
-| SQL interface             |           ✅            |        ❌         |      ✅      |
-| JOINs                     |           ✅            |        ❌         |      ✅      |
+| SQL interface             |           ✅            |      Partial      |      ✅      |
+| JOINs                     |           ✅            |      Partial      |      ✅      |
 | No ETL / data sync        |           ✅            |        ❌         |      ✅      |
 | Built for updates/deletes |           ✅            |        ❌         |      ✅      |
 

@@ -44,6 +44,7 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
   - [x] Top K. [Docs](https://docs.paradedb.com/documentation/sorting/topk)
 - [x] Aggregates. [Docs](https://docs.paradedb.com/documentation/full-text/aggregations)
   - [x] Columnar Storage. [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
+  - [x] Bucket & Metrics. [Docs](https://docs.paradedb.com/documentation/full-text/aggregations)
   - [x] Facets. [Docs](https://docs.paradedb.com/documentation/full-text/facets)
 - [x] JOINs. [Docs](https://docs.paradedb.com/documentation/joins/overview)
 - [ ] Vector Search (coming soon)

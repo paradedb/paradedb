@@ -39,6 +39,8 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 - [x] BM25 Scoring [Docs](https://docs.paradedb.com/documentation/full-text/scoring)
 - [x] Full-Text Search [Docs](https://docs.paradedb.com/documentation/full-text/overview)
 - [x] Tokenizers & Stemmers [Docs](https://docs.paradedb.com/documentation/indexing/tokenizers)
+- [x] Aggregates [Docs](https://docs.paradedb.com/documentation/full-text/aggregations)
+- [x] Facets [Docs](https://docs.paradedb.com/documentation/full-text/facets)
 - [x] Columnar Storage [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
 - [x] Top K [Docs](https://docs.paradedb.com/documentation/sorting/topk)
 - [x] JOINs [Docs](https://docs.paradedb.com/documentation/joins/overview)

@@ -36,14 +36,14 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 
 [ParadeDB](https://paradedb.com) is a Postgres extension that brings Elastic-quality full-text search and analytics directly inside Postgres — no ETL pipelines, no external search engines, no data sync headaches.
 
-- [x] Full-Text Search [Docs](https://docs.paradedb.com/documentation/full-text/overview)
-  - [x] BM25 Scoring [Docs](https://docs.paradedb.com/documentation/full-text/scoring)
-  - [x] Tokenizers & Stemmers [Docs](https://docs.paradedb.com/documentation/indexing/tokenizers)
-  - [x] Top K [Docs](https://docs.paradedb.com/documentation/sorting/topk)
-- [x] Aggregates [Docs](https://docs.paradedb.com/documentation/full-text/aggregations)
-  - [x] Columnar Storage [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
-  - [x] Facets [Docs](https://docs.paradedb.com/documentation/full-text/facets)
-- [x] JOINs [Docs](https://docs.paradedb.com/documentation/joins/overview)
+- [x] Full-Text Search. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
+  - [x] BM25 Scoring. [Docs](https://docs.paradedb.com/documentation/full-text/scoring)
+  - [x] Tokenizers & Stemmers. [Docs](https://docs.paradedb.com/documentation/indexing/tokenizers)
+  - [x] Top K. [Docs](https://docs.paradedb.com/documentation/sorting/topk)
+- [x] Aggregates. [Docs](https://docs.paradedb.com/documentation/full-text/aggregations)
+  - [x] Columnar Storage. [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
+  - [x] Facets. [Docs](https://docs.paradedb.com/documentation/full-text/facets)
+- [x] JOINs. [Docs](https://docs.paradedb.com/documentation/joins/overview)
 - [x] Standard SQL
 - [ ] Vector Search (coming soon)
 - [ ] Hybrid Search (coming soon)

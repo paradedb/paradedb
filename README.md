@@ -17,9 +17,8 @@
 
 <p align="center">
   <a href="https://hub.docker.com/r/paradedb/paradedb"><img src="https://img.shields.io/docker/pulls/paradedb/paradedb" alt="Docker Pulls"></a>&nbsp;
-  <a href="https://github.com/paradedb/paradedb/stargazers"><img src="https://img.shields.io/github/stars/paradedb/paradedb?style=social&label=Star" alt="GitHub Stars"></a>&nbsp;
   <a href="https://github.com/paradedb/paradedb?tab=AGPL-3.0-1-ov-file#readme"><img src="https://img.shields.io/github/license/paradedb/paradedb?color=blue" alt="License"></a>&nbsp;
-  <a href="https://paradedb.com/slack"><img src="https://img.shields.io/badge/Slack-Join%20Community-purple?logo=slack" alt="Slack"></a>&nbsp;
+  <a href="https://paradedb.com/slack"><img src="https://img.shields.io/badge/Community-Join%20Slack-purple?logo=slack" alt="Community"></a>&nbsp;
   <a href="https://x.com/paradedb"><img src="https://img.shields.io/twitter/follow/paradedb" alt="Follow @paradedb"></a>
 </p>
 

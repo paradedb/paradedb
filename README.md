@@ -105,9 +105,9 @@ ParadeDB integrates with the tools you already use, with more coming.
 
 ### PaaS & Cloud Platforms
 
-- [Render](https://docs.paradedb.com/deploy/cloud-platforms/render) — one-click deploy
-- [Railway](https://docs.paradedb.com/deploy/cloud-platforms/railway) — one-click deploy
-- [DigitalOcean](https://docs.paradedb.com/deploy/cloud-platforms/digitalocean) — droplet deployment
+- [Render](https://docs.paradedb.com/deploy/cloud-platforms/render)
+- [Railway](https://docs.paradedb.com/deploy/cloud-platforms/railway)
+- [DigitalOcean](https://docs.paradedb.com/deploy/cloud-platforms/digitalocean)
 - More coming (Heroku, and others)
 
 ## Community & Support

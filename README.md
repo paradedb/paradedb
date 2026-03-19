@@ -87,22 +87,6 @@ CREATE INDEX idx ON docs USING bm25 (id, title, body, rating) WITH (key_field='i
 -- Search with BM25 scoring
 SELECT title, pdb.score(id) AS score FROM docs WHERE body ||| 'search ranking' ORDER BY score DESC LIMIT 10;
 
--- Fuzzy search
-SELECT title FROM docs WHERE title ||| 'postgras'::pdb.fuzzy(1);
-
--- Faceted aggregation alongside results
-SELECT title, pdb.agg('{"terms": {"field": "rating"}}') OVER () FROM docs WHERE body ||| 'search';
-```
-
-For full documentation, visit [docs.paradedb.com](https://docs.paradedb.com).
-
-## Features
-
-### Full-Text Search
-
-BM25 relevance ranking, phrase matching, fuzzy search with typo tolerance, regex, proximity queries, and more-like-this — all through simple SQL operators.
-
-```sql
 -- Fuzzy search with typo tolerance
 SELECT title FROM docs WHERE title ||| 'postgras'::pdb.fuzzy(1);
 
@@ -111,19 +95,18 @@ SELECT title FROM docs WHERE title ||| '"full-text search"';
 
 -- Highlighting
 SELECT title, pdb.snippet(body) FROM docs WHERE body ||| 'search';
-```
 
-### Faceted Aggregations
-
-Return search results and aggregate analytics in a single query — counts, averages, histograms, and more.
-
-```sql
+-- Faceted aggregation alongside results
 SELECT title, pdb.agg('{"terms": {"field": "rating"}}') OVER ()
 FROM docs
 WHERE body ||| 'search'
 ORDER BY pdb.score(id) DESC
 LIMIT 5;
 ```
+
+For full documentation, visit [docs.paradedb.com](https://docs.paradedb.com).
+
+## Features
 
 ### Columnar Analytics
 

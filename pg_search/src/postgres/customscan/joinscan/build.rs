@@ -23,7 +23,7 @@
 //! field, then deserialized during execution.
 //!
 //! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
-//! time. See `extract_score_pathkey()` in mod.rs.
+//! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
 use crate::postgres::utils::ExprContextGuard;
@@ -901,21 +901,6 @@ impl JoinCSClause {
             predicate: expr,
         }));
         self
-    }
-
-    /// Returns the index of the ordering side (the source with a search predicate).
-    /// If multiple have it, returns the first one.
-    pub fn ordering_side_index(&self) -> Option<usize> {
-        self.plan
-            .sources()
-            .into_iter()
-            .position(|s| s.has_search_predicate())
-    }
-
-    /// Get the ordering side source (side with search predicate).
-    pub fn ordering_side(&self) -> Option<JoinSource> {
-        self.ordering_side_index()
-            .map(|i| self.plan.sources()[i].clone())
     }
 
     /// Returns the source that should be partitioned for parallel execution.

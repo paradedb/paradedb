@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773943715071,
+  "lastUpdate": 1773943725092,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28412,6 +28412,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.89788603740757, max segment_count: 130.0, count: 57475"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9",
+          "message": "fix: Track the rti of the score-providing relation for an ORDER BY (#4426)\n\n## What\n\nFix tracking of the providing-rti of the `pdb.score()` function, and\nremove the concept of the \"ordering side\".\n\n## Why\n\nA query failure was exposed in #4411 which had to do with losing track\nof which relation was providing the score for `pdb.score()`.\n\n## Tests\n\nAdded and fixed a repro.",
+          "timestamp": "2026-03-19T10:33:02-07:00",
+          "tree_id": "73766fc7c3e49387b97fdde1a78732ade46c582d",
+          "url": "https://github.com/paradedb/paradedb/commit/e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9"
+        },
+        "date": 1773943717017,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.885787722408367, max cpu: 43.417088, count: 57568"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 233.32946655205583, max mem: 234.921875, count: 57568"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.551089348157085, max cpu: 33.267326, count: 57568"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.6361641748671, max mem: 176.0703125, count: 57568"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34103,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33450.93360894942, max block_count: 35953.0, count: 57568"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.13392857142857, max segment_count: 129.0, count: 57568"
           }
         ]
       }

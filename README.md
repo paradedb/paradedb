@@ -55,26 +55,31 @@ ParadeDB assembles best-in-class open-source components into a single Postgres e
 For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or [architecture docs](https://docs.paradedb.com/welcome/architecture).
 
 ```sql
--- Create an index
-CREATE INDEX idx ON docs USING bm25 (id, title, body, rating) WITH (key_field='id');
+-- Create a BM25 index
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+WITH (key_field='id');
 
 -- Search with BM25 scoring
-SELECT title, pdb.score(id) AS score FROM docs WHERE body ||| 'search ranking' ORDER BY score DESC LIMIT 10;
-
--- Fuzzy search with typo tolerance
-SELECT title FROM docs WHERE title ||| 'postgras'::pdb.fuzzy(1);
-
--- Phrase matching
-SELECT title FROM docs WHERE title ### '"full-text search"';
+SELECT description, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
 
 -- Highlighting
-SELECT title, pdb.snippet(body) FROM docs WHERE body ||| 'search';
+SELECT description, pdb.snippet(description), pdb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
 
 -- Faceted aggregation alongside results
-SELECT title, pdb.agg('{"terms": {"field": "rating"}}') OVER ()
-FROM docs
-WHERE body ||| 'search'
-ORDER BY pdb.score(id) DESC
+SELECT description, rating, category,
+       pdb.agg('{"value_count": {"field": "id"}}') OVER ()
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
 LIMIT 5;
 ```
 

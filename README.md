@@ -1,121 +1,224 @@
-<!-- ParadeDB: Postgres for Search and Analytics -->
 <h1 align="center">
-  <a href="https://paradedb.com"><img src="docs/logo/readme.svg" alt="ParadeDB"></a>
+  <a href="https://paradedb.com"><img src="docs/logo/readme.svg" alt="ParadeDB" width="368"></a>
 <br>
 </h1>
 
 <p align="center">
-  <b>Postgres for Search and Analytics</b><br/>
+  <b>Postgres for Search and Analytics</b> <br />
+  The modern Elasticsearch alternative built on Postgres. <br />
+  Built for real-time, update-heavy workloads.
 </p>
 
 <h3 align="center">
-  <a href="https://paradedb.com">Website</a> &bull;
   <a href="https://docs.paradedb.com">Docs</a> &bull;
-  <a href="https://paradedb.com/slack">Community</a> &bull;
+  <a href="https://docs.paradedb.com/documentation/getting-started/quickstart">Quickstart</a> &bull;
+  <a href="https://paradedb.com/slack">Slack</a> &bull;
   <a href="https://paradedb.com/blog/">Blog</a> &bull;
-  <a href="https://docs.paradedb.com/changelog/">Changelog</a>
+  <a href="https://docs.paradedb.com/changelog/">Changelog</a> &bull;
+  <a href="https://docs.paradedb.com/welcome/roadmap">Roadmap</a>
 </h3>
+
+<p align="center">
+  <a href="https://hub.docker.com/r/paradedb/paradedb"><img src="https://img.shields.io/docker/pulls/paradedb/paradedb" alt="Docker Pulls"></a>&nbsp;
+  <a href="https://github.com/paradedb/paradedb/stargazers"><img src="https://img.shields.io/github/stars/paradedb/paradedb?style=social&label=Star" alt="GitHub Stars"></a>&nbsp;
+  <a href="https://github.com/paradedb/paradedb?tab=AGPL-3.0-1-ov-file#readme"><img src="https://img.shields.io/github/license/paradedb/paradedb?color=blue" alt="License"></a>&nbsp;
+  <a href="https://paradedb.com/slack"><img src="https://img.shields.io/badge/Slack-Join%20Community-purple?logo=slack" alt="Slack"></a>&nbsp;
+  <a href="https://x.com/paradedb"><img src="https://img.shields.io/twitter/follow/paradedb" alt="Follow @paradedb"></a>
+</p>
 
 ---
 
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/paradedb)](https://artifacthub.io/packages/search?repo=paradedb)
-[![Docker Pulls](https://img.shields.io/docker/pulls/paradedb/paradedb)](https://hub.docker.com/r/paradedb/paradedb)
-[![License](https://img.shields.io/github/license/paradedb/paradedb?color=blue)](https://github.com/paradedb/paradedb?tab=AGPL-3.0-1-ov-file#readme)
-[![Codecov](https://codecov.io/gh/paradedb/paradedb/branch/main/graph/badge.svg)](https://codecov.io/gh/paradedb/paradedb)
-[![Slack URL](https://img.shields.io/badge/Join%20Slack-purple?logo=slack&link=https%3A%2F%2Fparadedb.com%2Fslack)](https://paradedb.com/slack)
-[![X URL](https://img.shields.io/twitter/url?url=https%3A%2F%2Ftwitter.com%2Fparadedb&label=Follow%20%40paradedb)](https://x.com/paradedb)
+## What is ParadeDB?
 
-[ParadeDB](https://paradedb.com) is a modern Elasticsearch alternative built on Postgres. Built for real-time, update-heavy workloads.
+[ParadeDB](https://paradedb.com) is a Postgres extension that brings Elastic-quality full-text search, BM25 scoring, fuzzy matching, faceted aggregations, and columnar analytics directly inside Postgres — no ETL pipelines, no external search engines, no data sync headaches.
 
-## Get Started
+- [x] **BM25 Full-Text Search** — industry-standard relevance ranking, fuzzy matching, highlighting. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
+- [x] **Real-Time Indexing** — data is searchable the instant it's written, with full ACID guarantees. [Docs](https://docs.paradedb.com/welcome/guarantees)
+- [x] **Faceted Aggregations** — counts, averages, histograms, and more returned alongside search results. [Docs](https://docs.paradedb.com/documentation/aggregates/facets)
+- [x] **Columnar Analytics** — fast filtering, sorting, and aggregates via built-in columnar storage. [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
+- [x] **Hybrid Search** — combine BM25 text search with pgvector similarity search. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
+- [x] **JOINs** — search across normalized tables without denormalization. [Docs](https://docs.paradedb.com/documentation/joins/overview)
+- [x] **Standard SQL** — no custom DSL, works with every Postgres tool, ORM, and driver
 
-Please see our [documentation](https://docs.paradedb.com) to get started. You'll also find our [architecture](https://docs.paradedb.com/welcome/architecture)
-docs and [public roadmap](https://docs.paradedb.com/welcome/roadmap) there.
+## Quickstart
 
-## Deploying ParadeDB
-
-ParadeDB and its extensions can be deployed in one of two ways:
-
-- Docker image based on [Postgres](https://hub.docker.com/_/postgres) ([see deployment instructions](https://docs.paradedb.com/deploy/aws))
-- Kubernetes Helm chart based on [CloudNativePG](https://artifacthub.io/packages/helm/cloudnative-pg/cloudnative-pg) ([see deployment instructions](https://docs.paradedb.com/deploy/helm))
-
-For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
-
-### Extensions
-
-You can find prebuilt binaries for the ParadeDB Postgres extensions on Debian 12, 13, Ubuntu 22.04 and 24.04, Red Hat Enterprise Linux 9 and 10, and macOS 14 (Sonoma) and 15 (Sequoia) for Postgres 15+ in the [GitHub Releases](https://github.com/paradedb/paradedb/releases).
-
-ParadeDB supports all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 15+, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
-
-### Docker Image
-
-To quickly get a ParadeDB instance up and running, simply pull and run the latest Docker image:
+Get a ParadeDB instance running in seconds:
 
 ```bash
-docker run --name paradedb -e POSTGRES_PASSWORD=password paradedb/paradedb
+docker run --name paradedb -e POSTGRES_PASSWORD=password -p 5432:5432 -d paradedb/paradedb
 ```
 
-This will start a ParadeDB instance with default user `postgres` and password `password`. You can then connect to the database using `psql`:
+Connect and start searching:
 
 ```bash
-docker exec -it paradedb psql -U postgres
+psql -h localhost -U postgres
 ```
 
-To install ParadeDB locally or on-premise, we recommend using our `docker-compose.yml` file. Alternatively, you can pass the appropriate environment variables to the `docker run` command, replacing the <> with your desired values:
+```sql
+-- Create a table
+CREATE TABLE docs (
+  id SERIAL PRIMARY KEY,
+  title TEXT,
+  body TEXT,
+  rating INT
+);
 
-```bash
-docker run \
-  --name paradedb \
-  -e POSTGRES_USER=<user> \
-  -e POSTGRES_PASSWORD=<password> \
-  -e POSTGRES_DB=<dbname> \
-  -v paradedb_data:/var/lib/postgresql/ \
-  -p 5432:5432 \
-  -d \
-  paradedb/paradedb:latest
+INSERT INTO docs (title, body, rating) VALUES
+  ('PostgreSQL Full-Text Search', 'How to use tsvector and tsquery in Postgres', 3),
+  ('BM25 Scoring Explained', 'BM25 is the industry standard for relevance ranking in search', 5),
+  ('Elasticsearch vs ParadeDB', 'ParadeDB brings search directly inside Postgres', 4);
+
+-- Create a BM25 index
+CREATE INDEX docs_idx ON docs USING bm25 (id, title, body, rating) WITH (key_field='id');
+
+-- Full-text search with BM25 scoring
+SELECT title, pdb.score(id) AS score
+FROM docs
+WHERE body ||| 'search ranking'
+ORDER BY score DESC
+LIMIT 10;
 ```
 
-This will start a ParadeDB instance with non-root user `<user>` and password `<password>`. The `-v` flag enables your ParadeDB data to persist across restarts in a Docker volume named `paradedb_data`.
-
-You can then connect to the database using `psql`:
-
-```bash
-docker exec -it paradedb psql -U <user> -d <dbname> -p 5432 -W
+```text
+            title             |   score
+------------------------------+-----------
+ BM25 Scoring Explained       | 4.3297405
+ PostgreSQL Full-Text Search  | 2.1844535
+(2 rows)
 ```
 
-### Helm Chart
+That's it — full-text search with BM25 scoring in pure SQL. No Elasticsearch, no sync pipeline, no new query language.
 
-ParadeDB is also available for Kubernetes via our Helm chart. You can find our Helm chart in the [ParadeDB Helm Chart GitHub repository](https://github.com/paradedb/charts) or download it directly from [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
+For more, see the [full quickstart guide](https://docs.paradedb.com/documentation/getting-started/quickstart).
 
-### ParadeDB Cloud
+## Why ParadeDB?
 
-At the moment, ParadeDB is not available as a managed cloud service. If you are interested in a ParadeDB Cloud service, please let us know by joining our [waitlist](https://form.typeform.com/to/jHkLmIzx).
+|                           | **Postgres (tsvector)** | **Elasticsearch** | **ParadeDB** |
+| ------------------------- | :---------------------: | :---------------: | :----------: |
+| BM25 relevance scoring    |         &cross;         |      &check;      |   &check;    |
+| Fuzzy matching            |         &cross;         |      &check;      |   &check;    |
+| Faceted aggregations      |         &cross;         |      &check;      |   &check;    |
+| Columnar analytics        |         &cross;         |      &check;      |   &check;    |
+| Highlighting & snippets   |         Partial         |      &check;      |   &check;    |
+| Real-time indexing        |         &check;         |      &cross;      |   &check;    |
+| ACID transactions         |         &check;         |      &cross;      |   &check;    |
+| SQL interface             |         &check;         |      &cross;      |   &check;    |
+| JOINs                     |         &check;         |      &cross;      |   &check;    |
+| No ETL / data sync        |         &check;         |      &cross;      |   &check;    |
+| Built for updates/deletes |         &check;         |      &cross;      |   &check;    |
 
-## Support
+## Features
 
-If you're missing a feature or have found a bug, please open a
-[GitHub Issue](https://github.com/paradedb/paradedb/issues/new/choose).
+### Full-Text Search
 
-To get community support, you can:
+BM25 relevance ranking, phrase matching, fuzzy search with typo tolerance, regex, proximity queries, and more-like-this — all through simple SQL operators.
 
-- Post a question in the [ParadeDB Slack Community](https://paradedb.com/slack)
-- Ask for help on our [GitHub Discussions](https://github.com/paradedb/paradedb/discussions)
+```sql
+-- Fuzzy search with typo tolerance
+SELECT title FROM docs WHERE title ||| 'postgras~1';
 
-If you need commercial support, please [contact the ParadeDB team](mailto:sales@paradedb.com).
+-- Phrase matching
+SELECT title FROM docs WHERE title ||| '"full-text search"';
+
+-- Highlighting
+SELECT title, pdb.snippet(body) FROM docs WHERE body ||| 'search';
+```
+
+### Faceted Aggregations
+
+Return search results and aggregate analytics in a single query — counts, averages, histograms, and more.
+
+```sql
+SELECT title, pdb.agg('{"terms": {"field": "rating"}}') OVER ()
+FROM docs
+WHERE body ||| 'search'
+ORDER BY pdb.score(id) DESC
+LIMIT 5;
+```
+
+### Columnar Analytics
+
+Non-text fields are automatically stored in columnar format, enabling fast filtering, sorting, and aggregation pushdown directly into the index.
+
+### Hybrid Search
+
+Combine BM25 full-text search with pgvector similarity search for semantic + keyword hybrid queries.
+
+### Top K Optimization
+
+Highly optimized `ORDER BY ... LIMIT` queries with automatic parallelization across workers for sub-millisecond response times on large datasets.
+
+### JOINs
+
+Search across normalized Postgres tables with `INNER`, `LEFT`, `RIGHT`, `FULL`, `CROSS`, and `LATERAL` joins — no denormalization required.
+
+## Integrations & Ecosystem
+
+ParadeDB works with any Postgres-compatible tool. The Docker image comes with these extensions pre-installed:
+
+| Extension                                        | Purpose                        |
+| ------------------------------------------------ | ------------------------------ |
+| [pgvector](https://github.com/pgvector/pgvector) | Vector similarity search       |
+| [PostGIS](https://postgis.net/)                  | Geospatial queries             |
+| [pg_cron](https://github.com/citusdata/pg_cron)  | Background jobs and scheduling |
+| [pg_ivm](https://github.com/sraoss/pg_ivm)       | Incremental materialized views |
+
+**ORMs & Frameworks:** Django, Rails, Prisma, and any ORM that speaks SQL.
+
+**Infrastructure:** AWS RDS (via [logical replication](https://docs.paradedb.com/deploy/logical-replication/getting-started)), GCP Cloud SQL, Azure, Kubernetes, Docker.
+
+## Deployment
+
+<table>
+  <tr>
+    <td><b>Docker</b></td>
+    <td><code>docker run paradedb/paradedb</code></td>
+    <td><a href="https://docs.paradedb.com/deploy/self-hosted/docker">Guide</a></td>
+  </tr>
+  <tr>
+    <td><b>Kubernetes</b></td>
+    <td>Helm chart via CloudNativePG</td>
+    <td><a href="https://docs.paradedb.com/deploy/self-hosted/kubernetes">Guide</a></td>
+  </tr>
+  <tr>
+    <td><b>Extension</b></td>
+    <td>Install <code>pg_search</code> into existing Postgres 15+</td>
+    <td><a href="https://docs.paradedb.com/deploy/self-hosted/extension">Guide</a></td>
+  </tr>
+  <tr>
+    <td><b>Logical Replication</b></td>
+    <td>Replicate from RDS, Aurora, Cloud SQL, AlloyDB</td>
+    <td><a href="https://docs.paradedb.com/deploy/logical-replication/getting-started">Guide</a></td>
+  </tr>
+</table>
+
+Prebuilt binaries available for Debian, Ubuntu, RHEL, and macOS on the [Releases](https://github.com/paradedb/paradedb/releases) page.
+
+## Trusted in Production
+
+ParadeDB launched in the **Y Combinator S23** batch and has been deployed **over 400,000 times** in the past 12 months. It powers search and analytics at:
+
+<table>
+  <tr>
+    <td width="25%" align="center"><b>Alibaba Cloud</b><br/>Asia-Pacific's largest cloud provider<br/><a href="https://www.paradedb.com/customers/case-study-alibaba">Case study</a></td>
+    <td width="25%" align="center"><b>Bilt Rewards</b><br/>$36B+ in processed payments<br/><a href="https://www.paradedb.com/customers/case-study-bilt">Case study</a></td>
+    <td width="25%" align="center"><b>Modern Treasury</b><br/>Automated payment operations</td>
+    <td width="25%" align="center"><b>Span</b><br/>AI developer productivity</td>
+  </tr>
+</table>
+
+## Community & Support
+
+- [Slack](https://paradedb.com/slack) — ask questions, share what you're building
+- [GitHub Discussions](https://github.com/paradedb/paradedb/discussions) — longer-form Q&A
+- [GitHub Issues](https://github.com/paradedb/paradedb/issues/new/choose) — bug reports and feature requests
+- [Email](mailto:sales@paradedb.com) — enterprise support and commercial licensing
 
 ## Contributing
 
-We welcome community contributions, big or small, and are here to guide you along
-the way. To get started contributing, check our [first timer issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue)
-or message us in the [ParadeDB Community Slack](https://paradedb.com/slack). Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
+We welcome contributions of all sizes! Check out our [good first issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue) to get started, or join [Slack](https://paradedb.com/slack) to connect with the team. See our [Contributing Guide](/CONTRIBUTING.md) for details.
 
-For more information on how to contribute, please see our
-[Contributing Guide](/CONTRIBUTING.md).
-
-This project is released with a [Contributor Code of Conduct](/CODE_OF_CONDUCT.md).
-By participating in this project, you agree to follow its terms.
-
-Thank you for helping us make ParadeDB better for everyone :heart:.
+This project is released with a [Contributor Code of Conduct](/CODE_OF_CONDUCT.md). By participating, you agree to follow its terms.
 
 ## License
 

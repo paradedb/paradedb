@@ -238,13 +238,13 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
 
     let mut results = Vec::new();
     for path in query_paths {
-        // Isolate session state across benchmark files while keeping all variants in a file
-        // on the same connection.
-        let mut conn = PgConnection::connect(&args.url)
-            .await
-            .expect("Failed to connect to database");
-
         for (query_type, query) in benchmark_queries(&path) {
+            // Isolate session state across query variants while keeping repeated runs of the
+            // same query on one connection.
+            let mut conn = PgConnection::connect(&args.url)
+                .await
+                .expect("Failed to connect to database");
+
             if let Err(err) = clear_caches(&mut utility_conn).await {
                 panic!("Failed to clear caches before query: {err}");
             }
@@ -659,8 +659,8 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
 
 /// Execute a benchmark query multiple times on a single reused connection.
 ///
-/// The caller controls the connection scope; benchmark files currently reuse one connection
-/// across all queries in the file.
+/// The caller controls the connection scope; benchmarks currently reuse one connection across
+/// repeated runs of the same query, but reset it between query variants.
 ///
 /// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
 /// necessary for compatibility with custom scan providers. Compound statements

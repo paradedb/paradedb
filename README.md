@@ -39,8 +39,8 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 - [x] **BM25 Full-Text Search** — relevance ranking, fuzzy matching, highlighting, and faceted aggregations. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
 - [x] **Fast Analytics** — columnar storage with optimized filtering, sorting, and aggregates. [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
 - [x] **Top K** — highly optimized `ORDER BY ... LIMIT` with automatic parallelization. [Docs](https://docs.paradedb.com/documentation/sorting/topk)
-- [x] **Real-Time & ACID** — data is searchable the instant it's written, with full transactional guarantees. [Docs](https://docs.paradedb.com/welcome/guarantees)
-- [x] **JOINs** — search across normalized tables without denormalization. [Docs](https://docs.paradedb.com/documentation/joins/overview)
+- [x] **MVCC-Safe** — indexing is ACID and real-time; data is searchable the instant it's written. [Docs](https://docs.paradedb.com/welcome/guarantees)
+- [x] **JOINs** — search across normalized tables. [Docs](https://docs.paradedb.com/documentation/joins/overview)
 - [x] **Standard SQL** — no custom DSL, works with every Postgres tool, ORM, and driver
 - [x] **Hybrid Search** — combine BM25 text search with pgvector similarity search
 - [ ] **Vector Search** — performant filtered vector search without pgvector (coming soon)

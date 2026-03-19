@@ -167,11 +167,6 @@ ParadeDB integrates with the tools you already use, with more coming.
 
 <table>
   <tr>
-    <td><b>Docker</b></td>
-    <td><code>docker run paradedb/paradedb</code></td>
-    <td><a href="https://docs.paradedb.com/deploy/self-hosted/docker">Guide</a></td>
-  </tr>
-  <tr>
     <td><b>Kubernetes</b></td>
     <td>Helm chart via CloudNativePG</td>
     <td><a href="https://docs.paradedb.com/deploy/self-hosted/kubernetes">Guide</a></td>

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773944668592,
+  "lastUpdate": 1773945574692,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47738,6 +47738,60 @@ window.BENCHMARK_DATA = {
             "value": 15.093998462570937,
             "unit": "median tps",
             "extra": "avg tps: 14.998661460714722, max tps: 19.67338521296823, count: 55713"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9",
+          "message": "fix: Track the rti of the score-providing relation for an ORDER BY (#4426)\n\n## What\n\nFix tracking of the providing-rti of the `pdb.score()` function, and\nremove the concept of the \"ordering side\".\n\n## Why\n\nA query failure was exposed in #4411 which had to do with losing track\nof which relation was providing the score for `pdb.score()`.\n\n## Tests\n\nAdded and fixed a repro.",
+          "timestamp": "2026-03-19T10:33:02-07:00",
+          "tree_id": "73766fc7c3e49387b97fdde1a78732ade46c582d",
+          "url": "https://github.com/paradedb/paradedb/commit/e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9"
+        },
+        "date": 1773945566302,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.270771138913883,
+            "unit": "median tps",
+            "extra": "avg tps: 29.129193687997045, max tps: 30.93169392386094, count: 55413"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 130.84459359686386,
+            "unit": "median tps",
+            "extra": "avg tps: 171.64222502194477, max tps: 2745.0967919149193, count: 55413"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 529.5513754399769,
+            "unit": "median tps",
+            "extra": "avg tps: 521.8691086188614, max tps: 774.3899492215302, count: 55413"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 165.96258396375828,
+            "unit": "median tps",
+            "extra": "avg tps: 145.70432762439984, max tps: 946.5621443761212, count: 110826"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.477724091215258,
+            "unit": "median tps",
+            "extra": "avg tps: 14.319973011734573, max tps: 19.951173095060994, count: 55413"
           }
         ]
       }

@@ -982,7 +982,9 @@ impl CustomScan for JoinScan {
                                 )
                             }
                         }
-                        OrderByFeature::Score => format!("pdb.score() {}", oi.direction.as_ref()),
+                        OrderByFeature::Score { .. } => {
+                            format!("pdb.score() {}", oi.direction.as_ref())
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join(", "),

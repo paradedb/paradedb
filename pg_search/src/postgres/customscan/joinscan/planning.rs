@@ -1029,12 +1029,18 @@ pub(super) unsafe fn extract_score_pathkey(
             if !phv.is_null() && !(*phv).phexpr.is_null() {
                 if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
                     if is_score_func_recursive(funcexpr.cast(), ordering_side) {
-                        return Some(OrderByStyle::Score(pathkey));
+                        return Some(OrderByStyle::Score {
+                            pathkey,
+                            rti: ordering_side.scan_info.heap_rti,
+                        });
                     }
                 }
             }
         } else if is_score_func_recursive(expr.cast(), ordering_side) {
-            return Some(OrderByStyle::Score(pathkey));
+            return Some(OrderByStyle::Score {
+                pathkey,
+                rti: ordering_side.scan_info.heap_rti,
+            });
         }
     }
 
@@ -1201,7 +1207,9 @@ pub(super) unsafe fn extract_orderby(
                     // The Field("p.score") path was wrong — after GROUP BY renames
                     // columns to col_N, qualified names no longer exist.
                     result.push(OrderByInfo {
-                        feature: OrderByFeature::Score,
+                        feature: OrderByFeature::Score {
+                            rti: source.scan_info.heap_rti,
+                        },
                         direction,
                     });
                     score_found = true;

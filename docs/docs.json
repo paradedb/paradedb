@@ -297,12 +297,7 @@
                     "pages": [
                       "deploy/self-hosted/kubernetes",
                       "deploy/self-hosted/extension",
-                      {
-                        "group": "High Availability",
-                        "pages": [
-                          "deploy/self-hosted/high-availability/configuration"
-                        ]
-                      }
+                      "deploy/self-hosted/high-availability"
                     ]
                   },
                   {

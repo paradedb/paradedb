@@ -1,12 +1,10 @@
 <h1 align="center">
-  <a href="https://paradedb.com"><img src="docs/logo/readme.svg" alt="ParadeDB" width="368"></a>
+  <a href="https://paradedb.com"><img src="docs/logo/readme.svg" alt="ParadeDB"></a>
 <br>
 </h1>
 
 <p align="center">
-  <b>Postgres for Search and Analytics</b> <br />
-  The modern Elasticsearch alternative built on Postgres. <br />
-  Built for real-time, update-heavy workloads.
+  <b>Simple, Elastic-quality search for Postgres</b><br/>
 </p>
 
 <h3 align="center">

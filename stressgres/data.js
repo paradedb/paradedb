@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773878540391,
+  "lastUpdate": 1773878550692,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18204,6 +18204,138 @@ window.BENCHMARK_DATA = {
             "value": 54.57421875,
             "unit": "median mem",
             "extra": "avg mem: 53.90770646926441, max mem: 67.4453125, count: 55099"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "136908732+rajiknows@users.noreply.github.com",
+            "name": "Rajesh Jha",
+            "username": "rajiknows"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3cf8ccdac9482137d915a81206f52ed8ed9d1f47",
+          "message": "refactor(scan): unify threshold pruning under DynamicFilterPhysicalExpr (#4375)\n\nRemove `SegmentedThresholds` per-segment side-channel; rely on the\nglobal threshold pushed via standard filter pushdown instead.\n\n# Ticket(s) Closed\n\n* Closes #4257\n\n## What\n\nRemove the per-segment threshold propagation mechanism\n(`SegmentedThresholds`) that previously passed ordinal bounds from\n`SegmentedTopKExec` to the scan layer. The system now relies solely on\nthe global threshold published through `DynamicFilterPhysicalExpr`,\nwhich is pushed down through the standard DataFusion filter pushdown\npath.\n\nThis simplifies the pruning pipeline and removes redundant threshold\nhandling between the execution and scan layers.\n\n## Why\n\nThe previous design had two parallel pruning mechanisms.\n\n### 1. Per-segment thresholds (side-channel)\n\n`SegmentedTopKExec` published ordinal thresholds through the following\npath:\n\n```\nSegmentedThresholds -> wire_thresholds_to_scan -> PgSearchScanPlan -> Scanner::next()\n```\n\nThis required:\n\n* a custom optimizer tree walk\n* additional plumbing in the execution plan\n* duplicated memoized-column logic in the scanner\n\n### 2. Global threshold (standard path)\n\n`SegmentedTopKExec` also published materialized string literals through:\n\n```\nDynamicFilterPhysicalExpr -> DataFusion filter pushdown -> PgSearchScanPlan -> pre_filter::try_rewrite_binary\n```\n\n`pre_filter::try_rewrite_binary` automatically translates string bounds\ninto segment-local ordinal bounds during scan execution.\n\nBecause this mechanism already performs the necessary conversion at scan\ntime, the explicit per-segment threshold side-channel became redundant.\n\nRemoving the side-channel:\n\n* eliminates duplicated code paths\n* simplifies the execution/scan interface\n* allows future scan-level optimizations (predicate ordering, combined\npruning statistics) to operate on a single unified filter set\n\n## How\n\n### segmented_topk_exec.rs\n\n* Removed the `SegmentedThresholds` mechanism and all per-segment\nthreshold publishing.\n* Removed the per-segment ordinal variant of `build_filter_expression`.\n* Retained the global threshold publication through\n`build_global_filter_expression` and `DynamicFilterPhysicalExpr`.\n\n### segmented_topk_rule.rs\n\n* Removed the optimizer wiring that propagated `SegmentedThresholds` to\nthe scan layer (`wire_thresholds_to_scan`).\n\n### execution_plan.rs\n\n* Removed the execution-plan plumbing used to carry\n`SegmentedThresholds` down to the scan.\n\n### batch_scanner.rs\n\n* Removed the per-segment threshold check in the scanner.\n* Pruning now relies entirely on filter expressions rewritten by\n`pre_filter::try_rewrite_binary`.\n\n## Tests\n\nRegression test expectations were updated.\n\n`EXPLAIN` plan output no longer includes the annotation:\n\n```\nsegmented_thresholds=true\n```\n\nAll pruning behavior is now driven through the standard filter pushdown\npath.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-18T16:42:46-07:00",
+          "tree_id": "e73e098be058dc65539ce4cf1604acf6cfc2c2ac",
+          "url": "https://github.com/paradedb/paradedb/commit/3cf8ccdac9482137d915a81206f52ed8ed9d1f47"
+        },
+        "date": 1773878542747,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.72692021022494, max cpu: 28.886658, count: 55198"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 63.21909945219935, max mem: 74.80859375, count: 55198"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.219293540153978, max cpu: 19.238478, count: 55198"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 62.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.30526142817675, max mem: 73.86328125, count: 55198"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6320905598265005, max cpu: 9.302325, count: 55198"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.15960553371499, max mem: 37.05078125, count: 55198"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7402665211412, max cpu: 9.347614, count: 55198"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 61.11658356620711, max mem: 73.1015625, count: 55198"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.599753819148043, max cpu: 9.338522, count: 110396"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 50.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.27417872364035, max mem: 67.55859375, count: 110396"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1790,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1791.3346860393492, max block_count: 3184.0, count: 55198"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.655132432334504, max segment_count: 30.0, count: 55198"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.1760441713832, max cpu: 19.257774, count: 55198"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.13004129735226, max mem: 73.7109375, count: 55198"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.552229281434918, max cpu: 4.729064, count: 55198"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 59.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.02267617825827, max mem: 69.87890625, count: 55198"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.3392570015649117, max cpu: 4.6376815, count: 55198"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 55.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.50806768927316, max mem: 67.34765625, count: 55198"
           }
         ]
       }

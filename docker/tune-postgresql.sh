@@ -5,9 +5,10 @@ set -Eeuo pipefail
 PGDATA=${PGDATA:-/var/lib/postgresql/data}
 
 # NOTE: This script writes directly to postgresql.auto.conf, which is the same file
-# used by PostgreSQL's 'ALTER SYSTEM' command. Therefore, any manual 'ALTER SYSTEM'
-# changes to the tuned parameters will be overwritten on the next container restart.
-# To permanently pin a specific value, users must use the PG_TUNE_* environment variables.
+# used by PostgreSQL's 'ALTER SYSTEM' command. Manual 'ALTER SYSTEM' changes to 
+# tuned parameters will be preserved on container restart unless overridden by PG_TUNE_* 
+# environment variables. To permanently pin a specific value, users must use PG_TUNE_* 
+# environment variables.
 CONF_FILE="$PGDATA/postgresql.auto.conf"
 
 tune_param() {
@@ -15,17 +16,28 @@ tune_param() {
   local value=$2
   local env_override=$3
 
-  local final_val=${env_override:-$value}
-
   if [ ! -f "$CONF_FILE" ]; then
     touch "$CONF_FILE"
     chown postgres:postgres "$CONF_FILE" 2>/dev/null || echo "ParadeDB auto-tune: Warning: could not chown $CONF_FILE"
   fi
 
-  if grep -qE "^\s*$param\s*=" "$CONF_FILE"; then
-    sed -i "s|^\s*$param\s*=.*|$param = '$final_val'|" "$CONF_FILE"
+  # 1. If user provided a Docker env var override, always force overwrite
+  if [ -n "$env_override" ]; then
+    if grep -qE "^\s*$param\s*=" "$CONF_FILE"; then
+      sed -i "s|^\s*$param\s*=.*|$param = '$env_override'|" "$CONF_FILE"
+    else
+      echo "$param = '$env_override'" >> "$CONF_FILE"
+    fi
+    echo "ParadeDB auto-tune: $param = $env_override (via env var)"
+
+  # 2. Otherwise, only tune if parameter is NOT already in file (respect ALTER SYSTEM)
+  elif ! grep -qE "^\s*$param\s*=" "$CONF_FILE" 2>/dev/null; then
+    echo "$param = '$value'" >> "$CONF_FILE"
+    echo "ParadeDB auto-tune: $param = $value (auto-tuned)"
+  
+  # 3. Parameter already exists and no env override - skip tuning
   else
-    echo "$param = '$final_val'" >> "$CONF_FILE"
+    echo "ParadeDB auto-tune: $param is already set in $CONF_FILE, skipping auto-tune"
   fi
 }
 
@@ -88,6 +100,7 @@ WM_MB=$(awk "BEGIN {w=int(($TOTAL_RAM_MB - $SB_MB) / ($MAX_CONN * 3)); print (w 
 WAL_MB=$(awk "BEGIN {w=int($SB_MB / 32); print (w > 64 ? 64 : w)}")
 
 PARALLEL_GATHER=$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p < 1 ? 1 : p)}")
+PMW=$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p > 8 ? 8 : (p < 2 ? 2 : p))}")
 
 echo "ParadeDB auto-tune: Applying settings for $TOTAL_RAM_MB MB RAM and $CPU_COUNT CPUs"
 
@@ -96,9 +109,11 @@ tune_param "effective_cache_size" "${ECS_MB}MB" "${PG_TUNE_EFFECTIVE_CACHE_SIZE:
 tune_param "maintenance_work_mem" "${MWM_MB}MB" "${PG_TUNE_MAINTENANCE_WORK_MEM:-}"
 tune_param "work_mem" "${WM_MB}MB" "${PG_TUNE_WORK_MEM:-}"
 tune_param "wal_buffers" "${WAL_MB}MB" "${PG_TUNE_WAL_BUFFERS:-}"
-tune_param "max_worker_processes" "$CPU_COUNT" "${PG_TUNE_MAX_WORKER_PROCESSES:-}"
-tune_param "max_parallel_workers" "$CPU_COUNT" "${PG_TUNE_MAX_PARALLEL_WORKERS:-}"
+
+# We only auto-tune the per-query and maintenance workers.
 tune_param "max_parallel_workers_per_gather" "$PARALLEL_GATHER" "${PG_TUNE_MAX_PARALLEL_WORKERS_PER_GATHER:-}"
+tune_param "max_parallel_maintenance_workers" "$PMW" "${PG_TUNE_MAX_PARALLEL_MAINTENANCE_WORKERS:-}"
+
 tune_param "random_page_cost" "1.1" "${PG_TUNE_RANDOM_PAGE_COST:-}"
 tune_param "effective_io_concurrency" "200" "${PG_TUNE_EFFECTIVE_IO_CONCURRENCY:-}"
 

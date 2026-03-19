@@ -36,13 +36,13 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 
 [ParadeDB](https://paradedb.com) is a Postgres extension that brings Elastic-quality full-text search, BM25 scoring, fuzzy matching, facets, and columnar analytics directly inside Postgres — no ETL pipelines, no external search engines, no data sync headaches.
 
-- [x] **BM25 Full-Text Search** — relevance ranking, fuzzy matching, highlighting, and facets. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
-- [x] **Fast Analytics** — columnar storage with optimized filtering, sorting, and aggregates. [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
-- [x] **Top K** — optimized `ORDER BY ... LIMIT` with automatic parallelization. [Docs](https://docs.paradedb.com/documentation/sorting/topk)
-- [x] **JOINs** — search across normalized tables. [Docs](https://docs.paradedb.com/documentation/joins/overview)
-- [x] **Standard SQL** — no custom DSL, works with every Postgres tool, ORM, and driver
-- [x] **Hybrid Search** — combine BM25 text search with pgvector similarity search
-- [ ] **Vector Search** — performant filtered vector search without pgvector (coming soon)
+- [x] [BM25 Full-Text Search](https://docs.paradedb.com/documentation/full-text/overview)
+- [x] [Fast Analytics](https://docs.paradedb.com/documentation/indexing/columnar)
+- [x] [Top K](https://docs.paradedb.com/documentation/sorting/topk)
+- [x] [JOINs](https://docs.paradedb.com/documentation/joins/overview)
+- [x] Standard SQL
+- [x] Hybrid Search
+- [ ] Vector Search (coming soon)
 
 Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).
 

@@ -24,11 +24,15 @@
 
 ---
 
-## How to Install
+## Getting Started
+
+To get started locally:
 
 ```bash
 curl -fsSL https://paradedb.com/install.sh | sh
 ```
+
+When you're ready to deploy, check out our [hosting options](https://docs.paradedb.com/deploy/overview).
 
 ## What is ParadeDB?
 

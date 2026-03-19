@@ -38,7 +38,7 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 
 - [x] Full-Text Search. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
   - [x] BM25 Scoring. [Docs](https://docs.paradedb.com/documentation/full-text/scoring)
-  - [x] Tokenizers & Stemmers. [Docs](https://docs.paradedb.com/documentation/indexing/tokenizers)
+  - [x] Tokenizers & Token Filters. [Docs](https://docs.paradedb.com/documentation/indexing/tokenizers)
   - [x] Top K. [Docs](https://docs.paradedb.com/documentation/sorting/topk)
   - [x] Native PostgreSQL Syntax. [Docs](https://docs.paradedb.com/documentation/full-text/match)
 - [x] Aggregates. [Docs](https://docs.paradedb.com/documentation/full-text/aggregations)

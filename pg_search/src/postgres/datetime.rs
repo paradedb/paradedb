@@ -21,16 +21,16 @@ use pgrx::datum::datetime_support::DateTimeConversionError;
 pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 
 /// The minimum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
-/// converted to a Postgres Date without underflowing i64 when floored to the start of the day.
-/// Represents approximately year 1678.
+/// converted between Postgres types and Tantivy without underflowing i64 when floored to the
+/// second.
 #[allow(dead_code)]
-pub const MIN_SAFE_TANTIVY_NANOS: i64 = -9_223_286_400_000_000_000;
+pub const MIN_SAFE_TANTIVY_NANOS: i64 = (i64::MIN / 1_000_000_000) * 1_000_000_000;
 
 /// The maximum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
-/// converted between Postgres types and Tantivy without overflowing i64.
-/// Represents approximately year 2262.
+/// converted between Postgres types and Tantivy without overflowing i64 when floored to the
+/// second.
 #[allow(dead_code)]
-pub const MAX_SAFE_TANTIVY_NANOS: i64 = i64::MAX;
+pub const MAX_SAFE_TANTIVY_NANOS: i64 = (i64::MAX / 1_000_000_000) * 1_000_000_000;
 
 #[inline]
 pub fn micros_to_tantivy_datetime(

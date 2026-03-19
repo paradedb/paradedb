@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773884211868,
+  "lastUpdate": 1773884866871,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22258,6 +22258,42 @@ window.BENCHMARK_DATA = {
             "value": 5.319326654284408,
             "unit": "median tps",
             "extra": "avg tps: 4.775516522146442, max tps: 5.938066695577955, count: 57756"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f1c5af54c843131187bd7e387a2f3733d6852952",
+          "message": "fix: Bound Tantivy datetime conversions in proptests. (#4410)\n\n## What\n\nBound the range of proptested datetime conversions.\n\n## Why\n\n#4156 tightened the validation of these types.",
+          "timestamp": "2026-03-18T18:12:38-07:00",
+          "tree_id": "9a5874bccafddf881924e7e7a831e66a6a83c1b1",
+          "url": "https://github.com/paradedb/paradedb/commit/f1c5af54c843131187bd7e387a2f3733d6852952"
+        },
+        "date": 1773884859647,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.657985117412566,
+            "unit": "median tps",
+            "extra": "avg tps: 6.54130629372047, max tps: 9.878375518636512, count: 57543"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.232144435764764,
+            "unit": "median tps",
+            "extra": "avg tps: 4.672714178401383, max tps: 5.89465492738541, count: 57543"
           }
         ]
       }

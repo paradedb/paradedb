@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773945574692,
+  "lastUpdate": 1773945585351,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -57834,6 +57834,114 @@ window.BENCHMARK_DATA = {
             "value": 171.7109375,
             "unit": "median mem",
             "extra": "avg mem: 168.98001350111284, max mem: 172.4140625, count: 55713"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9",
+          "message": "fix: Track the rti of the score-providing relation for an ORDER BY (#4426)\n\n## What\n\nFix tracking of the providing-rti of the `pdb.score()` function, and\nremove the concept of the \"ordering side\".\n\n## Why\n\nA query failure was exposed in #4411 which had to do with losing track\nof which relation was providing the score for `pdb.score()`.\n\n## Tests\n\nAdded and fixed a repro.",
+          "timestamp": "2026-03-19T10:33:02-07:00",
+          "tree_id": "73766fc7c3e49387b97fdde1a78732ade46c582d",
+          "url": "https://github.com/paradedb/paradedb/commit/e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9"
+        },
+        "date": 1773945577382,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.514948,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.11286298856636, max cpu: 42.60355, count: 55413"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 175.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 153.8494166108359, max mem: 176.57421875, count: 55413"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.306346198200538, max cpu: 27.934044, count: 55413"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.42071996586992, max mem: 119.77734375, count: 55413"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.611594314357049, max cpu: 27.87996, count: 55413"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 145.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 136.37724909148125, max mem: 177.1484375, count: 55413"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 15459,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16215.085575586956, max block_count: 30509.0, count: 55413"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.484058596650342, max cpu: 4.7105007, count: 55413"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 96.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 90.92312047714435, max mem: 136.046875, count: 55413"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.709508599065202, max segment_count: 38.0, count: 55413"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.888066122667674, max cpu: 32.495163, count: 110826"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 177.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 156.85551689698266, max mem: 180.8125, count: 110826"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.832853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.467551451963827, max cpu: 28.125, count: 55413"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.81471722847076, max mem: 172.33984375, count: 55413"
           }
         ]
       }

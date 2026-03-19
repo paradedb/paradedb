@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773883946837,
+  "lastUpdate": 1773884201719,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -60628,6 +60628,54 @@ window.BENCHMARK_DATA = {
             "value": 484.2755028754873,
             "unit": "median tps",
             "extra": "avg tps: 432.8052456242384, max tps: 668.2816695634172, count: 107798"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b69b80d16d276ca5c975c5cfb6b472103493057d",
+          "message": "refactor(scan): unify threshold pruning under DynamicFilterPhysicalExpr (#4420)\n\n# Description\nBackport of #4375 to `0.22.x`.\n\nCo-authored-by: Rajesh Jha <136908732+rajiknows@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-18T17:15:18-07:00",
+          "tree_id": "84067b03b00fbbb97c6c77e691754e926ffc9d01",
+          "url": "https://github.com/paradedb/paradedb/commit/b69b80d16d276ca5c975c5cfb6b472103493057d"
+        },
+        "date": 1773884193051,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 519.4995710126033,
+            "unit": "median tps",
+            "extra": "avg tps: 519.9872671573265, max tps: 685.8252356570247, count: 53884"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 573.7787677719436,
+            "unit": "median tps",
+            "extra": "avg tps: 574.7570676180562, max tps: 778.8676943552236, count: 53884"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.6604440048287,
+            "unit": "median tps",
+            "extra": "avg tps: 86.68677604624571, max tps: 95.31552725258643, count: 53884"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 492.7462289104935,
+            "unit": "median tps",
+            "extra": "avg tps: 435.7678238078108, max tps: 666.0859507319535, count: 107768"
           }
         ]
       }

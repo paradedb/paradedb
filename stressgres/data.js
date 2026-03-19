@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773881304097,
+  "lastUpdate": 1773881432380,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22018,6 +22018,42 @@ window.BENCHMARK_DATA = {
             "value": 5.423000200937605,
             "unit": "median tps",
             "extra": "avg tps: 4.874579400022548, max tps: 6.086559029221632, count: 57804"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b69b80d16d276ca5c975c5cfb6b472103493057d",
+          "message": "refactor(scan): unify threshold pruning under DynamicFilterPhysicalExpr (#4420)\n\n# Description\nBackport of #4375 to `0.22.x`.\n\nCo-authored-by: Rajesh Jha <136908732+rajiknows@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-18T17:15:18-07:00",
+          "tree_id": "84067b03b00fbbb97c6c77e691754e926ffc9d01",
+          "url": "https://github.com/paradedb/paradedb/commit/b69b80d16d276ca5c975c5cfb6b472103493057d"
+        },
+        "date": 1773881424783,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.5303106754179066,
+            "unit": "median tps",
+            "extra": "avg tps: 6.420576037182029, max tps: 9.80841134125403, count: 57756"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.319326654284408,
+            "unit": "median tps",
+            "extra": "avg tps: 4.775516522146442, max tps: 5.938066695577955, count: 57756"
           }
         ]
       }

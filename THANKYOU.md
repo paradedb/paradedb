@@ -15,11 +15,11 @@ open-source relational database system. With more than three decades of active d
 it has proven architecture and a strong reputation for reliability, data integrity,
 and correctness. ParadeDB's core is built on PostgreSQL.
 
-## pgvector
+## Apache DataFusion
 
-[pgvector](https://github.com/pgvector/pgvector) is an open-source Postgres extension that enables
-similarity search for Postgres. ParadeDB uses `pgvector` to power the vector search part of our
-search capabilities.
+[Apache DataFusion](https://github.com/apache/datafusion) is an extensible query execution framework,
+written in Rust, that uses Apache Arrow as its in-memory format. ParadeDB uses DataFusion to power
+our OLAP and analytical processing capabilities.
 
 ## pgrx
 

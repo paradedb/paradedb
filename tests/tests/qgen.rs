@@ -878,12 +878,18 @@ async fn generated_joinscan_semi_like(database: Db) {
         |_| {},
     );
 
-    // Keep the semi-join left side ("users") decisively larger than right-side candidates.
-    // JoinScan's SEMI implementation requires the left side to be the largest source.
-    let tables_and_sizes = [("users", 500), ("products", 120), ("orders", 40)];
+    // Use varied table sizes to test both when the left side is the largest source
+    // and when the right side is the largest source (which now forces the partition
+    // to the left side anyway for SEMI/ANTI correctness).
+    let tables_and_sizes = [
+        ("users", 500),
+        ("products", 120),
+        ("orders", 40),
+        ("logs", 1000),
+    ];
     let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
 
-    let all_tables = vec!["users", "products", "orders"];
+    let all_tables = vec!["users", "products", "orders", "logs"];
     let join_key_columns = vec!["id", "age", "uuid"];
     let search_terms = vec![
         "alice", "bob", "cloe", "sally", "brandy", "brisket", "anchovy",
@@ -895,9 +901,6 @@ async fn generated_joinscan_semi_like(database: Db) {
         is_anti_join in proptest::bool::ANY,
         limit in 1..=50usize,
     )| {
-        // For now, JoinScan SEMI requires the left side to be the largest source.
-        // TODO: Remove this once JoinScan SEMI supports non-base-table joins.
-        prop_assume!(semi_join.outer_table() == "users");
         let outer = semi_join.outer_table();
         let inner = semi_join.inner_table();
         let join_col = semi_join.join_column();

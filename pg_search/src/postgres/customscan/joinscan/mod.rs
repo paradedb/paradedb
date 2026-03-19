@@ -520,21 +520,26 @@ impl CustomScan for JoinScan {
                 }
             }
 
-            let current_sources = join_clause.plan.sources();
-
             // The current parallel strategy partitions exactly one source and replicates all
-            // others. For SEMI JOIN correctness, the partitioned source must be the left side.
-            // We currently enforce a conservative subset: binary base-table joins only.
-            if jointype == pg_sys::JoinType::JOIN_SEMI {
-                let partitioning_idx = join_clause.partitioning_source_index();
-                if partitioning_idx != 0 {
-                    Self::add_planner_warning(
-                            "JoinScan not used: SEMI JOIN requires the left side to be the largest source",
-                            &aliases,
-                        );
-                    return Vec::new();
+            // others. For SEMI JOIN and ANTI JOIN correctness, the partitioned source MUST be
+            // the left side to avoid duplicate emissions from replicated workers.
+            // TODO: Because we force the left side to be partitioned, we will fully replicate
+            // (broadcast) the right side even if it is significantly larger. This reduces
+            // performance but ensures correctness. We can remove this limitation once we transition
+            // away from a broadcast strategy to true plan partitioning:
+            // https://github.com/paradedb/paradedb/issues/4152
+            if join_clause.plan.has_semi_or_anti() {
+                if join_clause.partitioning_source_index() != 0 {
+                    pgrx::warning!(
+                        "For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal \
+                        parallel partitioning strategy for this query. See \
+                        https://github.com/paradedb/paradedb/issues/4152"
+                    );
                 }
+                join_clause = join_clause.with_forced_partitioning(0);
             }
+
+            let current_sources = join_clause.plan.sources();
 
             // Extract join-level predicates (search predicates and heap conditions)
             // This builds an expression tree that can reference:

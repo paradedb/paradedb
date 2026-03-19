@@ -50,43 +50,6 @@ Star and watch this repository to follow along. See our [current projects](https
 
 ParadeDB assembles best-in-class open-source components into a single Postgres extension. We use [pgrx](https://github.com/pgcentralfoundation/pgrx) to bridge Postgres and Rust, [Tantivy](https://github.com/quickwit-oss/tantivy) for full-text search, and [Apache DataFusion](https://github.com/apache/datafusion) for OLAP processing. The result is Elastic-quality search and analytics that is 100% Postgres native. For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or [architecture docs](https://docs.paradedb.com/welcome/architecture).
 
-```sql
--- Create a test table with mock data
-CALL paradedb.create_bm25_test_table(
-  schema_name => 'public',
-  table_name => 'mock_items'
-);
-
--- Create a BM25 index
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id');
-
--- Search with BM25 scoring
-SELECT description, pdb.score(id)
-FROM mock_items
-WHERE description ||| 'running shoes' AND rating > 2
-ORDER BY score DESC
-LIMIT 5;
-
--- Highlighting
-SELECT description, pdb.snippet(description), pdb.score(id)
-FROM mock_items
-WHERE description ||| 'running shoes' AND rating > 2
-ORDER BY score DESC
-LIMIT 5;
-
--- Facets alongside search results
-SELECT description, rating, category,
-       pdb.agg('{"value_count": {"field": "id"}}') OVER ()
-FROM mock_items
-WHERE description ||| 'running shoes'
-ORDER BY rating
-LIMIT 5;
-```
-
-For full documentation, visit [docs.paradedb.com](https://docs.paradedb.com).
-
 ## Integrations
 
 ParadeDB integrates with the tools you already use, with more coming.

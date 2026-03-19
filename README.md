@@ -50,14 +50,9 @@ Star and watch this repository to follow along. See our [current projects](https
 
 ## How It Works
 
-Rather than reinvent the wheel, ParadeDB assembles best-in-class open-source components into a single Postgres extension. We use [pgrx](https://github.com/pgcentralfoundation/pgrx) to bridge Postgres and Rust, [Tantivy](https://github.com/quickwit-oss/tantivy) for full-text search, and [Apache DataFusion](https://github.com/apache/datafusion) for OLAP processing. The result is Elastic-quality search and analytics that is 100% Postgres native — install it directly into your existing Postgres or run it as a [sidecar replica cluster](https://cloudnative-pg.io/docs/1.28/replica_cluster/) with native Postgres replication.
+ParadeDB is built with [pgrx](https://github.com/pgcentralfoundation/pgrx), [Tantivy](https://github.com/quickwit-oss/tantivy), and [Apache DataFusion](https://github.com/apache/datafusion). It introduces a new index type, the BM25 index, which stores indexed columns in both an inverted index (for search) and a columnar index (for analytics). Query it with standard SQL — ParadeDB's custom scan pushes filters, aggregates, and sorting directly into the index.
 
-ParadeDB introduces a new index type inside Postgres, the BM25 index, which can be created on any Postgres table and behaves similarly to other Postgres indexes (B+Tree, GIN, etc.).
-
-1. **Create a BM25 index** on any table. The index is a covering index that stores all indexed columns in both an inverted index (for full-text search) and a columnar index (for fast analytics)
-2. **Query with SQL**. ParadeDB introduces custom operators like `|||` for search. When a query uses these operators, ParadeDB's custom scan takes over — pushing filters, aggregates, and sorting directly into the index for maximum performance
-
-Under the hood, the BM25 index is built on an LSM tree powered by Tantivy (a Rust-based search library inspired by Lucene). Writes are buffered in memory and flushed as immutable segments, making inserts and updates fast. Reads are automatically parallelized across Postgres workers. For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or consult our [architecture docs](https://docs.paradedb.com/welcome/architecture).
+Install it into your existing Postgres or run it as a [sidecar replica cluster](https://cloudnative-pg.io/docs/1.28/replica_cluster/) with native replication. For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or [architecture docs](https://docs.paradedb.com/welcome/architecture).
 
 ```sql
 -- Create an index

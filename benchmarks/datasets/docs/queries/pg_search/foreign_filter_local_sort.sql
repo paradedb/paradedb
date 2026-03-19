@@ -16,3 +16,17 @@ WHERE
 ORDER BY
     f."createdAt" DESC                -- Single Feature Sort (Local Fast Field)
 LIMIT 20;
+
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
+    f.id,
+    f.title,
+    f."createdAt",
+    d.title as document_title
+FROM files f
+JOIN documents d ON f."documentId" = d.id
+WHERE
+    d.parents @@@ 'parent group'
+    AND f.title @@@ 'collab12'
+ORDER BY
+    f."createdAt" DESC                -- Single Feature Sort (Local Fast Field)
+LIMIT 20;

@@ -19,7 +19,6 @@ use clap::Parser;
 use paradedb::median;
 use paradedb::micro_benchmarks::benchmark_columnar;
 use sqlx::{Connection, PgConnection, Row};
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -235,44 +234,42 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
             Some(path)
         })
         .collect::<Vec<_>>();
-    let query_types = query_paths
-        .iter()
-        .map(|path| benchmark_query_type(path))
-        .collect::<HashSet<_>>();
-    query_paths.sort_by_key(|path| benchmark_query_sort_key(path, &query_types));
+    query_paths.sort_unstable();
 
     let mut results = Vec::new();
     for path in query_paths {
-        let query_type = benchmark_query_type(&path);
-        let query = benchmark_query(&path);
+        // Isolate session state across benchmark files while keeping all variants in a file
+        // on the same connection.
         let mut conn = PgConnection::connect(&args.url)
             .await
             .expect("Failed to connect to database");
 
-        if let Err(err) = clear_caches(&mut utility_conn).await {
-            panic!("Failed to clear caches before query: {err}");
-        }
-        println!("Query Type: {query_type}\nQuery: {query}");
-        let result = execute_query_multiple_times(
-            &mut conn,
-            &query_type,
-            &query,
-            args.runs,
-            args.fail_on_error,
-        )
-        .await;
-        match result {
-            Some((runtimes_ms, num_results)) => {
-                println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
-                results.push(QueryResult {
-                    query_type,
-                    query,
-                    runtimes_ms,
-                    num_results,
-                });
+        for (query_type, query) in benchmark_queries(&path) {
+            if let Err(err) = clear_caches(&mut utility_conn).await {
+                panic!("Failed to clear caches before query: {err}");
             }
-            None => {
-                println!("Skipped (query error)\n");
+            println!("Query Type: {query_type}\nQuery: {query}");
+            let result = execute_query_multiple_times(
+                &mut conn,
+                &query_type,
+                &query,
+                args.runs,
+                args.fail_on_error,
+            )
+            .await;
+            match result {
+                Some((runtimes_ms, num_results)) => {
+                    println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
+                    results.push(QueryResult {
+                        query_type,
+                        query,
+                        runtimes_ms,
+                        num_results,
+                    });
+                }
+                None => {
+                    println!("Skipped (query error)\n");
+                }
             }
         }
     }
@@ -622,42 +619,25 @@ fn queries(file: &Path) -> Vec<String> {
         .collect()
 }
 
-fn benchmark_query(file: &Path) -> String {
-    let queries = queries(file);
-    match queries.as_slice() {
-        [query] => query.clone(),
-        _ => panic!(
-            "Expected exactly one benchmark query in `{}`; split multi-query files before benchmarking",
-            file.display()
-        ),
-    }
-}
-
-fn benchmark_query_sort_key(file: &Path, query_types: &HashSet<String>) -> (String, usize, String) {
-    let query_type = benchmark_query_type(file);
-
-    let mut base = None;
-    for (idx, _) in query_type.match_indices('-') {
-        let prefix = &query_type[..idx];
-        if query_types.contains(prefix) {
-            base = Some(prefix.to_string());
-        }
-    }
-
-    match base {
-        Some(base) => {
-            let variant = query_type[base.len() + 1..].to_string();
-            (base, 1, variant)
-        }
-        None => (query_type, 0, String::new()),
-    }
-}
-
-fn benchmark_query_type(file: &Path) -> String {
-    file.file_stem()
+fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
+    let query_type = file
+        .file_stem()
         .unwrap_or_else(|| panic!("Failed to get file stem for `{}`", file.display()))
         .to_string_lossy()
-        .into_owned()
+        .into_owned();
+
+    queries(file)
+        .into_iter()
+        .enumerate()
+        .map(|(idx, query)| {
+            let query_type = if idx == 0 {
+                query_type.clone()
+            } else {
+                format!("{query_type} - alternative {idx}")
+            };
+            (query_type, query)
+        })
+        .collect()
 }
 
 fn extract_index_name(statement: &str) -> &str {
@@ -677,7 +657,10 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
     }
 }
 
-/// Execute a benchmark query multiple times on a single reused connection for one query file.
+/// Execute a benchmark query multiple times on a single reused connection.
+///
+/// The caller controls the connection scope; benchmark files currently reuse one connection
+/// across all queries in the file.
 ///
 /// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
 /// necessary for compatibility with custom scan providers. Compound statements

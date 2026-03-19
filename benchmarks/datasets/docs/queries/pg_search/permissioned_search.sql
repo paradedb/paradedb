@@ -14,3 +14,16 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
+
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
+    f.id,
+    f.title,
+    paradedb.score(f.id) as relevance
+FROM files f
+JOIN documents d ON f."documentId" = d.id
+WHERE
+    f.title @@@ 'File'              -- Driving the Sort (Single Feature)
+    AND d.parents @@@ 'parent group'
+ORDER BY
+    relevance DESC
+LIMIT 10;

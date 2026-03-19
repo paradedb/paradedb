@@ -15,3 +15,17 @@ WHERE
 ORDER BY
     d.title ASC                     -- Single Feature Sort (Parent Field)
 LIMIT 50;
+
+SET work_mem TO '64MB'; SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT
+    d.id,
+    d.title,
+    d.parents
+FROM documents d
+JOIN files f ON d.id = f."documentId"
+JOIN pages p ON f.id = p."fileId"
+WHERE
+    p."sizeInBytes" > 5000            -- Filter on the "Many" side
+    AND d.parents @@@ 'parent group'
+ORDER BY
+    d.title ASC                     -- Single Feature Sort (Parent Field)
+LIMIT 50;

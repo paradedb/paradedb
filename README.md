@@ -36,10 +36,10 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 
 [ParadeDB](https://paradedb.com) is a Postgres extension that brings Elastic-quality full-text search, BM25 scoring, fuzzy matching, facets, and columnar analytics directly inside Postgres — no ETL pipelines, no external search engines, no data sync headaches.
 
-- [x] [BM25 Full-Text Search](https://docs.paradedb.com/documentation/full-text/overview)
-- [x] [Fast Analytics](https://docs.paradedb.com/documentation/indexing/columnar)
-- [x] [Top K](https://docs.paradedb.com/documentation/sorting/topk)
-- [x] [JOINs](https://docs.paradedb.com/documentation/joins/overview)
+- [x] BM25 Full-Text Search [Docs](https://docs.paradedb.com/documentation/full-text/overview)
+- [x] Fast Analytics [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
+- [x] Top K [Docs](https://docs.paradedb.com/documentation/sorting/topk)
+- [x] JOINs [Docs](https://docs.paradedb.com/documentation/joins/overview)
 - [x] Standard SQL
 - [x] Hybrid Search
 - [ ] Vector Search (coming soon)

@@ -45,8 +45,8 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 - [x] Top K [Docs](https://docs.paradedb.com/documentation/sorting/topk)
 - [x] JOINs [Docs](https://docs.paradedb.com/documentation/joins/overview)
 - [x] Standard SQL
-- [x] Hybrid Search
 - [ ] Vector Search (coming soon)
+- [ ] Hybrid Search (coming soon)
 
 Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).
 

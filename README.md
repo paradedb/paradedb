@@ -36,11 +36,10 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 
 [ParadeDB](https://paradedb.com) is a Postgres extension that brings Elastic-quality full-text search, BM25 scoring, fuzzy matching, faceted aggregations, and columnar analytics directly inside Postgres — no ETL pipelines, no external search engines, no data sync headaches.
 
-- [x] **BM25 Full-Text Search** — industry-standard relevance ranking, fuzzy matching, highlighting. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
-- [x] **Top K Optimization** — highly optimized `ORDER BY ... LIMIT` with automatic parallelization. [Docs](https://docs.paradedb.com/documentation/sorting/topk)
-- [x] **Real-Time Indexing** — data is searchable the instant it's written, with full ACID guarantees. [Docs](https://docs.paradedb.com/welcome/guarantees)
-- [x] **Faceted Aggregations** — counts, averages, histograms, and more returned alongside search results. [Docs](https://docs.paradedb.com/documentation/aggregates/facets)
-- [x] **Columnar Analytics** — fast filtering, sorting, and aggregates via built-in columnar storage. [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
+- [x] **BM25 Full-Text Search** — relevance ranking, fuzzy matching, highlighting, and faceted aggregations. [Docs](https://docs.paradedb.com/documentation/full-text/overview)
+- [x] **Fast Analytics** — columnar storage with optimized filtering, sorting, and aggregates. [Docs](https://docs.paradedb.com/documentation/indexing/columnar)
+- [x] **Top K** — highly optimized `ORDER BY ... LIMIT` with automatic parallelization. [Docs](https://docs.paradedb.com/documentation/sorting/topk)
+- [x] **Real-Time & ACID** — data is searchable the instant it's written, with full transactional guarantees. [Docs](https://docs.paradedb.com/welcome/guarantees)
 - [x] **JOINs** — search across normalized tables without denormalization. [Docs](https://docs.paradedb.com/documentation/joins/overview)
 - [x] **Standard SQL** — no custom DSL, works with every Postgres tool, ORM, and driver
 - [x] **Hybrid Search** — combine BM25 text search with pgvector similarity search

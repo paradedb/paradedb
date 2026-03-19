@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773878550692,
+  "lastUpdate": 1773879028940,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -58600,6 +58600,54 @@ window.BENCHMARK_DATA = {
             "value": 477.7645399901882,
             "unit": "median tps",
             "extra": "avg tps: 430.73313145321384, max tps: 634.9017436162289, count: 107780"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f33a629477b9b31b438b3d7b29d08114c574c411",
+          "message": "fix: Expose `pdb.agg(.., solve_mvcc=bool)` argument in all cases (#4416)\n\n## What\n\nThe `pdb.agg` `solve_mvcc` argument was only exposed on window\nfunctions, but is also helpful on aggregate functions in general.\n\nAdditionally, the new argument had not been included in upgrade scripts,\nand so was not exposed to consumers who had upgraded.\n\n## Why\n\nTo allow for higher performance aggregates in cases where users don't\nneed mvcc accuracy.",
+          "timestamp": "2026-03-18T15:50:16-07:00",
+          "tree_id": "0ee6d546a6f13b79e04c5a3f4788603fca91bcd1",
+          "url": "https://github.com/paradedb/paradedb/commit/f33a629477b9b31b438b3d7b29d08114c574c411"
+        },
+        "date": 1773879020673,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 505.3500595504829,
+            "unit": "median tps",
+            "extra": "avg tps: 503.7677381040157, max tps: 682.1469028797587, count: 53950"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 571.586236839003,
+            "unit": "median tps",
+            "extra": "avg tps: 570.3785569747416, max tps: 782.5132666372565, count: 53950"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.01100288312576,
+            "unit": "median tps",
+            "extra": "avg tps: 87.99528102004885, max tps: 94.64683981004616, count: 53950"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 479.3821709143614,
+            "unit": "median tps",
+            "extra": "avg tps: 433.673089454227, max tps: 656.0069699178632, count: 107900"
           }
         ]
       }

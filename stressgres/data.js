@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773946495964,
+  "lastUpdate": 1773956538170,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6830,6 +6830,78 @@ window.BENCHMARK_DATA = {
             "value": 199.63158390453583,
             "unit": "median tps",
             "extra": "avg tps: 190.8441711526657, max tps: 862.5515482369015, count: 55040"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc3004a0eca73e104b0923460036afcc27322b6d",
+          "message": "fix: Track the rti of the score-providing relation for an ORDER BY (#4429)\n\n# Description\nBackport of #4426 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-19T14:22:26-07:00",
+          "tree_id": "9120b7f530f10d0183281897ccd8549fca4fdde7",
+          "url": "https://github.com/paradedb/paradedb/commit/bc3004a0eca73e104b0923460036afcc27322b6d"
+        },
+        "date": 1773956530273,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 125.32515957979038,
+            "unit": "median tps",
+            "extra": "avg tps: 125.9244958981156, max tps: 143.9186764713024, count: 55186"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 417.47705523386776,
+            "unit": "median tps",
+            "extra": "avg tps: 420.23227300071716, max tps: 534.2678449662012, count: 55186"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2893.5239033164894,
+            "unit": "median tps",
+            "extra": "avg tps: 2880.289594808296, max tps: 2901.8108889474015, count: 55186"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 392.06513659861275,
+            "unit": "median tps",
+            "extra": "avg tps: 395.5238894929199, max tps: 450.9622955578539, count: 55186"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3065.1004654615826,
+            "unit": "median tps",
+            "extra": "avg tps: 3051.8606538401937, max tps: 3083.467812394888, count: 110372"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 441.3233017728756,
+            "unit": "median tps",
+            "extra": "avg tps: 442.4107013210066, max tps: 542.0216452053008, count: 55186"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1823.677717047341,
+            "unit": "median tps",
+            "extra": "avg tps: 1818.733135198588, max tps: 1840.3609762891508, count: 55186"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 75.17802557405406,
+            "unit": "median tps",
+            "extra": "avg tps: 92.05219742632866, max tps: 877.4954874794557, count: 55186"
           }
         ]
       }

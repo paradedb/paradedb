@@ -70,7 +70,7 @@ SELECT title, pdb.score(id) AS score FROM docs WHERE body ||| 'search ranking' O
 SELECT title FROM docs WHERE title ||| 'postgras'::pdb.fuzzy(1);
 
 -- Phrase matching
-SELECT title FROM docs WHERE title ||| '"full-text search"';
+SELECT title FROM docs WHERE title ### '"full-text search"';
 
 -- Highlighting
 SELECT title, pdb.snippet(body) FROM docs WHERE body ||| 'search';

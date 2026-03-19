@@ -73,17 +73,17 @@ For full documentation, visit [docs.paradedb.com](https://docs.paradedb.com).
 
 |                           | **Postgres (tsvector)** | **Elasticsearch** | **ParadeDB** |
 | ------------------------- | :---------------------: | :---------------: | :----------: |
-| BM25 relevance scoring    |         &cross;         |      &check;      |   &check;    |
-| Fuzzy matching            |         &cross;         |      &check;      |   &check;    |
-| Faceted aggregations      |         &cross;         |      &check;      |   &check;    |
-| Columnar analytics        |         &cross;         |      &check;      |   &check;    |
-| Highlighting & snippets   |         Partial         |      &check;      |   &check;    |
-| Real-time indexing        |         &check;         |      &cross;      |   &check;    |
-| ACID transactions         |         &check;         |      &cross;      |   &check;    |
-| SQL interface             |         &check;         |      &cross;      |   &check;    |
-| JOINs                     |         &check;         |      &cross;      |   &check;    |
-| No ETL / data sync        |         &check;         |      &cross;      |   &check;    |
-| Built for updates/deletes |         &check;         |      &cross;      |   &check;    |
+| BM25 relevance scoring    |           ❌            |        ✅         |      ✅      |
+| Fuzzy matching            |           ❌            |        ✅         |      ✅      |
+| Faceted aggregations      |           ❌            |        ✅         |      ✅      |
+| Columnar analytics        |           ❌            |        ✅         |      ✅      |
+| Highlighting & snippets   |         Partial         |        ✅         |      ✅      |
+| Real-time indexing        |           ✅            |        ❌         |      ✅      |
+| ACID transactions         |           ✅            |        ❌         |      ✅      |
+| SQL interface             |           ✅            |        ❌         |      ✅      |
+| JOINs                     |           ✅            |        ❌         |      ✅      |
+| No ETL / data sync        |           ✅            |        ❌         |      ✅      |
+| Built for updates/deletes |           ✅            |        ❌         |      ✅      |
 
 ## Features
 

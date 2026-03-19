@@ -264,7 +264,7 @@ where
 
                 match sort_type {
                     SortExpressionType::Score => {
-                        pathkey_styles.push(OrderByStyle::Score(pathkey));
+                        pathkey_styles.push(OrderByStyle::Score { pathkey, rti });
                         found_valid_member = true;
                         break;
                     }

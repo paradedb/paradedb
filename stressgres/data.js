@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773964728715,
+  "lastUpdate": 1773964739286,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19632,6 +19632,138 @@ window.BENCHMARK_DATA = {
             "value": 54.5078125,
             "unit": "median mem",
             "extra": "avg mem: 53.47675750813159, max mem: 66.41015625, count: 55186"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b20263cd4af395f65592d9d416ad88f2ee96c8c",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4431)\n\n## What\n\nForce the \"preserved\" side of a semi/anti join to be partitioned, even\nif is smaller than the non-preserved side(s).\n\n## Why\n\nCurrently, when the joinscan would not be able to use optimal\npartitioning for a semi/anti join, it refuses to run, with:\n> JoinScan not used: SEMI JOIN requires the left side to be the largest\nsource\n\nThis is reasonable, but the problem is that this is based on estimates\nthat change based on the data distribution and WHERE clause selectivity,\nrather than based on the shape of the query itself. That means that if\nyou've written a query that uses `pdb.score` and tested it on a\nparticular set of data, it might begin failing (with an \"Unsupported\nquery shape\" error) on a different set of data.\n\n## How\n\nAdd and use `with_forced_partitioning`.",
+          "timestamp": "2026-03-19T16:38:58-07:00",
+          "tree_id": "8f11d6e8f3fe6b167b131a7034a277d147015767",
+          "url": "https://github.com/paradedb/paradedb/commit/0b20263cd4af395f65592d9d416ad88f2ee96c8c"
+        },
+        "date": 1773964730924,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.396787123325128, max cpu: 23.099133, count: 54951"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 63.40813861440192, max mem: 75.03125, count: 54951"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.233520705711684, max cpu: 18.972332, count: 54951"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 63.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.709262854634126, max mem: 74.3125, count: 54951"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.639945130839382, max cpu: 9.421001, count: 54951"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.29386997904952, max mem: 36.4140625, count: 54951"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7397513281320895, max cpu: 9.266409, count: 54951"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.09105939268621, max mem: 73.19921875, count: 54951"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.62491461779539, max cpu: 9.266409, count: 109902"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.414825502208785, max mem: 68.703125, count: 109902"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1801,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1804.1777219704827, max block_count: 3218.0, count: 54951"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 19,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 19.12349183818311, max segment_count: 30.0, count: 54951"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.206117602912849, max cpu: 18.897638, count: 54951"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.0903102167158, max mem: 73.6796875, count: 54951"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.601511937742848, max cpu: 4.743083, count: 54951"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.60329301900784, max mem: 63.3203125, count: 54951"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5992765943584173, max cpu: 4.6511626, count: 54951"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 55.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.23985729900275, max mem: 66.625, count: 54951"
           }
         ]
       }

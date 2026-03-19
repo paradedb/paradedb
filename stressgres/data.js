@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773959326750,
+  "lastUpdate": 1773960226650,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -63064,6 +63064,54 @@ window.BENCHMARK_DATA = {
             "value": 475.5732300655885,
             "unit": "median tps",
             "extra": "avg tps: 433.1751642254476, max tps: 667.1247047261311, count: 107794"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc3004a0eca73e104b0923460036afcc27322b6d",
+          "message": "fix: Track the rti of the score-providing relation for an ORDER BY (#4429)\n\n# Description\nBackport of #4426 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-19T14:22:26-07:00",
+          "tree_id": "9120b7f530f10d0183281897ccd8549fca4fdde7",
+          "url": "https://github.com/paradedb/paradedb/commit/bc3004a0eca73e104b0923460036afcc27322b6d"
+        },
+        "date": 1773960218518,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 495.1037166637664,
+            "unit": "median tps",
+            "extra": "avg tps: 497.26879961718936, max tps: 653.0293815332868, count: 53883"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 593.2794324257932,
+            "unit": "median tps",
+            "extra": "avg tps: 593.9764888269183, max tps: 764.5786332706231, count: 53883"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 83.0928751702587,
+            "unit": "median tps",
+            "extra": "avg tps: 83.27767590869202, max tps: 88.22947000782464, count: 53883"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 479.17856208506396,
+            "unit": "median tps",
+            "extra": "avg tps: 421.1176317699432, max tps: 625.2737582500853, count: 107766"
           }
         ]
       }

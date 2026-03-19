@@ -54,10 +54,8 @@ use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMerge
 use datafusion::physical_plan::ExecutionPlan;
 
 use crate::gucs;
-use crate::index::fast_fields_helper::FFHelper;
-use crate::scan::execution_plan::PgSearchScanPlan;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
-use crate::scan::segmented_topk_exec::{SegmentedThresholds, SegmentedTopKExec};
+use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 
 #[derive(Debug)]
@@ -238,28 +236,13 @@ fn try_inject_below_lookup(
                 let rewritten_lex_ordering =
                     LexOrdering::new(rewritten_sort_exprs).unwrap_or(sort_exprs.clone());
 
-                let thresholds = Arc::new(SegmentedThresholds::new());
-
                 let segmented_topk = Arc::new(SegmentedTopKExec::new(
                     Arc::clone(lookup_child),
                     rewritten_lex_ordering,
                     deferred_columns.clone(),
                     Arc::clone(&ffhelper),
                     k,
-                    Arc::clone(&thresholds),
                 ));
-
-                // Wire thresholds to the PgSearchScanPlan in the subtree.
-                // We match by both deferred column presence AND FFHelper identity to ensure
-                // we only wire to the scan for the same relation (in joins,
-                // multiple PgSearchScanPlans exist but only one shares the
-                // same Arc<FFHelper> as the TantivyLookupExec).
-                wire_thresholds_to_scan(
-                    lookup_child.as_ref(),
-                    &thresholds,
-                    &deferred_columns,
-                    &ffhelper,
-                );
 
                 // Rebuild TantivyLookupExec with the new child.
                 let new_lookup = Arc::clone(child).with_new_children(vec![segmented_topk])?;
@@ -317,42 +300,4 @@ fn wrap_blocking_nodes(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn Execution
     }
 
     Ok(plan)
-}
-
-/// Walk the plan tree to find a `PgSearchScanPlan` and wire the shared
-/// thresholds into it. This handles both direct children and plans behind
-/// intermediate nodes like `SortPreservingMergeExec`.
-///
-/// Matching is done by both ensuring that at least one deferred sort column belongs
-/// to the scan's deferred fields, and `expected_ffhelper` (`Arc` pointer equality ensures we
-/// wire to the scan for the same relation, not a different table in a join).
-fn wire_thresholds_to_scan(
-    plan: &dyn ExecutionPlan,
-    thresholds: &Arc<SegmentedThresholds>,
-    deferred_columns: &[crate::scan::segmented_topk_exec::DeferredSortColumn],
-    expected_ffhelper: &Arc<FFHelper>,
-) {
-    if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
-        let same_relation = scan
-            .ffhelper_if_deferred()
-            .is_some_and(|ff| Arc::ptr_eq(ff, expected_ffhelper));
-        // Check if ANY deferred column in the sort expressions belongs to this scan
-        let has_target = deferred_columns.iter().any(|sort_col| {
-            scan.deferred_fields()
-                .iter()
-                .any(|d| d.canonical == sort_col.canonical)
-        });
-        if same_relation && has_target {
-            scan.set_segmented_thresholds(Arc::clone(thresholds));
-        }
-        return;
-    }
-    for child in plan.children() {
-        wire_thresholds_to_scan(
-            child.as_ref(),
-            thresholds,
-            deferred_columns,
-            expected_ffhelper,
-        );
-    }
 }

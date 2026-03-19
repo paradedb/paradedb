@@ -164,7 +164,7 @@ ORDER BY s.name
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, name@2 as name]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, segmented_thresholds=true, query="all"
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
@@ -469,8 +469,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -489,7 +489,7 @@ ORDER BY p.name
            :             PgSearchScan: segments=1, query="all"
            :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 -- =============================================================================
@@ -505,8 +505,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless' AND s.name = 'TechCorp'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                                  QUERY PLAN                                                                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -525,7 +525,7 @@ ORDER BY p.name
            :             PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
            :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
 -- =============================================================================

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773880421605,
+  "lastUpdate": 1773880505871,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6542,6 +6542,78 @@ window.BENCHMARK_DATA = {
             "value": 50.82873893450615,
             "unit": "median tps",
             "extra": "avg tps: 56.87192606614261, max tps: 857.8867675255543, count: 55229"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b69b80d16d276ca5c975c5cfb6b472103493057d",
+          "message": "refactor(scan): unify threshold pruning under DynamicFilterPhysicalExpr (#4420)\n\n# Description\nBackport of #4375 to `0.22.x`.\n\nCo-authored-by: Rajesh Jha <136908732+rajiknows@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-18T17:15:18-07:00",
+          "tree_id": "84067b03b00fbbb97c6c77e691754e926ffc9d01",
+          "url": "https://github.com/paradedb/paradedb/commit/b69b80d16d276ca5c975c5cfb6b472103493057d"
+        },
+        "date": 1773880498224,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 123.95995382615324,
+            "unit": "median tps",
+            "extra": "avg tps: 124.91160646108288, max tps: 148.39536650127764, count: 54639"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 399.5331200950663,
+            "unit": "median tps",
+            "extra": "avg tps: 403.3422973822975, max tps: 552.2745143985387, count: 54639"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2810.139438832328,
+            "unit": "median tps",
+            "extra": "avg tps: 2803.0165739577396, max tps: 2915.6752695825253, count: 54639"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 359.9358861502014,
+            "unit": "median tps",
+            "extra": "avg tps: 361.6288180661701, max tps: 501.45849202405196, count: 54639"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2873.4240959537797,
+            "unit": "median tps",
+            "extra": "avg tps: 2902.0366806083107, max tps: 2979.506222409812, count: 109278"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 406.9729657218682,
+            "unit": "median tps",
+            "extra": "avg tps: 411.7839560366576, max tps: 574.4860408509363, count: 54639"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1895.9949179039602,
+            "unit": "median tps",
+            "extra": "avg tps: 1883.073878803511, max tps: 1903.4110657871483, count: 54639"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 34.40924184297954,
+            "unit": "median tps",
+            "extra": "avg tps: 47.8010544444322, max tps: 347.3295298948842, count: 54639"
           }
         ]
       }

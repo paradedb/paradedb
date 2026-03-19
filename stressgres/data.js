@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773886723798,
+  "lastUpdate": 1773887606891,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -61084,6 +61084,54 @@ window.BENCHMARK_DATA = {
             "value": 492.7462289104935,
             "unit": "median tps",
             "extra": "avg tps: 435.7678238078108, max tps: 666.0859507319535, count: 107768"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f1c5af54c843131187bd7e387a2f3733d6852952",
+          "message": "fix: Bound Tantivy datetime conversions in proptests. (#4410)\n\n## What\n\nBound the range of proptested datetime conversions.\n\n## Why\n\n#4156 tightened the validation of these types.",
+          "timestamp": "2026-03-18T18:12:38-07:00",
+          "tree_id": "9a5874bccafddf881924e7e7a831e66a6a83c1b1",
+          "url": "https://github.com/paradedb/paradedb/commit/f1c5af54c843131187bd7e387a2f3733d6852952"
+        },
+        "date": 1773887599257,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 513.6756267173824,
+            "unit": "median tps",
+            "extra": "avg tps: 511.2419999279067, max tps: 668.9004933090971, count: 53914"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 580.5340304157672,
+            "unit": "median tps",
+            "extra": "avg tps: 576.3206009279155, max tps: 830.7080322346363, count: 53914"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.72623054289784,
+            "unit": "median tps",
+            "extra": "avg tps: 88.64116118467358, max tps: 97.25326300126973, count: 53914"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 477.7645988545727,
+            "unit": "median tps",
+            "extra": "avg tps: 434.19926380784943, max tps: 614.1095350331067, count: 107828"
           }
         ]
       }

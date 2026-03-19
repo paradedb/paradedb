@@ -48,27 +48,9 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 
 Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).
 
-## Why ParadeDB?
-
-Postgres is the world's most loved relational database and the heart of many companies' data stacks. Yet, adding modern search and analytics still requires bolting on external systems like Elasticsearch, which introduces ETL pipelines, data sync issues, and operational complexity.
+## How It Works
 
 Rather than reinvent the wheel, ParadeDB assembles best-in-class open-source components into a single Postgres extension. We use [pgrx](https://github.com/pgcentralfoundation/pgrx) to bridge Postgres and Rust, [Tantivy](https://github.com/quickwit-oss/tantivy) for full-text search, and [Apache DataFusion](https://github.com/apache/datafusion) for OLAP processing. The result is Elastic-quality search and analytics that is 100% Postgres native — install it directly into your existing Postgres or run it as a [sidecar replica cluster](https://cloudnative-pg.io/docs/1.28/replica_cluster/) with native Postgres replication.
-
-|                           | **Postgres (tsvector)** | **Elasticsearch** | **ParadeDB** |
-| :------------------------ | :---------------------: | :---------------: | :----------: |
-| BM25 relevance scoring    |           ❌            |        ✅         |      ✅      |
-| Fuzzy matching            |           ❌            |        ✅         |      ✅      |
-| Faceted aggregations      |           ❌            |        ✅         |      ✅      |
-| Columnar analytics        |           ❌            |        ✅         |      ✅      |
-| Highlighting & snippets   |         Partial         |        ✅         |      ✅      |
-| Real-time indexing        |           ✅            |        ❌         |      ✅      |
-| ACID transactions         |           ✅            |        ❌         |      ✅      |
-| SQL interface             |           ✅            |      Partial      |      ✅      |
-| JOINs                     |           ✅            |      Partial      |      ✅      |
-| No ETL / data sync        |           ✅            |        ❌         |      ✅      |
-| Built for updates/deletes |           ✅            |        ❌         |      ✅      |
-
-## How It Works
 
 ParadeDB introduces a new index type inside Postgres, the BM25 index, which can be created on any Postgres table and behaves similarly to other Postgres indexes (B+Tree, GIN, etc.).
 

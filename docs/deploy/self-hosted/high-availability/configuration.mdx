@@ -41,7 +41,7 @@ Between physical replicas, ParadeDB requires the use of a few settings (which ar
 
 Without these settings, ParadeDB physical replicas will see much more frequent query cancels, and will report a message recommending that they are used.
 
-## Synchronous Replication
+## Asynchronous vs. Synchronous Replication
 
 By default, ParadeDB ships with asynchronuous replication, meaning transactions on the primary **do not** wait for confirmation from
 the standby instances before committing.

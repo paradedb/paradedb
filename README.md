@@ -50,9 +50,9 @@ Star and watch this repository to follow along. See our [current projects](https
 
 ## How It Works
 
-ParadeDB is built with [pgrx](https://github.com/pgcentralfoundation/pgrx), [Tantivy](https://github.com/quickwit-oss/tantivy), and [Apache DataFusion](https://github.com/apache/datafusion). It introduces a new index type, the BM25 index, which stores indexed columns in both an inverted index (for search) and a columnar index (for analytics). Query it with standard SQL — ParadeDB's custom scan pushes filters, aggregates, and sorting directly into the index.
+ParadeDB assembles best-in-class open-source components into a single Postgres extension. We use [pgrx](https://github.com/pgcentralfoundation/pgrx) to bridge Postgres and Rust, [Tantivy](https://github.com/quickwit-oss/tantivy) for full-text search, and [Apache DataFusion](https://github.com/apache/datafusion) for OLAP processing. The result is Elastic-quality search and analytics that is 100% Postgres native — install it directly into your existing Postgres or run it as a [sidecar replica cluster](https://cloudnative-pg.io/docs/1.28/replica_cluster/) with native Postgres replication.
 
-Install it into your existing Postgres or run it as a [sidecar replica cluster](https://cloudnative-pg.io/docs/1.28/replica_cluster/) with native replication. For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or [architecture docs](https://docs.paradedb.com/welcome/architecture).
+It introduces a new index type, the BM25 index, which stores indexed columns in both an inverted index (for search) and a columnar index (for analytics). Query it with standard SQL — ParadeDB's custom scan pushes filters, aggregates, and sorting directly into the index. For a deeper dive, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/) or [architecture docs](https://docs.paradedb.com/welcome/architecture).
 
 ```sql
 -- Create an index

@@ -130,20 +130,28 @@ Highly optimized `ORDER BY ... LIMIT` queries with automatic parallelization acr
 
 Search across normalized Postgres tables with `INNER`, `LEFT`, `RIGHT`, `FULL`, `CROSS`, and `LATERAL` joins — no denormalization required.
 
-## Integrations & Ecosystem
+## Integrations
 
-ParadeDB works with any Postgres-compatible tool. The Docker image comes with these extensions pre-installed:
+ParadeDB integrates with the tools you already use, with more coming.
 
-| Extension                                        | Purpose                        |
-| ------------------------------------------------ | ------------------------------ |
-| [pgvector](https://github.com/pgvector/pgvector) | Vector similarity search       |
-| [PostGIS](https://postgis.net/)                  | Geospatial queries             |
-| [pg_cron](https://github.com/citusdata/pg_cron)  | Background jobs and scheduling |
-| [pg_ivm](https://github.com/sraoss/pg_ivm)       | Incremental materialized views |
+### ORMs & Frameworks
 
-**ORMs & Frameworks:** Django, Rails, Prisma, and any ORM that speaks SQL.
+- [Django](https://github.com/paradedb/django-paradedb) — native Django ORM integration for ParadeDB queries
+- [Rails](https://github.com/paradedb/rails-paradedb) — Active Record integration for Ruby on Rails
+- [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb) — Python SQLAlchemy support
+- More coming (Prisma, and others)
 
-**Infrastructure:** AWS RDS (via [logical replication](https://docs.paradedb.com/deploy/logical-replication/getting-started)), GCP Cloud SQL, Azure, Kubernetes, Docker.
+### AI Agents
+
+- [Agent Skills](https://github.com/paradedb/agent-skills) — give AI coding agents full ParadeDB knowledge via `npx skills add paradedb/agent-skills`
+- [MCP Integration](https://docs.paradedb.com/mcp) — Model Context Protocol support for AI assistants
+
+### PaaS & Cloud Platforms
+
+- [Render](https://docs.paradedb.com/deploy/cloud-platforms/render) — one-click deploy
+- [Railway](https://docs.paradedb.com/deploy/cloud-platforms/railway) — one-click deploy
+- [DigitalOcean](https://docs.paradedb.com/deploy/cloud-platforms/digitalocean) — droplet deployment
+- More coming (Porter, and others)
 
 ## Deployment
 

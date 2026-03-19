@@ -78,7 +78,7 @@ WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY score DESC
 LIMIT 5;
 
--- Faceted aggregation alongside results
+-- Facets alongside results
 SELECT description, rating, category,
        pdb.agg('{"value_count": {"field": "id"}}') OVER ()
 FROM mock_items

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773943725092,
+  "lastUpdate": 1773944658156,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32982,6 +32982,54 @@ window.BENCHMARK_DATA = {
             "value": 5.368885453928296,
             "unit": "median tps",
             "extra": "avg tps: 5.384291543963863, max tps: 7.230239214561182, count: 56039"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9",
+          "message": "fix: Track the rti of the score-providing relation for an ORDER BY (#4426)\n\n## What\n\nFix tracking of the providing-rti of the `pdb.score()` function, and\nremove the concept of the \"ordering side\".\n\n## Why\n\nA query failure was exposed in #4411 which had to do with losing track\nof which relation was providing the score for `pdb.score()`.\n\n## Tests\n\nAdded and fixed a repro.",
+          "timestamp": "2026-03-19T10:33:02-07:00",
+          "tree_id": "73766fc7c3e49387b97fdde1a78732ade46c582d",
+          "url": "https://github.com/paradedb/paradedb/commit/e74687b825fac7c5237e9b33dd59b3c2ce3d2fc9"
+        },
+        "date": 1773944648518,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1074.0657368524803,
+            "unit": "median tps",
+            "extra": "avg tps: 1078.4256261084774, max tps: 1140.7404640974648, count: 56001"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1255.8328129775928,
+            "unit": "median tps",
+            "extra": "avg tps: 1247.5805400718953, max tps: 1268.6015004020924, count: 56001"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1086.352687834349,
+            "unit": "median tps",
+            "extra": "avg tps: 994.6180176717381, max tps: 1543.0910013845848, count: 56001"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.408022509213174,
+            "unit": "median tps",
+            "extra": "avg tps: 5.418069745920481, max tps: 6.980962647837526, count: 56001"
           }
         ]
       }

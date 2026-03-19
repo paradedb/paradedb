@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773958423740,
+  "lastUpdate": 1773959316886,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -48242,6 +48242,60 @@ window.BENCHMARK_DATA = {
             "value": 14.477724091215258,
             "unit": "median tps",
             "extra": "avg tps: 14.319973011734573, max tps: 19.951173095060994, count: 55413"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc3004a0eca73e104b0923460036afcc27322b6d",
+          "message": "fix: Track the rti of the score-providing relation for an ORDER BY (#4429)\n\n# Description\nBackport of #4426 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-19T14:22:26-07:00",
+          "tree_id": "9120b7f530f10d0183281897ccd8549fca4fdde7",
+          "url": "https://github.com/paradedb/paradedb/commit/bc3004a0eca73e104b0923460036afcc27322b6d"
+        },
+        "date": 1773959307798,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.130253937262694,
+            "unit": "median tps",
+            "extra": "avg tps: 29.79658123596239, max tps: 32.2445516566472, count: 55597"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.43437861733162,
+            "unit": "median tps",
+            "extra": "avg tps: 275.9260697542637, max tps: 2863.450328527564, count: 55597"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 572.8943346353375,
+            "unit": "median tps",
+            "extra": "avg tps: 556.7373902434506, max tps: 1079.9448510485195, count: 55597"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 160.09590670073803,
+            "unit": "median tps",
+            "extra": "avg tps: 174.49018470302568, max tps: 962.3529255475701, count: 111194"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.958542446921406,
+            "unit": "median tps",
+            "extra": "avg tps: 15.712291248914921, max tps: 19.318504964083036, count: 55597"
           }
         ]
       }

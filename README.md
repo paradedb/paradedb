@@ -47,6 +47,28 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 
 Star and watch this repo to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).
 
+## Why ParadeDB?
+
+Postgres is the world's most loved relational database and the heart of most companies' data stacks. Yet, it still lacks modern search and analytical capabilities — BM25 relevance ranking, fuzzy matching, faceted aggregations, and columnar analytics all require bolting on external systems like Elasticsearch, which introduces ETL pipelines, data sync issues, and operational complexity.
+
+Rather than reinvent the wheel, ParadeDB takes a composable building blocks approach: we assemble best-in-class open-source components into a single Postgres extension. We use [pgrx](https://github.com/pgcentralfoundation/pgrx) to bridge Postgres and Rust, [Tantivy](https://github.com/quickwit-oss/tantivy) to bring state-of-the-art full-text search (a Rust-based alternative to Lucene), and [Apache DataFusion](https://github.com/apache/datafusion) to bring state-of-the-art OLAP processing. The result is Elastic-quality search and analytics that runs inside Postgres, not next to it.
+
+For a deeper dive into this architecture, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/).
+
+|                           | **Postgres (tsvector)** | **Elasticsearch** | **ParadeDB** |
+| ------------------------- | :---------------------: | :---------------: | :----------: |
+| BM25 relevance scoring    |           ❌            |        ✅         |      ✅      |
+| Fuzzy matching            |           ❌            |        ✅         |      ✅      |
+| Faceted aggregations      |           ❌            |        ✅         |      ✅      |
+| Columnar analytics        |           ❌            |        ✅         |      ✅      |
+| Highlighting & snippets   |         Partial         |        ✅         |      ✅      |
+| Real-time indexing        |           ✅            |        ❌         |      ✅      |
+| ACID transactions         |           ✅            |        ❌         |      ✅      |
+| SQL interface             |           ✅            |        ❌         |      ✅      |
+| JOINs                     |           ✅            |        ❌         |      ✅      |
+| No ETL / data sync        |           ✅            |        ❌         |      ✅      |
+| Built for updates/deletes |           ✅            |        ❌         |      ✅      |
+
 ## How It Works
 
 ParadeDB is a Postgres extension — it runs inside your existing database, not alongside it.
@@ -72,28 +94,6 @@ SELECT title, pdb.agg('{"terms": {"field": "rating"}}') OVER () FROM docs WHERE 
 ```
 
 For full documentation, visit [docs.paradedb.com](https://docs.paradedb.com).
-
-## Why ParadeDB?
-
-Postgres is the world's most loved relational database and the heart of most companies' data stacks. Yet, it still lacks modern search and analytical capabilities — BM25 relevance ranking, fuzzy matching, faceted aggregations, and columnar analytics all require bolting on external systems like Elasticsearch, which introduces ETL pipelines, data sync issues, and operational complexity.
-
-Rather than reinvent the wheel, ParadeDB takes a composable building blocks approach: we assemble best-in-class open-source components into a single Postgres extension. We use [pgrx](https://github.com/pgcentralfoundation/pgrx) to bridge Postgres and Rust, [Tantivy](https://github.com/quickwit-oss/tantivy) to bring state-of-the-art full-text search (a Rust-based alternative to Lucene), and [Apache DataFusion](https://github.com/apache/datafusion) to bring state-of-the-art OLAP processing. The result is Elastic-quality search and analytics that runs inside Postgres, not next to it.
-
-For a deeper dive into this architecture, see our [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/).
-
-|                           | **Postgres (tsvector)** | **Elasticsearch** | **ParadeDB** |
-| ------------------------- | :---------------------: | :---------------: | :----------: |
-| BM25 relevance scoring    |           ❌            |        ✅         |      ✅      |
-| Fuzzy matching            |           ❌            |        ✅         |      ✅      |
-| Faceted aggregations      |           ❌            |        ✅         |      ✅      |
-| Columnar analytics        |           ❌            |        ✅         |      ✅      |
-| Highlighting & snippets   |         Partial         |        ✅         |      ✅      |
-| Real-time indexing        |           ✅            |        ❌         |      ✅      |
-| ACID transactions         |           ✅            |        ❌         |      ✅      |
-| SQL interface             |           ✅            |        ❌         |      ✅      |
-| JOINs                     |           ✅            |        ❌         |      ✅      |
-| No ETL / data sync        |           ✅            |        ❌         |      ✅      |
-| Built for updates/deletes |           ✅            |        ❌         |      ✅      |
 
 ## Features
 

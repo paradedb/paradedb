@@ -18,8 +18,8 @@
 //! DataFusion `ExecutionPlan` implementations for scanning `pg_search` indexes.
 //!
 //! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
-//! how `PgSearchScanPlan` integrates with the JoinScan physical plan, dynamic
-//! filters, and segmented thresholds.
+//! how `PgSearchScanPlan` integrates with the JoinScan physical plan and
+//! dynamic filters.
 //!
 //! This module provides the `PgSearchScanPlan`, which handles scanning of `pg_search`
 //! index segments. It supports both single-partition (serial) and multi-partition
@@ -60,7 +60,6 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::query::SearchQueryInput;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{collect_filters, PreFilter};
-use crate::scan::segmented_topk_exec::SegmentedThresholds;
 use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -115,9 +114,6 @@ pub struct PgSearchScanPlan {
     deferred_fields: Vec<DeferredField>,
     ffhelper_for_lookup: Option<Arc<FFHelper>>,
     pub indexrelid: u32,
-    /// Per-segment ordinal thresholds pushed from `SegmentedTopKExec` for
-    /// early row pruning at the scanner level.
-    segmented_thresholds: Mutex<Option<Arc<SegmentedThresholds>>>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -183,28 +179,7 @@ impl PgSearchScanPlan {
             deferred_fields,
             ffhelper_for_lookup,
             indexrelid,
-            segmented_thresholds: Mutex::new(None),
         }
-    }
-
-    /// Set shared per-segment ordinal thresholds for scanner-level pruning.
-    /// Called by the optimizer rule after injecting `SegmentedTopKExec`.
-    ///
-    /// This side-channel carries only per-segment ordinal thresholds, which
-    /// use segment-local ordinals that cannot be expressed as standard
-    /// `PhysicalExpr` on the scan's output schema. The global threshold
-    /// (materialized string literals) is pushed down separately through
-    /// DataFusion's standard `DynamicFilterPhysicalExpr` filter pushdown.
-    ///
-    /// TODO(https://github.com/paradedb/paradedb/issues/4257): Unify with dynamic filtering
-    /// once we have a proper extension type for deferred columns that the expression
-    /// framework can handle natively.
-    pub fn set_segmented_thresholds(&self, thresholds: Arc<SegmentedThresholds>) {
-        *self.segmented_thresholds.lock().unwrap() = Some(thresholds);
-    }
-
-    pub fn deferred_fields(&self) -> &[DeferredField] {
-        &self.deferred_fields
     }
 
     pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {
@@ -257,9 +232,6 @@ impl DisplayAs for PgSearchScanPlan {
         )?;
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
-        }
-        if self.segmented_thresholds.lock().unwrap().is_some() {
-            write!(f, ", segmented_thresholds=true")?;
         }
         write!(f, ", query={}", self.query_for_display.explain_format())
     }
@@ -352,10 +324,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                     partition
                 ))
             })?;
-
-        if let Some(thresholds) = &*self.segmented_thresholds.lock().unwrap() {
-            scanner.set_segmented_thresholds(Arc::clone(thresholds));
-        }
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters
@@ -474,7 +442,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                 deferred_fields: self.deferred_fields.clone(),
                 ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
                 indexrelid: self.indexrelid,
-                segmented_thresholds: Mutex::new(self.segmented_thresholds.lock().unwrap().clone()),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)

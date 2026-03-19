@@ -15,7 +15,7 @@ ORDER BY
     relevance DESC
 LIMIT 10;
 
-SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '64MB'; SET paradedb.enable_join_custom_scan TO on; SELECT
     f.id,
     f.title,
     paradedb.score(f.id) as relevance

@@ -151,7 +151,7 @@ mod translator;
 
 use self::build::{CtidColumn, JoinCSClause, RelNode, RelationAlias};
 use self::explain::{format_join_level_expr, get_attname_safe};
-use self::memory::PanicOnOOMMemoryPool;
+use self::memory::create_memory_pool;
 use self::planning::{
     collect_join_sources, collect_required_fields, ensure_score_bubbling,
     expr_uses_scores_from_source, extract_join_conditions, extract_orderby, extract_score_pathkey,
@@ -1117,8 +1117,6 @@ impl CustomScan for JoinScan {
                 // Always assign an ExprContext — heap filters, runtime
                 // expressions, and pushed-down predicates may all need it.
                 pg_sys::ExecAssignExprContext(estate, planstate);
-
-                state.custom_state_mut().max_memory = (pg_sys::work_mem as usize) * 1024;
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
                 state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             }
@@ -1182,8 +1180,12 @@ impl CustomScan for JoinScan {
                     .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
                     .expect("Failed to create execution plan");
 
-                let memory_pool =
-                    Arc::new(PanicOnOOMMemoryPool::new(state.custom_state().max_memory));
+                let memory_pool = create_memory_pool(
+                    &plan,
+                    pg_sys::work_mem as usize * 1024,
+                    pg_sys::hash_mem_multiplier,
+                );
+
                 let task_ctx = Arc::new(
                     TaskContext::default()
                         .with_session_config(ctx.state().config().clone())

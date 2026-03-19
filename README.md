@@ -28,6 +28,12 @@
 
 ---
 
+## How to Install
+
+```bash
+curl -fsSL https://paradedb.com/install.sh | sh
+```
+
 ## What is ParadeDB?
 
 [ParadeDB](https://paradedb.com) is a Postgres extension that brings Elastic-quality full-text search, BM25 scoring, fuzzy matching, faceted aggregations, and columnar analytics directly inside Postgres — no ETL pipelines, no external search engines, no data sync headaches.

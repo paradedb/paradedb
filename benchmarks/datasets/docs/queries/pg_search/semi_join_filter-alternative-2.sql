@@ -2,7 +2,8 @@
 -- Join: Single Feature (Fast Field)
 -- Description: The sort is simple (e.g., by Title), but the filter involves a "List" logic where the valid IDs are derived from a complex subquery or list. This was previously implemented using a term_set, effectively pushing a semi-join down to the search index.
 
-SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
+-- Sortedness enabled, no join scan.
+SET paradedb.enable_columnar_sort TO on; SET paradedb.enable_join_custom_scan TO off; SELECT
     f.id,
     f.title,
     f."createdAt"

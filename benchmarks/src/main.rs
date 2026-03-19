@@ -203,9 +203,6 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
     let mut utility_conn = PgConnection::connect(&args.url)
         .await
         .expect("Failed to connect to database");
-    let mut conn = PgConnection::connect(&args.url)
-        .await
-        .expect("Failed to connect to database");
 
     if args.vacuum {
         sqlx::query("VACUUM ANALYZE")
@@ -237,32 +234,16 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
             Some(path)
         })
         .collect::<Vec<_>>();
-    query_paths.sort_unstable();
-
-    // Load queries from each query path.
-    let all_queries: Vec<(String, String)> = query_paths
-        .into_iter()
-        .flat_map(|path| {
-            let qs = queries(&path);
-            let query_type = path.file_stem().unwrap().to_string_lossy().into_owned();
-            qs.into_iter()
-                .enumerate()
-                .map(move |(idx, query)| {
-                    // We treat the first query in the file as the canonical way to write the query:
-                    // we suffix the rest as alternatives.
-                    let qt = if idx == 0 {
-                        query_type.clone()
-                    } else {
-                        format!("{query_type} - alternative {idx}")
-                    };
-                    (qt, query)
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    query_paths.sort_by_key(|path| benchmark_query_sort_key(path));
 
     let mut results = Vec::new();
-    for (query_type, query) in all_queries {
+    for path in query_paths {
+        let query_type = benchmark_query_type(&path);
+        let query = benchmark_query(&path);
+        let mut conn = PgConnection::connect(&args.url)
+            .await
+            .expect("Failed to connect to database");
+
         if let Err(err) = clear_caches(&mut utility_conn).await {
             panic!("Failed to clear caches before query: {err}");
         }
@@ -636,6 +617,41 @@ fn queries(file: &Path) -> Vec<String> {
         .collect()
 }
 
+fn benchmark_query(file: &Path) -> String {
+    let queries = queries(file);
+    match queries.as_slice() {
+        [query] => query.clone(),
+        _ => panic!(
+            "Expected exactly one benchmark query in `{}`; split multi-query files before benchmarking",
+            file.display()
+        ),
+    }
+}
+
+fn benchmark_query_sort_key(file: &Path) -> (String, usize) {
+    let stem = file
+        .file_stem()
+        .unwrap_or_else(|| panic!("Failed to get file stem for `{}`", file.display()))
+        .to_string_lossy();
+
+    match stem.rsplit_once("-alternative-") {
+        Some((base, suffix)) => match suffix.parse::<usize>() {
+            Ok(idx) => (base.to_string(), idx),
+            Err(_) => (stem.into_owned(), 0),
+        },
+        None => (stem.into_owned(), 0),
+    }
+}
+
+fn benchmark_query_type(file: &Path) -> String {
+    let (base, idx) = benchmark_query_sort_key(file);
+    if idx == 0 {
+        base
+    } else {
+        format!("{base} - alternative {idx}")
+    }
+}
+
 fn extract_index_name(statement: &str) -> &str {
     statement
         .split_whitespace()
@@ -653,7 +669,7 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
     }
 }
 
-/// Execute a benchmark query multiple times on a single reused connection.
+/// Execute a benchmark query multiple times on a single reused connection for one query file.
 ///
 /// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
 /// necessary for compatibility with custom scan providers. Compound statements

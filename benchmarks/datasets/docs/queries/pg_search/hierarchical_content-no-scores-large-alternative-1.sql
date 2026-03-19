@@ -1,9 +1,7 @@
--- Join with no scores, small target list.
+-- Join with no scores, large target list.
 
-SET paradedb.enable_join_custom_scan TO off; SELECT
-  documents.id,
-  files.id,
-  pages.id
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
+  *
 FROM
   documents JOIN files ON documents.id = files."documentId" JOIN pages ON pages."fileId" = files.id
 WHERE

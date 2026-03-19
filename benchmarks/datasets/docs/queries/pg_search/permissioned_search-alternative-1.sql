@@ -2,7 +2,7 @@
 -- Join: Single Feature (BM25 Score)
 -- Description: A Full Text Search (BM25) drives the ranking, but the result set must be restricted by a JOIN (e.g., checking permissions or document isolation). The score comes purely from the files table, but the validity of the row depends on the documents table.
 
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
     f.id,
     f.title,
     paradedb.score(f.id) as relevance

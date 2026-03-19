@@ -2,12 +2,11 @@
 -- Join: Single Feature (Fast Field)
 -- Description: A standard join where the user filters by a property of the parent table (documents), but sorts by a deterministic "fast field" on the child table (files). The challenge is balancing the selectivity of the foreign filter against the sort order of the local table.
 
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
     f.id,
     f.title,
     f."createdAt",
-    d.title as document_title,
-    d.parents as document_parents
+    d.title as document_title
 FROM files f
 JOIN documents d ON f."documentId" = d.id
 WHERE

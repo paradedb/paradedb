@@ -2,7 +2,7 @@
 -- Join: Single Feature (Local Field with Deduplication)
 -- Description: The user wants to find documents that match criteria in the pages table (a "Many" side join), ordered by a field on the documents table. Because joining to pages explodes the row count (1 Document -> N Pages), the query requires DISTINCT. This tests the engine's ability to maintain the sort order while deduplicating the join results.
 
-SET paradedb.enable_join_custom_scan TO off; SELECT DISTINCT
+SET work_mem TO '64MB'; SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT
     d.id,
     d.title,
     d.parents

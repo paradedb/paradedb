@@ -24,9 +24,7 @@
 
 ---
 
-## Getting Started
-
-To get started locally:
+## How to Install
 
 ```bash
 curl -fsSL https://paradedb.com/install.sh | sh

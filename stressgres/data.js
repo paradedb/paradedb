@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773967537390,
+  "lastUpdate": 1773967547212,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -59262,6 +59262,114 @@ window.BENCHMARK_DATA = {
             "value": 171.74609375,
             "unit": "median mem",
             "extra": "avg mem: 168.87309707583142, max mem: 172.33203125, count: 55597"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b20263cd4af395f65592d9d416ad88f2ee96c8c",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4431)\n\n## What\n\nForce the \"preserved\" side of a semi/anti join to be partitioned, even\nif is smaller than the non-preserved side(s).\n\n## Why\n\nCurrently, when the joinscan would not be able to use optimal\npartitioning for a semi/anti join, it refuses to run, with:\n> JoinScan not used: SEMI JOIN requires the left side to be the largest\nsource\n\nThis is reasonable, but the problem is that this is based on estimates\nthat change based on the data distribution and WHERE clause selectivity,\nrather than based on the shape of the query itself. That means that if\nyou've written a query that uses `pdb.score` and tested it on a\nparticular set of data, it might begin failing (with an \"Unsupported\nquery shape\" error) on a different set of data.\n\n## How\n\nAdd and use `with_forced_partitioning`.",
+          "timestamp": "2026-03-19T16:38:58-07:00",
+          "tree_id": "8f11d6e8f3fe6b167b131a7034a277d147015767",
+          "url": "https://github.com/paradedb/paradedb/commit/0b20263cd4af395f65592d9d416ad88f2ee96c8c"
+        },
+        "date": 1773967539174,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.22189870850229, max cpu: 50.478012, count: 55502"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.36576694308314, max mem: 177.01171875, count: 55502"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.667335022431455, max cpu: 36.958614, count: 55502"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.67581214697218, max mem: 120.015625, count: 55502"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.318577069469493, max cpu: 18.60465, count: 55502"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 171.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 144.60640516051222, max mem: 177.3203125, count: 55502"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16612,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17043.623130697993, max block_count: 31790.0, count: 55502"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.357538072818028, max cpu: 4.669261, count: 55502"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 112.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 98.06236923331592, max mem: 139.12890625, count: 55502"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.84723073042413, max segment_count: 38.0, count: 55502"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.200299170668847, max cpu: 32.338787, count: 111004"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 176.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.9971451268085, max mem: 179.66796875, count: 111004"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.299219988573359, max cpu: 32.43243, count: 55502"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.3253322374644, max mem: 172.08984375, count: 55502"
           }
         ]
       }

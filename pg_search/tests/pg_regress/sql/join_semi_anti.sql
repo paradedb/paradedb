@@ -193,6 +193,32 @@ AND id @@@ 'category:"target_category"'
 ORDER BY category ASC, id ASC
 LIMIT 10;
 
+-- =====================================================================
+-- 6. Semi Join with selective outer filter
+-- =====================================================================
+-- The outer filter is so selective that this query requires our ability to force the left side
+-- to be partitioned (even when that might be less efficient).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+)
+AND id @@@ 'id:1'
+ORDER BY id ASC
+LIMIT 10;
+
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+)
+AND id @@@ 'id:1'
+ORDER BY id ASC
+LIMIT 10;
+
 -- Cleanup
 DROP TABLE table_a CASCADE;
 DROP TABLE table_b CASCADE;

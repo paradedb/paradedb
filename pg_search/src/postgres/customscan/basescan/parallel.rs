@@ -35,7 +35,8 @@ impl ParallelQueryCapable for BaseScan {
 
         let args = state.custom_state().parallel_scan_args();
         ParallelScanState::size_of(
-            args.segment_readers.len(),
+            &args.all_nsegments(),
+            args.partitioning_source_idx,
             &args.query,
             args.with_aggregates,
         )

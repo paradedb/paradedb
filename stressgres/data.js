@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773967714459,
+  "lastUpdate": 1773967724152,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29312,6 +29312,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.23542437977925, max segment_count: 129.0, count: 57802"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f6862e0941a003c515cb085eced0b1f95413728b",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4432)\n\n# Description\nBackport of #4431 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-19T17:12:53-07:00",
+          "tree_id": "a3b8effecd902e8f4f92cfb7566ff84814a518d7",
+          "url": "https://github.com/paradedb/paradedb/commit/f6862e0941a003c515cb085eced0b1f95413728b"
+        },
+        "date": 1773967716238,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.091180142262854, max cpu: 42.772278, count: 57782"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 233.26666859110537, max mem: 234.87890625, count: 57782"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.449633563848607, max cpu: 33.366436, count: 57782"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.56105707659825, max mem: 176.26953125, count: 57782"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33974,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33559.704302377904, max block_count: 36030.0, count: 57782"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.94837492644768, max segment_count: 126.0, count: 57782"
           }
         ]
       }

@@ -18,7 +18,7 @@ on:
       - "**/*.rs"
       - "**/*.toml"
   pull_request:
-    types: [labeled, synchronize]
+    types: [labeled]
     branches:
       - main
       # TODO: We support running benchmarks on release branch PRs, but they will always compare

@@ -7,7 +7,7 @@ name: Test pg_search Upgrade
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
     branches:
       - main
       - 0.*.x # Release branches

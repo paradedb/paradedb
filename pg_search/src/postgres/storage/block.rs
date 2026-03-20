@@ -868,7 +868,6 @@ pub fn block_number_is_valid(block_number: pg_sys::BlockNumber) -> bool {
 mod tests {
     use super::*;
     use crate::postgres::rel::PgSearchRelation;
-    use pgrx::prelude::*;
 
     fn create_mutable_segment_test_index(relname: &str) -> PgSearchRelation {
         Spi::run(&format!("DROP TABLE IF EXISTS {relname} CASCADE;")).unwrap();

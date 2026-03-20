@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773969891881,
+  "lastUpdate": 1773970492388,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -64684,6 +64684,54 @@ window.BENCHMARK_DATA = {
             "value": 488.1292399685136,
             "unit": "median tps",
             "extra": "avg tps: 440.41138541971225, max tps: 666.4183753356136, count: 107682"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f6862e0941a003c515cb085eced0b1f95413728b",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4432)\n\n# Description\nBackport of #4431 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-19T17:12:53-07:00",
+          "tree_id": "a3b8effecd902e8f4f92cfb7566ff84814a518d7",
+          "url": "https://github.com/paradedb/paradedb/commit/f6862e0941a003c515cb085eced0b1f95413728b"
+        },
+        "date": 1773970483989,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 481.92623797827997,
+            "unit": "median tps",
+            "extra": "avg tps: 482.7957966956391, max tps: 640.9576618724619, count: 53853"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 535.6351897555885,
+            "unit": "median tps",
+            "extra": "avg tps: 538.29558893079, max tps: 845.7211373347402, count: 53853"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.49719397088481,
+            "unit": "median tps",
+            "extra": "avg tps: 85.91211381949884, max tps: 96.88066414821289, count: 53853"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 457.59050369238855,
+            "unit": "median tps",
+            "extra": "avg tps: 415.394855154444, max tps: 650.203994777113, count: 107706"
           }
         ]
       }

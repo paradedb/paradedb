@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773968952463,
+  "lastUpdate": 1773969596861,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -49454,6 +49454,60 @@ window.BENCHMARK_DATA = {
             "value": 14.648878256956674,
             "unit": "median tps",
             "extra": "avg tps: 14.750280052979715, max tps: 21.5945726101524, count: 55502"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f6862e0941a003c515cb085eced0b1f95413728b",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4432)\n\n# Description\nBackport of #4431 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-19T17:12:53-07:00",
+          "tree_id": "a3b8effecd902e8f4f92cfb7566ff84814a518d7",
+          "url": "https://github.com/paradedb/paradedb/commit/f6862e0941a003c515cb085eced0b1f95413728b"
+        },
+        "date": 1773969588474,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.500092218528856,
+            "unit": "median tps",
+            "extra": "avg tps: 29.371520488213857, max tps: 31.748034257492016, count: 55626"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.66602064638892,
+            "unit": "median tps",
+            "extra": "avg tps: 270.6720845042776, max tps: 2853.604161506069, count: 55626"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 577.6869535927036,
+            "unit": "median tps",
+            "extra": "avg tps: 564.2389211653559, max tps: 706.3957517829267, count: 55626"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.91352761458393,
+            "unit": "median tps",
+            "extra": "avg tps: 175.30226198287565, max tps: 1586.3007420428457, count: 111252"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.052402575692655,
+            "unit": "median tps",
+            "extra": "avg tps: 14.912121321767588, max tps: 19.35602467204071, count: 55626"
           }
         ]
       }

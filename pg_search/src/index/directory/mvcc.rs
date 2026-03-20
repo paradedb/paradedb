@@ -808,6 +808,8 @@ mod tests {
     use crate::postgres::storage::block::SegmentMetaEntryContent;
 
     use pgrx::prelude::*;
+    use std::io::Write;
+    use std::path::PathBuf;
 
     #[pg_test]
     unsafe fn test_list_meta_entries() {
@@ -832,5 +834,46 @@ mod tests {
         assert!(entry.positions.is_some());
         assert!(entry.terms.is_some());
         assert!(entry.delete.is_none());
+    }
+
+    #[pg_test]
+    unsafe fn rewriting_a_path_refreshes_the_cached_reader() {
+        Spi::run("DROP TABLE IF EXISTS mvcc_reader_cache_refresh CASCADE;").unwrap();
+        Spi::run("CREATE TABLE mvcc_reader_cache_refresh (id SERIAL, data TEXT);").unwrap();
+        Spi::run(
+            "CREATE INDEX mvcc_reader_cache_refresh_idx ON mvcc_reader_cache_refresh USING bm25(id, data) WITH (key_field = 'id');",
+        )
+        .unwrap();
+
+        let relation_oid: pg_sys::Oid = Spi::get_one(
+            "SELECT oid FROM pg_class WHERE relname = 'mvcc_reader_cache_refresh_idx' AND relkind = 'i';",
+        )
+        .expect("spi should succeed")
+        .expect("index oid should exist");
+        let indexrel = PgSearchRelation::open(relation_oid);
+        let directory = MVCCDirectory::with_mvcc_style(&indexrel, MvccSatisfies::Snapshot);
+        let path = PathBuf::from(format!("{}.0.del", uuid::Uuid::new_v4()));
+
+        let old_bytes: Vec<u8> = (1..=255).cycle().take(486).collect();
+        let mut first_writer = directory.open_write_inner(&path).unwrap();
+        first_writer.write_all(&old_bytes).unwrap();
+        first_writer.terminate().unwrap();
+
+        let first_reader = directory.get_file_handle(&path).unwrap();
+        assert_eq!(
+            first_reader.read_bytes(0..old_bytes.len()).unwrap().as_ref(),
+            old_bytes.as_slice()
+        );
+
+        let new_bytes = vec![7u8; 63];
+        let mut second_writer = directory.open_write_inner(&path).unwrap();
+        second_writer.write_all(&new_bytes).unwrap();
+        second_writer.terminate().unwrap();
+
+        let second_reader = directory.get_file_handle(&path).unwrap();
+        assert_eq!(
+            second_reader.read_bytes(0..new_bytes.len()).unwrap().as_ref(),
+            new_bytes.as_slice()
+        );
     }
 }

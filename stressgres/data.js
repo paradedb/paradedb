@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773968460523,
+  "lastUpdate": 1773968471391,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -81170,6 +81170,186 @@ window.BENCHMARK_DATA = {
             "value": 32.45703125,
             "unit": "median mem",
             "extra": "avg mem: 31.739813722556278, max mem: 32.5546875, count: 53883"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b20263cd4af395f65592d9d416ad88f2ee96c8c",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4431)\n\n## What\n\nForce the \"preserved\" side of a semi/anti join to be partitioned, even\nif is smaller than the non-preserved side(s).\n\n## Why\n\nCurrently, when the joinscan would not be able to use optimal\npartitioning for a semi/anti join, it refuses to run, with:\n> JoinScan not used: SEMI JOIN requires the left side to be the largest\nsource\n\nThis is reasonable, but the problem is that this is based on estimates\nthat change based on the data distribution and WHERE clause selectivity,\nrather than based on the shape of the query itself. That means that if\nyou've written a query that uses `pdb.score` and tested it on a\nparticular set of data, it might begin failing (with an \"Unsupported\nquery shape\" error) on a different set of data.\n\n## How\n\nAdd and use `with_forced_partitioning`.",
+          "timestamp": "2026-03-19T16:38:58-07:00",
+          "tree_id": "8f11d6e8f3fe6b167b131a7034a277d147015767",
+          "url": "https://github.com/paradedb/paradedb/commit/0b20263cd4af395f65592d9d416ad88f2ee96c8c"
+        },
+        "date": 1773968462506,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.110463186925492, max cpu: 9.266409, count: 53841"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 50.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.46178620846567, max mem: 56.359375, count: 53841"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9199093808789622, max cpu: 4.610951, count: 53841"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 32.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 31.516559682096357, max mem: 32.9453125, count: 53841"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.160305,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.642425173853228, max cpu: 27.507162, count: 53841"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 53.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.673716576934865, max mem: 59.87109375, count: 53841"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.136389013867758, max cpu: 13.701237, count: 53841"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 50.125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.188041597597554, max mem: 56.05078125, count: 53841"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.658715079293698, max cpu: 9.239654, count: 53841"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 32.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.9770420659906, max mem: 38.16796875, count: 53841"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1097,
+            "unit": "median pages",
+            "extra": "avg pages: 1104.3946249140988, max pages: 1835.0, count: 53841"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.5703125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.628083007141397, max relation_size:MB: 14.3359375, count: 53841"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.10348990546238, max segment_count: 18.0, count: 53841"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6974860903289604, max cpu: 4.597701, count: 53841"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.974331901455212, max mem: 30.1015625, count: 53841"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.313954090853803, max cpu: 4.6065254, count: 53841"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.947764090679037, max mem: 30.04296875, count: 53841"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.532346077068885, max cpu: 18.426102, count: 53841"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 48.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.351768909265246, max mem: 54.2109375, count: 53841"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000031589697866896275, max replication_lag:MB: 0.24201202392578125, count: 53841"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.403626539279805, max cpu: 13.832853, count: 107682"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 48.875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.932922720371096, max mem: 55.125, count: 107682"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.50275934765868, max cpu: 4.610951, count: 53841"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.865831293182705, max mem: 32.66796875, count: 53841"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.322018129083163, max cpu: 4.597701, count: 53841"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 32.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.15097317796846, max mem: 33.21875, count: 53841"
           }
         ]
       }

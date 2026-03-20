@@ -551,11 +551,10 @@ mod tests {
         )
         .unwrap();
 
-        let heap_oid = Spi::get_one::<pg_sys::Oid>(
-            "SELECT 'basescan_reset_refresh'::regclass::oid;",
-        )
-        .expect("heap oid lookup should succeed")
-        .expect("heap oid should exist");
+        let heap_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'basescan_reset_refresh'::regclass::oid;")
+                .expect("heap oid lookup should succeed")
+                .expect("heap oid should exist");
 
         let stale_ctid = parse_ctid(
             &Spi::get_one::<String>(
@@ -580,10 +579,9 @@ mod tests {
         let mut state = BaseScanState {
             heaprelid: heap_oid,
             heaprel: Some(heaprel.clone()),
-            visibility_checker: Some(VisibilityChecker::with_rel_and_snap(
-                &heaprel,
-                unsafe { pg_sys::GetActiveSnapshot() },
-            )),
+            visibility_checker: Some(VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
+                pg_sys::GetActiveSnapshot()
+            })),
             doc_from_heap_state: Some(HeapFetchState::new(&heaprel)),
             ..Default::default()
         };
@@ -598,9 +596,8 @@ mod tests {
 
         state.reset();
 
-        let slot = unsafe {
-            pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple)
-        };
+        let slot =
+            unsafe { pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple) };
         let visible = state
             .visibility_checker()
             .exec_if_visible(stale_ctid, slot, |_| true);

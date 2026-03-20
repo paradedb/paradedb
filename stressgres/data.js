@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773970601236,
+  "lastUpdate": 1773970611477,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20244,6 +20244,138 @@ window.BENCHMARK_DATA = {
             "value": 54.578125,
             "unit": "median mem",
             "extra": "avg mem: 52.84632129606053, max mem: 66.67578125, count: 54982"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed2d020b1bb4baf469076aea6772f5cfb8f2e769",
+          "message": "refactor(benchmarks): Port benchmark runner from psql to sqlx (#4438)\n\n# Description\nBackport of #4411 to `0.22.x`.\n\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-19T21:16:46-04:00",
+          "tree_id": "c2fa7374bce3e827c9e6ed6870abdc3d9bd81ed0",
+          "url": "https://github.com/paradedb/paradedb/commit/ed2d020b1bb4baf469076aea6772f5cfb8f2e769"
+        },
+        "date": 1773970603543,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.647097594785086, max cpu: 23.928215, count: 55243"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 63.260717845473636, max mem: 74.234375, count: 55243"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.884014292927096, max cpu: 18.786694, count: 55243"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 62.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.26414524521206, max mem: 73.24609375, count: 55243"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.67719574230171, max cpu: 9.302325, count: 55243"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.54488033268921, max mem: 37.5703125, count: 55243"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.541948265022545, max cpu: 9.329447, count: 55243"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.60098331179969, max mem: 72.0546875, count: 55243"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.658165159293038, max cpu: 9.338522, count: 110486"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 59.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 58.62316308740474, max mem: 71.1328125, count: 110486"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1766,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1756.7842803613128, max block_count: 3083.0, count: 55243"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 15.893325851239071, max segment_count: 31.0, count: 55243"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.005108954338227, max cpu: 19.180819, count: 55243"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.13554630224644, max mem: 73.1171875, count: 55243"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.657825283996543, max cpu: 9.239654, count: 55243"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.65547678269193, max mem: 62.546875, count: 55243"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.800080270806905, max cpu: 4.655674, count: 55243"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.27813478630777, max mem: 66.8203125, count: 55243"
           }
         ]
       }

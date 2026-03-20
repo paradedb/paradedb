@@ -822,3 +822,76 @@ pub const fn bm25_max_free_space() -> usize {
 pub fn block_number_is_valid(block_number: pg_sys::BlockNumber) -> bool {
     block_number != 0 && block_number != pg_sys::InvalidBlockNumber
 }
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::rel::PgSearchRelation;
+    use pgrx::prelude::*;
+
+    fn create_mutable_segment_test_index(relname: &str) -> PgSearchRelation {
+        Spi::run(&format!("DROP TABLE IF EXISTS {relname} CASCADE;")).unwrap();
+        Spi::run(&format!("CREATE TABLE {relname} (id SERIAL, data TEXT);")).unwrap();
+        Spi::run(&format!(
+            "CREATE INDEX {relname}_idx ON {relname} USING bm25(id, data) WITH (key_field = 'id', mutable_segment_rows = 1000)"
+        ))
+        .unwrap();
+
+        let relation_oid = Spi::get_one::<pg_sys::Oid>(&format!(
+            "SELECT oid FROM pg_class WHERE relname = '{relname}_idx' AND relkind = 'i';",
+        ))
+        .unwrap()
+        .expect("index oid should exist");
+        PgSearchRelation::open(relation_oid)
+    }
+
+    #[pg_test]
+    fn mutable_add_items_rejects_duplicate_ctids() {
+        let indexrel = create_mutable_segment_test_index("mutable_add_dedup");
+        let (content, _) = SegmentMetaEntryMutable::create(&indexrel);
+        let mut entry = SegmentMetaEntry::new_mutable(
+            SegmentId::generate_random(),
+            0,
+            pg_sys::InvalidTransactionId,
+            content,
+        );
+
+        entry
+            .mutable_add_items(&indexrel, &[MutableSegmentEntry::Add(1)])
+            .unwrap();
+        entry
+            .mutable_add_items(&indexrel, &[MutableSegmentEntry::Add(1)])
+            .unwrap();
+
+        assert_eq!(entry.max_doc(), 1);
+        let snapshot = entry.mutable_snapshot(&indexrel).unwrap();
+        assert_eq!(snapshot, vec![1]);
+    }
+
+    #[pg_test]
+    fn mutable_delete_items_rejects_duplicate_ctids() {
+        let indexrel = create_mutable_segment_test_index("mutable_delete_dedup");
+        let (content, _) = SegmentMetaEntryMutable::create(&indexrel);
+        let mut entry = SegmentMetaEntry::new_mutable(
+            SegmentId::generate_random(),
+            0,
+            pg_sys::InvalidTransactionId,
+            content,
+        );
+
+        entry
+            .mutable_add_items(
+                &indexrel,
+                &[MutableSegmentEntry::Add(1), MutableSegmentEntry::Add(2)],
+            )
+            .unwrap();
+
+        entry.mutable_delete_items(&indexrel, vec![1]).unwrap();
+        entry.mutable_delete_items(&indexrel, vec![1]).unwrap();
+
+        assert_eq!(entry.num_deleted_docs(), 1);
+        let snapshot = entry.mutable_snapshot(&indexrel).unwrap();
+        assert_eq!(snapshot, vec![2]);
+    }
+}

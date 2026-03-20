@@ -239,18 +239,12 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
     let mut results = Vec::new();
     for path in query_paths {
         for (query_type, query) in benchmark_queries(&path) {
-            // Isolate session state across query variants while keeping repeated runs of the
-            // same query on one connection.
-            let mut conn = PgConnection::connect(&args.url)
-                .await
-                .expect("Failed to connect to database");
-
             if let Err(err) = clear_caches(&mut utility_conn).await {
                 panic!("Failed to clear caches before query: {err}");
             }
             println!("Query Type: {query_type}\nQuery: {query}");
             let result = execute_query_multiple_times(
-                &mut conn,
+                &args.url,
                 &query_type,
                 &query,
                 args.runs,
@@ -659,8 +653,8 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
 
 /// Execute a benchmark query multiple times on a single reused connection.
 ///
-/// The caller controls the connection scope; benchmarks currently reuse one connection across
-/// repeated runs of the same query, but reset it between query variants.
+/// This creates a fresh connection for each benchmark query and then reuses it across repeated
+/// runs of that query.
 ///
 /// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
 /// necessary for compatibility with custom scan providers. Compound statements
@@ -671,18 +665,21 @@ async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
 ///
 /// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
 async fn execute_query_multiple_times(
-    conn: &mut PgConnection,
+    url: &str,
     query_type: &str,
     query: &str,
     times: usize,
     fail_on_error: bool,
 ) -> Option<(Vec<f64>, usize)> {
+    let mut conn = PgConnection::connect(url)
+        .await
+        .expect("Failed to connect to database");
     let mut results = Vec::new();
     let mut num_results = 0;
 
     for i in 0..times {
         let start = Instant::now();
-        let result = sqlx::raw_sql(query).execute(&mut *conn).await;
+        let result = sqlx::raw_sql(query).execute(&mut conn).await;
         let elapsed = start.elapsed();
 
         match result {

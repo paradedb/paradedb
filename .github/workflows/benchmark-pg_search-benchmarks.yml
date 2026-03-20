@@ -23,6 +23,11 @@ on:
         description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false
         default: ""
+      fail_on_error:
+        description: "Whether to fail on query errors. Set to false for backfills against older versions."
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   actions: write
@@ -258,6 +263,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Benchmark "logs" Dataset (100K rows)
         if: >-
@@ -272,6 +278,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Benchmark "logs" Dataset (1M rows)
         if: >-
@@ -286,6 +293,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Benchmark "logs" Dataset (10M rows)
         if: >-
@@ -300,6 +308,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Benchmark "logs" Dataset (100M rows)
         if: >-
@@ -314,6 +323,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Benchmark "docs" Dataset (25M rows)
         if: >-
@@ -328,6 +338,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

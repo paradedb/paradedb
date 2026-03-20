@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773964739286,
+  "lastUpdate": 1773965668447,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23218,6 +23218,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3318141062064095,
             "unit": "median tps",
             "extra": "avg tps: 4.784087901013301, max tps: 5.988866804086791, count: 57823"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b20263cd4af395f65592d9d416ad88f2ee96c8c",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4431)\n\n## What\n\nForce the \"preserved\" side of a semi/anti join to be partitioned, even\nif is smaller than the non-preserved side(s).\n\n## Why\n\nCurrently, when the joinscan would not be able to use optimal\npartitioning for a semi/anti join, it refuses to run, with:\n> JoinScan not used: SEMI JOIN requires the left side to be the largest\nsource\n\nThis is reasonable, but the problem is that this is based on estimates\nthat change based on the data distribution and WHERE clause selectivity,\nrather than based on the shape of the query itself. That means that if\nyou've written a query that uses `pdb.score` and tested it on a\nparticular set of data, it might begin failing (with an \"Unsupported\nquery shape\" error) on a different set of data.\n\n## How\n\nAdd and use `with_forced_partitioning`.",
+          "timestamp": "2026-03-19T16:38:58-07:00",
+          "tree_id": "8f11d6e8f3fe6b167b131a7034a277d147015767",
+          "url": "https://github.com/paradedb/paradedb/commit/0b20263cd4af395f65592d9d416ad88f2ee96c8c"
+        },
+        "date": 1773965660112,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.683131437997403,
+            "unit": "median tps",
+            "extra": "avg tps: 6.5500730981336455, max tps: 10.008495859301087, count: 57802"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.156506529181071,
+            "unit": "median tps",
+            "extra": "avg tps: 4.621973334567287, max tps: 5.768244449260544, count: 57802"
           }
         ]
       }

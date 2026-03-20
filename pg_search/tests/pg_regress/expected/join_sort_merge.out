@@ -721,6 +721,89 @@ DROP TABLE IF EXISTS dyn_filter_t1 CASCADE;
 DROP TABLE IF EXISTS dyn_filter_t2 CASCADE;
 DROP TABLE IF EXISTS null_val_t1 CASCADE;
 DROP TABLE IF EXISTS null_val_t2 CASCADE;
+DROP TABLE IF EXISTS sparse_t1 CASCADE;
+DROP TABLE IF EXISTS sparse_t2 CASCADE;
+-- =============================================================================
+-- TEST 11: Zig-zag SortMergeJoin dynamic filter pushdown
+-- Both tables have interleaved sparse and dense regions.
+-- DataFusion SMJ will jump ahead by large strides alternating between tables,
+-- forcing the scanner for both tables to dynamically seek and skip blocks.
+-- =============================================================================
+CREATE TABLE sparse_t1 (id INTEGER PRIMARY KEY, val TEXT);
+CREATE TABLE sparse_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE INDEX sparse_t1_idx ON sparse_t1 USING bm25 (id, val)
+WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}', mutable_segment_rows = 10000);
+CREATE INDEX sparse_t2_idx ON sparse_t2 USING bm25 (id, t1_id, val)
+WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}', mutable_segment_rows = 10000);
+-- Insert zig-zag pattern:
+-- Cycle of 400 rows.
+-- First 5 rows: both tables have data (Intersection)
+-- Next 195 rows: only t1 has data
+-- Next 200 rows: only t2 has data
+INSERT INTO sparse_t1 
+SELECT i, 'val ' || i 
+FROM generate_series(1, 2000) i 
+WHERE (i - 1) % 400 < 200;
+INSERT INTO sparse_t2 
+SELECT i, i, 'val ' || i 
+FROM generate_series(1, 2000) i 
+WHERE (i - 1) % 400 < 5 OR (i - 1) % 400 >= 200;
+ANALYZE sparse_t1;
+ANALYZE sparse_t2;
+-- We set batch size small to ensure thresholds are pushed and checked frequently
+SET paradedb.dynamic_filter_batch_size = 128;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.id, t2.id
+FROM sparse_t1 t1
+JOIN sparse_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ pdb.all()
+ORDER BY t1.id ASC
+OFFSET 15 LIMIT 10;
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=10.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)
+         Relation Tree: t2 INNER t1
+         Join Cond: t1.id = t2.t1_id
+         Limit: 10
+         Offset: 15
+         Order By: t1.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=25, output_bytes=600.0 B, output_batches=1]
+           :   SortExec: TopK(fetch=25), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 1605], metrics=[output_rows=25, output_bytes=600.0 B, output_batches=1, row_replacements=25]
+           :     ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id], metrics=[output_rows=25, output_bytes=192.0 KB, output_batches=1]
+           :       ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, ctid_0@2 as ctid_0], metrics=[output_rows=25, output_bytes=192.0 KB, output_batches=1]
+           :         SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], metrics=[output_rows=25, output_bytes=256.0 KB, output_batches=1, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=17, input_rows=2.02 K, peak_mem_used=8.82 K]
+           :           ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id], metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=8]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"val"}}}}, metrics=[rows_pruned=0, rows_scanned=1.00 K]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=1.02 K, output_bytes=16.0 KB, output_batches=9]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=1.02 K]
+(19 rows)
+
+SELECT t1.id, t2.id
+FROM sparse_t1 t1
+JOIN sparse_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ pdb.all()
+ORDER BY t1.id ASC
+OFFSET 15 LIMIT 10;
+  id  |  id  
+------+------
+ 1201 | 1201
+ 1202 | 1202
+ 1203 | 1203
+ 1204 | 1204
+ 1205 | 1205
+ 1601 | 1601
+ 1602 | 1602
+ 1603 | 1603
+ 1604 | 1604
+ 1605 | 1605
+(10 rows)
+
+-- Reset the batch size
+RESET paradedb.dynamic_filter_batch_size;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_join_custom_scan;

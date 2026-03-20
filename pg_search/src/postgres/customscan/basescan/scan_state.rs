@@ -194,7 +194,8 @@ impl BaseScanState {
         let with_aggregates = !self.window_aggregates.is_empty();
 
         ParallelScanArgs {
-            segment_readers,
+            all_sources: vec![segment_readers],
+            partitioning_source_idx: 0,
             query,
             with_aggregates,
         }

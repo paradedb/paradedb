@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773970841089,
+  "lastUpdate": 1773970851096,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -44620,6 +44620,108 @@ window.BENCHMARK_DATA = {
             "value": 162.53125,
             "unit": "median mem",
             "extra": "avg mem: 180.39356658684207, max mem: 220.8984375, count: 56217"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5331dbd07a6031dbb68a420c8540ad5f4e529403",
+          "message": "refactor(benchmarks): Port benchmark runner from psql to sqlx (#4411)\n\n# Ticket(s) Closed\n\n- Closes #4400\n- Closes #4409 \n\n## What\n\nPort the benchmark runner from spawning `psql` subprocesses to using\n`sqlx` with connection reuse per query.\n\n## Why\n\nEach `psql` invocation creates a new connection, discarding any\nserver-side state (plan caches, catalog caches, etc.) between runs.\nReusing a single connection per query better aligns benchmarks with\nrecommended production usage and will surface cache-hit improvements as\nthey land.\n\n## How\n\n- Replace all `psql` calls with `sqlx::PgConnection` queries, except\n`generate_test_data` which relies on psql metacommands (`\\set`,\n`\\echo`).\n- `execute_query_multiple_times` reuses a single connection across all\nruns. Compound statements (e.g., `SET ...; SELECT ...`) are sent as-is\nvia the simple query protocol (`raw_sql`), matching `psql` wire\nbehavior.\n- Timing uses `Instant` around `raw_sql().execute()`, which consumes the\nentire result set from the wire without per-row object allocation —\nmatching how `psql` with `\\timing` measures (send query → receive all\nresults).\n- Row counts come from `rows_affected()` (parsed from PostgreSQL's\n`SELECT <count>` CommandComplete tag) instead of line-counting psql\noutput.\n- Utility operations (VACUUM, prewarm, cache eviction, SHOW settings,\nversion info) are also ported to sqlx.\n- Add `--fail-on-error` CLI flag (default true). When false, query\nerrors are skipped with a warning instead of panicking, supporting\nbackfills against older versions that may not support all query syntax.\n- Fix missing `SET work_mem TO '4GB'` for JoinScan `no-scores` benchmark\nqueries (previously silently OOM-ing under psql).\n\n## Tests\n\nCompile-tested locally. Functional testing requires a running ParadeDB\ninstance with benchmark datasets.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-19T20:49:07-04:00",
+          "tree_id": "97ef8c78363a2ab7e21fa0650186be676480e4a9",
+          "url": "https://github.com/paradedb/paradedb/commit/5331dbd07a6031dbb68a420c8540ad5f4e529403"
+        },
+        "date": 1773970842906,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07791931306106518, max background_merging: 2.0, count: 56366"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.844455890682199, max cpu: 9.657948, count: 56366"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 25.576522124929035, max mem: 25.64453125, count: 56366"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.031736263915044, max cpu: 9.687184, count: 56366"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.20320448885408, max mem: 168.73828125, count: 56366"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51415,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51274.31903984672, max block_count: 51415.0, count: 56366"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.850690132349285, max segment_count: 56.0, count: 56366"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.670937766174126, max cpu: 27.961164, count: 56366"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 148.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 135.38967335139978, max mem: 161.890625, count: 56366"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.844972502749986, max cpu: 27.934044, count: 56366"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 186.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 181.81648754069386, max mem: 186.33203125, count: 56366"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.91495747646744, max cpu: 33.3996, count: 56366"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 181.08401542208512, max mem: 220.9375, count: 56366"
           }
         ]
       }

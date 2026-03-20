@@ -1,6 +1,6 @@
 -- pg_search/src/api/aggregate.rs:195
 -- pg_search::api::aggregate::pdb::agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state
-DROP FUNCTION IF EXISTS pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state"(internal, jsonb, bool);
+DROP FUNCTION IF EXISTS pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state"(internal, jsonb, bool) CASCADE;
 CREATE  FUNCTION pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state"(
 	"this" internal, /* pgrx::datum::internal::Internal */
 	"arg_one" jsonb, /* pgrx::datum::json::JsonB */
@@ -11,7 +11,7 @@ AS 'MODULE_PATHNAME', 'agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_state
 
 -- pg_search/src/api/aggregate.rs:195
 -- pg_search::api::aggregate::pdb::agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize
-DROP FUNCTION IF EXISTS pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize"(internal);
+DROP FUNCTION IF EXISTS pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize"(internal) CASCADE;
 CREATE  FUNCTION pdb."agg_placeholder_with_mvcc_agg_placeholder_with_mvcc_finalize"(
 	"this" internal /* pgrx::datum::internal::Internal */
 ) RETURNS jsonb /* pgrx::datum::json::JsonB */

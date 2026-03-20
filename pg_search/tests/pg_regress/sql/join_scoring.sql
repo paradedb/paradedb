@@ -166,6 +166,41 @@ ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 5: ORDER BY a score function alias on a specific relation
+-- =============================================================================
+
+-- This query reproduces an issue where sorting by a score function
+-- on a specific relation (p.id) would fail with a SchemaError if the
+-- score was incorrectly resolved against the ordering side (or another relation)
+-- due to losing the Range Table Index (RTI) during planning.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    p.id,
+    p.name,
+    paradedb.score(p.id) as relevance
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE
+    p.description @@@ 'wireless'
+    AND s.contact_info @@@ 'technology'
+ORDER BY
+    relevance DESC
+LIMIT 10;
+
+SELECT
+    p.id,
+    p.name,
+    paradedb.score(p.id) as relevance
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE
+    p.description @@@ 'wireless'
+    AND s.contact_info @@@ 'technology'
+ORDER BY
+    relevance DESC
+LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

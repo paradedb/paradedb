@@ -125,8 +125,7 @@
 //! 2. **Execution**: A DataFusion logical plan is constructed from the `JoinCSClause`.
 //!    This plan defines the join, filters, sorts, and limits.
 //! 3. **DataFusion**: The plan is executed by DataFusion, which chooses the best join algorithm.
-//!    - **Ordering side**: Streams results from Tantivy (search results).
-//!    - **Non-ordering side**: Scans the other relation (or search results).
+//!    - Scans results from Tantivy for all relations, filtering by search predicates where applicable.
 //! 4. **Result**: Joined tuples are returned to PostgreSQL via the Custom Scan interface.
 //!
 //! # Submodules
@@ -154,8 +153,8 @@ use self::explain::{format_join_level_expr, get_attname_safe};
 use self::memory::create_memory_pool;
 use self::planning::{
     collect_join_sources, collect_required_fields, ensure_score_bubbling,
-    expr_uses_scores_from_source, extract_join_conditions, extract_orderby, extract_score_pathkey,
-    get_score_func_rti, order_by_columns_are_fast_fields,
+    expr_uses_scores_from_source, extract_join_conditions, extract_orderby, get_score_func_rti,
+    order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
@@ -452,13 +451,11 @@ impl CustomScan for JoinScan {
                 return Vec::new();
             }
 
-            // TODO(join-types): Currently only INNER JOIN is supported.
+            // TODO(join-types): Currently INNER, SEMI, and ANTI joins are supported.
             // Future work should add:
-            // - LEFT JOIN: Return NULL for non-matching non-ordering rows; track matched ordering rows
-            // - RIGHT JOIN: Swap ordering/non-ordering sides, then use LEFT logic
+            // - LEFT JOIN: Return NULL for non-matching right rows; track matched left rows
+            // - RIGHT JOIN: Swap left/right sides, then use LEFT logic
             // - FULL OUTER JOIN: Track unmatched rows on both sides; two-pass or marking approach
-            // - SEMI JOIN: Stop after first match per ordering row (benefits EXISTS queries)
-            // - ANTI JOIN: Return only ordering rows with no matches (benefits NOT EXISTS)
             //
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
@@ -571,50 +568,41 @@ impl CustomScan for JoinScan {
                 .with_offset(limit_offset.offset)
                 .with_distinct(has_distinct);
 
-            // Determine ordering side index
-            let ordering_idx = join_clause.ordering_side_index();
-            let score_pathkey = if let Some(side) = join_clause.ordering_side() {
-                extract_score_pathkey(root, &side)
-            } else {
-                None
-            };
-
-            for (i, source) in join_clause.plan.sources_mut().into_iter().enumerate() {
+            for source in join_clause.plan.sources_mut() {
                 // Check if paradedb.score() is used anywhere in the query for each side.
                 // This includes ORDER BY, SELECT list, or any other expression.
-                // We need to check ALL sides because:
-                // - Ordering side: scores come from the streaming executor
-                // - Non-ordering side: scores come from the pre-materialized search results
+                // We need to check ALL sides because scores come from the pre-materialized search results.
                 let score_in_tlist =
                     expr_uses_scores_from_source((*root).processed_tlist.cast(), source);
 
-                let score_needed = if let Some(ord_idx) = ordering_idx {
-                    (i == ord_idx && score_pathkey.is_some()) || score_in_tlist
-                } else {
-                    score_in_tlist
-                };
+                let score_in_pathkey = pathkey_uses_scores_from_source(root, source);
 
-                if score_needed {
+                if score_in_tlist || score_in_pathkey {
                     // Record score_needed for each side
                     ensure_score_bubbling(source);
                 }
             }
 
-            let current_sources = join_clause.plan.sources();
-
             // The current parallel strategy partitions exactly one source and replicates all
-            // others. For SEMI JOIN correctness, the partitioned source must be the left side.
-            // We currently enforce a conservative subset: binary base-table joins only.
-            if jointype == pg_sys::JoinType::JOIN_SEMI {
-                let partitioning_idx = join_clause.partitioning_source_index();
-                if partitioning_idx != 0 {
-                    Self::add_planner_warning(
-                            "JoinScan not used: SEMI JOIN requires the left side to be the largest source",
-                            &aliases,
-                        );
-                    return Vec::new();
+            // others. For SEMI JOIN and ANTI JOIN correctness, the partitioned source MUST be
+            // the left side to avoid duplicate emissions from replicated workers.
+            // TODO: Because we force the left side to be partitioned, we will fully replicate
+            // (broadcast) the right side even if it is significantly larger. This reduces
+            // performance but ensures correctness. We can remove this limitation once we transition
+            // away from a broadcast strategy to true plan partitioning:
+            // https://github.com/paradedb/paradedb/issues/4152
+            if join_clause.plan.has_semi_or_anti() {
+                if join_clause.partitioning_source_index() != 0 {
+                    pgrx::warning!(
+                        "For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal \
+                        parallel partitioning strategy for this query. See \
+                        https://github.com/paradedb/paradedb/issues/4152"
+                    );
                 }
+                join_clause = join_clause.with_forced_partitioning(0);
             }
+
+            let current_sources = join_clause.plan.sources();
 
             // Extract join-level predicates (search predicates and heap conditions)
             // This builds an expression tree that can reference:
@@ -1045,7 +1033,9 @@ impl CustomScan for JoinScan {
                                 )
                             }
                         }
-                        OrderByFeature::Score => format!("pdb.score() {}", oi.direction.as_ref()),
+                        OrderByFeature::Score { .. } => {
+                            format!("pdb.score() {}", oi.direction.as_ref())
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join(", "),

@@ -1260,7 +1260,7 @@ impl CustomScan for BaseScan {
                             format!("{} {}", name.as_deref().unwrap_or("?"), direction.as_ref())
                         }
                         OrderByInfo {
-                            feature: OrderByFeature::Score,
+                            feature: OrderByFeature::Score { .. },
                             direction,
                             ..
                         } => {

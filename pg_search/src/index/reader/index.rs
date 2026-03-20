@@ -865,7 +865,7 @@ impl SearchIndexReader {
                 ..
             } => unimplemented!("Sorting by variable is not supported in raw index search"),
             OrderByInfo {
-                feature: OrderByFeature::Score,
+                feature: OrderByFeature::Score { .. },
                 direction,
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
@@ -885,7 +885,7 @@ impl SearchIndexReader {
                 )
             }
             OrderByInfo {
-                feature: OrderByFeature::Score,
+                feature: OrderByFeature::Score { .. },
                 direction,
             } => {
                 // TODO: See method docs.
@@ -1361,7 +1361,7 @@ impl SearchIndexReader {
                         .push_feature(SortByErasedType::for_field(sort_field), *direction);
                 }
                 OrderByInfo {
-                    feature: OrderByFeature::Score,
+                    feature: OrderByFeature::Score { .. },
                     direction,
                 } => {
                     erased_features.push_score_feature(*direction);

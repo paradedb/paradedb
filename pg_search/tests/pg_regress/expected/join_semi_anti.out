@@ -340,6 +340,58 @@ LIMIT 10;
  100 | target_category
 (10 rows)
 
+-- =====================================================================
+-- 6. Semi Join with selective outer filter
+-- =====================================================================
+-- The outer filter is so selective that this query requires our ability to force the left side
+-- to be partitioned (even when that might be less efficient).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+)
+AND id @@@ 'id:1'
+ORDER BY id ASC
+LIMIT 10;
+WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: table_a.id, table_a.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: table_a.id, table_a.category
+         Relation Tree: table_a SEMI table_b
+         Join Cond: table_a.id = table_b.a_id
+         Limit: 10
+         Order By: table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"id:1","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query="all"
+(17 rows)
+
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+)
+AND id @@@ 'id:1'
+ORDER BY id ASC
+LIMIT 10;
+WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ id |    category    
+----+----------------
+  1 | other_category
+(1 row)
+
 -- Cleanup
 DROP TABLE table_a CASCADE;
 DROP TABLE table_b CASCADE;

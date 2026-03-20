@@ -23,7 +23,7 @@
 //! field, then deserialized during execution.
 //!
 //! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
-//! time. See `extract_score_pathkey()` in mod.rs.
+//! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
 use crate::postgres::utils::ExprContextGuard;
@@ -632,6 +632,19 @@ impl RelNode {
         unsupported
     }
 
+    /// Returns true if the query tree contains a SEMI or ANTI join at any level.
+    pub fn has_semi_or_anti(&self) -> bool {
+        match self {
+            RelNode::Scan(_) => false,
+            RelNode::Join(j) => {
+                matches!(j.join_type, JoinType::Semi | JoinType::Anti)
+                    || j.left.has_semi_or_anti()
+                    || j.right.has_semi_or_anti()
+            }
+            RelNode::Filter(f) => f.input.has_semi_or_anti(),
+        }
+    }
+
     fn collect_unsupported_join_types(&self, acc: &mut Vec<JoinType>) {
         match self {
             RelNode::Scan(_) => {}
@@ -822,6 +835,8 @@ pub struct JoinCSClause {
     pub output_projection: Option<Vec<ChildProjection>>,
     /// Whether the join has DISTINCT specified.
     pub has_distinct: bool,
+    /// Optional index of the source that MUST be partitioned, overriding cost-based selection.
+    pub forced_partitioning_idx: Option<usize>,
 }
 
 impl JoinCSClause {
@@ -834,6 +849,7 @@ impl JoinCSClause {
             order_by: Vec::new(),
             output_projection: None,
             has_distinct: false,
+            forced_partitioning_idx: None,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -915,35 +931,26 @@ impl JoinCSClause {
         self
     }
 
-    /// Returns the index of the ordering side (the source with a search predicate).
-    /// If multiple have it, returns the first one.
-    pub fn ordering_side_index(&self) -> Option<usize> {
-        self.plan
-            .sources()
-            .into_iter()
-            .position(|s| s.has_search_predicate())
-    }
-
-    /// Get the ordering side source (side with search predicate).
-    pub fn ordering_side(&self) -> Option<JoinSource> {
-        self.ordering_side_index()
-            .map(|i| self.plan.sources()[i].clone())
+    pub fn with_forced_partitioning(mut self, idx: usize) -> Self {
+        self.forced_partitioning_idx = Some(idx);
+        self
     }
 
     /// Returns the source that should be partitioned for parallel execution.
-    /// This is the source with the largest row estimate.
     pub fn partitioning_source(&self) -> JoinSource {
         let sources = self.plan.sources();
         sources
-            .into_iter()
-            .max_by(|a, b| a.scan_info.estimate.cmp(&b.scan_info.estimate))
+            .get(self.partitioning_source_index())
             .cloned()
             .expect("JoinScan requires at least one source")
+            .clone()
     }
 
     /// Returns the index of the source that should be partitioned for parallel execution.
-    /// This is the source with the largest row estimate.
     pub fn partitioning_source_index(&self) -> usize {
+        if let Some(idx) = self.forced_partitioning_idx {
+            return idx;
+        }
         let sources = self.plan.sources();
         sources
             .iter()

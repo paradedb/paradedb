@@ -306,7 +306,9 @@ impl From<SortDirection> for tantivy::aggregation::bucket::Order {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum OrderByFeature {
-    Score,
+    Score {
+        rti: u32,
+    },
     Field(FieldName),
     /// A reference to a PostgreSQL variable (column) by its Range Table Index (RTI) and Attribute Number.
     ///
@@ -334,6 +336,6 @@ pub struct OrderByInfo {
 
 impl OrderByInfo {
     pub fn is_score(&self) -> bool {
-        matches!(self.feature, OrderByFeature::Score)
+        matches!(self.feature, OrderByFeature::Score { .. })
     }
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773979424595,
+  "lastUpdate": 1773980097678,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -66664,6 +66664,54 @@ window.BENCHMARK_DATA = {
             "value": 497.0132355950128,
             "unit": "median tps",
             "extra": "avg tps: 441.0088828500085, max tps: 626.0221248483845, count: 107872"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8652dd6c940e7a0c1d6d18cdab51d0f0b13c830a",
+          "message": "chore: Prepare `0.22.2`. (#4435)",
+          "timestamp": "2026-03-19T19:49:10-07:00",
+          "tree_id": "792ca62ff5336c04c61e803e9bc67d0d69651af6",
+          "url": "https://github.com/paradedb/paradedb/commit/8652dd6c940e7a0c1d6d18cdab51d0f0b13c830a"
+        },
+        "date": 1773980089136,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 488.6136370207865,
+            "unit": "median tps",
+            "extra": "avg tps: 486.45180057587345, max tps: 628.4756935242017, count: 53934"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 553.556254617522,
+            "unit": "median tps",
+            "extra": "avg tps: 551.4471566246224, max tps: 725.6968773949835, count: 53934"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 83.78630265636755,
+            "unit": "median tps",
+            "extra": "avg tps: 83.78844379117892, max tps: 95.43626593920843, count: 53934"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 468.0051174246117,
+            "unit": "median tps",
+            "extra": "avg tps: 428.4374044417472, max tps: 623.5827576022853, count: 107868"
           }
         ]
       }

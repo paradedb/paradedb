@@ -242,6 +242,15 @@ spec:
   primaryUpdateMethod: switchover
   primaryUpdateStrategy: unsupervised
   logLevel: info
+  template:
+    spec:
+      containers:
+        - name: postgres
+          env:
+            - name: RUST_BACKTRACE
+              value: "1"
+            - name: RUST_LIB_BACKTRACE
+              value: "1"
 
   enableSuperuserAccess: true
 

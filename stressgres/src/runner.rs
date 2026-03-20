@@ -53,6 +53,48 @@ type PostgresResult<T> = std::result::Result<T, Arc<postgres::Error>>;
 
 pub type BackendPid = i32;
 
+fn format_postgres_error(error: &postgres::Error) -> String {
+    let Some(db_error) = error.as_db_error() else {
+        return error.to_string();
+    };
+
+    let mut message = format!(
+        "{} (SQLState: {})",
+        db_error.message(),
+        db_error.code().code()
+    );
+
+    if let Some(detail) = db_error.detail() {
+        message.push_str("\nDETAIL: ");
+        message.push_str(detail);
+    }
+    if let Some(hint) = db_error.hint() {
+        message.push_str("\nHINT: ");
+        message.push_str(hint);
+    }
+    if let Some(where_) = db_error.where_() {
+        message.push_str("\nWHERE: ");
+        message.push_str(where_);
+    }
+
+    let location = match (db_error.file(), db_error.line(), db_error.routine()) {
+        (Some(file), Some(line), Some(routine)) => Some(format!("{file}:{line} ({routine})")),
+        (Some(file), Some(line), None) => Some(format!("{file}:{line}")),
+        (Some(file), None, Some(routine)) => Some(format!("{file} ({routine})")),
+        (Some(file), None, None) => Some(file.to_string()),
+        (None, Some(line), Some(routine)) => Some(format!("line {line} ({routine})")),
+        (None, Some(line), None) => Some(format!("line {line}")),
+        (None, None, Some(routine)) => Some(routine.to_string()),
+        (None, None, None) => None,
+    };
+    if let Some(location) = location {
+        message.push_str("\nLOCATION: ");
+        message.push_str(&location);
+    }
+
+    message
+}
+
 /// A thread handle paired with its corresponding JobRunner for error reporting
 struct ThreadHandle {
     handle: JoinHandle<std::result::Result<(), Arc<anyhow::Error>>>,
@@ -864,15 +906,7 @@ impl JobRunner {
                     Some(Arc::new(anyhow!(stats.assert_error.clone().unwrap())))
                 } else if stats.results.is_err() {
                     let postgres_error = Clone::clone(stats.results.as_ref().err().unwrap());
-                    let msg = if let Some(db_error) = postgres_error.as_db_error() {
-                        format!(
-                            "{} (SQLState: {})",
-                            db_error.message(),
-                            db_error.code().code()
-                        )
-                    } else {
-                        postgres_error.to_string()
-                    };
+                    let msg = format_postgres_error(&postgres_error);
                     Some(Arc::new(anyhow!(msg)))
                 } else {
                     None
@@ -1011,15 +1045,7 @@ impl JobRunner {
             }
 
             if let Some(last_error) = last_error {
-                let msg = if let Some(db_error) = last_error.as_db_error() {
-                    format!(
-                        "{} (SQLState: {})",
-                        db_error.message(),
-                        db_error.code().code()
-                    )
-                } else {
-                    last_error.to_string()
-                };
+                let msg = format_postgres_error(&last_error);
                 return Err(anyhow!(msg));
             }
         }

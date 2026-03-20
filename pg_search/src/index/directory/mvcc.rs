@@ -102,6 +102,21 @@ impl LoadedSegmentMetaEntry {
 }
 
 type AtomicFileEntry = (FileEntry, Arc<AtomicUsize>);
+
+#[derive(Clone)]
+struct CachedFileHandle {
+    file_entry: Option<FileEntry>,
+    handle: Arc<dyn FileHandle>,
+}
+
+impl Debug for CachedFileHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CachedFileHandle")
+            .field("file_entry", &self.file_entry)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Tantivy Directory trait implementation over block storage
 /// This Directory implementation respects Postgres MVCC visibility rules
 /// and should back all Tantivy Indexes used in insert and scan operations
@@ -117,7 +132,7 @@ pub struct MVCCDirectory {
     // keep a cache of readers behind an Arc<Mutex<_>> so that if/when this MVCCDirectory is
     // cloned, we don't lose all the work we did originally creating the FileHandler impls.  And
     // it's cloned a lot!
-    readers: Arc<Mutex<HashMap<PathBuf, Arc<dyn FileHandle>>>>,
+    readers: Arc<Mutex<HashMap<PathBuf, CachedFileHandle>>>,
     new_files: Arc<Mutex<HashMap<PathBuf, AtomicFileEntry>>>,
 
     // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
@@ -172,7 +187,7 @@ impl MVCCDirectory {
             .unwrap_or(false)
     }
 
-    fn file_entry(&self, path: &Path) -> tantivy::Result<Arc<dyn FileHandle>> {
+    fn resolve_file_handle(&self, path: &Path) -> tantivy::Result<CachedFileHandle> {
         let file_name = path
             .file_name()
             .expect("path should have a filename")
@@ -193,9 +208,12 @@ impl MVCCDirectory {
                 let file_entry = entry
                     .file_entry(uuid_string, path)
                     .expect("No such path for {entry:?}: {path:?}");
-                Ok(Arc::new(unsafe {
-                    SegmentComponentReader::new(&self.indexrel, file_entry)
-                }))
+                Ok(CachedFileHandle {
+                    file_entry: Some(file_entry),
+                    handle: Arc::new(unsafe {
+                        SegmentComponentReader::new(&self.indexrel, file_entry)
+                    }),
+                })
             }
             LoadedSegmentMetaEntry::Memory {
                 meta,
@@ -225,7 +243,10 @@ impl MVCCDirectory {
                         .expect("Failed to index mutable segment.")
                     })
                     .get_file_handle(path)?;
-                Ok(file_handle)
+                Ok(CachedFileHandle {
+                    file_entry: None,
+                    handle: file_handle,
+                })
             }
         }
     }
@@ -293,30 +314,44 @@ impl MVCCDirectory {
 impl Directory for MVCCDirectory {
     /// Returns a segment reader that implements std::io::Read
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        match self.readers.lock().entry(path.to_path_buf()) {
-            Entry::Occupied(reader) => Ok(reader.get().clone()),
-            Entry::Vacant(vacant) => match self.file_entry(path) {
-                Ok(file_handle) => Ok(vacant.insert(file_handle).clone()),
-                Err(err) => {
-                    let file_entry =
-                        if let Some((file_entry, total_bytes)) = self.new_files.lock().get(path) {
-                            FileEntry {
-                                starting_block: file_entry.starting_block,
-                                total_bytes: total_bytes.load(Ordering::Relaxed),
-                            }
-                        } else {
-                            return Err(OpenReadError::IoError {
-                                io_error: io::Error::other(err.to_string()).into(),
-                                filepath: PathBuf::from(path),
-                            });
-                        };
-                    Ok(vacant
-                        .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(&self.indexrel, file_entry)
-                        }))
-                        .clone())
+        let current = match self.resolve_file_handle(path) {
+            Ok(file_handle) => file_handle,
+            Err(err) => {
+                let file_entry =
+                    if let Some((file_entry, total_bytes)) = self.new_files.lock().get(path) {
+                        FileEntry {
+                            starting_block: file_entry.starting_block,
+                            total_bytes: total_bytes.load(Ordering::Relaxed),
+                        }
+                    } else {
+                        return Err(OpenReadError::IoError {
+                            io_error: io::Error::other(err.to_string()).into(),
+                            filepath: PathBuf::from(path),
+                        });
+                    };
+                CachedFileHandle {
+                    file_entry: Some(file_entry),
+                    handle: Arc::new(unsafe {
+                        SegmentComponentReader::new(&self.indexrel, file_entry)
+                    }),
                 }
-            },
+            }
+        };
+
+        let handle = current.handle.clone();
+        let mut readers = self.readers.lock();
+        match readers.entry(path.to_path_buf()) {
+            Entry::Occupied(cached) if cached.get().file_entry == current.file_entry => {
+                Ok(cached.get().handle.clone())
+            }
+            Entry::Occupied(mut cached) => {
+                cached.insert(current);
+                Ok(handle)
+            }
+            Entry::Vacant(vacant) => {
+                vacant.insert(current);
+                Ok(handle)
+            }
         }
     }
     /// delete is called by Tantivy's garbage collection
@@ -861,7 +896,10 @@ mod tests {
 
         let first_reader = directory.get_file_handle(&path).unwrap();
         assert_eq!(
-            first_reader.read_bytes(0..old_bytes.len()).unwrap().as_ref(),
+            first_reader
+                .read_bytes(0..old_bytes.len())
+                .unwrap()
+                .as_ref(),
             old_bytes.as_slice()
         );
 
@@ -872,7 +910,10 @@ mod tests {
 
         let second_reader = directory.get_file_handle(&path).unwrap();
         assert_eq!(
-            second_reader.read_bytes(0..new_bytes.len()).unwrap().as_ref(),
+            second_reader
+                .read_bytes(0..new_bytes.len())
+                .unwrap()
+                .as_ref(),
             new_bytes.as_slice()
         );
     }

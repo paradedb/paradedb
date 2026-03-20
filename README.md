@@ -34,20 +34,19 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
 
 ## What is ParadeDB?
 
-[ParadeDB](https://paradedb.com) is a Postgres extension that brings full-text search and analytics directly inside Postgres.
+[ParadeDB](https://paradedb.com) is a PostgreSQL extension that brings Elastic-quality full-text search and analytics directly inside Postgres.
 
 - [x] [Full-Text Search](https://docs.paradedb.com/documentation/full-text/overview)
   - [x] [BM25 Scoring](https://docs.paradedb.com/documentation/sorting/score)
-  - [x] [Tokenizers & Token Filters](https://docs.paradedb.com/documentation/tokenizers/overview)
-  - [x] [Highlighting](https://docs.paradedb.com/documentation/full-text/highlight)
   - [x] [Top K](https://docs.paradedb.com/documentation/sorting/topk)
+  - [x] [Highlighting](https://docs.paradedb.com/documentation/full-text/highlight)
+  - [x] [Tokenizers & Token Filters](https://docs.paradedb.com/documentation/tokenizers/overview)
 - [x] [Filtering](https://docs.paradedb.com/documentation/filtering)
 - [x] [Aggregates](https://docs.paradedb.com/documentation/aggregates/overview)
   - [x] [Columnar Storage](https://docs.paradedb.com/documentation/indexing/columnar)
   - [x] [Bucket & Metrics](https://docs.paradedb.com/documentation/aggregates/overview)
   - [x] [Facets](https://docs.paradedb.com/documentation/aggregates/facets)
 - [x] [JOINs](https://docs.paradedb.com/documentation/joins/overview)
-- [x] [Performance Tuning](https://docs.paradedb.com/documentation/performance-tuning/overview)
 - [ ] Vector Search (coming soon)
 - [ ] Hybrid Search (coming soon)
 
@@ -55,17 +54,19 @@ Star and watch this repository to follow along. See our [current projects](https
 
 ## How It Works
 
-ParadeDB is a single Postgres extension built on:
+ParadeDB is built as a combination of open-source tools. We adopt battle-tested components, such as industry-standard file formats and query engine libraries, and actively contribute to these communities. Our primary dependencies are:
 
 - [pgrx](https://github.com/pgcentralfoundation/pgrx) — bridges Postgres and Rust
 - [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text search
 - [Apache DataFusion](https://github.com/apache/datafusion) — handles OLAP processing
 
+ParadeDB is not a 1-to-1 mapping of Elasticsearch. Our aim is to bring search and analytics workloads traditionally handled by Elasticsearch into Postgres, giving developers a unified, Postgres-native experience.
+
 For a deeper dive, see our [architecture docs](https://docs.paradedb.com/welcome/architecture) or [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/).
 
 ## Integrations
 
-ParadeDB integrates with the tools you already use, with more coming.
+ParadeDB integrates with the tools you already use, with more on the way.
 
 ### ORMs & Frameworks
 

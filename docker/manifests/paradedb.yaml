@@ -243,7 +243,7 @@ spec:
   primaryUpdateStrategy: unsupervised
   logLevel: info
   # CloudNativePG cluster-wide environment variables belong under spec.env:
-  # https://cloudnative-pg.io/docs/1.28/cloudnative-pg.v1/#postgresql-cnpg-io-v1-ClusterSpec
+  # https://cloudnative-pg.io/docs/1.28/cloudnative-pg.v1/#clusterspec
   env:
     - name: RUST_BACKTRACE
       value: "1"

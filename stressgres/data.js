@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773970502234,
+  "lastUpdate": 1773970601236,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7118,6 +7118,78 @@ window.BENCHMARK_DATA = {
             "value": 123.1596411876966,
             "unit": "median tps",
             "extra": "avg tps: 119.80570798292068, max tps: 209.36262542574676, count: 54982"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed2d020b1bb4baf469076aea6772f5cfb8f2e769",
+          "message": "refactor(benchmarks): Port benchmark runner from psql to sqlx (#4438)\n\n# Description\nBackport of #4411 to `0.22.x`.\n\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-19T21:16:46-04:00",
+          "tree_id": "c2fa7374bce3e827c9e6ed6870abdc3d9bd81ed0",
+          "url": "https://github.com/paradedb/paradedb/commit/ed2d020b1bb4baf469076aea6772f5cfb8f2e769"
+        },
+        "date": 1773970593146,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 127.00005627611655,
+            "unit": "median tps",
+            "extra": "avg tps: 126.83260102372904, max tps: 142.95385886316836, count: 55243"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 430.35716632026947,
+            "unit": "median tps",
+            "extra": "avg tps: 428.5621158658138, max tps: 556.1078814773025, count: 55243"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2995.5828453777904,
+            "unit": "median tps",
+            "extra": "avg tps: 2976.5532795307895, max tps: 3006.4692220868683, count: 55243"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 380.4981233069812,
+            "unit": "median tps",
+            "extra": "avg tps: 381.48985080715585, max tps: 464.57425882027707, count: 55243"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3023.452660004382,
+            "unit": "median tps",
+            "extra": "avg tps: 3018.8436630464544, max tps: 3057.1399367858785, count: 110486"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 422.8732413034452,
+            "unit": "median tps",
+            "extra": "avg tps: 420.92361891946877, max tps: 532.5857705845137, count: 55243"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1927.5531638487987,
+            "unit": "median tps",
+            "extra": "avg tps: 1912.236059622029, max tps: 1936.0190442238693, count: 55243"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 47.01429150832627,
+            "unit": "median tps",
+            "extra": "avg tps: 47.20565388774022, max tps: 204.06514085800416, count: 55243"
           }
         ]
       }

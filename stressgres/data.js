@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773973396386,
+  "lastUpdate": 1773974291634,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -65704,6 +65704,54 @@ window.BENCHMARK_DATA = {
             "value": 492.93865738710076,
             "unit": "median tps",
             "extra": "avg tps: 449.0493868291477, max tps: 624.6732422114667, count: 107854"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed2d020b1bb4baf469076aea6772f5cfb8f2e769",
+          "message": "refactor(benchmarks): Port benchmark runner from psql to sqlx (#4438)\n\n# Description\nBackport of #4411 to `0.22.x`.\n\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-19T21:16:46-04:00",
+          "tree_id": "c2fa7374bce3e827c9e6ed6870abdc3d9bd81ed0",
+          "url": "https://github.com/paradedb/paradedb/commit/ed2d020b1bb4baf469076aea6772f5cfb8f2e769"
+        },
+        "date": 1773974282825,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 520.8095398031278,
+            "unit": "median tps",
+            "extra": "avg tps: 524.3882626306971, max tps: 598.408258374754, count: 53936"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 584.3486465309693,
+            "unit": "median tps",
+            "extra": "avg tps: 588.7772925365927, max tps: 728.8385965062879, count: 53936"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.72966898720273,
+            "unit": "median tps",
+            "extra": "avg tps: 87.95361589836862, max tps: 96.94498852560679, count: 53936"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 497.0132355950128,
+            "unit": "median tps",
+            "extra": "avg tps: 441.0088828500085, max tps: 626.0221248483845, count: 107872"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773982252658,
+  "lastUpdate": 1774004818634,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7334,6 +7334,78 @@ window.BENCHMARK_DATA = {
             "value": 39.484473175829,
             "unit": "median tps",
             "extra": "avg tps: 72.32545819825201, max tps: 847.5919488935958, count: 55225"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "166850903+Abhisheklearn12@users.noreply.github.com",
+            "name": "Abhishek",
+            "username": "Abhisheklearn12"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "50df06a91945e77c602675cc4c29c136e7565c91",
+          "message": "feat: Snapshot all indexes via ParallelScanState for consistent parallel JoinScan DocAddresses (#4311)\n\n# Ticket(s) Closed\n\n- Closes #4270\n\n## What\n\nExtends `ParallelScanState` shared-memory to store canonical segment\nlists for all non-partitioning indexes in a parallel `JoinScan`, and\ninjects those frozen segment sets into each `PgSearchTableProvider` so\nevery worker opens each replicated index with\n`MvccSatisfies::ParallelWorker(ids)` instead of\n`MvccSatisfies::Snapshot`.\n\n## Why\n\nWith late materialization (#4219), parallel `JoinScan` workers store\n`DocAddress = (segment_ord, doc_id)` values in a mid-scan buffer.\n`segment_ord` is a positional index into the per-reader ordered segment\nlist, so if two workers open the same index with different segment lists\n(e.g., because a background merge completed between their startups),\nthey will map the same `DocAddress` to different heap rows, silently\nreturning wrong data.\n\nThe partitioning source was already safe: its segments are checked out\nfrom `ParallelScanState` and both leader and workers drew from the same\nfrozen pool via `checkout_segment`. Non-partitioning (replicated)\nsources were not: each worker called `MvccSatisfies::Snapshot`\nindependently, creating the divergence window.\n\n## How\n\n**Shared-memory layout (`postgres/mod.rs`)**\n- Added four new tail-buffer sections to `ParallelScanPayloadLayout`:\n`non_partitioning_counts` (a `[u32]` of per-source segment counts),\n`non_partitioning_ids` (a flat `[[u8; 16]]` of raw `SegmentId` UUID\nbytes), `non_partitioning_deleted_docs` (a `[u32]` of deleted doc counts\nper segment), and `non_partitioning_max_docs` (a `[u32]` of max doc\ncounts per segment) , all concatenated across sources in ascending\n`plan.sources()` index order.\n- `ParallelScanState::size_of()` accepts a new\n`non_partitioning_nsegments: &[usize]` slice and sizes the payload\naccordingly.\n- New public\n`ParallelScanState::populate_non_partitioning(&[&[SegmentReader]])`\nmethod writes the full segment list (IDs, deleted docs, max docs) into\nthe shared payload via the private\n`ParallelScanPayload::init_non_partitioning` helper.\n- New public read methods: `non_partitioning_segment_ids() ->\nVec<HashSet<SegmentId>>`, `non_partitioning_deleted_docs() ->\nVec<Vec<u32>>`, and `non_partitioning_max_docs() -> Vec<Vec<u32>>`.\n\n**DSM callbacks (`joinscan/mod.rs`)**\n- `estimate_dsm_custom_scan`: computes per-source planning-time segment\ncounts and passes them to `size_of()` so the allocation is always\nsufficient (merges can only reduce counts before `initialize_dsm`).\n- `initialize_dsm_custom_scan`: opens all non-partitioning sources once\nwith `MvccSatisfies::Snapshot`, calls `populate_non_partitioning()`, and\nstores the canonical ID sets in\n`JoinScanState.non_partitioning_segments`.\n- `initialize_worker_custom_scan`: reads\n`non_partitioning_segment_ids()` from shared memory and stores the\nresult in `JoinScanState.non_partitioning_segments`.\n- `checkout_segment` is **not modified** , it continues to exclusively\ncheck out segments from the partitioning source pool. Non-partitioning\nsegment data in shared memory is read-only reference data with no\ncheckout mechanism.\n\n**Codec injection (`scan/codec.rs`, `joinscan/mod.rs`)**\n- `PgSearchExtensionCodec` gains a `non_partitioning_segment_ids:\nVec<HashSet<SegmentId>>` field.\n- In `exec_custom_scan`, the codec is built with the canonical sets from\n`JoinScanState`.\n- In `try_decode_table_provider`, each provider whose\n`non_partitioning_index` matches gets its `canonical_segment_ids` set\nvia `set_canonical_segment_ids()`.\n\n**Table provider (`scan/table_provider.rs`)**\n- New serialized field `non_partitioning_index: Option<usize>` , the\nposition in the non-partitioning source list.\n- New skip-serialized field `canonical_segment_ids:\nOption<HashSet<SegmentId>>` , injected by the codec.\n- `scan()` MVCC decision: if `canonical_segment_ids` is set, use\n`MvccSatisfies::ParallelWorker(ids)` regardless of `parallel_state`, so\nreplicated sources use the leader's frozen segment view.\n\n**Plan construction (`joinscan/scan_state.rs`)**\n- `JoinScanState` gains `non_partitioning_segments:\nVec<HashSet<SegmentId>>` (empty until DSM init).\n- `build_relnode_df` computes `np_idx` (0-based position among\nnon-partitioning sources in ascending `plan.sources()` order) for each\nnon-partitioning source and passes it to `build_source_df`.\n- `build_source_df` sets `non_partitioning_index` on the provider.\n\n## Tests\n\nThe correctness guarantee is structural: because the leader opens each\nnon-partitioning index exactly once and all workers receive the same\nfrozen `HashSet<SegmentId>`, it is impossible for `segment_ord` to refer\nto different physical segments across workers. The existing parallel\nJoinScan integration tests exercise the DSM lifecycle end-to-end. A\ntargeted stress test (concurrent writes + parallel JoinScan under\n`parallel_workers = 4`) would be the definitive regression gate; that\ncan be added as follow-up under the stressgres suite.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-03-20T16:17:25+05:30",
+          "tree_id": "30015e654cb2e610da7d228f7fc494537877b23b",
+          "url": "https://github.com/paradedb/paradedb/commit/50df06a91945e77c602675cc4c29c136e7565c91"
+        },
+        "date": 1774004809401,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 137.87516790204864,
+            "unit": "median tps",
+            "extra": "avg tps: 137.56866736575253, max tps: 145.67831440866817, count: 55157"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 410.2333169740297,
+            "unit": "median tps",
+            "extra": "avg tps: 410.0012526215623, max tps: 566.5343905385432, count: 55157"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2926.1393824588704,
+            "unit": "median tps",
+            "extra": "avg tps: 2915.590531240911, max tps: 2956.4278704032104, count: 55157"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 416.7668986915431,
+            "unit": "median tps",
+            "extra": "avg tps: 412.5234223461522, max tps: 596.4632591754539, count: 55157"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3034.807100401123,
+            "unit": "median tps",
+            "extra": "avg tps: 3031.623627278346, max tps: 3107.4540730109843, count: 110314"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 409.05319521476383,
+            "unit": "median tps",
+            "extra": "avg tps: 408.59832211849533, max tps: 541.7122431159326, count: 55157"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1878.9349057759325,
+            "unit": "median tps",
+            "extra": "avg tps: 1867.3724315965376, max tps: 1884.623106507525, count: 55157"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 31.853728520274696,
+            "unit": "median tps",
+            "extra": "avg tps: 34.328819308068056, max tps: 907.2360238022443, count: 55157"
           }
         ]
       }

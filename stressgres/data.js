@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773967547212,
+  "lastUpdate": 1773967714459,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23458,6 +23458,42 @@ window.BENCHMARK_DATA = {
             "value": 5.156506529181071,
             "unit": "median tps",
             "extra": "avg tps: 4.621973334567287, max tps: 5.768244449260544, count: 57802"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f6862e0941a003c515cb085eced0b1f95413728b",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4432)\n\n# Description\nBackport of #4431 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-19T17:12:53-07:00",
+          "tree_id": "a3b8effecd902e8f4f92cfb7566ff84814a518d7",
+          "url": "https://github.com/paradedb/paradedb/commit/f6862e0941a003c515cb085eced0b1f95413728b"
+        },
+        "date": 1773967706413,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.602865268903455,
+            "unit": "median tps",
+            "extra": "avg tps: 6.495483547346255, max tps: 9.829914253405422, count: 57782"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.318115330626907,
+            "unit": "median tps",
+            "extra": "avg tps: 4.769371894018287, max tps: 5.985271659810492, count: 57782"
           }
         ]
       }

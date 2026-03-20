@@ -30,7 +30,7 @@ use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::ParallelScanState;
+use crate::postgres::{ParallelScanState, PartitionEarlyTermState};
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
@@ -134,10 +134,15 @@ impl TopKScanExecState {
     ///    b. Nth execution: eagerly emits all segments which were previously collected. This is
     ///    necessary to allow for re-scans (when a Top K result later proves not to be visible)
     ///    to consistently revisit the same segments.
+    ///
+    /// When `partition_et` is provided, each segment checkout is reported to the shared
+    /// `PartitionEarlyTermState` via `claim_segment`, which may broadcast the gate CV
+    /// to unblock workers waiting on higher-ranked partitions.
     fn segments_to_query<'s>(
         &'s self,
         search_reader: &SearchIndexReader,
         parallel_state: Option<*mut ParallelScanState>,
+        partition_et: Option<(*mut PartitionEarlyTermState, usize)>,
     ) -> Box<dyn Iterator<Item = SegmentId> + 's> {
         match (parallel_state, self.claimed_segments.borrow().clone()) {
             (None, _) => {
@@ -167,6 +172,11 @@ impl TopKScanExecState {
                             Some(std::mem::take(&mut claimed_segments));
                         return None;
                     };
+
+                    // Signal that we've claimed a segment for partition gating.
+                    if let Some((et_state, rank)) = partition_et {
+                        PartitionEarlyTermState::claim_segment(et_state, rank);
+                    }
 
                     // We claimed a segment. record it, and then return it.
                     claimed_segments.push(segment_id);
@@ -282,7 +292,21 @@ impl ExecMethod for TopKScanExecState {
             return false;
         }
 
-        // We track the total number of queries executed by Top K (for any of the above reasons).
+        // Check cross-partition early termination: if earlier partitions have already
+        // produced enough results for the LIMIT, skip the expensive Tantivy query.
+        if let Some(et) = state.partition_early_term.as_ref() {
+            if let (Some(et_state), Some(rank)) = (et.shared_state, et.sort_rank) {
+                // Non-blocking gate: check if lower-ranked partitions have already
+                // produced enough results for the LIMIT. Does not block waiting for
+                // lower ranks to finish — blocking can deadlock (see try_gate docs).
+                if !PartitionEarlyTermState::try_gate(et_state, rank) {
+                    state.mark_terminated_early();
+                    return false;
+                }
+            }
+        }
+
+        // We track the total number of queries executed by Top-N (for any of the above reasons).
         state.increment_query_count();
 
         // Calculate the limit for this query, and what the offset will be for the next query.
@@ -310,7 +334,15 @@ impl ExecMethod for TopKScanExecState {
             .tokenizers()
             .clone();
 
-        // Run the Top K (and optional aggregate) query.
+        // Extract partition early termination info for segment claiming.
+        let partition_et = state.partition_early_term.as_ref().and_then(|et| {
+            match (et.shared_state, et.sort_rank) {
+                (Some(shared_state), Some(rank)) => Some((shared_state, rank)),
+                _ => None,
+            }
+        });
+
+        // Run the TopK (and optional aggregate) query.
         self.search_results = if let Some(orderby_info) = self.orderby_info.as_ref() {
             let maybe_aux_collector = aggregations.as_ref().map(|aggregations| {
                 // Create the aggregation collector
@@ -344,6 +376,7 @@ impl ExecMethod for TopKScanExecState {
                     self.segments_to_query(
                         state.search_reader.as_ref().unwrap(),
                         state.parallel_state,
+                        partition_et,
                     ),
                     orderby_info,
                     local_limit,
@@ -358,6 +391,7 @@ impl ExecMethod for TopKScanExecState {
                     self.segments_to_query(
                         state.search_reader.as_ref().unwrap(),
                         state.parallel_state,
+                        partition_et,
                     ),
                     local_limit,
                     self.offset,

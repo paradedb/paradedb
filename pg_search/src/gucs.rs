@@ -128,6 +128,8 @@ static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 /// When enabled, Top K queries on deferred (late-materialized) string/bytes columns
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// Enable cross-partition early termination for sorted TopK on partitioned tables.
+static ENABLE_PARTITION_EARLY_TERM: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -401,6 +403,16 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_partition_early_term",
+        c"Enable cross-partition early termination for sorted TopK on partitioned tables",
+        c"When enabled, partitions ordered by partition key with LIMIT can skip scanning \
+          if earlier partitions already produced enough results. Default is true.",
+        &ENABLE_PARTITION_EARLY_TERM,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -573,6 +585,10 @@ pub fn dynamic_filter_batch_size() -> i32 {
 
 pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn enable_partition_early_term() -> bool {
+    ENABLE_PARTITION_EARLY_TERM.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

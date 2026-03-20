@@ -442,7 +442,7 @@ unsafe fn get_toc_entry(
     ((e)->space_for_chunks = add_size((e)->space_for_chunks, BUFFERALIGN(sz)))
 */
 #[doc(hidden)]
-unsafe fn estimate_chunk(pcxt: *mut pg_sys::ParallelContext, sz: usize) {
+pub(crate) unsafe fn estimate_chunk(pcxt: *mut pg_sys::ParallelContext, sz: usize) {
     const BUFFERALIGN: fn(usize) -> usize =
         |len: usize| unsafe { pg_sys::TYPEALIGN(pg_sys::ALIGNOF_BUFFER as usize, len) };
 
@@ -455,7 +455,7 @@ unsafe fn estimate_chunk(pcxt: *mut pg_sys::ParallelContext, sz: usize) {
     ((e)->number_of_keys = add_size((e)->number_of_keys, cnt))
 */
 #[doc(hidden)]
-unsafe fn estimate_keys(pcxt: *mut pg_sys::ParallelContext, cnt: usize) {
+pub(crate) unsafe fn estimate_keys(pcxt: *mut pg_sys::ParallelContext, cnt: usize) {
     let estimator = &mut (*pcxt).estimator;
     estimator.number_of_keys = pg_sys::add_size(estimator.number_of_keys, cnt);
 }

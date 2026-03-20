@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
+use crate::api::SortDirection;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
@@ -326,4 +327,59 @@ impl PgSearchRelation {
     pub fn field_supports_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
         self.schema().map(|s| s.field_supports_aggregate(field))
     }
+
+    /// Returns the OID of this relation's immediate partition parent, or `None` if
+    /// this relation is not a partition child.
+    pub unsafe fn partition_parent_oid(&self) -> Option<pg_sys::Oid> {
+        let parent = get_partition_parent(self.oid(), false);
+        if parent == pg_sys::InvalidOid {
+            None
+        } else {
+            Some(parent)
+        }
+    }
+
+    /// Compute the sort rank of this partition child within its parent's partition list.
+    /// For ascending sorts, rank 0 = lowest-valued partition (first in oids list).
+    /// For descending sorts, rank 0 = highest-valued partition (last in oids list).
+    pub unsafe fn compute_partition_rank(&self, sort_direction: SortDirection) -> Option<usize> {
+        let child_oid = self.oid();
+        let parent_oid = get_partition_parent(child_oid, false);
+        if parent_oid == pg_sys::InvalidOid {
+            return None;
+        }
+        let parent_rel = PgSearchRelation::with_lock(parent_oid, pg_sys::AccessShareLock as _);
+        let pdesc = pg_sys::RelationGetPartitionDesc(parent_rel.as_ptr(), true);
+        if pdesc.is_null() {
+            return None;
+        }
+        let nparts = (*pdesc).nparts as usize;
+        let oids = std::slice::from_raw_parts((*pdesc).oids, nparts);
+        let asc_rank = oids.iter().position(|&oid| oid == child_oid);
+        let is_desc = matches!(
+            sort_direction,
+            SortDirection::DescNullsFirst | SortDirection::DescNullsLast
+        );
+
+        asc_rank.map(|rank| if is_desc { nparts - 1 - rank } else { rank })
+    }
+
+    /// Get the number of partitions for the parent of this partition child.
+    pub unsafe fn get_n_partitions(&self) -> u32 {
+        let parent_oid = get_partition_parent(self.oid(), false);
+        if parent_oid == pg_sys::InvalidOid {
+            return 0;
+        }
+        let parent_rel = PgSearchRelation::with_lock(parent_oid, pg_sys::AccessShareLock as _);
+        let pdesc = pg_sys::RelationGetPartitionDesc(parent_rel.as_ptr(), true);
+        if pdesc.is_null() {
+            0
+        } else {
+            (*pdesc).nparts as u32
+        }
+    }
+}
+
+extern "C" {
+    fn get_partition_parent(partition_oid: pg_sys::Oid, even_if_detached: bool) -> pg_sys::Oid;
 }

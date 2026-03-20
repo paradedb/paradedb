@@ -351,29 +351,36 @@ pub struct SegmentMetaEntry {
 }
 
 impl SegmentMetaEntry {
-    fn mutable_live_ctids(
+    fn mutable_tracked_live_ctids(
         &self,
         indexrel: &PgSearchRelation,
+        tracked_ctids: &[u64],
     ) -> Result<HashSet<u64>, &'static str> {
         let SegmentMetaEntryContent::Mutable(ref content) = &self.content else {
             return Err("Cannot inspect a non-mutable segment");
         };
 
-        let entries = unsafe { content.open(indexrel).list(None) };
-        let mut ctid_set =
-            HashSet::with_capacity_and_hasher(entries.len(), rustc_hash::FxBuildHasher);
-        for entry in entries {
-            match entry {
-                MutableSegmentEntry::Add(ctid) => {
-                    ctid_set.insert(ctid);
-                }
-                MutableSegmentEntry::Remove(ctid) => {
-                    ctid_set.remove(&ctid);
-                }
-            }
+        if tracked_ctids.is_empty() {
+            return Ok(HashSet::default());
         }
 
-        Ok(ctid_set)
+        let tracked_ctids = tracked_ctids.iter().copied().collect::<HashSet<_>>();
+        let mut live_ctids =
+            HashSet::with_capacity_and_hasher(tracked_ctids.len(), rustc_hash::FxBuildHasher);
+        let mut entries = content.open(indexrel);
+        unsafe {
+            entries.for_each(|_, entry| match entry {
+                MutableSegmentEntry::Add(ctid) if tracked_ctids.contains(&ctid) => {
+                    live_ctids.insert(ctid);
+                }
+                MutableSegmentEntry::Remove(ctid) if tracked_ctids.contains(&ctid) => {
+                    live_ctids.remove(&ctid);
+                }
+                _ => {}
+            });
+        }
+
+        Ok(live_ctids)
     }
 
     pub fn new_mutable(
@@ -433,14 +440,20 @@ impl SegmentMetaEntry {
             return Err("Cannot add items to a non-mutable segment");
         }
 
-        let mut live_ctids = self.mutable_live_ctids(indexrel)?;
-        let filtered_items = items
+        let mut seen_ctids =
+            HashSet::with_capacity_and_hasher(items.len(), rustc_hash::FxBuildHasher);
+        let tracked_ctids = items
             .iter()
-            .copied()
-            .filter(|entry| match entry {
-                MutableSegmentEntry::Add(ctid) => live_ctids.insert(*ctid),
-                MutableSegmentEntry::Remove(_) => false,
+            .filter_map(|entry| match entry {
+                MutableSegmentEntry::Add(ctid) if seen_ctids.insert(*ctid) => Some(*ctid),
+                _ => None,
             })
+            .collect::<Vec<_>>();
+        let live_ctids = self.mutable_tracked_live_ctids(indexrel, &tracked_ctids)?;
+        let filtered_items = tracked_ctids
+            .into_iter()
+            .filter(|ctid| !live_ctids.contains(ctid))
+            .map(MutableSegmentEntry::Add)
             .collect::<Vec<_>>();
         let added: u32 = filtered_items.len().try_into().unwrap();
         let new_max_doc = self.header.max_doc + added;
@@ -469,14 +482,20 @@ impl SegmentMetaEntry {
         indexrel: &PgSearchRelation,
         ctids: Vec<u64>,
     ) -> Result<(), &str> {
-        let mut live_ctids = self.mutable_live_ctids(indexrel)?;
+        let mut seen_ctids =
+            HashSet::with_capacity_and_hasher(ctids.len(), rustc_hash::FxBuildHasher);
+        let tracked_ctids = ctids
+            .into_iter()
+            .filter(|ctid| seen_ctids.insert(*ctid))
+            .collect::<Vec<_>>();
+        let live_ctids = self.mutable_tracked_live_ctids(indexrel, &tracked_ctids)?;
         let SegmentMetaEntryContent::Mutable(ref mut content) = &mut self.content else {
             return Err("Cannot delete items from a non-mutable segment");
         };
 
-        let entries = ctids
+        let entries = tracked_ctids
             .into_iter()
-            .filter(|ctid| live_ctids.remove(ctid))
+            .filter(|ctid| live_ctids.contains(ctid))
             .map(MutableSegmentEntry::Remove)
             .collect::<Vec<_>>();
 

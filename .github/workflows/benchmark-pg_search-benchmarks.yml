@@ -191,6 +191,13 @@ jobs:
       - name: Running for ${{ steps.pr_label.outputs.result }}"
         run: echo ${{ steps.pr_label.outputs.result }}
 
+      - name: Stabilize CPU Frequency
+        run: |
+          # Lock CPU governor to performance mode (fixed frequency)
+          echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+          # Disable turbo boost — turbo is thermally opportunistic and inherently noisy
+          echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
+
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:

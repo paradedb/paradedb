@@ -351,6 +351,31 @@ pub struct SegmentMetaEntry {
 }
 
 impl SegmentMetaEntry {
+    fn mutable_live_ctids(
+        &self,
+        indexrel: &PgSearchRelation,
+    ) -> Result<HashSet<u64>, &'static str> {
+        let SegmentMetaEntryContent::Mutable(ref content) = &self.content else {
+            return Err("Cannot inspect a non-mutable segment");
+        };
+
+        let entries = unsafe { content.open(indexrel).list(None) };
+        let mut ctid_set =
+            HashSet::with_capacity_and_hasher(entries.len(), rustc_hash::FxBuildHasher);
+        for entry in entries {
+            match entry {
+                MutableSegmentEntry::Add(ctid) => {
+                    ctid_set.insert(ctid);
+                }
+                MutableSegmentEntry::Remove(ctid) => {
+                    ctid_set.remove(&ctid);
+                }
+            }
+        }
+
+        Ok(ctid_set)
+    }
+
     pub fn new_mutable(
         segment_id: SegmentId,
         max_doc: u32,
@@ -404,11 +429,24 @@ impl SegmentMetaEntry {
         indexrel: &PgSearchRelation,
         items: &[MutableSegmentEntry],
     ) -> Result<(), &str> {
-        let items_len: u32 = items.len().try_into().unwrap();
-        let new_max_doc = self.header.max_doc + items_len;
+        if !matches!(self.content, SegmentMetaEntryContent::Mutable(content) if !content.frozen) {
+            return Err("Cannot add items to a non-mutable segment");
+        }
+
+        let mut live_ctids = self.mutable_live_ctids(indexrel)?;
+        let filtered_items = items
+            .iter()
+            .copied()
+            .filter(|entry| match entry {
+                MutableSegmentEntry::Add(ctid) => live_ctids.insert(*ctid),
+                MutableSegmentEntry::Remove(_) => false,
+            })
+            .collect::<Vec<_>>();
+        let added: u32 = filtered_items.len().try_into().unwrap();
+        let new_max_doc = self.header.max_doc + added;
         match &mut self.content {
             SegmentMetaEntryContent::Mutable(content) if !content.frozen => {
-                unsafe { content.open(indexrel).add_items(items, None) };
+                unsafe { content.open(indexrel).add_items(&filtered_items, None) };
                 let row_limit = indexrel
                     .options()
                     .mutable_segment_rows()
@@ -431,12 +469,14 @@ impl SegmentMetaEntry {
         indexrel: &PgSearchRelation,
         ctids: Vec<u64>,
     ) -> Result<(), &str> {
+        let mut live_ctids = self.mutable_live_ctids(indexrel)?;
         let SegmentMetaEntryContent::Mutable(ref mut content) = &mut self.content else {
             return Err("Cannot delete items from a non-mutable segment");
         };
 
         let entries = ctids
             .into_iter()
+            .filter(|ctid| live_ctids.remove(ctid))
             .map(MutableSegmentEntry::Remove)
             .collect::<Vec<_>>();
 

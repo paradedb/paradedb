@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773970851096,
+  "lastUpdate": 1773971536371,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23938,6 +23938,42 @@ window.BENCHMARK_DATA = {
             "value": 5.373543164816609,
             "unit": "median tps",
             "extra": "avg tps: 4.813874654856105, max tps: 6.040258221180735, count: 57492"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed2d020b1bb4baf469076aea6772f5cfb8f2e769",
+          "message": "refactor(benchmarks): Port benchmark runner from psql to sqlx (#4438)\n\n# Description\nBackport of #4411 to `0.22.x`.\n\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-19T21:16:46-04:00",
+          "tree_id": "c2fa7374bce3e827c9e6ed6870abdc3d9bd81ed0",
+          "url": "https://github.com/paradedb/paradedb/commit/ed2d020b1bb4baf469076aea6772f5cfb8f2e769"
+        },
+        "date": 1773971528091,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.578049897414567,
+            "unit": "median tps",
+            "extra": "avg tps: 6.48705994192216, max tps: 9.824095258384608, count: 57560"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.422222037051347,
+            "unit": "median tps",
+            "extra": "avg tps: 4.853242378520385, max tps: 6.092125857908852, count: 57560"
           }
         ]
       }

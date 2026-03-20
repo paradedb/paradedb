@@ -7,7 +7,7 @@ name: Test Stressgres (Docker)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
     branches:
       - main
     paths:

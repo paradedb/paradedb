@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773971771550,
+  "lastUpdate": 1773972489543,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34722,6 +34722,54 @@ window.BENCHMARK_DATA = {
             "value": 5.275957190043733,
             "unit": "median tps",
             "extra": "avg tps: 5.322931558642498, max tps: 8.993531303680983, count: 56366"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed2d020b1bb4baf469076aea6772f5cfb8f2e769",
+          "message": "refactor(benchmarks): Port benchmark runner from psql to sqlx (#4438)\n\n# Description\nBackport of #4411 to `0.22.x`.\n\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-19T21:16:46-04:00",
+          "tree_id": "c2fa7374bce3e827c9e6ed6870abdc3d9bd81ed0",
+          "url": "https://github.com/paradedb/paradedb/commit/ed2d020b1bb4baf469076aea6772f5cfb8f2e769"
+        },
+        "date": 1773972481302,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1104.3975813516968,
+            "unit": "median tps",
+            "extra": "avg tps: 1102.6139515826271, max tps: 1172.061475451826, count: 56413"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 626.5271232442325,
+            "unit": "median tps",
+            "extra": "avg tps: 574.5852482004191, max tps: 1220.9747877628836, count: 56413"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1842.2877311924392,
+            "unit": "median tps",
+            "extra": "avg tps: 1805.156394007635, max tps: 1960.0996134235663, count: 56413"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.321724279942317,
+            "unit": "median tps",
+            "extra": "avg tps: 5.339234166065495, max tps: 7.021860949036808, count: 56413"
           }
         ]
       }

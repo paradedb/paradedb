@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773968471391,
+  "lastUpdate": 1773968666492,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34026,6 +34026,54 @@ window.BENCHMARK_DATA = {
             "value": 5.377328596493667,
             "unit": "median tps",
             "extra": "avg tps: 5.401408532078322, max tps: 6.832645986228734, count: 56509"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f6862e0941a003c515cb085eced0b1f95413728b",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4432)\n\n# Description\nBackport of #4431 to `0.22.x`.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-03-19T17:12:53-07:00",
+          "tree_id": "a3b8effecd902e8f4f92cfb7566ff84814a518d7",
+          "url": "https://github.com/paradedb/paradedb/commit/f6862e0941a003c515cb085eced0b1f95413728b"
+        },
+        "date": 1773968658361,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1077.6139678728266,
+            "unit": "median tps",
+            "extra": "avg tps: 1078.0837692971804, max tps: 1127.8197853430079, count: 56217"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1181.9719078932217,
+            "unit": "median tps",
+            "extra": "avg tps: 1151.4075473371336, max tps: 1235.9487980147114, count: 56217"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1841.777983752464,
+            "unit": "median tps",
+            "extra": "avg tps: 1816.7806083171738, max tps: 1993.9462851887738, count: 56217"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.326251068978862,
+            "unit": "median tps",
+            "extra": "avg tps: 5.3687150672816895, max tps: 7.251200488812126, count: 56217"
           }
         ]
       }

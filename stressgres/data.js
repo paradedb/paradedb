@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773970611477,
+  "lastUpdate": 1773970841089,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34578,6 +34578,54 @@ window.BENCHMARK_DATA = {
             "value": 5.326251068978862,
             "unit": "median tps",
             "extra": "avg tps: 5.3687150672816895, max tps: 7.251200488812126, count: 56217"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5331dbd07a6031dbb68a420c8540ad5f4e529403",
+          "message": "refactor(benchmarks): Port benchmark runner from psql to sqlx (#4411)\n\n# Ticket(s) Closed\n\n- Closes #4400\n- Closes #4409 \n\n## What\n\nPort the benchmark runner from spawning `psql` subprocesses to using\n`sqlx` with connection reuse per query.\n\n## Why\n\nEach `psql` invocation creates a new connection, discarding any\nserver-side state (plan caches, catalog caches, etc.) between runs.\nReusing a single connection per query better aligns benchmarks with\nrecommended production usage and will surface cache-hit improvements as\nthey land.\n\n## How\n\n- Replace all `psql` calls with `sqlx::PgConnection` queries, except\n`generate_test_data` which relies on psql metacommands (`\\set`,\n`\\echo`).\n- `execute_query_multiple_times` reuses a single connection across all\nruns. Compound statements (e.g., `SET ...; SELECT ...`) are sent as-is\nvia the simple query protocol (`raw_sql`), matching `psql` wire\nbehavior.\n- Timing uses `Instant` around `raw_sql().execute()`, which consumes the\nentire result set from the wire without per-row object allocation —\nmatching how `psql` with `\\timing` measures (send query → receive all\nresults).\n- Row counts come from `rows_affected()` (parsed from PostgreSQL's\n`SELECT <count>` CommandComplete tag) instead of line-counting psql\noutput.\n- Utility operations (VACUUM, prewarm, cache eviction, SHOW settings,\nversion info) are also ported to sqlx.\n- Add `--fail-on-error` CLI flag (default true). When false, query\nerrors are skipped with a warning instead of panicking, supporting\nbackfills against older versions that may not support all query syntax.\n- Fix missing `SET work_mem TO '4GB'` for JoinScan `no-scores` benchmark\nqueries (previously silently OOM-ing under psql).\n\n## Tests\n\nCompile-tested locally. Functional testing requires a running ParadeDB\ninstance with benchmark datasets.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-19T20:49:07-04:00",
+          "tree_id": "97ef8c78363a2ab7e21fa0650186be676480e4a9",
+          "url": "https://github.com/paradedb/paradedb/commit/5331dbd07a6031dbb68a420c8540ad5f4e529403"
+        },
+        "date": 1773970832995,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1140.1985868450968,
+            "unit": "median tps",
+            "extra": "avg tps: 1140.2526932357807, max tps: 1195.2049778387543, count: 56366"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1252.1630776067127,
+            "unit": "median tps",
+            "extra": "avg tps: 1239.3598429287845, max tps: 1257.9531402381645, count: 56366"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1725.85114457305,
+            "unit": "median tps",
+            "extra": "avg tps: 1684.2942798489069, max tps: 1883.3118269957765, count: 56366"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.275957190043733,
+            "unit": "median tps",
+            "extra": "avg tps: 5.322931558642498, max tps: 8.993531303680983, count: 56366"
           }
         ]
       }

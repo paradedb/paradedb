@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773972702770,
+  "lastUpdate": 1773973384588,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -50258,6 +50258,60 @@ window.BENCHMARK_DATA = {
             "value": 15.151426105309788,
             "unit": "median tps",
             "extra": "avg tps: 15.059941810411184, max tps: 19.58363085764514, count: 55563"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed2d020b1bb4baf469076aea6772f5cfb8f2e769",
+          "message": "refactor(benchmarks): Port benchmark runner from psql to sqlx (#4438)\n\n# Description\nBackport of #4411 to `0.22.x`.\n\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-03-19T21:16:46-04:00",
+          "tree_id": "c2fa7374bce3e827c9e6ed6870abdc3d9bd81ed0",
+          "url": "https://github.com/paradedb/paradedb/commit/ed2d020b1bb4baf469076aea6772f5cfb8f2e769"
+        },
+        "date": 1773973375538,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 28.538890827611823,
+            "unit": "median tps",
+            "extra": "avg tps: 28.353253215272407, max tps: 30.89864050822551, count: 55502"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.8998200543631,
+            "unit": "median tps",
+            "extra": "avg tps: 274.85215707134415, max tps: 2856.155847246677, count: 55502"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 575.1144061264945,
+            "unit": "median tps",
+            "extra": "avg tps: 558.3426892940533, max tps: 965.2775721116492, count: 55502"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 165.9369261713149,
+            "unit": "median tps",
+            "extra": "avg tps: 177.34452026501037, max tps: 917.4473359352454, count: 111004"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.71968918724966,
+            "unit": "median tps",
+            "extra": "avg tps: 14.85358152645442, max tps: 19.701591033506457, count: 55502"
           }
         ]
       }

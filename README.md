@@ -54,7 +54,7 @@ Star and watch this repository to follow along. See our [current projects](https
 
 ## How It Works
 
-ParadeDB is built as a combination of open-source tools. We adopt battle-tested components, such as industry-standard file formats and query engine libraries, and actively contribute to these communities. Our primary dependencies are:
+ParadeDB integrates battle-tested Rust libraries for search and analytics inside Postgres, contributing upstream whenever possible. Our primary dependencies are:
 
 - [pgrx](https://github.com/pgcentralfoundation/pgrx) — bridges Postgres and Rust
 - [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text search

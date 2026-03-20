@@ -10,7 +10,7 @@ on:
   schedule:
     - cron: "0 7 * * *" # daily 07:00 UTC (~2am ET)
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
     branches:
       - main
       - 0.*.x # Release branches

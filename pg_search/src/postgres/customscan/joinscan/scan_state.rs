@@ -175,7 +175,7 @@ pub struct JoinScanState {
     /// where workers reopen the same segments via `MvccSatisfies::ParallelWorker(ids)`.
     /// Dropping manifests early would release the pins and allow segment recycling
     /// before workers can open them.
-    pub _source_manifests: Vec<SearchIndexManifest>,
+    pub source_manifests: Vec<SearchIndexManifest>,
 }
 
 impl JoinScanState {

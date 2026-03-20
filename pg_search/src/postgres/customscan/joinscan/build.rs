@@ -377,13 +377,9 @@ impl JoinSourceCandidate {
 
         let index_rel = PgSearchRelation::open(indexrelid);
         let heap_rel = PgSearchRelation::open(heaprelid);
-        let query = self.query.clone().unwrap_or(SearchQueryInput::All);
+        let mut query = self.query.clone().unwrap_or(SearchQueryInput::All);
         let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
-
-        let has_pg_exprs = {
-            let mut q = query.clone();
-            q.has_postgres_expressions()
-        };
+        let has_pg_exprs = query.has_postgres_expressions();
         if has_pg_exprs {
             let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::LargestSegment)
                 .expect("Failed to open index reader for estimation");

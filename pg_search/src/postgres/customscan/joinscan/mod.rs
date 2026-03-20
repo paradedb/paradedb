@@ -210,7 +210,7 @@ impl ParallelQueryCapable for JoinScan {
         let partitioning_idx = join_clause.partitioning_source_index();
         let all_nsegments: Vec<usize> = state
             .custom_state()
-            ._source_manifests
+            .source_manifests
             .iter()
             .map(SearchIndexManifest::segment_count)
             .collect();
@@ -234,7 +234,7 @@ impl ParallelQueryCapable for JoinScan {
         unsafe {
             let all_sources: Vec<&[tantivy::SegmentReader]> = state
                 .custom_state()
-                ._source_manifests
+                .source_manifests
                 .iter()
                 .map(|manifest| manifest.segment_readers())
                 .collect();
@@ -310,7 +310,7 @@ impl JoinScan {
     /// (from `scan_info.segment_count`) differ from execution-time counts due to
     /// concurrent inserts.
     fn ensure_source_manifests(state: &mut CustomScanStateWrapper<Self>) {
-        if !state.custom_state()._source_manifests.is_empty() {
+        if !state.custom_state().source_manifests.is_empty() {
             return;
         }
 
@@ -331,7 +331,7 @@ impl JoinScan {
             })
             .collect();
 
-        state.custom_state_mut()._source_manifests = manifests;
+        state.custom_state_mut().source_manifests = manifests;
     }
 
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
@@ -1263,7 +1263,7 @@ impl CustomScan for JoinScan {
         // intended lifetime boundary (end of scan), mirroring basescan's pattern of
         // explicitly dropping search_reader in end_custom_scan.
         drop(std::mem::take(
-            &mut state.custom_state_mut()._source_manifests,
+            &mut state.custom_state_mut().source_manifests,
         ));
     }
 }

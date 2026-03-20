@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773965678739,
+  "lastUpdate": 1773966630825,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33678,6 +33678,54 @@ window.BENCHMARK_DATA = {
             "value": 5.2252498126431455,
             "unit": "median tps",
             "extra": "avg tps: 5.262420648081909, max tps: 7.005333955845989, count: 56079"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b20263cd4af395f65592d9d416ad88f2ee96c8c",
+          "message": "fix: Allow the joinscan to run for a semi/anti join, even when partitioning is not optimal. (#4431)\n\n## What\n\nForce the \"preserved\" side of a semi/anti join to be partitioned, even\nif is smaller than the non-preserved side(s).\n\n## Why\n\nCurrently, when the joinscan would not be able to use optimal\npartitioning for a semi/anti join, it refuses to run, with:\n> JoinScan not used: SEMI JOIN requires the left side to be the largest\nsource\n\nThis is reasonable, but the problem is that this is based on estimates\nthat change based on the data distribution and WHERE clause selectivity,\nrather than based on the shape of the query itself. That means that if\nyou've written a query that uses `pdb.score` and tested it on a\nparticular set of data, it might begin failing (with an \"Unsupported\nquery shape\" error) on a different set of data.\n\n## How\n\nAdd and use `with_forced_partitioning`.",
+          "timestamp": "2026-03-19T16:38:58-07:00",
+          "tree_id": "8f11d6e8f3fe6b167b131a7034a277d147015767",
+          "url": "https://github.com/paradedb/paradedb/commit/0b20263cd4af395f65592d9d416ad88f2ee96c8c"
+        },
+        "date": 1773966620173,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1131.2582912948817,
+            "unit": "median tps",
+            "extra": "avg tps: 1132.937155604668, max tps: 1186.847892505418, count: 56509"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 634.5236023885988,
+            "unit": "median tps",
+            "extra": "avg tps: 581.5060255053622, max tps: 1205.370598008235, count: 56509"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1887.5800441423803,
+            "unit": "median tps",
+            "extra": "avg tps: 1854.1555017903213, max tps: 2049.829053989326, count: 56509"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.377328596493667,
+            "unit": "median tps",
+            "extra": "avg tps: 5.401408532078322, max tps: 6.832645986228734, count: 56509"
           }
         ]
       }

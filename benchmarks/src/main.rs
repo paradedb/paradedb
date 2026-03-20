@@ -18,11 +18,12 @@
 use clap::Parser;
 use paradedb::median;
 use paradedb::micro_benchmarks::benchmark_columnar;
-use sqlx::{Connection, PgConnection};
+use sqlx::{Connection, PgConnection, Row};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use std::time::Instant;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -73,6 +74,11 @@ struct Args {
 
     #[arg(long, default_value = "100000")]
     batch_size: usize,
+
+    /// Whether to fail on query errors. Set to false for backfills against older versions
+    /// that may not support all query syntax.
+    #[arg(long, default_value_t = true, num_args = 1)]
+    fail_on_error: bool,
 }
 
 #[tokio::main]
@@ -96,9 +102,9 @@ async fn main() {
         }
 
         match args.output.as_str() {
-            "md" => generate_markdown_output(&args),
-            "csv" => generate_csv_output(&args),
-            "json" => generate_json_output(&args),
+            "md" => generate_markdown_output(&args).await,
+            "csv" => generate_csv_output(&args).await,
+            "json" => generate_json_output(&args).await,
             _ => unreachable!("Clap ensures only md, csv, or json are valid"),
         }
     } else {
@@ -147,35 +153,69 @@ impl From<QueryResult> for JSONBenchmarkResult {
     }
 }
 
-fn process_index_creation(args: &Args) -> impl Iterator<Item = IndexCreationResult> + '_ {
+async fn process_index_creation(args: &Args) -> Vec<IndexCreationResult> {
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .expect("Failed to connect to database");
     let index_sql = format!("datasets/{}/create_index/{}.sql", args.dataset, args.r#type);
-    queries(Path::new(&index_sql)).into_iter().map(|statement| {
+    let mut results = Vec::new();
+
+    for statement in queries(Path::new(&index_sql)) {
         println!("{statement}");
 
-        let duration_min_ms = execute_sql_with_timing(&args.url, &statement);
-        let index_name = extract_index_name(&statement).to_owned();
-        let index_size = get_index_size(&args.url, &index_name);
-        let segment_count = get_segment_count(&args.url, &index_name);
+        let start = Instant::now();
+        sqlx::query(&statement)
+            .execute(&mut conn)
+            .await
+            .expect("Failed to execute index creation SQL");
+        let duration_min_ms = start.elapsed().as_secs_f64() / 60.0;
 
-        IndexCreationResult {
+        let index_name = extract_index_name(&statement).to_owned();
+
+        let row = sqlx::query(&format!(
+            "SELECT pg_relation_size('{index_name}') / (1024 * 1024)"
+        ))
+        .fetch_one(&mut conn)
+        .await
+        .expect("Failed to get index size");
+        let index_size: i64 = row.get(0);
+
+        let row = sqlx::query(&format!(
+            "SELECT count(*) FROM paradedb.index_info('{index_name}')"
+        ))
+        .fetch_one(&mut conn)
+        .await
+        .expect("Failed to get segment count");
+        let segment_count: i64 = row.get(0);
+
+        results.push(IndexCreationResult {
             duration_min_ms,
             index_name,
             index_size,
             segment_count,
-        }
-    })
+        });
+    }
+
+    results
 }
 
-fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
+async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
+    let mut utility_conn = PgConnection::connect(&args.url)
+        .await
+        .expect("Failed to connect to database");
+
     if args.vacuum {
-        execute_psql_command(&args.url, "VACUUM ANALYZE;").expect("Failed to vacuum");
+        sqlx::query("VACUUM ANALYZE")
+            .execute(&mut utility_conn)
+            .await
+            .expect("Failed to vacuum");
     }
 
     if args.prewarm {
-        prewarm_indexes(&args.url, &args.dataset, &args.r#type);
+        prewarm_indexes(&mut utility_conn, &args.dataset, &args.r#type).await;
     }
 
-    if let Err(err) = ensure_pg_buffercache_extension(&args.url) {
+    if let Err(err) = ensure_pg_buffercache_extension(&mut utility_conn).await {
         eprintln!("WARNING: Failed to initialize pg_buffercache extension: {err}");
     }
 
@@ -196,74 +236,77 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
         .collect::<Vec<_>>();
     query_paths.sort_unstable();
 
-    // Load queries from each query path.
-    query_paths
-        .into_iter()
-        .flat_map(|path| {
-            let queries = queries(&path);
-            let query_type = path.file_stem().unwrap().to_string_lossy();
-            queries
-                .into_iter()
-                .enumerate()
-                .map(|(idx, query)| {
-                    // We treat the first query in the file as the canonical way to write the query: we
-                    // suffix the rest as alternatives.
-                    let query_type = if idx == 0 {
-                        query_type.clone().into_owned()
-                    } else {
-                        format!("{query_type} - alternative {idx}")
-                    };
-                    (query_type, query)
-                })
-                .collect::<Vec<_>>()
-        })
-        .map(|(query_type, query)| {
-            if let Err(err) = clear_caches(&args.url) {
-                eprintln!("WARNING: Failed to clear caches before query: {err}");
+    let mut results = Vec::new();
+    for path in query_paths {
+        for (query_type, query) in benchmark_queries(&path) {
+            // Isolate session state across query variants while keeping repeated runs of the
+            // same query on one connection.
+            let mut conn = PgConnection::connect(&args.url)
+                .await
+                .expect("Failed to connect to database");
+
+            if let Err(err) = clear_caches(&mut utility_conn).await {
+                panic!("Failed to clear caches before query: {err}");
             }
             println!("Query Type: {query_type}\nQuery: {query}");
-            let (runtimes_ms, num_results) =
-                execute_query_multiple_times(&args.url, &query, args.runs);
-            println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
-            QueryResult {
-                query_type,
-                query,
-                runtimes_ms,
-                num_results,
+            let result = execute_query_multiple_times(
+                &mut conn,
+                &query_type,
+                &query,
+                args.runs,
+                args.fail_on_error,
+            )
+            .await;
+            match result {
+                Some((runtimes_ms, num_results)) => {
+                    println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
+                    results.push(QueryResult {
+                        query_type,
+                        query,
+                        runtimes_ms,
+                        num_results,
+                    });
+                }
+                None => {
+                    println!("Skipped (query error)\n");
+                }
             }
-        })
+        }
+    }
+
+    results
 }
 
-fn generate_markdown_output(args: &Args) {
+async fn generate_markdown_output(args: &Args) {
     let output_file = format!("results_{}.md", args.r#type);
     let mut file = File::create(&output_file).expect("Failed to create output file");
 
     write_benchmark_header(&mut file);
-    write_test_info(&mut file, args);
-    write_postgres_settings(&mut file, &args.url);
+    write_test_info(&mut file, args).await;
+    write_postgres_settings(&mut file, &args.url).await;
     if !args.existing {
-        process_index_creation_md(&mut file, args);
+        process_index_creation_md(&mut file, args).await;
     }
-    run_benchmarks_md(&mut file, args);
+    run_benchmarks_md(&mut file, args).await;
 }
 
-fn generate_csv_output(args: &Args) {
-    write_test_info_csv(args);
-    write_postgres_settings_csv(&args.url, &args.r#type);
+async fn generate_csv_output(args: &Args) {
+    write_test_info_csv(args).await;
+    write_postgres_settings_csv(&args.url, &args.r#type).await;
     if !args.existing {
-        process_index_creation_csv(args);
+        process_index_creation_csv(args).await;
     }
-    run_benchmarks_csv(args);
+    run_benchmarks_csv(args).await;
 }
 
-fn generate_json_output(args: &Args) {
+async fn generate_json_output(args: &Args) {
     if !args.existing {
-        process_index_creation_json(args);
+        process_index_creation_json(args).await;
     }
-    run_benchmarks_json(args);
+    run_benchmarks_json(args).await;
 }
 
-fn write_test_info_csv(args: &Args) {
+async fn write_test_info_csv(args: &Args) {
     let filename = format!("results_{}_test_info.csv", args.r#type);
     let mut file = File::create(&filename).expect("Failed to create test info CSV");
 
@@ -274,21 +317,23 @@ fn write_test_info_csv(args: &Args) {
     writeln!(file, "Vacuum,{}", args.vacuum).unwrap();
 
     if args.r#type == "pg_search" {
-        if let Ok(output) = execute_psql_command(
-            &args.url,
-            "SELECT version, githash, build_mode FROM paradedb.version_info();",
-        ) {
-            let parts: Vec<&str> = output.trim().split('|').collect();
-            if parts.len() == 3 {
-                writeln!(file, "pg_search Version,{}", parts[0].trim()).unwrap();
-                writeln!(file, "pg_search Git Hash,{}", parts[1].trim()).unwrap();
-                writeln!(file, "pg_search Build Mode,{}", parts[2].trim()).unwrap();
-            }
-        }
+        let mut conn = PgConnection::connect(&args.url)
+            .await
+            .expect("Failed to connect to database for version info");
+        let row = sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
+            .fetch_one(&mut conn)
+            .await
+            .expect("Failed to fetch paradedb.version_info()");
+        let version: String = row.get(0);
+        let githash: String = row.get(1);
+        let build_mode: String = row.get(2);
+        writeln!(file, "pg_search Version,{version}").unwrap();
+        writeln!(file, "pg_search Git Hash,{githash}").unwrap();
+        writeln!(file, "pg_search Build Mode,{build_mode}").unwrap();
     }
 }
 
-fn write_postgres_settings_csv(url: &str, test_type: &str) {
+async fn write_postgres_settings_csv(url: &str, test_type: &str) {
     let filename = format!("results_{test_type}_postgres_settings.csv");
     let mut file = File::create(&filename).expect("Failed to create postgres settings CSV");
 
@@ -303,16 +348,20 @@ fn write_postgres_settings_csv(url: &str, test_type: &str) {
         "max_parallel_maintenance_workers",
     ];
 
+    let mut conn = PgConnection::connect(url)
+        .await
+        .expect("Failed to connect to database");
     for setting in settings {
-        let value = execute_psql_command(url, &format!("SHOW {setting};"))
-            .expect("Failed to get postgres setting")
-            .trim()
-            .to_string();
+        let row = sqlx::query(&format!("SHOW {setting}"))
+            .fetch_one(&mut conn)
+            .await
+            .expect("Failed to get postgres setting");
+        let value: String = row.get(0);
         writeln!(file, "{setting},{value}").unwrap();
     }
 }
 
-fn process_index_creation_csv(args: &Args) {
+async fn process_index_creation_csv(args: &Args) {
     let filename = format!("results_{}_index_creation.csv", args.r#type);
     let mut file = File::create(&filename).expect("Failed to create index creation CSV");
 
@@ -322,7 +371,7 @@ fn process_index_creation_csv(args: &Args) {
     )
     .unwrap();
 
-    for result in process_index_creation(args) {
+    for result in process_index_creation(args).await {
         let IndexCreationResult {
             duration_min_ms,
             index_name,
@@ -337,7 +386,7 @@ fn process_index_creation_csv(args: &Args) {
     }
 }
 
-fn run_benchmarks_csv(args: &Args) {
+async fn run_benchmarks_csv(args: &Args) {
     let filename = format!("results_{}_benchmark_results.csv", args.r#type);
     let mut file = File::create(&filename).expect("Failed to create benchmark results CSV");
 
@@ -349,7 +398,7 @@ fn run_benchmarks_csv(args: &Args) {
     header.push_str(",Rows Returned,Query");
     writeln!(file, "{header}").unwrap();
 
-    for result in run_benchmarks(args) {
+    for result in run_benchmarks(args).await {
         let QueryResult {
             query_type,
             query,
@@ -374,7 +423,7 @@ fn write_benchmark_header(file: &mut File) {
     writeln!(file, "# Benchmark Results").unwrap();
 }
 
-fn write_test_info(file: &mut File, args: &Args) {
+async fn write_test_info(file: &mut File, args: &Args) {
     writeln!(file, "\n## Test Info").unwrap();
     writeln!(file, "| Key         | Value       |").unwrap();
     writeln!(file, "|-------------|-------------|").unwrap();
@@ -384,21 +433,23 @@ fn write_test_info(file: &mut File, args: &Args) {
     writeln!(file, "| Vacuum      | {} |", args.vacuum).unwrap();
 
     if args.r#type == "pg_search" {
-        if let Ok(output) = execute_psql_command(
-            &args.url,
-            "SELECT version, githash, build_mode FROM paradedb.version_info();",
-        ) {
-            let parts: Vec<&str> = output.trim().split('|').collect();
-            if parts.len() == 3 {
-                writeln!(file, "| pg_search Version | {} |", parts[0].trim()).unwrap();
-                writeln!(file, "| pg_search Git Hash | {} |", parts[1].trim()).unwrap();
-                writeln!(file, "| pg_search Build Mode | {} |", parts[2].trim()).unwrap();
-            }
-        }
+        let mut conn = PgConnection::connect(&args.url)
+            .await
+            .expect("Failed to connect to database for version info");
+        let row = sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
+            .fetch_one(&mut conn)
+            .await
+            .expect("Failed to fetch paradedb.version_info()");
+        let version: String = row.get(0);
+        let githash: String = row.get(1);
+        let build_mode: String = row.get(2);
+        writeln!(file, "| pg_search Version | {version} |").unwrap();
+        writeln!(file, "| pg_search Git Hash | {githash} |").unwrap();
+        writeln!(file, "| pg_search Build Mode | {build_mode} |").unwrap();
     }
 }
 
-fn write_postgres_settings(file: &mut File, url: &str) {
+async fn write_postgres_settings(file: &mut File, url: &str) {
     writeln!(file, "\n## Postgres Settings").unwrap();
     writeln!(file, "| Setting                        | Value |").unwrap();
     writeln!(file, "|--------------------------------|-------|").unwrap();
@@ -411,11 +462,15 @@ fn write_postgres_settings(file: &mut File, url: &str) {
         "max_parallel_workers_per_gather",
     ];
 
+    let mut conn = PgConnection::connect(url)
+        .await
+        .expect("Failed to connect to database");
     for setting in settings {
-        let value = execute_psql_command(url, &format!("SHOW {setting};"))
-            .expect("Failed to get postgres setting")
-            .trim()
-            .to_string();
+        let row = sqlx::query(&format!("SHOW {setting}"))
+            .fetch_one(&mut conn)
+            .await
+            .expect("Failed to get postgres setting");
+        let value: String = row.get(0);
         writeln!(file, "| {setting} | {value} |").unwrap();
     }
 }
@@ -436,7 +491,7 @@ fn generate_test_data(url: &str, dataset: &str, rows: u32) {
     }
 }
 
-fn process_index_creation_md(file: &mut File, args: &Args) {
+async fn process_index_creation_md(file: &mut File, args: &Args) {
     writeln!(file, "\n## Index Creation Results").unwrap();
     writeln!(
         file,
@@ -449,7 +504,7 @@ fn process_index_creation_md(file: &mut File, args: &Args) {
     )
     .unwrap();
 
-    for result in process_index_creation(args) {
+    for result in process_index_creation(args).await {
         let IndexCreationResult {
             duration_min_ms,
             index_name,
@@ -465,12 +520,12 @@ fn process_index_creation_md(file: &mut File, args: &Args) {
     }
 }
 
-fn run_benchmarks_md(file: &mut File, args: &Args) {
+async fn run_benchmarks_md(file: &mut File, args: &Args) {
     writeln!(file, "\n## Benchmark Results").unwrap();
 
     write_benchmark_table_header(file, args.runs);
 
-    for result in run_benchmarks(args) {
+    for result in run_benchmarks(args).await {
         let QueryResult {
             query_type,
             query,
@@ -515,15 +570,17 @@ fn write_benchmark_results_md(
     writeln!(file, "{result_line}").unwrap();
 }
 
-fn process_index_creation_json(args: &Args) {
-    for _result in process_index_creation(args) {
+async fn process_index_creation_json(args: &Args) {
+    for _result in process_index_creation(args).await {
         // TODO: Record index creation results as JSON.
     }
 }
 
-fn run_benchmarks_json(args: &Args) {
+async fn run_benchmarks_json(args: &Args) {
     let mut file = File::create("results.json").expect("Failed to create output file");
     let results = run_benchmarks(args)
+        .await
+        .into_iter()
         .map(JSONBenchmarkResult::from)
         .collect::<Vec<_>>();
     let results_json = serde_json::to_string(&results).expect("Failed to serialize results");
@@ -562,36 +619,25 @@ fn queries(file: &Path) -> Vec<String> {
         .collect()
 }
 
-fn execute_psql_command(url: &str, command: &str) -> Result<String, std::io::Error> {
-    let output = base_psql_command(url).arg("-c").arg(command).output()?;
+fn benchmark_queries(file: &Path) -> Vec<(String, String)> {
+    let query_type = file
+        .file_stem()
+        .unwrap_or_else(|| panic!("Failed to get file stem for `{}`", file.display()))
+        .to_string_lossy()
+        .into_owned();
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
-fn execute_sql_with_timing(url: &str, statement: &str) -> f64 {
-    let output = base_psql_command(url)
-        .arg("-c")
-        .arg("\\timing")
-        .arg("-c")
-        .arg(statement)
-        .output()
-        .expect("Failed to execute SQL");
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        panic!("psql command failed: {} \nError: {}", output.status, stderr);
-    }
-
-    let timing = String::from_utf8_lossy(&output.stdout);
-    let duration_ms = timing
-        .lines()
-        .find(|line| line.contains("Time"))
-        .and_then(|line| line.split_whitespace().nth(1))
-        .expect("Failed to parse timing")
-        .parse::<f64>()
-        .unwrap();
-
-    duration_ms / (1000.0 * 60.0)
+    queries(file)
+        .into_iter()
+        .enumerate()
+        .map(|(idx, query)| {
+            let query_type = if idx == 0 {
+                query_type.clone()
+            } else {
+                format!("{query_type} - alternative {idx}")
+            };
+            (query_type, query)
+        })
+        .collect()
 }
 
 fn extract_index_name(statement: &str) -> &str {
@@ -601,82 +647,63 @@ fn extract_index_name(statement: &str) -> &str {
         .expect("Failed to parse index name")
 }
 
-fn get_index_size(url: &str, index_name: &str) -> i64 {
-    let size_query = format!("SELECT pg_relation_size('{index_name}') / (1024 * 1024);");
-    let output = base_psql_command(url)
-        .arg("-c")
-        .arg(&size_query)
-        .output()
-        .expect("Failed to get index size");
-
-    String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse::<i64>()
-        .expect("Failed to get index size")
-}
-
-fn get_segment_count(url: &str, index_name: &str) -> i64 {
-    let query = format!("SELECT count(*) FROM paradedb.index_info('{index_name}');");
-    let output = base_psql_command(url)
-        .arg("-c")
-        .arg(&query)
-        .output()
-        .expect("Failed to get segment count");
-
-    String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse::<i64>()
-        .expect("Failed to parse segment count")
-}
-
-fn prewarm_indexes(url: &str, dataset: &str, r#type: &str) {
+async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
     let prewarm_sql = format!("datasets/{dataset}/prewarm/{type}.sql");
-    let status = base_psql_command(url)
-        .arg("-f")
-        .arg(&prewarm_sql)
-        .status()
-        .expect("Failed to prewarm indexes");
-
-    if !status.success() {
-        eprintln!("Failed to prewarm indexes");
-        std::process::exit(1);
+    for statement in queries(Path::new(&prewarm_sql)) {
+        sqlx::query(&statement)
+            .execute(&mut *conn)
+            .await
+            .expect("Failed to prewarm indexes");
     }
 }
 
-fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f64>, usize) {
+/// Execute a benchmark query multiple times on a single reused connection.
+///
+/// The caller controls the connection scope; benchmarks currently reuse one connection across
+/// repeated runs of the same query, but reset it between query variants.
+///
+/// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
+/// necessary for compatibility with custom scan providers. Compound statements
+/// (e.g., `SET ...; SELECT ...`) are handled natively by the simple protocol.
+///
+/// Timing uses `Instant` around `execute()`, which consumes the entire result set from
+/// the wire without per-row object allocation, matching how `psql` with `\timing` works.
+///
+/// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
+async fn execute_query_multiple_times(
+    conn: &mut PgConnection,
+    query_type: &str,
+    query: &str,
+    times: usize,
+    fail_on_error: bool,
+) -> Option<(Vec<f64>, usize)> {
     let mut results = Vec::new();
     let mut num_results = 0;
 
     for i in 0..times {
-        let output = base_psql_command(url)
-            .arg("-c")
-            .arg("\\timing")
-            .arg("-c")
-            .arg(query)
-            .output()
-            .expect("Failed to execute query");
+        let start = Instant::now();
+        let result = sqlx::raw_sql(query).execute(&mut *conn).await;
+        let elapsed = start.elapsed();
 
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        let duration = output_str
-            .lines()
-            .find(|line| line.contains("Time"))
-            .and_then(|line| line.split_whitespace().nth(1))
-            .expect("Failed to parse timing")
-            .parse::<f64>()
-            .unwrap();
-
-        results.push(duration);
-
-        if i == 0 {
-            num_results = output_str
-                .lines()
-                .filter(|line| !line.contains("Time") && !line.trim().is_empty())
-                .count()
-                - 1;
+        match result {
+            Ok(r) => {
+                results.push(elapsed.as_secs_f64() * 1000.0);
+                if i == 0 {
+                    num_results = r.rows_affected() as usize;
+                }
+            }
+            Err(err) => {
+                if fail_on_error {
+                    panic!("Failed to execute benchmark query `{query_type}`:  {err}");
+                } else {
+                    eprintln!("WARNING: Skipping query `{query_type}` due to error: {err}");
+                    return None;
+                }
+            }
         }
     }
 
-    (results, num_results)
+    Some((results, num_results))
 }
 
 fn drop_os_page_cache() -> Result<(), String> {
@@ -708,13 +735,13 @@ fn drop_os_page_cache() -> Result<(), String> {
     }
 }
 
-fn clear_caches(url: &str) -> Result<(), String> {
+async fn clear_caches(conn: &mut PgConnection) -> Result<(), String> {
     let mut errors = Vec::new();
 
     if let Err(err) = drop_os_page_cache() {
         errors.push(format!("OS page cache: {err}"));
     }
-    if let Err(err) = evict_postgres_buffer_cache(url) {
+    if let Err(err) = evict_postgres_buffer_cache(conn).await {
         errors.push(format!("PostgreSQL buffer cache: {err}"));
     }
 
@@ -725,55 +752,26 @@ fn clear_caches(url: &str) -> Result<(), String> {
     }
 }
 
-fn ensure_pg_buffercache_extension(url: &str) -> Result<(), String> {
-    let output = base_psql_command(url)
-        .arg("-c")
-        .arg("CREATE EXTENSION IF NOT EXISTS pg_buffercache;")
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let details = if !stderr.is_empty() { stderr } else { stdout };
-    Err(format!(
-        "failed to create pg_buffercache extension (`CREATE EXTENSION IF NOT EXISTS pg_buffercache;`): {details}"
-    ))
+async fn ensure_pg_buffercache_extension(conn: &mut PgConnection) -> Result<(), String> {
+    sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_buffercache")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| {
+            format!("failed to create pg_buffercache extension (`CREATE EXTENSION IF NOT EXISTS pg_buffercache`): {e}")
+        })?;
+    Ok(())
 }
 
-fn evict_postgres_buffer_cache(url: &str) -> Result<(), String> {
+async fn evict_postgres_buffer_cache(conn: &mut PgConnection) -> Result<(), String> {
     let sql = "DO $$ \
                BEGIN \
                    PERFORM pg_buffercache_evict(bufferid) \
                    FROM pg_buffercache \
                    WHERE relfilenode IS NOT NULL; \
                END \
-               $$;";
-    let output = base_psql_command(url)
-        .arg("-c")
-        .arg(sql)
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let details = if !stderr.is_empty() { stderr } else { stdout };
-    Err(format!(
-        "failed to evict PostgreSQL buffer cache via pg_buffercache (`{sql}`): {details}"
-    ))
-}
-
-fn base_psql_command(url: &str) -> Command {
-    let mut command = Command::new("psql");
-    command.arg(url); // connection url
-    command.arg("-X"); // don't use local .psqlrc file
-    command.arg("-t"); // output tuples only
-    command
+               $$";
+    sqlx::query(sql).execute(&mut *conn).await.map_err(|e| {
+        format!("failed to evict PostgreSQL buffer cache via pg_buffercache (`{sql}`): {e}")
+    })?;
+    Ok(())
 }

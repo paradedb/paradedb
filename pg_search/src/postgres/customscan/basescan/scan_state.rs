@@ -359,9 +359,14 @@ impl BaseScanState {
         }
         self.query_count = 0;
         self.virtual_tuple_count = 0;
-        if let Some(vc) = &mut self.visibility_checker {
-            vc.heap_tuple_check_count = 0;
-            vc.invisible_tuple_count = 0;
+        if self.visibility_checker.is_some() {
+            self.visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
+                self.heaprel(),
+                unsafe { pg_sys::GetActiveSnapshot() },
+            ));
+        }
+        if self.doc_from_heap_state.is_some() {
+            self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));
         }
         self.window_aggregate_results = None;
         self.exec_method_mut().reset(self);

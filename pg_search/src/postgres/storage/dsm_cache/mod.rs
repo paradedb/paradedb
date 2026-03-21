@@ -109,6 +109,8 @@ pub enum CacheTag {
     Reserved = 0,
     /// Fieldnorm data for a segment component.
     FieldNorms = 1,
+    /// Cached BlockwiseLinear codec metadata for the ctid column.
+    CtidCodec = 2,
     /// Used by tests only.
     #[cfg(any(test, debug_assertions))]
     Test = 999,

@@ -129,6 +129,9 @@ static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Enable DSM caching of fieldnorm data.
 static ENABLE_DSM_FIELDNORMS: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Enable DSM caching of ctid BlockwiseLinear codec metadata.
+static ENABLE_DSM_CTID: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -399,6 +402,15 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_dsm_ctid",
+        c"Enable DSM caching of ctid codec metadata",
+        c"When enabled, the ctid column's BlockwiseLinear codec metadata (per-block slope, intercept, bit_width) is cached in dynamic shared memory, eliminating varint parsing on every query.",
+        &ENABLE_DSM_CTID,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -571,6 +583,10 @@ pub fn enable_segmented_topk() -> bool {
 
 pub fn enable_dsm_fieldnorms() -> bool {
     ENABLE_DSM_FIELDNORMS.get()
+}
+
+pub fn enable_dsm_ctid() -> bool {
+    ENABLE_DSM_CTID.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

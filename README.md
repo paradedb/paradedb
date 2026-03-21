@@ -60,8 +60,6 @@ ParadeDB integrates battle-tested Rust libraries for search and analytics inside
 - [Tantivy](https://github.com/quickwit-oss/tantivy) — powers full-text search
 - [Apache DataFusion](https://github.com/apache/datafusion) — handles OLAP processing
 
-ParadeDB is not a 1-to-1 mapping of Elasticsearch. Our aim is to bring search and analytics workloads traditionally handled by Elasticsearch into Postgres, giving developers a unified, Postgres-native experience.
-
 For a deeper dive, see our [architecture docs](https://docs.paradedb.com/welcome/architecture) or [CMU Database Group talk](https://db.cs.cmu.edu/events/building-blocks-paradedb-philippe-noel/).
 
 ## Integrations

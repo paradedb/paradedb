@@ -136,10 +136,6 @@ pub struct SeekableWeight {
 
 impl Weight for SeekableWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> Result<Box<dyn Scorer>> {
-        pgrx::warning!(
-            "SeekableWeight::scorer called for segment {}",
-            reader.segment_id().uuid_string()
-        );
         let underlying_scorer = self.underlying.scorer(reader, boost)?;
         let thresholds = self.seek_handle.get_threshold(reader.segment_id());
         Ok(Box::new(SeekableScorer {
@@ -171,6 +167,9 @@ impl Weight for SeekableWeight {
     }
 }
 
+/// A `Scorer` wrapper that lazily evaluates dynamic `DocId` thresholds published by the query engine
+/// (e.g. from DataFusion's `SortMergeJoinExec`) and uses `seek()` to efficiently skip large
+/// swaths of irrelevant documents.
 pub struct SeekableScorer {
     underlying: Box<dyn Scorer>,
     thresholds: Arc<Thresholds>,
@@ -178,6 +177,9 @@ pub struct SeekableScorer {
 
 impl DocSet for SeekableScorer {
     fn advance(&mut self) -> DocId {
+        // We evaluate the threshold *after* advancing the underlying scorer to ensure we are
+        // comparing the dynamically updated threshold against the *next* document we intend to read,
+        // avoiding off-by-one errors where a threshold update happens mid-batch and gets ignored.
         let mut next_doc = self.underlying.advance();
         if next_doc == TERMINATED {
             return TERMINATED;
@@ -209,12 +211,6 @@ impl DocSet for SeekableScorer {
         let max_doc = self.thresholds.max_doc.load(Ordering::Relaxed);
 
         let actual_target = target.max(min_doc);
-        pgrx::warning!(
-            "SeekableScorer::seek(target={}) with min_doc={}, actual_target={}",
-            target,
-            min_doc,
-            actual_target
-        );
 
         if actual_target > target {
             self.thresholds
@@ -237,12 +233,6 @@ impl DocSet for SeekableScorer {
         let max_doc = self.thresholds.max_doc.load(Ordering::Relaxed);
 
         let actual_target = target.max(min_doc);
-        pgrx::warning!(
-            "SeekableScorer::seek_danger(target={}) with min_doc={}, actual_target={}",
-            target,
-            min_doc,
-            actual_target
-        );
 
         if actual_target > target {
             self.thresholds

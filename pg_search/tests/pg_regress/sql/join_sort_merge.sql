@@ -377,6 +377,11 @@ DROP TABLE IF EXISTS sparse_t2 CASCADE;
 -- Both tables have interleaved sparse and dense regions.
 -- DataFusion SMJ will jump ahead by large strides alternating between tables,
 -- forcing the scanner for both tables to dynamically seek and skip blocks.
+-- Note: The gaps are carefully aligned to multiples of the scanner's batch size
+-- (128 rows). DataFusion's SMJ operator publishes dynamic filter bounds at batch
+-- boundaries (`first_join_key` and `last_join_key`). If a batch "straddles" a gap, 
+-- it will publish a pre-gap key, and the opposing side will not be able to 
+-- skip the gap effectively.
 -- =============================================================================
 
 CREATE TABLE sparse_t1 (id INTEGER PRIMARY KEY, val TEXT);

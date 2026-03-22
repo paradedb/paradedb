@@ -359,8 +359,11 @@ impl ExecutionPlan for PgSearchScanPlan {
                     pre_filters_wrapper.as_ref(),
                 ) {
                     Some(batch) => {
-                        // Flush pre-materialization filter stats from Scanner continuously
-                        // because LimitExec might drop the stream early.
+                        // We flush pre-materialization filter stats from the Scanner continuously on every batch
+                        // rather than waiting for the stream to exhaust (`None`), because downstream
+                        // execution nodes (like `LimitExec`) will simply drop the stream early when they
+                        // have seen enough rows. If we don't continuously flush, the metrics for the
+                        // scanned data before the early exit are lost entirely.
                         if let Some(ref counter) = rows_scanned {
                             let current = scanner.pre_filter_rows_scanned;
                             counter.add(current - last_rows_scanned);
@@ -495,7 +498,6 @@ fn build_filters(dynamic_filters: &[Arc<dyn PhysicalExpr>], schema: &SchemaRef) 
     for df in dynamic_filters {
         if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
             if let Ok(current_expr) = dynamic.current() {
-                pgrx::warning!("build_filters dynamic: {:?}", current_expr);
                 collect_filters(&current_expr, schema, &mut filters);
             }
         }

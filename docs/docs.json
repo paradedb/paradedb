@@ -293,17 +293,11 @@
                 "pages": [
                   "deploy/overview",
                   {
-                    "group": "ParadeDB Self-Hosted",
+                    "group": "Self-Hosted",
                     "pages": [
                       "deploy/self-hosted/kubernetes",
-                      "deploy/self-hosted/docker",
                       "deploy/self-hosted/extension",
-                      {
-                        "group": "High Availability",
-                        "pages": [
-                          "deploy/self-hosted/high-availability/configuration"
-                        ]
-                      }
+                      "deploy/self-hosted/high-availability"
                     ]
                   },
                   {

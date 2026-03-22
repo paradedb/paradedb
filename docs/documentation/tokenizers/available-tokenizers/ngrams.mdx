@@ -88,7 +88,7 @@ SELECT * FROM books WHERE titles ||| 'Dragon Hatchling';
 DROP TABLE books;
 ```
 
-When constructing queries as [JSON](/documentation/query-builder/json), use `tokenized_phrase` to achieve the same
+When constructing queries as JSON, use `tokenized_phrase` to achieve the same
 result as the `###` operator. It tokenizes the input string with the field's tokenizer and builds
 a phrase query from the resulting tokens:
 

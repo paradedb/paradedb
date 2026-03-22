@@ -42,15 +42,30 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 4. **[`SegmentedTopKRule`][topk-rule]** — injects [`SegmentedTopKExec`][topk-exec] for Top K on deferred columns, removes the now-redundant `SortExec(TopK)`, [wraps blocking nodes][wrap-blocking] with [`FilterPassthroughExec`][filter-passthrough]
 5. **FilterPushdown (Post) — [second pass][second-pushdown]** — pushes `SegmentedTopKExec`'s `DynamicFilterPhysicalExpr` down to the scan
 
-### 4. Deferred Columns
+### 4. SortMergeJoin and Seekable Scans
+
+When both sides of a join are ordered on their join keys (and `paradedb.enable_columnar_sort` is on), the `SortMergeJoinEnforcer` transforms the default `HashJoin` into a memory-efficient `SortMergeJoin`.
+
+Because `SortMergeJoin` advances through two sorted streams monotonically, it naturally detects when one side falls significantly behind the other (e.g., due to sparse data). When this happens, DataFusion's `SortMergeJoinExec` publishes dynamic `DynamicFilterPhysicalExpr` bounds indicating the minimum key required for the behind-stream to catch up.
+
+ParadeDB actively exploits these bounds to skip decompression of index blocks entirely:
+
+- The bounds are pushed down to `PgSearchScan`.
+- Before the `Scanner` fetches a batch, it evaluates the dynamic filter, translates the SQL literal bound to a Tantivy `DocId` range using binary search on the `fast_fields`, and updates an atomic threshold.
+- The `SeekableQuery` (via `SeekableScorer`) intercepts `Scorer::advance()` calls, instantly comparing the next `DocId` against the atomic threshold.
+- If the `DocId` is too low, it issues a `seek()`, seamlessly jumping over the gap without materializing the rows in between.
+
+_Note: For `SeekableQuery` to aggressively skip gaps, the dynamic filters must be updated frequently. DataFusion publishes filter bounds at `RecordBatch` boundaries. Therefore, setting `paradedb.dynamic_filter_batch_size` to a smaller value (e.g. 128) during sparse joins allows the scanner to seek much more effectively without getting "stuck" scanning within a massive in-memory batch._
+
+### 5. Deferred Columns
 
 String columns are emitted as a [3-way `UnionArray`](../../scan/deferred_encode.rs) (doc_address | term_ordinal | materialized) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../scan/table_provider.rs) is made in [`try_enable_late_materialization()`][defer-decision].
 
-### 5. Pruning Path
+### 6. Pruning Path
 
 The **global threshold** is the primary pruning mechanism. After the first K rows fill the [global heap][global-heap] (during the [collection phase][collect-batch]), a [`DynamicFilterPhysicalExpr`][global-filter] is pushed down to the scan via filter pushdown. This works because [`SegmentedTopKExec`][topk-exec] and [`PgSearchScan`][scan-plan] share an `Arc<DynamicFilterPhysicalExpr>` — no row flow required. The [scanner reads `current()`][scanner-next] on every batch and translates string literals to per-segment ordinal bounds via [`try_rewrite_binary`][rewrite-binary].
 
-### 6. Execution Result
+### 7. Execution Result
 
 After all input is consumed, `SegmentedTopKExec` materializes sort column values, performs the final sort, and emits exactly K rows. `TantivyLookupExec` decodes deferred strings for those K rows only. JoinScanState extracts CTIDs and fetches heap tuples — the only point where the PostgreSQL heap is accessed.
 

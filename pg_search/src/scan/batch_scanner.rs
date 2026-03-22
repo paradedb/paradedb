@@ -291,6 +291,13 @@ impl Scanner {
             }
         }
 
+        // TODO: DataFusion's `SortMergeJoinExec` publishes `last_join_key` filters at the end of a
+        // batch. If `self.batch_size` is too large, the scanner might eagerly iterate completely
+        // through an un-filtered gap before the filter is published.
+        // We should detect when a dynamic range-based filter is active and automatically shrink
+        // `self.batch_size` here to force DataFusion to pause and publish bounds more
+        // frequently, improving the resolution of `SeekableScorer` skipping.
+
         let (segment_ord, mut scores, mut ids) = self.try_get_batch_ids()?;
 
         // Memoize fetched columns to avoid redundant fetches.

@@ -136,13 +136,15 @@ pub struct SeekableWeight {
 
 impl Weight for SeekableWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> Result<Box<dyn Scorer>> {
+        pgrx::warning!(
+            "SeekableWeight::scorer called for segment {}",
+            reader.segment_id().uuid_string()
+        );
         let underlying_scorer = self.underlying.scorer(reader, boost)?;
         let thresholds = self.seek_handle.get_threshold(reader.segment_id());
         Ok(Box::new(SeekableScorer {
             underlying: underlying_scorer,
             thresholds,
-            countdown: 0,
-            current_max_doc: u32::MAX,
         }))
     }
 
@@ -172,44 +174,33 @@ impl Weight for SeekableWeight {
 pub struct SeekableScorer {
     underlying: Box<dyn Scorer>,
     thresholds: Arc<Thresholds>,
-    countdown: u32,
-    current_max_doc: u32,
 }
 
 impl DocSet for SeekableScorer {
     fn advance(&mut self) -> DocId {
-        if self.countdown == 0 {
-            self.countdown = 128;
-            let min_doc = self.thresholds.min_doc.load(Ordering::Relaxed);
-            self.current_max_doc = self.thresholds.max_doc.load(Ordering::Relaxed);
+        let mut next_doc = self.underlying.advance();
+        if next_doc == TERMINATED {
+            return TERMINATED;
+        }
 
-            let mut next_doc = self.underlying.advance();
+        let min_doc = self.thresholds.min_doc.load(Ordering::Relaxed);
+        let max_doc = self.thresholds.max_doc.load(Ordering::Relaxed);
+
+        if next_doc < min_doc {
+            let skipped = (min_doc - next_doc) as u64;
+            self.thresholds
+                .docs_seeked_past
+                .fetch_add(skipped, Ordering::Relaxed);
+            next_doc = self.underlying.seek(min_doc);
             if next_doc == TERMINATED {
                 return TERMINATED;
             }
-
-            if next_doc < min_doc {
-                self.thresholds
-                    .docs_seeked_past
-                    .fetch_add((min_doc - next_doc) as u64, Ordering::Relaxed);
-                next_doc = self.underlying.seek(min_doc);
-                if next_doc == TERMINATED {
-                    return TERMINATED;
-                }
-            }
-
-            if next_doc >= self.current_max_doc {
-                return TERMINATED;
-            }
-
-            return next_doc;
         }
 
-        self.countdown -= 1;
-        let next_doc = self.underlying.advance();
-        if next_doc >= self.current_max_doc {
+        if next_doc >= max_doc {
             return TERMINATED;
         }
+
         next_doc
     }
 
@@ -218,6 +209,13 @@ impl DocSet for SeekableScorer {
         let max_doc = self.thresholds.max_doc.load(Ordering::Relaxed);
 
         let actual_target = target.max(min_doc);
+        pgrx::warning!(
+            "SeekableScorer::seek(target={}) with min_doc={}, actual_target={}",
+            target,
+            min_doc,
+            actual_target
+        );
+
         if actual_target > target {
             self.thresholds
                 .docs_seeked_past
@@ -239,6 +237,13 @@ impl DocSet for SeekableScorer {
         let max_doc = self.thresholds.max_doc.load(Ordering::Relaxed);
 
         let actual_target = target.max(min_doc);
+        pgrx::warning!(
+            "SeekableScorer::seek_danger(target={}) with min_doc={}, actual_target={}",
+            target,
+            min_doc,
+            actual_target
+        );
+
         if actual_target > target {
             self.thresholds
                 .docs_seeked_past

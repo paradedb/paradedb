@@ -338,6 +338,10 @@ impl ExecutionPlan for PgSearchScanPlan {
         let dynamic_filters = self.dynamic_filters.clone();
 
         let stream_gen = async_stream::try_stream! {
+            let mut last_rows_scanned = 0;
+            let mut last_rows_pruned = 0;
+            let mut last_rows_seeked_past = 0;
+
             loop {
                 let pre_filters = build_filters(&dynamic_filters, &schema);
                 let pre_filters_wrapper = if pre_filters.is_empty() {
@@ -355,19 +359,27 @@ impl ExecutionPlan for PgSearchScanPlan {
                     pre_filters_wrapper.as_ref(),
                 ) {
                     Some(batch) => {
+                        // Flush pre-materialization filter stats from Scanner continuously
+                        // because LimitExec might drop the stream early.
+                        if let Some(ref counter) = rows_scanned {
+                            let current = scanner.pre_filter_rows_scanned;
+                            counter.add(current - last_rows_scanned);
+                            last_rows_scanned = current;
+                        }
+                        if let Some(ref counter) = rows_pruned {
+                            let current = scanner.pre_filter_rows_pruned;
+                            counter.add(current - last_rows_pruned);
+                            last_rows_pruned = current;
+                        }
+                        if let Some(ref counter) = rows_seeked_past {
+                            let current = scanner.docs_seeked_past() as usize;
+                            counter.add(current - last_rows_seeked_past);
+                            last_rows_seeked_past = current;
+                        }
+
                         yield batch.to_record_batch(&schema);
                     }
                     None => {
-                        // Flush pre-materialization filter stats from Scanner.
-                        if let Some(ref counter) = rows_scanned {
-                            counter.add(scanner.pre_filter_rows_scanned);
-                        }
-                        if let Some(ref counter) = rows_pruned {
-                            counter.add(scanner.pre_filter_rows_pruned);
-                        }
-                        if let Some(ref counter) = rows_seeked_past {
-                            counter.add(scanner.docs_seeked_past() as usize);
-                        }
                         break;
                     }
                 }
@@ -483,6 +495,7 @@ fn build_filters(dynamic_filters: &[Arc<dyn PhysicalExpr>], schema: &SchemaRef) 
     for df in dynamic_filters {
         if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
             if let Ok(current_expr) = dynamic.current() {
+                pgrx::warning!("build_filters dynamic: {:?}", current_expr);
                 collect_filters(&current_expr, schema, &mut filters);
             }
         }

@@ -301,20 +301,20 @@
                     ]
                   },
                   {
+                    "group": "Cloud Platforms",
+                    "pages": [
+                      "deploy/cloud-platforms/railway",
+                      "deploy/cloud-platforms/render",
+                      "deploy/cloud-platforms/digitalocean"
+                    ]
+                  },
+                  {
                     "group": "Logical Replication",
                     "pages": [
                       "deploy/logical-replication/getting-started",
                       "deploy/logical-replication/operational-guide",
                       "deploy/logical-replication/configuration",
                       "deploy/logical-replication/multi-database"
-                    ]
-                  },
-                  {
-                    "group": "Cloud Platforms",
-                    "pages": [
-                      "deploy/cloud-platforms/railway",
-                      "deploy/cloud-platforms/render",
-                      "deploy/cloud-platforms/digitalocean"
                     ]
                   },
                   "deploy/byoc",

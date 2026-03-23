@@ -27,7 +27,7 @@ MockItem.objects.filter(
 
 ```ruby Rails
 MockItem.search(:description)
-        .near("sleek", anchor: "shoes", distance: 1)
+        .near(ParadeDB.proximity("sleek").within(1, "shoes"))
         .select(:description, :rating, :category)
 ```
 
@@ -58,7 +58,7 @@ MockItem.objects.filter(
 
 ```ruby Rails
 MockItem.search(:description)
-        .near("sleek", anchor: "shoes", distance: 1, ordered: true)
+        .near(ParadeDB.proximity("sleek").within(1, "shoes", ordered: true))
         .select(:description, :rating, :category)
 ```
 
@@ -88,7 +88,7 @@ MockItem.objects.filter(
 
 ```ruby Rails
 MockItem.search(:description)
-        .near(ParadeDB.regex_term("sl.*"), anchor: "shoes", distance: 1)
+        .near(ParadeDB.proximity(ParadeDB.regex_term("sl.*")).within(1, "shoes"))
         .select(:description, :rating, :category)
 ```
 
@@ -115,7 +115,7 @@ MockItem.objects.filter(
 
 ```ruby Rails
 MockItem.search(:description)
-        .near(ParadeDB.regex_term("sl.*", max_expansions: 100), anchor: "shoes", distance: 1)
+        .near(ParadeDB.proximity(ParadeDB.regex_term("sl.*", max_expansions: 100)).within(1, "shoes"))
         .select(:description, :rating, :category)
 ```
 
@@ -143,7 +143,7 @@ MockItem.objects.filter(
 
 ```ruby Rails
 MockItem.search(:description)
-        .near(%w[sleek white], anchor: "shoes", distance: 1)
+        .near(ParadeDB.proximity("sleek", "white").within(1, "shoes"))
         .select(:description, :rating, :category)
 ```
 
@@ -168,7 +168,7 @@ MockItem.objects.filter(
 
 ```ruby Rails
 MockItem.search(:description)
-        .near(ParadeDB.regex_term("sl.*"), "white", anchor: "shoes", distance: 1)
+        .near(ParadeDB.proximity(ParadeDB.regex_term("sl.*"), "white").within(1, "shoes"))
         .select(:description, :rating, :category)
 ```
 

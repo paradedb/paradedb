@@ -218,8 +218,8 @@ ORDER BY s.name ASC
     LIMIT 5;
 
 -- Test 9: JoinScan negative — upper(category) is NOT an indexed expression.
--- order_by_columns_are_fast_fields() should let this through (permissive else),
--- but extract_orderby() should fail to resolve it, so the sort won't be pushed.
+-- order_by_columns_are_fast_fields() rejects it because find_matching_fast_field
+-- finds no match, so JoinScan falls back to native PG execution.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p

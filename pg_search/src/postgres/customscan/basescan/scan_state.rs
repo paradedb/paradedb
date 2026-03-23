@@ -536,6 +536,10 @@ mod tests {
 
     #[pg_test]
     fn basescan_reset_refreshes_visibility_checker_after_heap_shrink() {
+        // Reproduce the stale read surfaced by Antithesis: after the heap relation shrinks,
+        // a rescan can still hold a visibility checker and heap fetch state whose cached
+        // relation size reflects the old heap. Without rebuilding that state in `reset()`,
+        // a stale CTID from the truncated tail block can look visible and fetch the wrong tuple.
         Spi::run("DROP TABLE IF EXISTS basescan_reset_refresh CASCADE;").unwrap();
         Spi::run(
             "CREATE TABLE basescan_reset_refresh (

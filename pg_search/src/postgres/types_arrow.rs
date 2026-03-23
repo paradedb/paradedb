@@ -366,46 +366,84 @@ mod tests {
             }
         });
     }
+    fn do_test_arrow_int64_as_timestamp_to_datum(original_nanos: i64) {
+        let create_ts_array = |v: i64| {
+            let mut builder = Int64Builder::with_capacity(1);
+            builder.append_value(v);
+            Arc::new(builder.finish()) as Arc<dyn Array>
+        };
+
+        let pdt = ts_nanos_to_date_time(original_nanos).into_primitive();
+
+        // Test TIMESTAMPTZOID
+        let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamptz, |_| {
+            TimestampWithTimeZone::with_timezone(
+                pdt.year(),
+                pdt.month().into(),
+                pdt.day(),
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+                "UTC",
+            )
+            .unwrap()
+        });
+
+        // Test TIMESTAMPOID
+        let oid_timestamp = PgOid::from(PgBuiltInOids::TIMESTAMPOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamp, |_| {
+            Timestamp::new(
+                pdt.year(),
+                pdt.month().into(),
+                pdt.day(),
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+            )
+            .unwrap()
+        });
+
+        // Test DATEOID
+        let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_date, |_| {
+            Date::new(pdt.year(), pdt.month().into(), pdt.day()).unwrap()
+        });
+
+        // Test TIMEOID
+        let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_time, |_| {
+            Time::new(
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+            )
+            .unwrap()
+        });
+
+        // Test TIMETZOID
+        let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timetz, |_| {
+            TimeWithTimeZone::with_timezone(
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+                "UTC",
+            )
+            .unwrap()
+        });
+    }
+
+    #[pg_test]
+    fn test_arrow_int64_as_timestamp_to_datum_bounds() {
+        do_test_arrow_int64_as_timestamp_to_datum(MIN_SAFE_TANTIVY_NANOS);
+        do_test_arrow_int64_as_timestamp_to_datum(MAX_SAFE_TANTIVY_NANOS);
+    }
+
     #[pg_test]
     fn test_arrow_int64_as_timestamp_to_datum() {
-        proptest!(|(original_nanos in MIN_SAFE_TANTIVY_NANOS..MAX_SAFE_TANTIVY_NANOS)| {
-            let create_ts_array = |v: i64| {
-                let mut builder = Int64Builder::with_capacity(1);
-                builder.append_value(v);
-                Arc::new(builder.finish()) as Arc<dyn Array>
-            };
-
-            let pdt = ts_nanos_to_date_time(original_nanos).into_primitive();
-
-            // Test TIMESTAMPTZOID
-            let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamptz, |_| {
-                TimestampWithTimeZone::with_timezone(pdt.year(), pdt.month().into(), pdt.day(), pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0, "UTC").unwrap()
-            });
-
-            // Test TIMESTAMPOID
-            let oid_timestamp = PgOid::from(PgBuiltInOids::TIMESTAMPOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamp, |_| {
-                Timestamp::new(pdt.year(), pdt.month().into(), pdt.day(), pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0).unwrap()
-            });
-
-            // Test DATEOID
-            let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_date, |_| {
-                Date::new(pdt.year(), pdt.month().into(), pdt.day()).unwrap()
-            });
-
-            // Test TIMEOID
-            let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_time, |_| {
-                Time::new(pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0).unwrap()
-            });
-
-            // Test TIMETZOID
-            let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_timetz, |_| {
-                TimeWithTimeZone::with_timezone(pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0, "UTC").unwrap()
-            });
+        proptest!(|(original_nanos in MIN_SAFE_TANTIVY_NANOS..=MAX_SAFE_TANTIVY_NANOS)| {
+            do_test_arrow_int64_as_timestamp_to_datum(original_nanos);
         });
     }
 
@@ -527,46 +565,84 @@ mod tests {
         });
     }
 
+    fn do_test_arrow_timestamp_to_datum(original_nanos: i64) {
+        let create_ts_array = |v: i64| {
+            let mut builder = TimestampNanosecondBuilder::with_capacity(1);
+            builder.append_value(v);
+            Arc::new(builder.finish()) as Arc<dyn Array>
+        };
+
+        let pdt = ts_nanos_to_date_time(original_nanos).into_primitive();
+
+        // Test TIMESTAMPTZOID
+        let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamptz, |_| {
+            TimestampWithTimeZone::with_timezone(
+                pdt.year(),
+                pdt.month().into(),
+                pdt.day(),
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+                "UTC",
+            )
+            .unwrap()
+        });
+
+        // Test TIMESTAMPOID
+        let oid_timestamp = PgOid::from(PgBuiltInOids::TIMESTAMPOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamp, |_| {
+            Timestamp::new(
+                pdt.year(),
+                pdt.month().into(),
+                pdt.day(),
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+            )
+            .unwrap()
+        });
+
+        // Test DATEOID
+        let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_date, |_| {
+            Date::new(pdt.year(), pdt.month().into(), pdt.day()).unwrap()
+        });
+
+        // Test TIMEOID
+        let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_time, |_| {
+            Time::new(
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+            )
+            .unwrap()
+        });
+
+        // Test TIMETZOID
+        let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timetz, |_| {
+            TimeWithTimeZone::with_timezone(
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+                "UTC",
+            )
+            .unwrap()
+        });
+    }
+
+    #[pg_test]
+    fn test_arrow_timestamp_to_datum_bounds() {
+        do_test_arrow_timestamp_to_datum(MIN_SAFE_TANTIVY_NANOS);
+        do_test_arrow_timestamp_to_datum(MAX_SAFE_TANTIVY_NANOS);
+    }
+
     #[pg_test]
     fn test_arrow_timestamp_to_datum() {
-        proptest!(|(original_nanos in MIN_SAFE_TANTIVY_NANOS..MAX_SAFE_TANTIVY_NANOS)| {
-            let create_ts_array = |v: i64| {
-                let mut builder = TimestampNanosecondBuilder::with_capacity(1);
-                builder.append_value(v);
-                Arc::new(builder.finish()) as Arc<dyn Array>
-            };
-
-            let pdt = ts_nanos_to_date_time(original_nanos).into_primitive();
-
-            // Test TIMESTAMPTZOID
-            let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamptz, |_| {
-                TimestampWithTimeZone::with_timezone(pdt.year(), pdt.month().into(), pdt.day(), pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0, "UTC").unwrap()
-            });
-
-            // Test TIMESTAMPOID
-            let oid_timestamp = PgOid::from(PgBuiltInOids::TIMESTAMPOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamp, |_| {
-                Timestamp::new(pdt.year(), pdt.month().into(), pdt.day(), pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0).unwrap()
-            });
-
-            // Test DATEOID
-            let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_date, |_| {
-                Date::new(pdt.year(), pdt.month().into(), pdt.day()).unwrap()
-            });
-
-            // Test TIMEOID
-            let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_time, |_| {
-                Time::new(pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0).unwrap()
-            });
-
-            // Test TIMETZOID
-            let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_timetz, |_| {
-                TimeWithTimeZone::with_timezone(pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0, "UTC").unwrap()
-            });
+        proptest!(|(original_nanos in MIN_SAFE_TANTIVY_NANOS..=MAX_SAFE_TANTIVY_NANOS)| {
+            do_test_arrow_timestamp_to_datum(original_nanos);
         });
     }
 

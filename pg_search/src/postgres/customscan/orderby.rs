@@ -353,7 +353,7 @@ where
                                     pathkey_styles.push(OrderByStyle::Field {
                                         pathkey,
                                         name: field_name,
-                                        rti: rti,
+                                        rti,
                                     });
                                     found_valid_member = true;
                                     break;
@@ -368,7 +368,7 @@ where
                                     pathkey_styles.push(OrderByStyle::Field {
                                         pathkey,
                                         name: field_name,
-                                        rti: rti,
+                                        rti,
                                     });
                                     found_valid_member = true;
                                     break;
@@ -383,7 +383,7 @@ where
                                     pathkey_styles.push(OrderByStyle::Field {
                                         pathkey,
                                         name: field_name,
-                                        rti: rti,
+                                        rti,
                                     });
                                     found_valid_member = true;
                                     break;
@@ -638,7 +638,7 @@ unsafe fn check_var_matches_sort_by(
     Some(OrderByStyle::Field {
         pathkey,
         name: sort_field_name.into(),
-        rti: rti,
+        rti,
     })
 }
 

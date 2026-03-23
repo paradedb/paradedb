@@ -324,6 +324,13 @@ pub struct SearchIndexReader {
     _cleanup_lock: Arc<PinnedBuffer>,
 }
 
+/// A queryless snapshot of visible segments used to capture canonical manifests for parallel
+/// JoinScan initialization without requiring executor state.
+pub struct SearchIndexManifest {
+    searcher: Searcher,
+    _cleanup_lock: Arc<PinnedBuffer>,
+}
+
 impl Clone for SearchIndexReader {
     fn clone(&self) -> Self {
         Self {
@@ -341,7 +348,51 @@ impl Clone for SearchIndexReader {
     }
 }
 
+struct IndexComponents {
+    cleanup_lock: Arc<PinnedBuffer>,
+    index: Index,
+    reader: IndexReader,
+    searcher: Searcher,
+    total_segment_count: usize,
+    total_docs: u64,
+    schema: SearchIndexSchema,
+}
+
 impl SearchIndexReader {
+    fn open_index_components(
+        index_relation: &PgSearchRelation,
+        mvcc_style: MvccSatisfies,
+    ) -> Result<IndexComponents> {
+        let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
+
+        let directory = mvcc_style.directory(index_relation);
+        let mut index = Index::open(directory.clone())?;
+        let total_segment_count = directory
+            .total_segment_count()
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let total_docs = directory
+            .total_docs()
+            .load(std::sync::atomic::Ordering::Relaxed) as u64;
+        let schema = index_relation.schema()?;
+        setup_tokenizers(index_relation, &mut index)?;
+
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        let searcher = reader.searcher();
+
+        Ok(IndexComponents {
+            cleanup_lock,
+            index,
+            reader,
+            searcher,
+            total_segment_count,
+            total_docs,
+            schema,
+        })
+    }
+
     /// Open a tantivy index where, if searched, will return zero results, but has access to all
     /// the underlying [`SegmentReader`]s and such as specified by the `mvcc_style`.
     pub fn empty(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
@@ -374,36 +425,16 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
     ) -> Result<Self> {
-        // It is possible for index only scans and custom scans, which only check the visibility map
-        // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
-        // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
-        // reads in some dead ctids. ambulkdelete finishes immediately after, and Postgres updates its visibility map,
-        //rendering those dead ctids visible. The concurrent scan then returns the wrong results.
-        // To prevent this, ambulkdelete acquires an exclusive cleanup lock. Readers must also acquire this lock (shared)
-        // to prevent a reader from reading dead ctids right before ambulkdelete finishes.
-        //
-        // It's sufficient, and **required** for parallel scans to operate correctly, for us to hold onto
-        // a pinned but unlocked buffer.
-        let cleanup_lock = MetaPage::open(index_relation).cleanup_lock_pinned();
-
-        let directory = mvcc_style.directory(index_relation);
-        let mut index = Index::open(directory.clone())?;
-        // The total_segment_count in the directory is updated as part of Index::open (via load_metas).
-        // It reflects the total number of visible segments, even if we are in LargestSegment mode.
-        let total_segment_count = directory
-            .total_segment_count()
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let total_docs = directory
-            .total_docs()
-            .load(std::sync::atomic::Ordering::Relaxed) as u64;
-        let schema = index_relation.schema()?;
-        setup_tokenizers(index_relation, &mut index)?;
-
-        let reader = index
-            .reader_builder()
-            .reload_policy(ReloadPolicy::Manual)
-            .try_into()?;
-        let searcher = reader.searcher();
+        let components = Self::open_index_components(index_relation, mvcc_style)?;
+        let IndexComponents {
+            cleanup_lock,
+            index,
+            reader,
+            searcher,
+            total_segment_count,
+            total_docs,
+            schema,
+        } = components;
 
         let need_scores = need_scores || search_query_input.need_scores();
         let query = {
@@ -435,7 +466,7 @@ impl SearchIndexReader {
             need_scores,
             total_segment_count,
             total_docs,
-            _cleanup_lock: Arc::new(cleanup_lock),
+            _cleanup_lock: cleanup_lock,
         })
     }
 
@@ -834,7 +865,7 @@ impl SearchIndexReader {
                 ..
             } => unimplemented!("Sorting by variable is not supported in raw index search"),
             OrderByInfo {
-                feature: OrderByFeature::Score,
+                feature: OrderByFeature::Score { .. },
                 direction,
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
@@ -854,7 +885,7 @@ impl SearchIndexReader {
                 )
             }
             OrderByInfo {
-                feature: OrderByFeature::Score,
+                feature: OrderByFeature::Score { .. },
                 direction,
             } => {
                 // TODO: See method docs.
@@ -1330,7 +1361,7 @@ impl SearchIndexReader {
                         .push_feature(SortByErasedType::for_field(sort_field), *direction);
                 }
                 OrderByInfo {
-                    feature: OrderByFeature::Score,
+                    feature: OrderByFeature::Score { .. },
                     direction,
                 } => {
                     erased_features.push_score_feature(*direction);
@@ -1389,6 +1420,25 @@ impl SearchIndexReader {
                     .expect("should be able to collect in segment")
             })
             .collect()
+    }
+}
+
+impl SearchIndexManifest {
+    /// Capture the currently visible segment set without building a search query.
+    pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
+        let components = SearchIndexReader::open_index_components(index_relation, mvcc_style)?;
+        Ok(Self {
+            searcher: components.searcher,
+            _cleanup_lock: components.cleanup_lock,
+        })
+    }
+
+    pub fn segment_readers(&self) -> &[SegmentReader] {
+        self.searcher.segment_readers()
+    }
+
+    pub fn segment_count(&self) -> usize {
+        self.searcher.segment_readers().len()
     }
 }
 

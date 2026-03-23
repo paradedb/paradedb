@@ -22,7 +22,7 @@ ORDER BY id;
 from paradedb import MoreLikeThis
 
 MockItem.objects.filter(
-    MoreLikeThis(product_id=3)
+    id=ParadeDB(MoreLikeThis(id=3))
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
@@ -68,7 +68,7 @@ ORDER BY id;
 from paradedb import MoreLikeThis
 
 MockItem.objects.filter(
-    MoreLikeThis(product_id=3, fields=['description'])
+    id=ParadeDB(MoreLikeThis(id=3, fields=['description']))
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
@@ -121,7 +121,7 @@ ORDER BY id;
 from paradedb import MoreLikeThis
 
 MockItem.objects.filter(
-    MoreLikeThis(document={'description': 'Sleek running shoes', 'category': 'footwear'})
+    id=ParadeDB(MoreLikeThis(document={'description': 'Sleek running shoes', 'category': 'footwear'}))
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
@@ -155,7 +155,7 @@ ORDER BY id;
 from paradedb import MoreLikeThis
 
 MockItem.objects.filter(
-    MoreLikeThis(product_id=3, min_term_freq=2)
+    id=ParadeDB(MoreLikeThis(id=3, min_term_freq=2))
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
@@ -185,7 +185,7 @@ ORDER BY id;
 from paradedb import MoreLikeThis
 
 MockItem.objects.filter(
-    MoreLikeThis(product_id=3, min_doc_freq=3)
+    id=ParadeDB(MoreLikeThis(id=3, min_doc_freq=3))
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
@@ -217,7 +217,7 @@ ORDER BY id;
 from paradedb import MoreLikeThis
 
 MockItem.objects.filter(
-    MoreLikeThis(product_id=3, max_query_terms=10)
+    id=ParadeDB(MoreLikeThis(id=3, max_query_terms=10))
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
@@ -246,7 +246,7 @@ ORDER BY id;
 from paradedb import MoreLikeThis
 
 MockItem.objects.filter(
-    MoreLikeThis(product_id=3, min_word_length=5)
+    id=ParadeDB(MoreLikeThis(id=3, min_word_length=5))
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
@@ -274,7 +274,7 @@ ORDER BY id;
 from paradedb import MoreLikeThis
 
 MockItem.objects.filter(
-    MoreLikeThis(product_id=3, stopwords=['the', 'a'])
+    id=ParadeDB(MoreLikeThis(id=3, stopwords=['the', 'a']))
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 

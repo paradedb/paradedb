@@ -647,6 +647,7 @@ impl SearchTokenizer {
 pub static LANGUAGES: Lazy<HashMap<Language, &str>> = Lazy::new(|| {
     let mut map = HashMap::new();
     map.insert(Language::Arabic, "Arabic");
+    map.insert(Language::Czech, "Czech");
     map.insert(Language::Danish, "Danish");
     map.insert(Language::Dutch, "Dutch");
     map.insert(Language::English, "English");

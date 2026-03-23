@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "willow",
+  "theme": "aspen",
   "name": "ParadeDB",
   "colors": {
     "primary": "#4f46e5",
@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.22.1",
+        "version": "v0.22.2",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -293,17 +293,19 @@
                 "pages": [
                   "deploy/overview",
                   {
-                    "group": "ParadeDB Self-Hosted",
+                    "group": "Self-Hosted",
                     "pages": [
                       "deploy/self-hosted/kubernetes",
-                      "deploy/self-hosted/docker",
                       "deploy/self-hosted/extension",
-                      {
-                        "group": "High Availability",
-                        "pages": [
-                          "deploy/self-hosted/high-availability/configuration"
-                        ]
-                      }
+                      "deploy/self-hosted/high-availability"
+                    ]
+                  },
+                  {
+                    "group": "Cloud Platforms",
+                    "pages": [
+                      "deploy/cloud-platforms/railway",
+                      "deploy/cloud-platforms/render",
+                      "deploy/cloud-platforms/digitalocean"
                     ]
                   },
                   {
@@ -313,14 +315,6 @@
                       "deploy/logical-replication/operational-guide",
                       "deploy/logical-replication/configuration",
                       "deploy/logical-replication/multi-database"
-                    ]
-                  },
-                  {
-                    "group": "Cloud Platforms",
-                    "pages": [
-                      "deploy/cloud-platforms/railway",
-                      "deploy/cloud-platforms/render",
-                      "deploy/cloud-platforms/digitalocean"
                     ]
                   },
                   "deploy/byoc",
@@ -343,8 +337,10 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.22.2",
                   "changelog/0.22.1",
                   "changelog/0.22.0",
+                  "changelog/0.21.16",
                   "changelog/0.21.15",
                   "changelog/0.21.14",
                   "changelog/0.21.13",

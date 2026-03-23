@@ -111,6 +111,8 @@ which are mostly not capable of parallelization.
 
 ## Dependencies
 
-The two main dependencies of `pg_search` are [`pgrx`](https://github.com/pgcentralfoundation/pgrx/tree/develop), the
-library for writing Postgres extensions in Rust, and [Tantivy](https://github.com/quickwit-oss/tantivy), a Rust-based search library
-inspired by [Lucene](https://github.com/apache/lucene).
+The three main dependencies of `pg_search` are:
+
+- [`pgrx`](https://github.com/pgcentralfoundation/pgrx/tree/develop) — the library for writing Postgres extensions in Rust
+- [Tantivy](https://github.com/quickwit-oss/tantivy) — a Rust-based full-text search library inspired by [Lucene](https://github.com/apache/lucene)
+- [Apache DataFusion](https://github.com/apache/datafusion) — an extensible query execution framework for OLAP processing

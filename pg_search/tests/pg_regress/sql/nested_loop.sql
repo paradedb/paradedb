@@ -26,7 +26,7 @@ ANALYZE;
 
 -- When running under the joinscan, we get a `pdb_search_predicate` join filter.
 SET paradedb.enable_join_custom_scan = on;
-SET work_mem = '4GB';
+SET work_mem TO '64MB';
 
 EXPLAIN
 SELECT users.name, users.color, users.age

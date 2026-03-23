@@ -25,14 +25,17 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub enum OrderByStyle {
-    Score(*mut pg_sys::PathKey),
+    Score {
+        pathkey: *mut pg_sys::PathKey,
+        rti: u32,
+    },
     Field(*mut pg_sys::PathKey, FieldName),
 }
 
 impl OrderByStyle {
     pub fn pathkey(&self) -> *mut pg_sys::PathKey {
         match self {
-            OrderByStyle::Score(pathkey) => *pathkey,
+            OrderByStyle::Score { pathkey, .. } => *pathkey,
             OrderByStyle::Field(pathkey, _) => *pathkey,
         }
     }
@@ -80,7 +83,7 @@ impl From<&OrderByStyle> for OrderByInfo {
     fn from(value: &OrderByStyle) -> Self {
         let feature = match value {
             OrderByStyle::Field(_, name) => OrderByFeature::Field(name.to_owned()),
-            OrderByStyle::Score(_) => OrderByFeature::Score,
+            OrderByStyle::Score { rti, .. } => OrderByFeature::Score { rti: *rti },
         };
         OrderByInfo {
             feature,

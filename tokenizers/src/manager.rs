@@ -23,7 +23,6 @@ use crate::ngram::NgramTokenizer;
 use crate::{
     cjk::ChineseTokenizer,
     code::CodeTokenizer,
-    jieba::JiebaTokenizer,
     lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
     token_length::TokenLengthFilter,
     token_trim::TokenTrimFilter,
@@ -585,12 +584,16 @@ impl SearchTokenizer {
             } => {
                 // If Chinese conversion is configured, perform the conversion before tokenization
                 if let Some(convert_mode) = chinese_convert {
-                    let base_tokenizer = JiebaTokenizer::new();
+                    let base_tokenizer =
+                        tantivy_jieba::JiebaTokenizer::with_ordinal_position_mode(true);
                     let convert_tokenizer =
                         ChineseConvertTokenizer::new(base_tokenizer, *convert_mode);
                     add_filters!(convert_tokenizer, filters)
                 } else {
-                    add_filters!(JiebaTokenizer::new(), filters)
+                    add_filters!(
+                        tantivy_jieba::JiebaTokenizer::with_ordinal_position_mode(true),
+                        filters
+                    )
                 }
             }
             SearchTokenizer::Lindera(LinderaLanguage::Unspecified, _) => {

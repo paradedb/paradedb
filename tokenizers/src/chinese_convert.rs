@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn test_jieba_with_convert() {
         // Test integration with Jieba tokenizer
-        let base_tokenizer = tantivy_jieba::JiebaTokenizer {};
+        let base_tokenizer = tantivy_jieba::JiebaTokenizer::new();
         let mut tokenizer = ChineseConvertTokenizer::new(base_tokenizer, ConvertMode::T2S);
 
         let mut stream = tokenizer.token_stream("繁體中文分詞測試");

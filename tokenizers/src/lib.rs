@@ -19,7 +19,6 @@ pub mod chinese_convert;
 pub mod cjk;
 pub mod code;
 pub mod icu;
-pub mod jieba;
 pub mod lindera;
 pub mod manager;
 pub mod ngram;

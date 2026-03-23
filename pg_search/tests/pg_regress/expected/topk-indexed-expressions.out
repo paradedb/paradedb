@@ -349,7 +349,7 @@ ORDER BY s.name ASC
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :           ProjectionExec: expr=[ctid@0 as ctid_0, product_id@1 as product_id, name@2 as name]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all"
+           :               PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (20 rows)
 
 SELECT p.name, s.name AS supplier_name

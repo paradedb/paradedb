@@ -1,0 +1,612 @@
+===== documentation/aggregates/bucket/datehistogram.mdx (group 1) =====
+SELECT pdb.agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/bucket/filters.mdx (group 1) =====
+SELECT
+    pdb.agg('{"value_count": {"field": "id"}}')
+    FILTER (WHERE category === 'electronics') AS electronics_count,
+    pdb.agg('{"value_count": {"field": "id"}}')
+    FILTER (WHERE category === 'footwear') AS footwear_count
+FROM mock_items;
+
+===== documentation/aggregates/bucket/histogram.mdx (group 1) =====
+SELECT pdb.agg('{"histogram": {"field": "rating", "interval": "1"}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/bucket/range.mdx (group 1) =====
+SELECT pdb.agg('{"range": {"field": "rating", "ranges": [{"to": 3.0 }, {"from": 3.0, "to": 6.0} ]}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/bucket/terms.mdx (group 1) =====
+SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY rating
+LIMIT 10;
+
+===== documentation/aggregates/bucket/terms.mdx (group 2) =====
+SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY rating
+ORDER BY rating
+LIMIT 10;
+
+===== documentation/aggregates/facets.mdx (group 1) =====
+SELECT
+  id, description, rating,
+  pdb.agg('{"value_count": {"field": "id"}}') OVER ()
+FROM mock_items
+WHERE category === 'electronics'
+ORDER BY rating DESC
+LIMIT 3;
+
+===== documentation/aggregates/limitations.mdx (group 1) =====
+-- Not pushed down
+SELECT COUNT(id) FROM mock_items
+WHERE rating = 5;
+
+-- Pushed down
+SELECT COUNT(id) FROM mock_items
+WHERE rating = 5
+AND id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/average.mdx (group 1) =====
+SELECT pdb.agg('{"avg": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/average.mdx (group 2) =====
+SELECT AVG(rating) FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/average.mdx (group 3) =====
+SELECT AVG(COALESCE(rating, 0)) FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/cardinality.mdx (group 1) =====
+SELECT pdb.agg('{"cardinality": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/count.mdx (group 1) =====
+SELECT pdb.agg('{"value_count": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/count.mdx (group 2) =====
+SELECT COUNT(rating) FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/count.mdx (group 3) =====
+SELECT COUNT(*) FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/minmax.mdx (group 1) =====
+SELECT pdb.agg('{"min": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/minmax.mdx (group 2) =====
+SELECT MIN(rating) FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/minmax.mdx (group 3) =====
+SELECT MIN(COALESCE(rating, 0)) FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/minmax.mdx (group 4) =====
+SELECT pdb.agg('{"max": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/minmax.mdx (group 5) =====
+SELECT MAX(rating) FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/minmax.mdx (group 6) =====
+SELECT MAX(COALESCE(rating, 0)) FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/percentiles.mdx (group 1) =====
+SELECT pdb.agg('{"percentiles": {"field": "rating", "percents": [50, 95]}}') FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/stats.mdx (group 1) =====
+SELECT pdb.agg('{"stats": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/sum.mdx (group 1) =====
+SELECT pdb.agg('{"sum": {"field": "rating"}}') FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/sum.mdx (group 2) =====
+SELECT SUM(rating) FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/sum.mdx (group 3) =====
+SELECT SUM(COALESCE(rating, 0)) FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/aggregates/metrics/tophits.mdx (group 1) =====
+SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}')
+FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY rating;
+
+===== documentation/aggregates/metrics/tophits.mdx (group 2) =====
+SELECT pdb.agg('{"top_hits": {"size": 3, "from": 1, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}')
+FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY rating;
+
+===== documentation/aggregates/metrics/tophits.mdx (group 3) =====
+SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}')
+FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY rating;
+
+===== documentation/aggregates/overview.mdx (group 1) =====
+SELECT pdb.agg('{"value_count": {"field": "id"}}')
+FROM mock_items
+WHERE category === 'electronics';
+
+===== documentation/aggregates/overview.mdx (group 2) =====
+SELECT rating, pdb.agg('{"value_count": {"field": "id"}}')
+FROM mock_items
+WHERE category === 'electronics'
+GROUP BY rating
+ORDER BY rating
+LIMIT 5;
+
+===== documentation/aggregates/overview.mdx (group 3) =====
+SELECT
+  pdb.agg('{"avg": {"field": "rating"}}') AS avg_rating,
+  pdb.agg('{"value_count": {"field": "id"}}') AS count
+FROM mock_items
+WHERE category === 'electronics';
+
+===== documentation/aggregates/overview.mdx (group 4) =====
+SELECT pdb.agg('{"value_count": {"field": "id"}}', false)
+FROM mock_items
+WHERE description ||| 'running shoes';
+
+===== documentation/aggregates/overview.mdx (group 5) =====
+SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
+FROM mock_items
+WHERE id @@@ pdb.all();
+
+===== documentation/filtering.mdx (group 1) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2;
+
+===== documentation/filtering.mdx (group 2) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND category = 'Footwear';
+
+===== documentation/filtering.mdx (group 3) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');
+
+===== documentation/full-text/fuzzy.mdx (group 1) =====
+-- Fuzzy match disjunction
+SELECT id, description
+FROM mock_items
+WHERE description ||| 'runing shose'::pdb.fuzzy(2)
+LIMIT 5;
+
+-- Fuzzy match conjunction
+SELECT id, description
+FROM mock_items
+WHERE description &&& 'runing shose'::pdb.fuzzy(2)
+LIMIT 5;
+
+-- Fuzzy Term
+SELECT id, description
+FROM mock_items
+WHERE description === 'shose'::pdb.fuzzy(2)
+LIMIT 5;
+
+===== documentation/full-text/fuzzy.mdx (group 2) =====
+SELECT id, description
+FROM mock_items
+WHERE description === 'rann'::pdb.fuzzy(1, t)
+LIMIT 5;
+
+===== documentation/full-text/fuzzy.mdx (group 3) =====
+SELECT id, description
+FROM mock_items
+WHERE description &&& 'slee rann'::pdb.fuzzy(1, t)
+LIMIT 5;
+
+===== documentation/full-text/fuzzy.mdx (group 4) =====
+SELECT id, description
+FROM mock_items
+WHERE description === 'shose'::pdb.fuzzy(1, f, t)
+LIMIT 5;
+
+===== documentation/full-text/highlight.mdx (group 1) =====
+SELECT id, pdb.snippet(description)
+FROM mock_items
+WHERE description ||| 'shoes'
+LIMIT 5;
+
+===== documentation/full-text/highlight.mdx (group 2) =====
+SELECT id, pdb.snippet(description, start_tag => '<i>', end_tag => '</i>')
+FROM mock_items
+WHERE description ||| 'shoes'
+LIMIT 5;
+
+===== documentation/full-text/highlight.mdx (group 3) =====
+SELECT id, pdb.snippets(description, max_num_chars => 15)
+FROM mock_items
+WHERE description ||| 'artistic vase'
+LIMIT 5;
+
+===== documentation/full-text/highlight.mdx (group 4) =====
+SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1)
+FROM mock_items
+WHERE description ||| 'running'
+LIMIT 5;
+
+===== documentation/full-text/highlight.mdx (group 5) =====
+SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1, "offset" => 1)
+FROM mock_items
+WHERE description ||| 'running'
+LIMIT 5;
+
+===== documentation/full-text/highlight.mdx (group 6) =====
+SELECT id, pdb.snippets(description, max_num_chars => 15, sort_by => 'position')
+FROM mock_items
+WHERE description ||| 'artistic vase'
+LIMIT 5;
+
+===== documentation/full-text/highlight.mdx (group 7) =====
+SELECT id, pdb.snippet(description), pdb.snippet_positions(description)
+FROM mock_items
+WHERE description ||| 'shoes'
+LIMIT 5;
+
+===== documentation/full-text/match.mdx (group 1) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes';
+
+===== documentation/full-text/match.mdx (group 2) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& 'running shoes';
+
+===== documentation/full-text/match.mdx (group 3) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'::pdb.whitespace;
+
+===== documentation/full-text/match.mdx (group 4) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& ARRAY['running', 'shoes'];
+
+===== documentation/full-text/phrase.mdx (group 1) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### 'running shoes';
+
+===== documentation/full-text/phrase.mdx (group 2) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### 'shoes running'::pdb.slop(2);
+
+===== documentation/full-text/phrase.mdx (group 3) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### 'running shoes'::pdb.whitespace;
+
+===== documentation/full-text/phrase.mdx (group 4) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### ARRAY['running', 'shoes'];
+
+===== documentation/full-text/phrase.mdx (group 5) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
+
+===== documentation/full-text/proximity.mdx (group 1) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ ('sleek' ## 1 ## 'shoes');
+
+===== documentation/full-text/proximity.mdx (group 2) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ ('sleek' ##> 1 ##> 'shoes');
+
+===== documentation/full-text/proximity.mdx (group 3) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes');
+
+===== documentation/full-text/proximity.mdx (group 4) =====
+-- Expand up to 100 regex matches
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes');
+
+===== documentation/full-text/proximity.mdx (group 5) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes');
+
+===== documentation/full-text/proximity.mdx (group 6) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## 'shoes');
+
+===== documentation/full-text/term.mdx (group 1) =====
+-- Term query 1
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'running';
+
+-- Term query 2
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'RUNNING';
+
+===== documentation/full-text/term.mdx (group 2) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description === ARRAY['shoes', 'running'];
+
+===== documentation/getting-started/quickstart.mdx (group 1) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY rating
+LIMIT 5;
+
+===== documentation/getting-started/quickstart.mdx (group 2) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& 'running shoes' AND rating > 2
+ORDER BY rating
+LIMIT 5;
+
+===== documentation/getting-started/quickstart.mdx (group 3) =====
+SELECT description, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
+
+===== documentation/getting-started/quickstart.mdx (group 4) =====
+SELECT description, pdb.snippet(description), pdb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
+
+===== documentation/getting-started/quickstart.mdx (group 5) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+
+===== documentation/getting-started/quickstart.mdx (group 6) =====
+SELECT
+     description, rating, category,
+     pdb.agg('{"value_count": {"field": "id"}}') OVER ()
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+
+===== documentation/query-builder/compound/all.mdx (group 1) =====
+-- Top K executed by standard Postgres
+SELECT id, description, rating, category
+FROM mock_items
+WHERE rating IS NOT NULL
+ORDER BY rating
+LIMIT 5;
+
+-- Top K executed by ParadeDB
+SELECT id, description, rating, category
+FROM mock_items
+WHERE rating IS NOT NULL AND id @@@ pdb.all()
+ORDER BY rating
+LIMIT 5;
+
+===== documentation/query-builder/compound/query-parser.mdx (group 1) =====
+SELECT description, rating, category FROM mock_items
+WHERE id @@@ pdb.parse('description:(sleek shoes) AND rating:>3');
+
+===== documentation/query-builder/compound/query-parser.mdx (group 2) =====
+SELECT description, rating, category FROM mock_items
+WHERE id @@@ pdb.parse('description:(sleek shoes) AND rating:>3', lenient => true);
+
+===== documentation/query-builder/compound/query-parser.mdx (group 3) =====
+SELECT description, rating, category FROM mock_items
+WHERE id @@@ pdb.parse('description:(sleek shoes)', conjunction_mode => true);
+
+===== documentation/query-builder/overview.mdx (group 1) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.regex('key.*rd');
+
+===== documentation/query-builder/phrase/phrase-prefix.mdx (group 1) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
+
+===== documentation/query-builder/phrase/regex-phrase.mdx (group 1) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.regex_phrase(ARRAY['ru.*', 'shoes']);
+
+===== documentation/query-builder/specialized/more-like-this.mdx (group 1) =====
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3)
+ORDER BY id;
+
+===== documentation/query-builder/specialized/more-like-this.mdx (group 2) =====
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, ARRAY['description'])
+ORDER BY id;
+
+===== documentation/query-builder/specialized/more-like-this.mdx (group 3) =====
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this('{"description": "Sleek running shoes", "category": "footwear"}')
+ORDER BY id;
+
+===== documentation/query-builder/specialized/more-like-this.mdx (group 4) =====
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, min_term_frequency => 2)
+ORDER BY id;
+
+===== documentation/query-builder/specialized/more-like-this.mdx (group 5) =====
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, min_doc_frequency => 3)
+ORDER BY id;
+
+===== documentation/query-builder/specialized/more-like-this.mdx (group 6) =====
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, max_query_terms => 10)
+ORDER BY id;
+
+===== documentation/query-builder/specialized/more-like-this.mdx (group 7) =====
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, min_word_length => 5)
+ORDER BY id;
+
+===== documentation/query-builder/specialized/more-like-this.mdx (group 8) =====
+SELECT id, description, rating, category
+FROM mock_items
+WHERE id @@@ pdb.more_like_this(3, stopwords => ARRAY['the', 'a'])
+ORDER BY id;
+
+===== documentation/query-builder/term/range-term.mdx (group 1) =====
+SELECT id, weight_range FROM mock_items
+WHERE weight_range @@@ pdb.range_term(1);
+
+===== documentation/query-builder/term/range-term.mdx (group 2) =====
+SELECT id, weight_range FROM mock_items
+WHERE weight_range @@@ pdb.range_term('(10, 12]'::int4range, 'Intersects');
+
+===== documentation/query-builder/term/range-term.mdx (group 3) =====
+SELECT id, weight_range FROM mock_items
+WHERE weight_range @@@ pdb.range_term('(3, 9]'::int4range, 'Contains');
+
+===== documentation/query-builder/term/range-term.mdx (group 4) =====
+SELECT id, weight_range FROM mock_items
+WHERE weight_range @@@ pdb.range_term('(2, 11]'::int4range, 'Within');
+
+===== documentation/query-builder/term/regex.mdx (group 1) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.regex('key.*');
+
+===== documentation/sorting/boost.mdx (group 1) =====
+SELECT id, pdb.score(id), description, category
+FROM mock_items
+WHERE description ||| 'shoes'::pdb.boost(2) OR category ||| 'footwear'
+ORDER BY score DESC
+LIMIT 5;
+
+===== documentation/sorting/boost.mdx (group 2) =====
+SELECT id, description, category, pdb.score(id)
+FROM mock_items
+WHERE description @@@ pdb.regex('key.*')::pdb.boost(2)
+ORDER BY score DESC
+LIMIT 5;
+
+===== documentation/sorting/boost.mdx (group 3) =====
+SELECT id, description, category, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'shose'::pdb.fuzzy(2)::pdb.boost(2)
+ORDER BY score DESC
+LIMIT 5;
+
+===== documentation/sorting/boost.mdx (group 4) =====
+SELECT id, pdb.score(id), description, category
+FROM mock_items
+WHERE description ||| 'shoes'::pdb.const(1)
+ORDER BY score DESC
+LIMIT 5;
+
+===== documentation/sorting/score.mdx (group 1) =====
+SELECT id, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'shoes'
+ORDER BY pdb.score(id) DESC
+LIMIT 5;
+
+===== documentation/sorting/score.mdx (group 2) =====
+SELECT id, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'keyboard' OR rating < 2
+ORDER BY pdb.score(id) DESC
+LIMIT 5;
+
+===== documentation/sorting/score.mdx (group 3) =====
+SELECT o.order_id, o.customer_name, m.description, pdb.score(o.order_id) + pdb.score(m.id) as score
+FROM orders o
+JOIN mock_items m ON o.product_id = m.id
+WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'running shoes'
+ORDER BY score DESC, o.order_id
+LIMIT 5;
+
+===== documentation/sorting/topk.mdx (group 1) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+
+===== documentation/sorting/topk.mdx (group 2) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating, id
+LIMIT 5;
+
+===== documentation/sorting/topk.mdx (group 3) =====
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+
+===== documentation/tokenizers/multiple-per-field.mdx (group 1) =====
+-- Query against `description_simple`
+SELECT description, rating, category
+FROM mock_items
+WHERE description::pdb.alias('description_simple') ||| 'Sleek running shoes';
+
+-- Query against `description`
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'Sleek running shoes';
+
+===== documentation/tokenizers/multiple-per-field.mdx (group 2) =====
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
+  (description::pdb.literal),
+  (description::pdb.simple('alias=description_simple'))
+) WITH (key_field='id');
+
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY description
+LIMIT 5;
+

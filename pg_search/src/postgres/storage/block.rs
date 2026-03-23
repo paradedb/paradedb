@@ -351,12 +351,14 @@ pub struct SegmentMetaEntry {
 }
 
 impl SegmentMetaEntry {
+    #[cfg(any(test, feature = "pg_test"))]
     fn sorted_ctids(mut ctids: Vec<u64>) -> Vec<u64> {
         ctids.sort_unstable();
         ctids.dedup();
         ctids
     }
 
+    #[cfg(any(test, feature = "pg_test"))]
     fn duplicate_ctids(ctids: &[u64]) -> Vec<u64> {
         let mut seen = HashSet::with_capacity_and_hasher(ctids.len(), rustc_hash::FxBuildHasher);
         let mut duplicates = Vec::new();
@@ -370,6 +372,7 @@ impl SegmentMetaEntry {
         Self::sorted_ctids(duplicates)
     }
 
+    #[cfg(any(test, feature = "pg_test"))]
     fn mutable_tracked_live_ctids(
         &self,
         indexrel: &PgSearchRelation,
@@ -455,34 +458,38 @@ impl SegmentMetaEntry {
         indexrel: &PgSearchRelation,
         items: &[MutableSegmentEntry],
     ) -> Result<(), &str> {
-        if !matches!(self.content, SegmentMetaEntryContent::Mutable(content) if !content.frozen) {
-            return Err("Cannot add items to a non-mutable segment");
+        #[cfg(any(test, feature = "pg_test"))]
+        {
+            if !matches!(self.content, SegmentMetaEntryContent::Mutable(content) if !content.frozen)
+            {
+                return Err("Cannot add items to a non-mutable segment");
+            }
+
+            let ctids = items
+                .iter()
+                .map(|entry| match entry {
+                    MutableSegmentEntry::Add(ctid) => *ctid,
+                    MutableSegmentEntry::Remove(ctid) => {
+                        panic!("mutable_add_items received a remove entry for ctid {ctid}")
+                    }
+                })
+                .collect::<Vec<_>>();
+            let duplicate_ctids = Self::duplicate_ctids(&ctids);
+            assert!(
+                duplicate_ctids.is_empty(),
+                "mutable segment add received duplicate ctids: {duplicate_ctids:?}"
+            );
+
+            let live_ctids = Self::sorted_ctids(
+                self.mutable_tracked_live_ctids(indexrel, &ctids)?
+                    .into_iter()
+                    .collect(),
+            );
+            assert!(
+                live_ctids.is_empty(),
+                "mutable segment add received ctids that were already live: {live_ctids:?}"
+            );
         }
-
-        let ctids = items
-            .iter()
-            .map(|entry| match entry {
-                MutableSegmentEntry::Add(ctid) => *ctid,
-                MutableSegmentEntry::Remove(ctid) => {
-                    panic!("mutable_add_items received a remove entry for ctid {ctid}")
-                }
-            })
-            .collect::<Vec<_>>();
-        let duplicate_ctids = Self::duplicate_ctids(&ctids);
-        assert!(
-            duplicate_ctids.is_empty(),
-            "mutable segment add received duplicate ctids: {duplicate_ctids:?}"
-        );
-
-        let live_ctids = Self::sorted_ctids(
-            self.mutable_tracked_live_ctids(indexrel, &ctids)?
-                .into_iter()
-                .collect(),
-        );
-        assert!(
-            live_ctids.is_empty(),
-            "mutable segment add received ctids that were already live: {live_ctids:?}"
-        );
 
         let items_len: u32 = items.len().try_into().unwrap();
         let new_max_doc = self.header.max_doc + items_len;
@@ -511,28 +518,31 @@ impl SegmentMetaEntry {
         indexrel: &PgSearchRelation,
         ctids: Vec<u64>,
     ) -> Result<(), &str> {
-        if !matches!(self.content, SegmentMetaEntryContent::Mutable(_)) {
-            return Err("Cannot delete items from a non-mutable segment");
+        #[cfg(any(test, feature = "pg_test"))]
+        {
+            if !matches!(self.content, SegmentMetaEntryContent::Mutable(_)) {
+                return Err("Cannot delete items from a non-mutable segment");
+            }
+
+            let duplicate_ctids = Self::duplicate_ctids(&ctids);
+            assert!(
+                duplicate_ctids.is_empty(),
+                "mutable segment delete received duplicate ctids: {duplicate_ctids:?}"
+            );
+
+            let live_ctids = self.mutable_tracked_live_ctids(indexrel, &ctids)?;
+            let missing_ctids = Self::sorted_ctids(
+                ctids
+                    .iter()
+                    .copied()
+                    .filter(|ctid| !live_ctids.contains(ctid))
+                    .collect(),
+            );
+            assert!(
+                missing_ctids.is_empty(),
+                "mutable segment delete received ctids that were not live: {missing_ctids:?}"
+            );
         }
-
-        let duplicate_ctids = Self::duplicate_ctids(&ctids);
-        assert!(
-            duplicate_ctids.is_empty(),
-            "mutable segment delete received duplicate ctids: {duplicate_ctids:?}"
-        );
-
-        let live_ctids = self.mutable_tracked_live_ctids(indexrel, &ctids)?;
-        let missing_ctids = Self::sorted_ctids(
-            ctids
-                .iter()
-                .copied()
-                .filter(|ctid| !live_ctids.contains(ctid))
-                .collect(),
-        );
-        assert!(
-            missing_ctids.is_empty(),
-            "mutable segment delete received ctids that were not live: {missing_ctids:?}"
-        );
 
         let SegmentMetaEntryContent::Mutable(ref mut content) = &mut self.content else {
             return Err("Cannot delete items from a non-mutable segment");

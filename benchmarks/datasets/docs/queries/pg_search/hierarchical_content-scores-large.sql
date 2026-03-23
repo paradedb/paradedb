@@ -1,7 +1,7 @@
 -- Join with scores/order-by/limit, large target list.
 
 -- Directly, without a CTE.
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET paradedb.enable_join_custom_scan TO off; EXPLAIN ANALYZE SELECT
   *,
   pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM
@@ -12,7 +12,7 @@ ORDER BY score DESC
 LIMIT 1000;
 
 -- CTE to execute a smaller join before Top K and then fetch the rest of the content after Top K.
-WITH topk AS (
+EXPLAIN ANALYZE WITH topk AS (
   SELECT
     documents.id AS doc_id,
     files.id AS file_id,
@@ -46,7 +46,7 @@ ORDER BY
   topk.score DESC;
 
 -- Directly, without a CTE.
-SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; EXPLAIN ANALYZE SELECT
   *,
   pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM

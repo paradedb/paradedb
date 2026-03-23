@@ -1,5 +1,5 @@
 -- A paging query with a string paging token, roughly halfway through the dataset.
-SELECT
+EXPLAIN ANALYZE SELECT
     *
 FROM
     pages

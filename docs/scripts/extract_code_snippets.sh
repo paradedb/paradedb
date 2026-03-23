@@ -12,10 +12,21 @@ mkdir -p "$OUTPUT_DIR"
 SQL_OUT="$OUTPUT_DIR/sql.txt"
 DJANGO_OUT="$OUTPUT_DIR/django.txt"
 RAILS_OUT="$OUTPUT_DIR/rails.txt"
+SQL_DIR="$OUTPUT_DIR/sql-snippets"
+DJANGO_DIR="$OUTPUT_DIR/django-snippets"
+RAILS_DIR="$OUTPUT_DIR/rails-snippets"
+MANIFEST_OUT="$OUTPUT_DIR/manifest.tsv"
+
+rm -rf "$OUTPUT_DIR/sql" "$OUTPUT_DIR/django" "$OUTPUT_DIR/rails"
+mkdir -p "$SQL_DIR" "$DJANGO_DIR" "$RAILS_DIR"
+find "$SQL_DIR" -type f -delete
+find "$DJANGO_DIR" -type f -delete
+find "$RAILS_DIR" -type f -delete
 
 : >"$SQL_OUT"
 : >"$DJANGO_OUT"
 : >"$RAILS_OUT"
+: >"$MANIFEST_OUT"
 
 doc_count=0
 
@@ -27,7 +38,11 @@ while IFS= read -r rel_path; do
     -v rel_path="$rel_path" \
     -v sql_out="$SQL_OUT" \
     -v django_out="$DJANGO_OUT" \
-    -v rails_out="$RAILS_OUT" '
+    -v rails_out="$RAILS_OUT" \
+    -v sql_dir="$SQL_DIR" \
+    -v django_dir="$DJANGO_DIR" \
+    -v rails_dir="$RAILS_DIR" \
+    -v manifest_out="$MANIFEST_OUT" '
     function classify(info, lower, parts, lang) {
       lower = tolower(info)
       split(lower, parts, /[[:space:]]+/)
@@ -44,6 +59,13 @@ while IFS= read -r rel_path; do
       }
 
       return ""
+    }
+
+    function file_stem(    stem) {
+      stem = rel_path
+      gsub(/\//, "__", stem)
+      sub(/\.mdx$/, "", stem)
+      return stem
     }
 
     function reset_group(    i) {
@@ -85,25 +107,39 @@ while IFS= read -r rel_path; do
       delete snippet_lines
     }
 
-    function flush_group(    idx, output_file, body) {
+    function flush_group(    idx, output_file, output_dir, snippet_file, extension, stem) {
       if (group_target_count < 2) {
         reset_group()
         return
       }
 
+      stem = file_stem()
+
       for (idx = 1; idx <= group_snippet_count; idx++) {
         if (group_targets[idx] == "sql") {
           output_file = sql_out
+          output_dir = sql_dir
+          extension = "sql"
         } else if (group_targets[idx] == "django") {
           output_file = django_out
+          output_dir = django_dir
+          extension = "py"
         } else if (group_targets[idx] == "rails") {
           output_file = rails_out
+          output_dir = rails_dir
+          extension = "rb"
         } else {
           continue
         }
 
         printf "===== %s (group %d) =====\n", rel_path, codegroup_index >> output_file
         printf "%s\n", group_bodies[idx] >> output_file
+
+        snippet_file = sprintf("%s/%s__group-%03d.%s", output_dir, stem, codegroup_index, extension)
+        printf "%s", group_bodies[idx] > snippet_file
+        close(snippet_file)
+
+        printf "%s\t%s\t%d\t%s\n", group_targets[idx], rel_path, codegroup_index, snippet_file >> manifest_out
       }
 
       reset_group()
@@ -178,3 +214,4 @@ rails_count="$(grep -c '^===== ' "$RAILS_OUT" || true)"
 echo "Wrote $sql_count SQL snippets to $SQL_OUT"
 echo "Wrote $django_count Django snippets to $DJANGO_OUT"
 echo "Wrote $rails_count Rails snippets to $RAILS_OUT"
+echo "Wrote snippet manifest to $MANIFEST_OUT"

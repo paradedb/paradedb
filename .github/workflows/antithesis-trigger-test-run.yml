@@ -79,14 +79,14 @@ jobs:
       - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}|" paradedb.yaml
-          cat paradedb.yaml
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}|" antithesis-paradedb.yaml
+          cat antithesis-paradedb.yaml
 
       - name: Patch Stressgres K8s Manifest With Stressgres Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|image: .*|image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres:${{ github.sha }}|" stressgres.yaml
-          cat stressgres.yaml
+          sed -i "s|image: .*|image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres:${{ github.sha }}|" antithesis-stressgres.yaml
+          cat antithesis-stressgres.yaml
 
       - name: Extract Config Metadata
         id: extract-config-metadata

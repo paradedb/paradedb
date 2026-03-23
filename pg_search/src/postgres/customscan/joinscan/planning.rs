@@ -819,7 +819,9 @@ pub(super) unsafe fn collect_required_fields(
                                 .and_then(|attno| try_ensure_field(source, attno))
                                 .is_some();
                             if !added {
-                                ensure_expression_field(source, name);
+                                if let Err(e) = ensure_expression_field(source, name) {
+                                    pgrx::warning!("JoinScan: failed to project expression field '{name}': {e}");
+                                }
                             }
                             break;
                         }
@@ -849,24 +851,13 @@ unsafe fn ensure_ctid(source: &mut JoinSource) {
 
 /// Appends a specific attribute number to the list of output fields for a `JoinSource` if not already present.
 unsafe fn ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) {
-    if side.scan_info.fields.iter().any(|f| f.attno == attno) {
-        return;
+    if try_ensure_field(side, attno).is_none() {
+        pgrx::warning!(
+            "JoinScan: could not resolve fast field for attno {} on relation {}",
+            attno,
+            side.scan_info.heaprelid
+        );
     }
-
-    let heaprel = PgSearchRelation::open(side.scan_info.heaprelid);
-    let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
-    let tupdesc = heaprel.tuple_desc();
-
-    if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, &indexrel) {
-        side.scan_info.add_field(attno, field);
-        return;
-    }
-
-    pgrx::warning!(
-        "ensure_field: failed for attno {} in relation {:?}",
-        attno,
-        side.scan_info.alias.clone()
-    );
 }
 
 /// Like `ensure_field`, but returns `Some(())` on success or `None` on failure
@@ -892,31 +883,34 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
 /// corresponding `WhichFastField` directly.  Used for ORDER BY on indexed
 /// expressions like `upper(name)`, where the Tantivy field has no matching
 /// PostgreSQL column attno.
-unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) {
+unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> Result<(), String> {
     let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
-    let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
-        return;
-    };
-    let Some(search_field) = schema.search_field(field_name) else {
-        return;
-    };
+    let schema = SearchIndexSchema::open(&index_rel).map_err(|e| {
+        format!(
+            "Failed to open schema for index {}: {e}",
+            source.scan_info.indexrelid
+        )
+    })?;
+    let search_field = schema
+        .search_field(field_name)
+        .ok_or_else(|| format!("Field '{field_name}' is not part of the schema"))?;
     if !search_field.is_fast() {
-        return;
+        return Err(format!("Field '{field_name}' is not a fast field"));
     }
     let categorized = schema.categorized_fields();
-    let Some((_, data)) = categorized.iter().find(|(sf, _)| sf == &search_field) else {
-        return;
-    };
-    if let Some(field_type) = field_type_for_pullup(search_field.field_type(), data.is_array) {
-        // Use a synthetic attno that won't collide with real columns.
-        // The attno is only used for dedup in add_field; downstream code
-        // uses the WhichFastField name, not the attno.
-        let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 100);
-        source.scan_info.add_field(
-            synthetic_attno,
-            WhichFastField::Named(field_name.to_string(), field_type),
-        );
-    }
+    let (_, data) = categorized
+        .iter()
+        .find(|(sf, _)| sf == &search_field)
+        .ok_or_else(|| format!("Field '{field_name}' not found in categorized fields"))?;
+    let field_type = field_type_for_pullup(search_field.field_type(), data.is_array)
+        .ok_or_else(|| format!("Field '{field_name}' has unsupported type for pullup"))?;
+
+    let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 1);
+    source.scan_info.add_field(
+        synthetic_attno,
+        WhichFastField::Named(field_name.to_string(), field_type),
+    );
+    Ok(())
 }
 
 /// Helper function to retrieve an attribute number given a column name from a `JoinSource`'s underlying heap relation.

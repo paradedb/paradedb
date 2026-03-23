@@ -621,7 +621,10 @@ fn build_clause_df<'a>(
                                 .execution(idx);
                             make_col(&alias, name.as_ref())
                         })
-                        .unwrap_or_else(|| col(name.as_ref())),
+                        .unwrap_or_else(|| {
+                            pgrx::warning!("JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'");
+                            col(name.as_ref())
+                        }),
                     OrderByFeature::Var { rti, attno, .. } => {
                         if !distinct_col_map.is_empty() {
                             resolve_distinct_col(false, *rti, *attno, "")

@@ -173,3 +173,30 @@ MockItem.search(:description)
 ```
 
 </CodeGroup>
+
+## Proximity Chaining
+
+Multiple proximity clauses can be chained together:
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ ('sleek' ## 1 ## 'running' ## 2 ## pdb.prox_array('sneakers', pdb.prox_regex('sho.*')));
+```
+
+```python Django
+from paradedb import ParadeDB, ProxRegex, ProximityArray
+
+MockItem.objects.filter(
+    description=ParadeDB(Proximity('sleek').within(1, 'running').within(2, ['sneakers', ProxRegex('sho.*')]))
+).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .near(ParadeDB.proximity("sleek").within(1, "running").within(2, ['sneakers', ParadeDB.regex_term('sho.*')]))
+        .select(:description, :rating, :category)
+```
+
+</CodeGroup>

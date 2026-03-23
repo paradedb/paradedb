@@ -112,8 +112,17 @@ pub struct PgSearchScanPlan {
     /// Metrics for EXPLAIN ANALYZE.
     metrics: ExecutionPlanMetricsSet,
     deferred_fields: Vec<DeferredField>,
+    /// FFHelper for late materialization (text/bytes dictionary lookup).
+    /// Used by LateMaterializePlanner::extract_ff_helper(), keyed by indexrelid.
+    /// Only set when deferred text/bytes fields exist.
     ffhelper_for_lookup: Option<Arc<FFHelper>>,
+    /// FFHelper for deferred visibility (ctid resolution).
+    /// Used by VisibilityCtidResolverRule, matched by deferred_ctid_alias.
+    /// Set when DeferredCtid is present, even without deferred text/bytes fields.
+    ffhelper_for_visibility: Option<Arc<FFHelper>>,
     pub indexrelid: u32,
+    /// The ctid column alias when visibility is deferred (e.g. "ctid_0").
+    deferred_ctid_alias: Option<String>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -133,6 +142,7 @@ impl PgSearchScanPlan {
     /// * `schema` - Arrow schema for the output
     /// * `query_for_display` - Search query for EXPLAIN
     /// * `sort_order` - Optional sort order declaration for equivalence properties
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         states: Vec<ScanState>,
         schema: SchemaRef,
@@ -141,6 +151,8 @@ impl PgSearchScanPlan {
         deferred_fields: Vec<DeferredField>,
         ffhelper_for_lookup: Option<Arc<FFHelper>>,
         indexrelid: u32,
+        deferred_ctid_alias: Option<String>,
+        ffhelper_for_visibility: Option<Arc<FFHelper>>,
     ) -> Self {
         // Ensure we always return at least one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
@@ -178,12 +190,27 @@ impl PgSearchScanPlan {
             metrics: ExecutionPlanMetricsSet::new(),
             deferred_fields,
             ffhelper_for_lookup,
+            ffhelper_for_visibility,
             indexrelid,
+            deferred_ctid_alias,
         }
     }
 
+    /// FFHelper for late materialization (text/bytes dictionary lookup).
+    /// Used by LateMaterializePlanner.
     pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {
         self.ffhelper_for_lookup.as_ref()
+    }
+
+    /// FFHelper for deferred visibility (ctid resolution).
+    /// Used by VisibilityCtidResolverRule.
+    pub fn ffhelper_for_visibility(&self) -> Option<&Arc<FFHelper>> {
+        self.ffhelper_for_visibility.as_ref()
+    }
+
+    /// Returns the deferred ctid column alias, if visibility is deferred.
+    pub fn deferred_ctid_alias(&self) -> Option<&str> {
+        self.deferred_ctid_alias.as_deref()
     }
 }
 
@@ -441,7 +468,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                 metrics: self.metrics.clone(),
                 deferred_fields: self.deferred_fields.clone(),
                 ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
+                ffhelper_for_visibility: self.ffhelper_for_visibility.clone(),
                 indexrelid: self.indexrelid,
+                deferred_ctid_alias: self.deferred_ctid_alias.clone(),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
@@ -547,6 +576,8 @@ pub fn create_sorted_scan(
         Vec::new(),
         None,
         0,
+        None,
+        None,
     ));
 
     // For a single segment, no merging is needed

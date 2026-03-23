@@ -147,8 +147,10 @@ mod predicate;
 mod privdat;
 mod scan_state;
 mod translator;
+pub mod visibility_filter;
 
-use self::build::{CtidColumn, JoinCSClause, RelNode, RelationAlias};
+pub use self::build::CtidColumn;
+use self::build::{JoinCSClause, RelNode, RelationAlias};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::memory::create_memory_pool;
 use self::planning::{
@@ -160,7 +162,7 @@ use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
 
 use self::scan_state::{
-    build_joinscan_logical_plan, build_joinscan_physical_plan, create_session_context,
+    build_joinscan_logical_plan, build_joinscan_physical_plan, create_execution_session_context,
     JoinScanState,
 };
 use crate::api::OrderByFeature;
@@ -332,6 +334,55 @@ impl JoinScan {
             .collect();
 
         state.custom_state_mut().source_manifests = manifests;
+    }
+
+    /// Build index_oid → canonical segment IDs map for SearchPredicateUDF.
+    ///
+    /// Workers use frozen segment IDs from DSM to match the leader's segment set.
+    /// Leader/serial uses manifests captured with the same snapshot.
+    /// Build plan_position → canonical segment IDs map for SearchPredicateUDF.
+    ///
+    /// Keyed by plan_position (not indexrelid) so self-joins with the same index
+    /// but different segment sets (partitioned vs replicated) are correctly
+    /// disambiguated.
+    fn build_index_segment_ids(
+        state: &mut CustomScanStateWrapper<Self>,
+        join_clause: &JoinCSClause,
+        plan_sources: &[&build::JoinSource],
+    ) -> crate::api::HashMap<usize, crate::api::HashSet<tantivy::index::SegmentId>> {
+        let mut map = crate::api::HashMap::default();
+        let partitioning_idx = join_clause.partitioning_source_index();
+        let is_worker = unsafe { pg_sys::ParallelWorkerNumber >= 0 };
+
+        if is_worker {
+            let non_partitioning_segs = &state.custom_state().non_partitioning_segments;
+            let mut np_counter = 0usize;
+            for (i, _source) in plan_sources.iter().enumerate() {
+                if i == partitioning_idx {
+                    if let Some(ps) = state.custom_state().parallel_state {
+                        let ids =
+                            unsafe { crate::postgres::customscan::parallel::list_segment_ids(ps) };
+                        map.insert(i, ids);
+                    }
+                } else if let Some(ids) = non_partitioning_segs.get(np_counter) {
+                    map.insert(i, ids.clone());
+                    np_counter += 1;
+                }
+            }
+        } else {
+            Self::ensure_source_manifests(state);
+            for (i, _source) in plan_sources.iter().enumerate() {
+                if let Some(manifest) = state.custom_state().source_manifests.get(i) {
+                    let ids: crate::api::HashSet<_> = manifest
+                        .segment_readers()
+                        .iter()
+                        .map(|r| r.segment_id())
+                        .collect();
+                    map.insert(i, ids);
+                }
+            }
+        }
+        map
     }
 
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
@@ -1073,8 +1124,12 @@ impl CustomScan for JoinScan {
                 );
                 return;
             }
-            // For plain EXPLAIN, reconstruct the plan from the serialized logical plan.
-            let ctx = create_session_context();
+            // For plain EXPLAIN, reconstruct the plan using the execution context
+            // so that VisibilityFilterExec nodes appear in the displayed plan,
+            // matching what actually runs during EXPLAIN ANALYZE.
+            let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+            let join_clause = &state.custom_state().join_clause;
+            let ctx = create_execution_session_context(join_clause, snapshot);
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
@@ -1149,21 +1204,27 @@ impl CustomScan for JoinScan {
 
                 // Deserialize the logical plan and convert to execution plan
                 let planstate = state.planstate();
+                // Clone plan_bytes to release the immutable borrow on `state`
+                // before the mutable borrow in ensure_source_manifests below.
                 let plan_bytes = state
                     .custom_state()
                     .logical_plan
-                    .as_ref()
+                    .clone()
                     .expect("Logical plan is required");
 
-                // Deserialize the logical plan
-                let ctx = create_session_context();
+                let index_segment_ids =
+                    Self::build_index_segment_ids(state, &join_clause, &plan_sources);
+
+                // Use execution context with deferred visibility rules
+                let ctx = create_execution_session_context(&join_clause, snapshot);
                 let logical_plan = deserialize_logical_plan_parallel(
-                    plan_bytes,
+                    &plan_bytes,
                     &ctx.task_ctx(),
                     state.custom_state().parallel_state,
                     Some(state.runtime_context),
                     Some(planstate),
                     state.custom_state().non_partitioning_segments.clone(),
+                    index_segment_ids,
                 )
                 .expect("Failed to deserialize logical plan");
 

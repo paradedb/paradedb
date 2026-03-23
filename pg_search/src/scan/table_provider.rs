@@ -190,6 +190,7 @@ impl PgSearchTableProvider {
     pub fn try_enable_late_materialization(
         &mut self,
         required_early_columns: &crate::api::HashSet<String>,
+        plan_position: Option<usize>,
     ) {
         for wff in self.fields.iter_mut() {
             if let WhichFastField::Named(name, field_type) = wff {
@@ -207,6 +208,30 @@ impl PgSearchTableProvider {
                 }
             }
         }
+        // Defer ctid for deferred visibility (joinscan path only).
+        // Emits packed DocAddresses instead of real ctids so that visibility
+        // checking can be done in batch by VisibilityFilterExec after the join.
+        if let Some(plan_pos) = plan_position {
+            for wff in self.fields.iter_mut() {
+                if matches!(wff, WhichFastField::Ctid) {
+                    *wff = WhichFastField::DeferredCtid(
+                        crate::postgres::customscan::joinscan::CtidColumn::new(plan_pos)
+                            .to_string(),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Returns the ctid alias if this provider has a deferred ctid column.
+    pub fn deferred_ctid_alias(&self) -> Option<&str> {
+        self.fields.iter().find_map(|wff| {
+            if let WhichFastField::DeferredCtid(alias) = wff {
+                Some(alias.as_str())
+            } else {
+                None
+            }
+        })
     }
 
     pub fn deferred_fields(&self) -> Vec<DeferredField> {
@@ -374,11 +399,24 @@ impl PgSearchTableProvider {
         });
 
         let deferred = self.deferred_fields();
+        let deferred_ctid_alias = self.deferred_ctid_alias().map(|s| s.to_string());
 
-        let ffhelper_opt = if deferred.is_empty() {
+        // FFHelper for late materialization: only when deferred text/bytes fields exist.
+        // Keyed by indexrelid in LateMaterializePlanner — must NOT be set for ctid-only
+        // scans to avoid overwriting the helper for a sibling scan (self-join) that has
+        // actual deferred text/bytes columns.
+        let ffhelper_for_lookup = if deferred.is_empty() {
             None
         } else {
             Some(ffhelper.clone())
+        };
+
+        // FFHelper for visibility: only when DeferredCtid is present.
+        // Matched by deferred_ctid_alias in VisibilityCtidResolverRule.
+        let ffhelper_for_visibility = if deferred_ctid_alias.is_some() {
+            Some(ffhelper.clone())
+        } else {
+            None
         };
 
         Ok(Arc::new(PgSearchScanPlan::new(
@@ -387,8 +425,10 @@ impl PgSearchTableProvider {
             query_for_display,
             actual_sort_order,
             deferred,
-            ffhelper_opt,
+            ffhelper_for_lookup,
             self.scan_info.indexrelid.to_u32(),
+            deferred_ctid_alias,
+            ffhelper_for_visibility,
         )))
     }
 

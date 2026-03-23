@@ -79,7 +79,7 @@ pub const SEARCH_PREDICATE_UDF_NAME: &str = "pdb_search_predicate";
 /// - index_oid: UInt32 - OID of the BM25 index
 /// - heap_oid: UInt32 - OID of the heap table
 /// - query_json: Utf8 - JSON serialization of SearchQueryInput
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchPredicateUDF {
     /// OID of the BM25 index
     pub index_oid: pg_sys::Oid,
@@ -88,18 +88,67 @@ pub struct SearchPredicateUDF {
     /// The search query as JSON (stored as string for Hash/Eq derivation)
     query_json: String,
     /// Human-readable representation of the original PostgreSQL expression (for EXPLAIN output).
-    /// Eagerly computed during planning via `deparse_expr`.
     display_string: String,
+    /// When true, `execute_search` produces packed DocAddresses.
+    /// When false, it produces real ctids with visibility checking.
+    #[serde(default)]
+    deferred_visibility: bool,
+    /// Position of the source this UDF targets in the join's `sources()` ordering.
+    /// Used by the codec to inject the correct canonical segment IDs in self-join
+    /// scenarios where multiple scans share the same `index_oid` but have different
+    /// segment sets (partitioned vs replicated).
+    #[serde(default)]
+    plan_position: Option<usize>,
+    /// Canonical segment IDs, injected by the codec during deserialization.
+    #[serde(skip)]
+    canonical_segment_ids: Option<crate::api::HashSet<tantivy::index::SegmentId>>,
     #[serde(skip, default = "SearchPredicateUDF::make_signature")]
     signature: Signature,
 }
 
+// Manual impls exclude runtime-only fields (canonical_segment_ids, signature)
+impl PartialEq for SearchPredicateUDF {
+    fn eq(&self, other: &Self) -> bool {
+        self.index_oid == other.index_oid
+            && self.heap_oid == other.heap_oid
+            && self.query_json == other.query_json
+            && self.display_string == other.display_string
+            && self.deferred_visibility == other.deferred_visibility
+            && self.plan_position == other.plan_position
+    }
+}
+
+impl Eq for SearchPredicateUDF {}
+
+impl std::hash::Hash for SearchPredicateUDF {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.index_oid.hash(state);
+        self.heap_oid.hash(state);
+        self.query_json.hash(state);
+        self.display_string.hash(state);
+        self.deferred_visibility.hash(state);
+        self.plan_position.hash(state);
+    }
+}
+
 impl SearchPredicateUDF {
+    #[allow(dead_code)]
     pub fn new(
         index_oid: pg_sys::Oid,
         heap_oid: pg_sys::Oid,
         query: SearchQueryInput,
         display_string: String,
+    ) -> Self {
+        Self::with_deferred_visibility(index_oid, heap_oid, query, display_string, false, None)
+    }
+
+    pub fn with_deferred_visibility(
+        index_oid: pg_sys::Oid,
+        heap_oid: pg_sys::Oid,
+        query: SearchQueryInput,
+        display_string: String,
+        deferred_visibility: bool,
+        plan_position: Option<usize>,
     ) -> Self {
         let query_json =
             serde_json::to_string(&query).expect("SearchQueryInput should be serializable");
@@ -108,6 +157,9 @@ impl SearchPredicateUDF {
             heap_oid,
             query_json,
             display_string,
+            deferred_visibility,
+            plan_position,
+            canonical_segment_ids: None,
             signature: Self::make_signature(),
         }
     }
@@ -117,6 +169,19 @@ impl SearchPredicateUDF {
     pub fn display(&self) -> String {
         // Strip dynamic OID values for deterministic output
         strip_oids(&self.display_string)
+    }
+
+    /// Returns the plan_position this UDF targets, if set.
+    pub fn plan_position(&self) -> Option<usize> {
+        self.plan_position
+    }
+
+    /// Inject canonical segment IDs so execute_search uses the same segments as the plan.
+    pub fn set_canonical_segment_ids(
+        &mut self,
+        ids: crate::api::HashSet<tantivy::index::SegmentId>,
+    ) {
+        self.canonical_segment_ids = Some(ids);
     }
 
     fn make_signature() -> Signature {
@@ -224,11 +289,15 @@ impl ScalarUDFImpl for SearchPredicateUDF {
 }
 
 impl SearchPredicateUDF {
-    /// Execute the search and return sorted matching CTIDs.
+    /// Execute the search and return sorted matching values.
     ///
     /// This is the direct execution path used when the filter is not pushed down
-    /// (e.g., cross-table OR predicates). It materializes all matching CTIDs upfront
+    /// (e.g., cross-table OR predicates). It materializes all matching values upfront
     /// for binary-search filtering against incoming batches.
+    ///
+    /// When `deferred_visibility` is false, returns real ctids with visibility checking.
+    /// When `deferred_visibility` is true, returns packed DocAddresses (segment_ord << 32 | doc_id)
+    /// without visibility checking — the caller (VisibilityFilterExec) will handle visibility later.
     fn execute_search(&self) -> Result<Vec<u64>> {
         use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
         use crate::index::mvcc::MvccSatisfies;
@@ -241,41 +310,53 @@ impl SearchPredicateUDF {
         let heap_rel = PgSearchRelation::open(self.heap_oid);
         let query = self.query();
 
+        // Use canonical segment IDs when available to ensure the same segment
+        // set and ordering as the plan's table providers. This is critical for
+        // deferred visibility where packed DocAddresses must be comparable.
+        let mvcc_style = if let Some(ref ids) = self.canonical_segment_ids {
+            MvccSatisfies::ParallelWorker(ids.clone())
+        } else {
+            MvccSatisfies::Snapshot
+        };
+
         let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query,
-            false, // score_needed
-            MvccSatisfies::Snapshot,
-            None,
-            None,
+            &index_rel, query, false, // score_needed
+            mvcc_style, None, None,
         )
         .map_err(|e| {
             datafusion::common::DataFusionError::Internal(format!("Failed to open reader: {e}"))
         })?;
 
         let search_results = reader.search();
-        let fields = vec![WhichFastField::Ctid];
-        let ffhelper = FFHelper::with_fields(&reader, &fields);
 
+        let fields = if self.deferred_visibility {
+            // Deferred visibility: emit packed DocAddresses without heap access.
+            // The incoming batch also has packed DocAddresses because the UDF runs
+            // below VisibilityFilterExec (inner join case).
+            let ctid_alias = format!("ctid_udf_{}", self.heap_oid.to_u32());
+            vec![WhichFastField::DeferredCtid(ctid_alias)]
+        } else {
+            vec![WhichFastField::Ctid]
+        };
+
+        let ffhelper = FFHelper::with_fields(&reader, &fields);
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let mut visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
-
         let mut scanner = Scanner::new(search_results, None, fields, self.heap_oid.into());
 
-        let mut ctids = Vec::new();
+        let mut values = Vec::new();
         while let Some(batch) = scanner.next(&ffhelper, &mut visibility, None) {
             if let Some(Some(col)) = batch.fields.first() {
                 let array = col
                     .as_any()
                     .downcast_ref::<UInt64Array>()
-                    .expect("Ctid should be UInt64Array");
-                ctids.extend(array.values());
+                    .expect("UDF ctid/DeferredCtid should be UInt64Array");
+                values.extend(array.values());
             }
         }
-
-        ctids.sort_unstable();
-        ctids.dedup();
-        Ok(ctids)
+        values.sort_unstable();
+        values.dedup();
+        Ok(values)
     }
 }
 

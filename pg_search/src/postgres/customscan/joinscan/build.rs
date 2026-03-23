@@ -628,6 +628,44 @@ impl RelNode {
         unsupported
     }
 
+    /// Returns the set of plan_positions whose ctid columns are still packed
+    /// DocAddresses (deferred visibility) at the output of this subtree.
+    ///
+    /// A plan_position's ctid is "resolved" (real heap TID) if it flows through
+    /// a non-inner join barrier where `VisibilityFilterOptimizerRule` inserts
+    /// per-child visibility checking. Otherwise it remains "deferred" (packed).
+    ///
+    /// This is used to set `deferred_visibility` per-predicate in join-level
+    /// filter expressions, rather than using a single boolean for the whole tree.
+    pub fn deferred_plan_positions(&self) -> crate::api::HashSet<usize> {
+        let mut deferred = crate::api::HashSet::default();
+        self.collect_deferred_positions(&mut deferred);
+        deferred
+    }
+
+    fn collect_deferred_positions(&self, acc: &mut crate::api::HashSet<usize>) {
+        match self {
+            RelNode::Scan(s) => {
+                // Leaf scans always emit packed DocAddresses when deferred
+                // visibility is enabled (via DeferredCtid in table_provider).
+                acc.insert(s.plan_position);
+            }
+            RelNode::Join(j) => {
+                if matches!(j.join_type, JoinType::Inner) {
+                    // Inner join: no barrier, both sides' ctids pass through as-is.
+                    j.left.collect_deferred_positions(acc);
+                    j.right.collect_deferred_positions(acc);
+                } else {
+                    // Non-inner join (Semi, Anti, Left, etc.): VisibilityFilterOptimizerRule
+                    // inserts per-child barriers. Output-visible sources have their ctids
+                    // resolved to real heap TIDs — they are NOT deferred above this point.
+                    // (We don't add them to acc.)
+                }
+            }
+            RelNode::Filter(f) => f.input.collect_deferred_positions(acc),
+        }
+    }
+
     /// Returns true if the query tree contains a SEMI or ANTI join at any level.
     pub fn has_semi_or_anti(&self) -> bool {
         match self {

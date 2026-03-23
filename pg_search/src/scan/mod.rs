@@ -24,6 +24,7 @@ pub mod filter_pushdown;
 pub mod info;
 pub mod late_materialization;
 pub mod pre_filter;
+pub mod reorder_lookup_above_visibility_rule;
 pub mod search_predicate_udf;
 pub mod segmented_topk_exec;
 pub mod segmented_topk_rule;
@@ -31,6 +32,7 @@ pub mod table_provider;
 pub mod tantivy_lookup_exec;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
+pub mod visibility_ctid_resolver_rule;
 
 pub use batch_scanner::Scanner;
 pub use info::ScanInfo;

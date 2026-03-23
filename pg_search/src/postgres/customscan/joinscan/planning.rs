@@ -33,7 +33,7 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::pullup::resolve_fast_field;
+use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid};
 use crate::postgres::customscan::score_funcoids;
@@ -790,7 +790,10 @@ pub(super) unsafe fn collect_required_fields(
                     ensure_column(source, *rti, *attno);
                 }
             }
-            OrderByFeature::Field(name_wrapper) => {
+            OrderByFeature::Field {
+                name: name_wrapper,
+                rti,
+            } => {
                 let name = name_wrapper.as_ref();
                 if let Some((alias, col_name)) = name.split_once('.') {
                     let raw_col_name = col_name.trim_matches('"');
@@ -798,6 +801,25 @@ pub(super) unsafe fn collect_required_fields(
                         if source.scan_info.alias.as_deref() == Some(alias) {
                             if let Some(attno) = get_attno_by_name(source, raw_col_name) {
                                 ensure_field(source, attno);
+                            }
+                            break;
+                        }
+                    }
+                } else {
+                    // Unqualified field name (e.g. from indexed expression) — use RTI
+                    // to find the correct source and ensure the column is projected.
+                    for source in &mut plan_sources {
+                        if source.contains_rti(*rti) {
+                            // Try as a regular column first, then fall back to
+                            // expression-indexed field.  The column `name` may
+                            // exist in the table but only be indexed via an
+                            // expression (e.g. upper(name)), in which case
+                            // ensure_field (via resolve_fast_field) won't find it.
+                            let added = get_attno_by_name(source, name)
+                                .and_then(|attno| try_ensure_field(source, attno))
+                                .is_some();
+                            if !added {
+                                ensure_expression_field(source, name);
                             }
                             break;
                         }
@@ -845,6 +867,56 @@ unsafe fn ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) {
         attno,
         side.scan_info.alias.clone()
     );
+}
+
+/// Like `ensure_field`, but returns `Some(())` on success or `None` on failure
+/// (instead of printing a warning).
+unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> Option<()> {
+    if side.scan_info.fields.iter().any(|f| f.attno == attno) {
+        return Some(());
+    }
+
+    let heaprel = PgSearchRelation::open(side.scan_info.heaprelid);
+    let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
+    let tupdesc = heaprel.tuple_desc();
+
+    let field = resolve_fast_field(attno as i32, &tupdesc, &indexrel)?;
+    side.scan_info.add_field(attno, field);
+    Some(())
+}
+
+/// Ensures an expression-indexed fast field is projected from a `JoinSource`.
+///
+/// Unlike `ensure_field` (which resolves plain columns via attno), this function
+/// looks up a search field by name in the BM25 index schema and adds the
+/// corresponding `WhichFastField` directly.  Used for ORDER BY on indexed
+/// expressions like `upper(name)`, where the Tantivy field has no matching
+/// PostgreSQL column attno.
+unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) {
+    let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+    let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+        return;
+    };
+    let Some(search_field) = schema.search_field(field_name) else {
+        return;
+    };
+    if !search_field.is_fast() {
+        return;
+    }
+    let categorized = schema.categorized_fields();
+    let Some((_, data)) = categorized.iter().find(|(sf, _)| sf == &search_field) else {
+        return;
+    };
+    if let Some(field_type) = field_type_for_pullup(search_field.field_type(), data.is_array) {
+        // Use a synthetic attno that won't collide with real columns.
+        // The attno is only used for dedup in add_field; downstream code
+        // uses the WhichFastField name, not the attno.
+        let synthetic_attno = -(source.scan_info.fields.len() as pg_sys::AttrNumber + 100);
+        source.scan_info.add_field(
+            synthetic_attno,
+            WhichFastField::Named(field_name.to_string(), field_type),
+        );
+    }
 }
 
 /// Helper function to retrieve an attribute number given a column name from a `JoinSource`'s underlying heap relation.
@@ -1264,6 +1336,34 @@ pub(super) unsafe fn extract_orderby(
                         direction,
                     });
                     pathkey_resolved = true;
+                }
+            } else {
+                // Non-Var expression — check if it matches an indexed expression
+                // so we can push the sort into the index.
+                for source in sources {
+                    if !output_rtis.contains(&source.scan_info.heap_rti) {
+                        continue;
+                    }
+                    let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+                    let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+                        continue;
+                    };
+                    if let Some(search_field) = find_matching_fast_field(
+                        check_expr as *mut pg_sys::Node,
+                        &index_rel.index_expressions(),
+                        schema,
+                        source.scan_info.heap_rti,
+                    ) {
+                        result.push(OrderByInfo {
+                            feature: OrderByFeature::Field {
+                                name: search_field.name().into(),
+                                rti: source.scan_info.heap_rti,
+                            },
+                            direction,
+                        });
+                        pathkey_resolved = true;
+                        break;
+                    }
                 }
             }
             if pathkey_resolved {

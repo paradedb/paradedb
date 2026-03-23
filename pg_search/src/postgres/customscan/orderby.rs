@@ -350,7 +350,11 @@ where
                         if let Some(field_name) = field_name_opt {
                             if let Some(search_field) = schema.search_field(field_name.root()) {
                                 if lower_sortability_check(&search_field) {
-                                    pathkey_styles.push(OrderByStyle::Field(pathkey, field_name));
+                                    pathkey_styles.push(OrderByStyle::Field {
+                                        pathkey,
+                                        name: field_name,
+                                        rti: rti,
+                                    });
                                     found_valid_member = true;
                                     break;
                                 }
@@ -361,7 +365,11 @@ where
                         if let Some(field_name) = field_name_opt {
                             if let Some(search_field) = schema.search_field(field_name.root()) {
                                 if regular_sortability_check(&search_field) {
-                                    pathkey_styles.push(OrderByStyle::Field(pathkey, field_name));
+                                    pathkey_styles.push(OrderByStyle::Field {
+                                        pathkey,
+                                        name: field_name,
+                                        rti: rti,
+                                    });
                                     found_valid_member = true;
                                     break;
                                 }
@@ -372,7 +380,11 @@ where
                         if let Some(field_name) = field_name_opt {
                             if let Some(search_field) = schema.search_field(field_name.root()) {
                                 if search_field.is_fast() {
-                                    pathkey_styles.push(OrderByStyle::Field(pathkey, field_name));
+                                    pathkey_styles.push(OrderByStyle::Field {
+                                        pathkey,
+                                        name: field_name,
+                                        rti: rti,
+                                    });
                                     found_valid_member = true;
                                     break;
                                 }
@@ -623,7 +635,11 @@ unsafe fn check_var_matches_sort_by(
         return None;
     }
 
-    Some(OrderByStyle::Field(pathkey, sort_field_name.into()))
+    Some(OrderByStyle::Field {
+        pathkey,
+        name: sort_field_name.into(),
+        rti: rti,
+    })
 }
 
 pub unsafe fn pathkey_matches_sort_by(

@@ -1248,7 +1248,10 @@ impl CustomScan for BaseScan {
                     .iter()
                     .map(|oi| match oi {
                         OrderByInfo {
-                            feature: OrderByFeature::Field(fieldname),
+                            feature:
+                                OrderByFeature::Field {
+                                    name: fieldname, ..
+                                },
                             direction,
                             ..
                         } => {

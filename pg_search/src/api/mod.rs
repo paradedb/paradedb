@@ -309,7 +309,10 @@ pub enum OrderByFeature {
     Score {
         rti: u32,
     },
-    Field(FieldName),
+    Field {
+        name: FieldName,
+        rti: u32,
+    },
     /// A reference to a PostgreSQL variable (column) by its Range Table Index (RTI) and Attribute Number.
     ///
     /// This variant is primarily used by `JoinScan` to unambiguously identify columns across multiple

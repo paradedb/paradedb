@@ -277,30 +277,31 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.name) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY column is not available in the joined output schema (tables: p, s)
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, (upper(p.name))
-   ->  Sort
-         Output: p.name, s.name, (upper(p.name))
-         Sort Key: (upper(p.name))
-         ->  Hash Join
-               Output: p.name, s.name, upper(p.name)
-               Inner Unique: true
-               Hash Cond: (s.product_id = p.id)
-               ->  Seq Scan on public.expr_suppliers s
-                     Output: s.id, s.product_id, s.name, s.contact_info
-               ->  Hash
-                     Output: p.name, p.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.expr_products p
-                           Output: p.name, p.id
-                           Table: expr_products
-                           Index: expr_products_bm25
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+   ->  Result
+         Output: p.name, s.name, upper(p.name)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.name, s.name
+               Relation Tree: s INNER p
+               Join Cond: p.id = s.product_id
+               Limit: 5
+               Order By: name asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+                 :   TantivyLookupExec: decode=[name]
+                 :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=5
+                 :       ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, name@1 as name]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_1@0, name@2, ctid_0@3]
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, name@2 as name]
+                 :             CooperativeExec
+                 :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :           ProjectionExec: expr=[ctid@0 as ctid_0, product_id@1 as product_id]
+                 :             CooperativeExec
+                 :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(22 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
@@ -308,7 +309,6 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.name) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: ORDER BY column is not available in the joined output schema (tables: p, s)
        name       | supplier_name 
 ------------------+---------------
  Headphones       | TechCorp

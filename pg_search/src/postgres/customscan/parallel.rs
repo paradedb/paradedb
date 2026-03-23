@@ -68,7 +68,12 @@ pub fn compute_nworkers(
     // In a single-table query, the overhead of spawning parallel workers might exceed the performance gain.
     // However, in a join, failing to claim parallel workers can prevent the planner from choosing a
     // `Parallel Hash Join`, leading to inefficient plans where joins or sorts are executed serially after a `Gather`.
-    if !is_join_context {
+    //
+    // When the scan declares sorted output (TopK with ORDER BY, or sorted columnar), it must
+    // visit ALL segments to produce globally correct results. The cost is segment-scan dominated,
+    // not row-count dominated, so restricting workers based on estimated matching rows would
+    // starve parallelism for queries that match few rows but still need to scan many segments.
+    if !is_join_context && !declares_sorted_output {
         if let RowEstimate::Known(total_rows) = estimated_total_rows {
             let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
             if min_rows_per_worker > 0 {

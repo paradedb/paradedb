@@ -42,6 +42,9 @@ pub fn term_ordinal_type() -> DataType {
 }
 
 /// Packs segment ordinals and doc IDs into a single 64-bit integer array.
+///
+/// This preserves enough Tantivy row identity to resolve a surviving row back to a
+/// real ctid later, without paying heap-access costs up front.
 pub fn pack_doc_addresses(segment_ord: SegmentOrdinal, doc_ids: &[DocId]) -> UInt64Array {
     let mut b = arrow_array::builder::UInt64Builder::with_capacity(doc_ids.len());
     for doc_id in doc_ids {

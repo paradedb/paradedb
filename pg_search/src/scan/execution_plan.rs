@@ -115,10 +115,17 @@ pub struct PgSearchScanPlan {
     /// FFHelper for late materialization (text/bytes dictionary lookup).
     /// Used by LateMaterializePlanner::extract_ff_helper(), keyed by indexrelid.
     /// Only set when deferred text/bytes fields exist.
+    ///
+    /// This must stay separate from `ffhelper_for_visibility`: in a self-join, one
+    /// scan may be ctid-only for deferred visibility while a sibling scan on the same
+    /// index still owns the text/bytes lookup helper.
     ffhelper_for_lookup: Option<Arc<FFHelper>>,
     /// FFHelper for deferred visibility (ctid resolution).
     /// Used by VisibilityCtidResolverRule, matched by deferred_ctid_alias.
     /// Set when DeferredCtid is present, even without deferred text/bytes fields.
+    ///
+    /// Keeping this separate avoids letting a ctid-only scan overwrite a sibling's
+    /// late-materialization helper when both scans share the same indexrelid.
     ffhelper_for_visibility: Option<Arc<FFHelper>>,
     pub indexrelid: u32,
     /// The ctid column alias when visibility is deferred (e.g. "ctid_0").

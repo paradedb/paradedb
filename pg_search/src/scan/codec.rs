@@ -301,8 +301,13 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                 // Inject canonical segment IDs by plan_position (not index_oid) to
                 // handle self-joins where the same index has different segment sets.
                 if let Some(pos) = udf.plan_position() {
-                    if let Some(ids) = self.index_segment_ids.get(&pos) {
-                        udf.set_canonical_segment_ids(ids.clone());
+                    if !self.index_segment_ids.is_empty() {
+                        let ids = self
+                            .index_segment_ids
+                            .get(&pos)
+                            .cloned()
+                            .expect("missing canonical segment IDs for plan_position");
+                        udf.set_canonical_segment_ids(ids);
                     }
                 }
                 Ok(Arc::new(ScalarUDF::new_from_impl(udf)))

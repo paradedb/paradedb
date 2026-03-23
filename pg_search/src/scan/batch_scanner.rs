@@ -98,7 +98,11 @@ fn ensure_column_fetched(
                     .fetch_values_or_ords_to_arrow(ids),
             );
         }
-        _ => {}
+        WhichFastField::Ctid
+        | WhichFastField::DeferredCtid(_)
+        | WhichFastField::Score
+        | WhichFastField::TableOid
+        | WhichFastField::Junk(_) => {}
     }
 }
 
@@ -427,13 +431,9 @@ impl Scanner {
                 // 1. Some(UInt64) -> The pre-filter already fetched ordinals. Emit State 1 (Term Ordinals).
                 // 2. Some(other)  -> The pre-filter fully materialized the column. Emit State 2 (Materialized).
                 // 3. None         -> The pre-filter didn't touch this column. Emit State 0 (DocAddress).
-                WhichFastField::DeferredCtid(_) => {
-                    // Emit packed DocAddresses: (segment_ord << 32) | doc_id
-                    Some(Arc::new(crate::scan::deferred_encode::pack_doc_addresses(
-                        segment_ord,
-                        &ids,
-                    )) as ArrayRef)
-                }
+                WhichFastField::DeferredCtid(_) => Some(Arc::new(
+                    crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
+                ) as ArrayRef),
                 WhichFastField::Deferred(_, field_type) => {
                     let is_bytes = matches!(
                         field_type.arrow_data_type(),

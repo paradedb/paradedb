@@ -18,10 +18,16 @@
 //! Deferred Visibility Filter for JoinScan.
 //!
 //! When deferred visibility is enabled, the PgSearchScanPlan emits packed DocAddresses
-//! instead of real ctids, and skips per-row visibility checking. After the join (or
-//! at a barrier), `VisibilityFilterExec` resolves the packed DocAddresses to real ctids
+//! instead of real ctids, and skips per-row visibility checking. This avoids paying
+//! heap-access and MVCC visibility costs for rows that will be discarded by the join,
+//! LIMIT, DISTINCT, or other downstream operators anyway. After the join (or at a
+//! barrier), `VisibilityFilterExec` resolves the packed DocAddresses to real ctids
 //! and performs batch visibility checking, filtering invisible rows and replacing ctids
 //! with HOT-resolved values.
+//!
+//! Packed DocAddresses are used because they preserve Tantivy row identity without
+//! opening the heap. Looking up a real ctid is exactly the expensive heap work we are
+//! trying to defer until we know which joined rows survive.
 //!
 //! # Architecture
 //!
@@ -244,6 +250,8 @@ enum VisibilityStatus {
     Verified,
 }
 
+// Ordered containers are used throughout this file so plan_position iteration stays
+// deterministic across optimizer rewrites, EXPLAIN output, and test assertions.
 type RelationStates = BTreeMap<usize, VisibilityStatus>;
 
 fn extract_ctid_lineage(schema: &DFSchemaRef) -> BTreeSet<usize> {
@@ -461,6 +469,10 @@ fn analyze_and_inject(
 /// Returns true if the given plan node is a "barrier" — a point where visibility
 /// must be checked before proceeding. Barriers include non-inner joins (semi, outer),
 /// aggregates, distinct, window functions, and sort-with-limit.
+///
+/// A plain `Sort` is not a barrier because it only reorders rows; deferred ctids can
+/// safely flow through it unchanged. `Sort` with `fetch` is a barrier because Top-N
+/// semantics can discard rows permanently, so visibility must be resolved first.
 fn is_barrier(plan: &LogicalPlan) -> bool {
     use datafusion::logical_expr::logical_plan::*;
     matches!(
@@ -714,7 +726,8 @@ impl ExecutionPlan for VisibilityFilterExec {
             self.plan_pos_oids.clone(),
             self.snapshot,
         )?;
-        // Transfer ctid resolvers to the new instance.
+        // with_new_children constructs a fresh exec node, so preserve any
+        // resolver wiring already attached to this instance.
         {
             let resolvers = self
                 .ctid_resolvers
@@ -739,14 +752,12 @@ impl ExecutionPlan for VisibilityFilterExec {
         let input_stream = self.input.execute(partition, context)?;
         let schema = self.schema();
 
-        // Snapshot ctid resolvers before building the stream.
         let resolvers = self
             .ctid_resolvers
             .lock()
             .expect("ctid_resolvers lock poisoned")
             .clone();
 
-        // Open heap relations and create visibility checkers.
         let mut checkers: Vec<CtidCheckerEntry> = Vec::with_capacity(self.plan_pos_oids.len());
         for &(plan_pos, heap_oid) in &self.plan_pos_oids {
             let col_name = CtidColumn::new(plan_pos).to_string();
@@ -821,26 +832,12 @@ pub fn materialize_deferred_ctid(
         }
     }
 
-    let mut builder = arrow_array::builder::UInt64Builder::with_capacity(num_rows);
-    for val in &result {
-        match val {
-            Some(v) => builder.append_value(*v),
-            None => builder.append_null(),
-        }
-    }
-    Ok(Arc::new(builder.finish()) as ArrayRef)
+    Ok(uint64_array_from_options(&result))
 }
 
 /// Builds a UInt64Array from a slice of Option<u64> values.
 pub fn uint64_array_from_options(values: &[Option<u64>]) -> ArrayRef {
-    let mut builder = arrow_array::builder::UInt64Builder::with_capacity(values.len());
-    for val in values {
-        match val {
-            Some(v) => builder.append_value(*v),
-            None => builder.append_null(),
-        }
-    }
-    Arc::new(builder.finish()) as ArrayRef
+    Arc::new(UInt64Array::from_iter(values.iter().copied())) as ArrayRef
 }
 
 // ---------------------------------------------------------------------------
@@ -935,8 +932,7 @@ impl VisibilityFilterStream {
         let mut visible_mask = vec![true; num_rows];
 
         // For each plan_position, check visibility and collect HOT-resolved ctids.
-        let mut resolved_ctids: Vec<(usize, Vec<Option<u64>>)> =
-            Vec::with_capacity(self.checkers.len());
+        let mut resolved_ctids: BTreeMap<usize, Vec<Option<u64>>> = BTreeMap::new();
 
         for entry in &mut self.checkers {
             let ctid_array = columns[entry.col_idx]
@@ -952,19 +948,17 @@ impl VisibilityFilterStream {
 
             let results = Self::check_column_visibility(&mut entry.checker, ctid_array, num_rows);
 
-            // Update visible_mask: rows with None result are invisible.
             for (i, result) in results.iter().enumerate() {
                 if result.is_none() {
                     visible_mask[i] = false;
                 }
             }
 
-            resolved_ctids.push((entry.col_idx, results));
+            resolved_ctids.insert(entry.col_idx, results);
         }
 
         let visible_count = visible_mask.iter().filter(|&&v| v).count();
         if visible_count == 0 {
-            // All rows filtered — return empty batch.
             let empty_cols: Vec<ArrayRef> = self
                 .schema
                 .fields()
@@ -976,9 +970,8 @@ impl VisibilityFilterStream {
         }
 
         if visible_count == num_rows {
-            // All rows visible — replace ctid columns with HOT-resolved values.
-            for (col_idx, resolved) in &resolved_ctids {
-                columns[*col_idx] = uint64_array_from_options(resolved);
+            for (&col_idx, resolved) in &resolved_ctids {
+                columns[col_idx] = uint64_array_from_options(resolved);
             }
             return RecordBatch::try_new(self.schema.clone(), columns)
                 .map_err(|e| DataFusionError::ArrowError(Box::new(e), None));
@@ -1001,8 +994,7 @@ impl VisibilityFilterStream {
 
         for (col_idx, col) in columns.iter().enumerate() {
             // Check if this is a ctid column that needs HOT resolution.
-            if let Some((_, resolved)) = resolved_ctids.iter().find(|(ci, _)| *ci == col_idx) {
-                // Build resolved ctid array for visible rows only.
+            if let Some(resolved) = resolved_ctids.get(&col_idx) {
                 let mut builder = arrow_array::builder::UInt64Builder::with_capacity(visible_count);
                 for &row_idx in &visible_indices {
                     match resolved[row_idx] {
@@ -1315,7 +1307,6 @@ mod tests {
             panic!("expected root to be VisibilityFilterNode");
         }
 
-        // Idempotent.
         let second = rule.rewrite(first.data.clone(), &config)?;
         assert!(!second.transformed);
         assert_eq!(count_visibility_nodes(&second.data), 1);
@@ -1389,7 +1380,6 @@ mod tests {
         // each child that has unverified plan_positions — 2 total.
         assert_eq!(count_visibility_nodes(&first.data), 2);
 
-        // Idempotent.
         let second = rule.rewrite(first.data.clone(), &config)?;
         assert!(!second.transformed);
         assert_eq!(count_visibility_nodes(&second.data), 2);

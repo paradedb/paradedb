@@ -251,11 +251,15 @@ pub fn create_execution_session_context(
 
     let mut builder = SessionStateBuilder::new().with_config(base_session_config());
 
+    // NOTE: We cannot use `add_columnar_sort_rules` here because visibility rules
+    // must be interleaved: SortMergeJoinEnforcer runs before visibility/resolver
+    // rules, while its companion FilterPushdown(Post) must run after them.
     if crate::gucs::is_columnar_sort_enabled() {
         builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
     }
 
-    // Logical: visibility THEN late materialization
+    // Inject visibility before late materialization so ctid lineage is analyzed
+    // while DeferredCtid columns are still present in the logical plan.
     builder = builder
         .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new(
             join_clause.clone(),
@@ -265,7 +269,8 @@ pub fn create_execution_session_context(
         ))
         .with_query_planner(Arc::new(VisibilityQueryPlanner::new(snapshot)));
 
-    // Physical: resolver must run before any FilterPushdown
+    // Reorder lookup nodes before wiring ctid resolvers, then finish resolver
+    // wiring before later post-optimization FilterPushdown passes can run.
     builder = builder
         .with_physical_optimizer_rule(Arc::new(ReorderLookupAboveVisibilityRule))
         .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
@@ -304,7 +309,6 @@ pub async fn build_joinscan_physical_plan(
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let state = ctx.state();
 
-    // Run logical optimizer to inject VisibilityFilterNode before physical planning.
     let plan = state.optimize(&plan)?;
 
     let plan = state

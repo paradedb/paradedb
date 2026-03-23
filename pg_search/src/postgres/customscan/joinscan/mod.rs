@@ -336,15 +336,16 @@ impl JoinScan {
         state.custom_state_mut().source_manifests = manifests;
     }
 
-    /// Build index_oid → canonical segment IDs map for SearchPredicateUDF.
-    ///
-    /// Workers use frozen segment IDs from DSM to match the leader's segment set.
-    /// Leader/serial uses manifests captured with the same snapshot.
     /// Build plan_position → canonical segment IDs map for SearchPredicateUDF.
     ///
     /// Keyed by plan_position (not indexrelid) so self-joins with the same index
     /// but different segment sets (partitioned vs replicated) are correctly
-    /// disambiguated.
+    /// disambiguated. If this were keyed only by indexrelid, one source could
+    /// inject the other source's segment set and make packed DocAddresses resolve
+    /// against the wrong segment ordering.
+    ///
+    /// Workers use frozen segment IDs from DSM to match the leader's segment set.
+    /// Leader/serial uses manifests captured with the same snapshot.
     fn build_index_segment_ids(
         state: &mut CustomScanStateWrapper<Self>,
         join_clause: &JoinCSClause,
@@ -1215,7 +1216,6 @@ impl CustomScan for JoinScan {
                 let index_segment_ids =
                     Self::build_index_segment_ids(state, &join_clause, &plan_sources);
 
-                // Use execution context with deferred visibility rules
                 let ctx = create_execution_session_context(&join_clause, snapshot);
                 let logical_plan = deserialize_logical_plan_parallel(
                     &plan_bytes,

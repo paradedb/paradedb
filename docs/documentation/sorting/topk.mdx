@@ -163,25 +163,25 @@ ORDER BY lower(description)
 LIMIT 5;
 ```
 
-```python Django
-from django.db.models.functions import Lower
-from paradedb import Match, ParadeDB
+<!-- ```python Django -->
+<!-- from django.db.models.functions import Lower -->
+<!-- from paradedb import Match, ParadeDB -->
 
-MockItem.objects.filter(
-    description=ParadeDB(Match('sleek running shoes', operator='OR'))
-).order_by(Lower('description')).values('description', 'rating', 'category')[:5]
-```
+<!-- MockItem.objects.filter( -->
+    <!-- description=ParadeDB(Match('sleek running shoes', operator='OR')) -->
+<!-- ).order_by(Lower('description')).values('description', 'rating', 'category')[:5] -->
+<!-- ``` -->
 
-```ruby Rails
-description = MockItem.arel_table[:description]
-lower_description = Arel::Nodes::NamedFunction.new("LOWER", [description])
+<!-- ```ruby Rails -->
+<!-- description = MockItem.arel_table[:description] -->
+<!-- lower_description = Arel::Nodes::NamedFunction.new("LOWER", [description]) -->
 
-MockItem.search(:description)
-        .matching_any("sleek running shoes")
-        .order(Arel::Nodes::Ascending.new(lower_description))
-        .select(:description, :rating, :category)
-        .limit(5)
-```
+<!-- MockItem.search(:description) -->
+        <!-- .matching_any("sleek running shoes") -->
+        <!-- .order(Arel::Nodes::Ascending.new(lower_description)) -->
+        <!-- .select(:description, :rating, :category) -->
+        <!-- .limit(5) -->
+<!-- ``` -->
 
 ```python SQLAlchemy
 from sqlalchemy import func, select

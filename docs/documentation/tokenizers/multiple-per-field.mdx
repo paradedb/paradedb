@@ -85,23 +85,6 @@ WHERE description @@@ 'shoes'
 ORDER BY description
 LIMIT 5;
 ```
-
-```python Django
-from paradedb import ParadeDB, ParseWithField
-
-MockItem.objects.filter(
-    description=ParadeDB(ParseWithField(query='shoes'))
-).values('description', 'rating', 'category').order_by('description')[:5]
-```
-
-```ruby Rails
-MockItem.search(:description)
-        .parse("shoes")
-        .select(:description, :rating, :category)
-        .order(:description)
-        .limit(5)
-```
-
 </CodeGroup>
 
 </Note>

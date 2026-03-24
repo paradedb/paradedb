@@ -1129,8 +1129,7 @@ impl CustomScan for JoinScan {
             // so that VisibilityFilterExec nodes appear in the displayed plan,
             // matching what actually runs during EXPLAIN ANALYZE.
             let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-            let join_clause = &state.custom_state().join_clause;
-            let ctx = create_execution_session_context(join_clause, snapshot);
+            let ctx = create_execution_session_context(snapshot);
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
@@ -1216,7 +1215,7 @@ impl CustomScan for JoinScan {
                 let index_segment_ids =
                     Self::build_index_segment_ids(state, &join_clause, &plan_sources);
 
-                let ctx = create_execution_session_context(&join_clause, snapshot);
+                let ctx = create_execution_session_context(snapshot);
                 let logical_plan = deserialize_logical_plan_parallel(
                     &plan_bytes,
                     &ctx.task_ctx(),

@@ -64,7 +64,7 @@ use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use datafusion::physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner};
+use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use futures::Stream;
 use pgrx::pg_sys;
 
@@ -353,11 +353,8 @@ fn analyze_and_inject(
         return Ok((Transformed::new_transformed(plan, any_modified), leaf_state));
     }
 
-    // 3) Merge child states — Unverified wins over Verified.
-    // The same plan_position can appear in multiple children (e.g., a self-join where both
-    // sides scan the same table). If one child already verified visibility but
-    // the other didn't, we must treat the plan_position as unverified: the unverified
-    // child's rows still have unchecked packed DocAddresses.
+    // 3) Merge child states. Plan_positions are unique per source, so children
+    // never overlap — this is a simple union of disjoint maps.
     let mut merged = RelationStates::new();
     for child_state in &child_states {
         for (&plan_pos, &status) in child_state {
@@ -539,54 +536,6 @@ impl ExtensionPlanner for VisibilityExtensionPlanner {
             self.snapshot,
         )?;
         Ok(Some(Arc::new(exec)))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Query Planner wrapper
-// ---------------------------------------------------------------------------
-
-/// Wraps `DefaultPhysicalPlanner` (which has our ExtensionPlanner) and implements
-/// `QueryPlanner` so it can be set on the SessionState.
-pub struct VisibilityQueryPlanner {
-    pub phys_planner: DefaultPhysicalPlanner,
-}
-
-impl fmt::Debug for VisibilityQueryPlanner {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("VisibilityQueryPlanner").finish()
-    }
-}
-
-impl VisibilityQueryPlanner {
-    pub fn new(snapshot: pg_sys::Snapshot) -> Self {
-        let phys_planner = DefaultPhysicalPlanner::with_extension_planners(vec![
-            Arc::new(VisibilityExtensionPlanner::new(snapshot)),
-            Arc::new(crate::scan::late_materialization::LateMaterializePlanner {}),
-        ]);
-        Self { phys_planner }
-    }
-}
-
-impl datafusion::execution::context::QueryPlanner for VisibilityQueryPlanner {
-    fn create_physical_plan<'life0, 'life1, 'life2, 'async_trait>(
-        &'life0 self,
-        logical_plan: &'life1 LogicalPlan,
-        session_state: &'life2 SessionState,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Arc<dyn ExecutionPlan>>> + Send + 'async_trait>,
-    >
-    where
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        'life2: 'async_trait,
-        Self: 'async_trait,
-    {
-        Box::pin(async move {
-            self.phys_planner
-                .create_physical_plan(logical_plan, session_state)
-                .await
-        })
     }
 }
 
@@ -836,7 +785,7 @@ pub fn materialize_deferred_ctid(
 }
 
 /// Builds a UInt64Array from a slice of Option<u64> values.
-pub fn uint64_array_from_options(values: &[Option<u64>]) -> ArrayRef {
+fn uint64_array_from_options(values: &[Option<u64>]) -> ArrayRef {
     Arc::new(UInt64Array::from_iter(values.iter().copied())) as ArrayRef
 }
 
@@ -1037,7 +986,8 @@ impl RecordBatchStream for VisibilityFilterStream {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use std::collections::BTreeSet;
 
@@ -1046,6 +996,7 @@ mod tests {
     use datafusion::optimizer::optimizer::OptimizerContext;
     use datafusion::optimizer::OptimizerRule;
     use pgrx::pg_sys;
+    use pgrx::prelude::*;
 
     use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource, RelNode};
     use crate::postgres::customscan::joinscan::visibility_filter::{
@@ -1147,7 +1098,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[pg_test]
     fn root_injection_is_idempotent() -> Result<()> {
         let config = OptimizerContext::new();
         let rule = make_rule();
@@ -1170,7 +1121,7 @@ mod tests {
         assert_barrier_injection(plan)
     }
 
-    #[test]
+    #[pg_test]
     fn inserts_visibility_below_limit_barrier() -> Result<()> {
         let config = OptimizerContext::new();
         let rule = make_rule();
@@ -1189,7 +1140,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[pg_test]
     fn inserts_visibility_below_aggregate_barrier() -> Result<()> {
         use datafusion::functions_aggregate::count::count;
         assert_barrier(|b| {
@@ -1201,12 +1152,12 @@ mod tests {
         })
     }
 
-    #[test]
+    #[pg_test]
     fn inserts_visibility_below_distinct_barrier() -> Result<()> {
         assert_barrier(|b| b.distinct()?.build())
     }
 
-    #[test]
+    #[pg_test]
     fn inserts_visibility_below_sort_with_fetch_barrier() -> Result<()> {
         assert_barrier(|b| {
             b.sort_with_limit(
@@ -1217,7 +1168,7 @@ mod tests {
         })
     }
 
-    #[test]
+    #[pg_test]
     fn sort_without_fetch_is_not_barrier() -> Result<()> {
         let config = OptimizerContext::new();
         let rule = make_rule();
@@ -1234,7 +1185,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[pg_test]
     fn multi_relation_join() -> Result<()> {
         let config = OptimizerContext::new();
 
@@ -1313,7 +1264,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[pg_test]
     fn left_join_injects_per_side_visibility() -> Result<()> {
         let config = OptimizerContext::new();
 
@@ -1383,6 +1334,40 @@ mod tests {
         let second = rule.rewrite(first.data.clone(), &config)?;
         assert!(!second.transformed);
         assert_eq!(count_visibility_nodes(&second.data), 2);
+        Ok(())
+    }
+
+    #[pg_test]
+    fn visibility_node_codec_roundtrip() -> Result<()> {
+        use crate::scan::codec::{deserialize_logical_plan, serialize_logical_plan};
+        use datafusion::execution::TaskContext;
+
+        let plan = make_ctid_plan()?;
+        let wrapped = LogicalPlan::Extension(datafusion::logical_expr::Extension {
+            node: std::sync::Arc::new(VisibilityFilterNode::new(
+                plan,
+                vec![(TEST_PLAN_POS, pg_sys::Oid::from(42))],
+            )),
+        });
+
+        let bytes =
+            serialize_logical_plan(&wrapped).expect("VisibilityFilterNode should serialize");
+        let ctx = TaskContext::default();
+        let decoded = deserialize_logical_plan(&bytes, &ctx, None, None, None)
+            .expect("VisibilityFilterNode should deserialize");
+
+        let LogicalPlan::Extension(ext) = &decoded else {
+            panic!("decoded root should be Extension");
+        };
+        let vis = ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("decoded node should be VisibilityFilterNode");
+        assert_eq!(
+            vis.plan_pos_oids,
+            vec![(TEST_PLAN_POS, pg_sys::Oid::from(42))]
+        );
         Ok(())
     }
 }

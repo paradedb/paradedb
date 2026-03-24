@@ -26,6 +26,7 @@ use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use tantivy::index::SegmentId;
 
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
 
@@ -171,6 +172,31 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             return Ok(Extension { node });
         }
 
+        if tag == 2 {
+            if inputs.len() != 1 {
+                return Err(DataFusionError::Internal(
+                    "VisibilityFilterNode requires exactly one input".into(),
+                ));
+            }
+            let input_plan = inputs[0].clone();
+            let payload_len_bytes = buf.get(1..5).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: missing visibility length".into())
+            })?;
+            let payload_len = u32::from_le_bytes(payload_len_bytes.try_into().unwrap()) as usize;
+            let payload = buf.get(5..5 + payload_len).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: incomplete visibility payload".into())
+            })?;
+            let plan_pos_oids: Vec<(usize, pgrx::pg_sys::Oid)> = serde_json::from_slice(payload)
+                .map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to deserialize visibility payload: {e}"
+                    ))
+                })?;
+            return Ok(Extension {
+                node: Arc::new(VisibilityFilterNode::new(input_plan, plan_pos_oids)),
+            });
+        }
+
         Err(DataFusionError::NotImplemented(format!(
             "Extension node decoding not implemented for tag {}",
             tag
@@ -197,6 +223,18 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
 
             buf.extend_from_slice(&(schema_bytes.len() as u32).to_le_bytes());
             buf.extend_from_slice(&schema_bytes);
+            buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&bytes);
+            return Ok(());
+        }
+
+        if let Some(vis_node) = node.node.as_any().downcast_ref::<VisibilityFilterNode>() {
+            let bytes = serde_json::to_vec(&vis_node.plan_pos_oids).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "Failed to serialize visibility plan positions: {e}"
+                ))
+            })?;
+            buf.push(2);
             buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
             buf.extend_from_slice(&bytes);
             return Ok(());

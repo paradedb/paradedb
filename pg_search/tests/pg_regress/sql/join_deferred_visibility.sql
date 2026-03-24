@@ -89,7 +89,7 @@ WITH (
 
 -- The physical plan should contain VisibilityFilterExec when deferred
 -- visibility is active.
-EXPLAIN (COSTS OFF, TIMING OFF)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name, t.label
 FROM items i
 JOIN tags t ON i.tag_id = t.id
@@ -112,7 +112,7 @@ LIMIT 5;
 -- The INNER join defers visibility to root.
 -- =============================================================================
 
-EXPLAIN (COSTS OFF, TIMING OFF)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name
 FROM items i
 JOIN tags t ON i.tag_id = t.id
@@ -143,7 +143,7 @@ LIMIT 5;
 -- Both share the same indexrelid but have different FFHelper layouts.
 -- =============================================================================
 
-EXPLAIN (COSTS OFF, TIMING OFF)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT a.id, a.name AS wireless_name, b.id, b.name AS keyboard_name
 FROM items a
 JOIN items b ON a.tag_id = b.tag_id
@@ -186,7 +186,7 @@ LIMIT 10;
 -- Find items that have NO reviews with rating < 4
 -- =============================================================================
 
-EXPLAIN (COSTS OFF, TIMING OFF)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.id, i.name
 FROM items i
 JOIN tags t ON i.tag_id = t.id

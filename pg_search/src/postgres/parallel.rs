@@ -20,6 +20,10 @@ use crate::postgres::ParallelScanState;
 use pgrx::{pg_guard, pg_sys};
 use tantivy::index::SegmentId;
 
+/// Safety margin for DSM allocation: actual segment count can exceed target_segment_count due to
+/// concurrent writes between plan and execute.
+const PARALLEL_SEGMENT_ESTIMATE_MULTIPLIER: usize = 64;
+
 #[pg_guard]
 pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {
     let state = target.cast::<ParallelScanState>();
@@ -67,6 +71,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
         u16::MAX as usize
     } else {
         crate::postgres::options::BM25IndexOptions::from_relation(rel).target_segment_count()
+            * PARALLEL_SEGMENT_ESTIMATE_MULTIPLIER
     };
     ParallelScanState::size_of(&[nsegments], 0, &[], false)
 }
@@ -120,6 +125,7 @@ pub unsafe fn maybe_init_parallel_scan(
         // scan to avoid a shared memory overflow.
         let estimated_segments = crate::postgres::options::BM25IndexOptions::from_relation(rel)
             .target_segment_count()
+            * PARALLEL_SEGMENT_ESTIMATE_MULTIPLIER;
         let actual_segments = searcher.segment_readers().len();
         if actual_segments > estimated_segments {
             state.mark_initialized_empty();

@@ -1016,7 +1016,9 @@ impl CustomScan for JoinScan {
                     .order_by
                     .iter()
                     .map(|oi| match &oi.feature {
-                        OrderByFeature::Field(f) => format!("{} {}", f, oi.direction.as_ref()),
+                        OrderByFeature::Field { name: f, .. } => {
+                            format!("{} {}", f, oi.direction.as_ref())
+                        }
                         OrderByFeature::Var { rti, attno, name } => {
                             if let Some(info) = base_relations.iter().find(|i| i.heap_rti == *rti) {
                                 let col_name = get_attname_safe(

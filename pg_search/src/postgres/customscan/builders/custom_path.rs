@@ -29,14 +29,18 @@ pub enum OrderByStyle {
         pathkey: *mut pg_sys::PathKey,
         rti: u32,
     },
-    Field(*mut pg_sys::PathKey, FieldName),
+    Field {
+        pathkey: *mut pg_sys::PathKey,
+        name: FieldName,
+        rti: u32,
+    },
 }
 
 impl OrderByStyle {
     pub fn pathkey(&self) -> *mut pg_sys::PathKey {
         match self {
             OrderByStyle::Score { pathkey, .. } => *pathkey,
-            OrderByStyle::Field(pathkey, _) => *pathkey,
+            OrderByStyle::Field { pathkey, .. } => *pathkey,
         }
     }
 
@@ -82,7 +86,10 @@ impl OrderByStyle {
 impl From<&OrderByStyle> for OrderByInfo {
     fn from(value: &OrderByStyle) -> Self {
         let feature = match value {
-            OrderByStyle::Field(_, name) => OrderByFeature::Field(name.to_owned()),
+            OrderByStyle::Field { name, rti, .. } => OrderByFeature::Field {
+                name: name.to_owned(),
+                rti: *rti,
+            },
             OrderByStyle::Score { rti, .. } => OrderByFeature::Score { rti: *rti },
         };
         OrderByInfo {

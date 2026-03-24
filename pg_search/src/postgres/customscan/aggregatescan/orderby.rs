@@ -109,13 +109,17 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
                 &schema,
                 |f| f.is_fast(),
                 |_| false,
+                Some(&index_expressions),
             )
         };
 
         let orderby_info = OrderByStyle::extract_orderby_info(pathkeys.pathkeys())
             .into_iter()
             .filter(|info| {
-                if let OrderByFeature::Field(field_name) = &info.feature {
+                if let OrderByFeature::Field {
+                    name: field_name, ..
+                } = &info.feature
+                {
                     sort_fields.contains(field_name.as_ref())
                 } else {
                     false

@@ -114,6 +114,12 @@ const COLUMNS: &[Column] = &[
         })
         .bm25_numeric_field(r#""rating": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
+    Column::new("category", "TEXT", "'electronics'")
+        .whereable(false)
+        .bm25_v2_expression(r#"(upper(category)::pdb.literal)"#)
+        .random_generator_sql(
+            "(ARRAY ['electronics', 'clothing', 'food', 'books', 'toys', 'sports', 'home']::text[])[(floor(random() * 7) + 1)::int]"
+        ),
     Column::new("literal_normalized", "TEXT", "'Hello World'")
         .whereable({
             // literal_normalized lowercases text, so BM25 @@@ would match case-insensitively
@@ -642,9 +648,15 @@ async fn generated_joinscan(database: Db) {
         heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], numeric_columns.to_vec()),
         // Optional DISTINCT keyword
         include_distinct in proptest::bool::ANY,
+        // Indexed expression ORDER BY (e.g. ORDER BY upper(category))
+        include_expr_ordering in proptest::bool::ANY,
         // Result limit
         limit in 1..=50usize,
     )| {
+        // DISTINCT + expression ORDER BY requires projecting the expression in SELECT,
+        // which JoinScan doesn't support yet. Skip this combination.
+        prop_assume!(!(include_distinct && include_expr_ordering));
+
         // Build join with selected number of tables
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 
@@ -715,9 +727,17 @@ async fn generated_joinscan(database: Db) {
         // Build deterministic ORDER BY with tie-breaker columns
         // When joins produce multiple matching rows, we need to include columns from both sides
         // to ensure deterministic results when LIMIT is applied
-        let mut order_parts = vec![format!("{}.id", used_tables[0])];
-        for table in &used_tables[1..] {
-            order_parts.push(format!("{}.id", table));
+        let mut order_parts = Vec::new();
+        if include_expr_ordering {
+            order_parts.push(format!("upper({}.category)", used_tables[0]));
+        }
+        order_parts.push(format!("{}.id", used_tables[0]));
+        // Only add inner table tiebreakers when NOT using expression ordering,
+        // because SegmentedTopKExec may not project all sort keys from inner tables.
+        if !include_expr_ordering {
+            for table in &used_tables[1..] {
+                order_parts.push(format!("{}.id", table));
+            }
         }
         let order_by = order_parts.join(", ");
 

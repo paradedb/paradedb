@@ -761,7 +761,10 @@ impl SearchIndexReader {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {
-                feature: OrderByFeature::Field(sort_field),
+                feature:
+                    OrderByFeature::Field {
+                        name: sort_field, ..
+                    },
                 direction,
             } => {
                 let field = self
@@ -1352,7 +1355,10 @@ impl SearchIndexReader {
         for orderby_info in remainder.iter() {
             match orderby_info {
                 OrderByInfo {
-                    feature: OrderByFeature::Field(sort_field),
+                    feature:
+                        OrderByFeature::Field {
+                            name: sort_field, ..
+                        },
                     direction,
                 } => {
                     // NOTE: The list of supported field types for `SortByErasedType` must be synced with

@@ -610,7 +610,21 @@ fn build_clause_df<'a>(
                                 .unwrap_or_else(|| col("unknown_score"))
                         }
                     }
-                    OrderByFeature::Field(name) => col(name.as_ref()),
+                    OrderByFeature::Field { name, rti } => join_clause
+                        .plan
+                        .sources()
+                        .iter()
+                        .enumerate()
+                        .find(|(_, s)| s.contains_rti(*rti))
+                        .map(|(idx, source)| {
+                            let alias = RelationAlias::new(source.scan_info.alias.as_deref())
+                                .execution(idx);
+                            make_col(&alias, name.as_ref())
+                        })
+                        .unwrap_or_else(|| {
+                            pgrx::warning!("JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'");
+                            col(name.as_ref())
+                        }),
                     OrderByFeature::Var { rti, attno, .. } => {
                         if !distinct_col_map.is_empty() {
                             resolve_distinct_col(false, *rti, *attno, "")
@@ -771,8 +785,10 @@ fn build_source_df<'a>(
         if join_clause.has_distinct {
             for info in &join_clause.order_by {
                 match &info.feature {
-                    OrderByFeature::Field(name) => {
-                        required_early.insert(name.as_ref().to_string());
+                    OrderByFeature::Field { name, rti } => {
+                        if source.contains_rti(*rti) {
+                            required_early.insert(name.as_ref().to_string());
+                        }
                     }
                     OrderByFeature::Var { rti, attno, .. } => {
                         // Only insert columns belonging to THIS source

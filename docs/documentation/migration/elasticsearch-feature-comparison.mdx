@@ -25,10 +25,8 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
   [full-text search reference](/documentation/full-text/overview).
 - **Use SQL JOINs instead of denormalization.** Elasticsearch requires denormalized documents, but ParadeDB supports
   full SQL JOINs. You can normalize your schema and simplify your data model.
-- **Reuse your aggregation queries.** ParadeDB's `pdb.agg()` function accepts [Elasticsearch-compatible JSON](/documentation/aggregates/overview),
-  so many of your existing aggregation queries can be migrated with minimal changes.
-- **Leverage Postgres tooling.** Backups, replication, monitoring, and CI/CD integrate with standard Postgres tools
-  you may already use.
+- **Continue to use Postgres tooling.** Backups, replication, monitoring, and CI/CD integrate with standard Postgres tools
+  you already use.
 
 ## Feature Comparison
 

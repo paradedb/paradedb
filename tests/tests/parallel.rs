@@ -389,6 +389,7 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
     // Force reader parallel scan, through AM path
     r#"
     SET paradedb.enable_custom_scan = false;
+    SET paradedb.global_mutable_segment_rows TO 1;
     SET max_parallel_workers_per_gather = 1;
     SET parallel_tuple_cost = 0;
     SET parallel_setup_cost = 0;

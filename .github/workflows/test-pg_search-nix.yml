@@ -25,6 +25,9 @@ concurrency:
   group: test-pg_search-nix-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   nix-cargo-hash-check:
     name: Verify Nix Cargo Hash
@@ -35,6 +38,9 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GHA_CREATE_PR_PAT || github.token }}
 
       - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@main
@@ -44,7 +50,26 @@ jobs:
         uses: DeterminateSystems/magic-nix-cache-action@main
 
       # Build only cargo deps to surface cargoHash mismatches quickly, without
-      # compiling pg_search for every Postgres variant.
+      # compiling pg_search for every Postgres variant. If the hash is stale,
+      # compute the correct one and push a fix commit to the PR branch.
       - name: Verify Nix Cargo Hash
         run: |
-          nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps"
+          if ! nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps" 2>/dev/null; then
+            echo "cargoHash mismatch detected, computing correct hash..."
+            chmod +x scripts/update-nix-cargo-hash.sh
+            scripts/update-nix-cargo-hash.sh "${{ env.PG_MAJOR_VERSION }}"
+
+            if git diff --quiet nix/pg_search.nix; then
+              echo "::error::cargoHash mismatch but auto-update failed"
+              exit 1
+            fi
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add nix/pg_search.nix
+            git commit -m "fix: update nix cargoHash for changed Cargo.lock"
+            git push
+            echo "Pushed updated cargoHash"
+          else
+            echo "cargoHash is correct"
+          fi

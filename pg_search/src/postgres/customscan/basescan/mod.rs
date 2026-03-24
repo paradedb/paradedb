@@ -628,7 +628,9 @@ impl CustomScan for BaseScan {
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
-            let topk_pathkey_info = pullup_topk_pathkeys(rti, &schema, root);
+            let index_expressions = bm25_index.index_expressions();
+            let topk_pathkey_info =
+                pullup_topk_pathkeys(rti, &schema, root, Some(&index_expressions));
 
             #[cfg(feature = "pg15")]
             let baserels = (*builder.args().root).all_baserels;
@@ -1246,7 +1248,10 @@ impl CustomScan for BaseScan {
                     .iter()
                     .map(|oi| match oi {
                         OrderByInfo {
-                            feature: OrderByFeature::Field(fieldname),
+                            feature:
+                                OrderByFeature::Field {
+                                    name: fieldname, ..
+                                },
                             direction,
                             ..
                         } => {
@@ -2204,6 +2209,7 @@ unsafe fn pullup_topk_pathkeys(
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
+    index_expressions: Option<&PgList<pg_sys::Expr>>,
 ) -> PathKeyInfo {
     match extract_pathkey_styles_with_sortability_check(
         root,
@@ -2211,6 +2217,7 @@ unsafe fn pullup_topk_pathkeys(
         schema,
         |search_field| search_field.is_raw_sortable(),
         |search_field| search_field.is_lower_sortable(),
+        index_expressions,
     ) {
         PathKeyInfo::UsableAll(styles) if styles.len() <= MAX_TOPK_FEATURES => {
             // Top K is the base scan's only executor which supports sorting, and supports up to

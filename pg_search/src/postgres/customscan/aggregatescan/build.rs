@@ -334,7 +334,7 @@ impl AggregateCSClause {
                 SortDirection::AscNullsLast | SortDirection::DescNullsFirst => false,
             })
             .filter_map(|info| match &info.feature {
-                OrderByFeature::Field(name) => Some(name.to_string()),
+                OrderByFeature::Field { name, .. } => Some(name.to_string()),
                 OrderByFeature::Score { .. } | OrderByFeature::Var { .. } => None,
             })
             .collect()
@@ -459,7 +459,10 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
 
         Ok(grouping_columns.into_iter().map(move |column| {
             let orderby = orderby_info.iter().find(|info| {
-                if let OrderByFeature::Field(field_name) = &info.feature {
+                if let OrderByFeature::Field {
+                    name: field_name, ..
+                } = &info.feature
+                {
                     field_name == &FieldName::from(column.field_name.clone())
                 } else {
                     false

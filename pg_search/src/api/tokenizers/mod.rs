@@ -180,7 +180,9 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             }
             *filters = SearchTokenizerFilters::from(parsed);
         }
-        SearchTokenizer::Lindera(language, filters) => {
+        SearchTokenizer::Lindera {
+            language, filters, ..
+        } => {
             if let Some(s) = parsed.try_get("language", 0).and_then(|p| p.as_str()) {
                 let lcase = s.to_lowercase();
                 *language = match lcase.as_str() {
@@ -238,9 +240,9 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
         #[allow(deprecated)]
         SearchTokenizer::KeywordDeprecated
         | SearchTokenizer::Raw(_)
-        | SearchTokenizer::ChineseLindera(_)
-        | SearchTokenizer::JapaneseLindera(_)
-        | SearchTokenizer::KoreanLindera(_) => {}
+        | SearchTokenizer::ChineseLindera { .. }
+        | SearchTokenizer::JapaneseLindera { .. }
+        | SearchTokenizer::KoreanLindera { .. } => {}
     }
 }
 

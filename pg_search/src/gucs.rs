@@ -26,11 +26,14 @@ use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
 use crate::postgres::options::MAX_MUTABLE_SEGMENT_ROWS;
 
-/// Allows the user to toggle the use of our "ParadeDB Scan".
+/// Allows the user to toggle the use of our "ParadeDB Base Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Validate aggregate scan eligibility
+static CHECK_AGGREGATE_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -46,21 +49,21 @@ static ENABLE_FILTER_PUSHDOWN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the FastFieldsExecState executor. Default is `true`.
 static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `true`.
-static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// Allows the user to enable or disable the ColumnarExecState executor. Default is `true`.
+static ENABLE_COLUMNAR_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to enable or disable sorted execution for MixedFastFieldExecState.
+/// Allows the user to enable or disable sorted execution for ColumnarExecState.
 /// When disabled, sorted paths will not be created even if the index has sort_by.
-static ENABLE_MIXED_FAST_FIELD_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
+static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// In a TopN query, the limit is multiplied by this factor to determine the chunk size.
+/// In a Top K query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
-/// The scale factor for the chunk size in a TopN query.
-static TOPN_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
+/// The scale factor for the chunk size in a Top K query.
+static TOPK_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
 
-/// The maximum chunk size for a TopN query.
-static MAX_TOPN_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
+/// The maximum chunk size for a Top K query.
+static MAX_TOPK_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
@@ -71,16 +74,15 @@ static MAX_WINDOW_AGGREGATE_RESPONSE_BYTES: GucSetting<i32> = GucSetting::<i32>:
 /// For testing, ensures the same handling of null aggregates as Postgres
 static ADD_DOC_COUNT_TO_AGGS: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
-/// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
+/// The number of fast-field columns below-which the ColumnarExecState will be used, rather
+/// than the NormalExecState. The Columnar execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
 ///
 /// Each fetch from a fast-field column costs one or two disk seeks, whereas a fetch of a row
 /// generally costs one. But with a wide enough row, fetching multiple columns might still result
 /// in better cache performance than fetching a row.
-static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(3);
-static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &CStr =
-    c"paradedb.mixed_fast_field_exec_column_threshold";
+static COLUMNAR_EXEC_COLUMN_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(3);
+static COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME: &CStr = c"paradedb.columnar_exec_column_threshold";
 
 /// The `PER_TUPLE_COST` is an arbitrary value that needs to be really high.  In fact, we default
 /// to one hundred million.
@@ -102,8 +104,8 @@ static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// Validate TopN scan eligibility for LIMIT queries
-static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// Validate Top K scan eligibility for LIMIT queries
+static CHECK_TOPK_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// When true, queries with expensive scorer construction (fuzzy, regex, range)
 /// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
@@ -118,9 +120,14 @@ static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 
 /// Override the scanner batch size when dynamic filters are pushed down.
 /// 0 means disabled (use the scanner's default). When > 0, the scanner's batch
-/// size is capped to this value during filter pushdown so that TopK can tighten
+/// size is capped to this value during filter pushdown so that Top K can tighten
 /// its threshold between batches.
 static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
+
+/// Allows the user to enable or disable the SegmentedTopK optimization.
+/// When enabled, Top K queries on deferred (late-materialized) string/bytes columns
+/// use per-segment ordinal pruning to reduce dictionary decoding.
+static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -140,6 +147,17 @@ pub fn init() {
         c"Enable ParadeDB's custom aggregate scan",
         c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
         &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.check_aggregate_scan",
+        c"Validate Aggregate scan eligibility",
+        c"When enabled, logs a warning if a query expected to use the aggregate scan cannot. \
+          This helps detect performance issues during development where queries expected \
+          to use the aggregate scan fall back to slower execution methods.",
+        &CHECK_AGGREGATE_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -181,29 +199,29 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.enable_mixed_fast_field_exec",
-        c"Enable MixedFastFieldExecState executor",
-        c"Enable the MixedFastFieldExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
-        &ENABLE_MIXED_FAST_FIELD_EXEC,
+        c"paradedb.enable_columnar_exec",
+        c"Enable ColumnarExecState executor",
+        c"Enable the ColumnarExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
+        &ENABLE_COLUMNAR_EXEC,
         GucContext::Userset,
         GucFlags::default(),
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.enable_mixed_fast_field_sort",
-        c"Enable sorted execution for MixedFastFieldExecState",
-        c"Enable sorted execution for MixedFastFieldExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
-                &ENABLE_MIXED_FAST_FIELD_SORT,
+        c"paradedb.enable_columnar_sort",
+        c"Enable sorted execution for ColumnarExecState",
+        c"Enable sorted execution for ColumnarExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
+                &ENABLE_COLUMNAR_SORT,
                 GucContext::Userset,
                 GucFlags::default(),
             );
 
     GucRegistry::define_int_guc(
-                MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which MixedFastFieldExecState will be used.",
-        c"The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather \
-         than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas \
+                COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which ColumnarExecState will be used.",
+        c"The number of fast-field columns below-which the ColumnarExecState will be used, rather \
+         than the NormalExecState. The Columnar execution mode fetches data as column-oriented, whereas \
          the Normal mode fetches data as row-oriented.",
-        &MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD,
+        &COLUMNAR_EXEC_COLUMN_THRESHOLD,
         0,
         i32::MAX,
         GucContext::Userset,
@@ -223,8 +241,8 @@ pub fn init() {
 
     GucRegistry::define_float_guc(
         c"paradedb.limit_fetch_multiplier",
-        c"Multiplier for the limit in a TopN query",
-        c"The limit is multiplied by this factor to determine the chunk size. A higher value reduces the probability of a re-query for a TopN query but increases query times.",
+        c"Multiplier for the limit in a Top K query",
+        c"The limit is multiplied by this factor to determine the chunk size. A higher value reduces the probability of a re-query for a Top K query but increases query times.",
         &LIMIT_FETCH_MULTIPLIER,
         1.0,
         100.0,
@@ -233,10 +251,10 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.max_topn_chunk_size",
-        c"Maximum chunk size for a TopN query",
-        c"A higher value reduces the probability of a re-query for a TopN query but increases the memory usage",
-        &MAX_TOPN_CHUNK_SIZE,
+        c"paradedb.max_topk_chunk_size",
+        c"Maximum chunk size for a Top K query",
+        c"A higher value reduces the probability of a re-query for a Top K query but increases the memory usage",
+        &MAX_TOPK_CHUNK_SIZE,
         1,
         1_000_000,
         GucContext::Userset,
@@ -244,10 +262,10 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.topn_retry_scale_factor",
-        c"Scale factor for the chunk size in a TopN query",
-        c"The chunk size is multiplied by this factor on subsequent retries. A higher value reduces the probability of a re-query for a TopN query but increases query times.",
-        &TOPN_RETRY_SCALE_FACTOR,
+        c"paradedb.topk_retry_scale_factor",
+        c"Scale factor for the chunk size in a Top K query",
+        c"The chunk size is multiplied by this factor on subsequent retries. A higher value reduces the probability of a re-query for a Top K query but increases query times.",
+        &TOPK_RETRY_SCALE_FACTOR,
         1,
         100,
         GucContext::Userset,
@@ -326,12 +344,12 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
-        c"paradedb.check_topn_scan",
-        c"Validate TopN scan eligibility for LIMIT queries",
-        c"When enabled, logs a warning if a query with LIMIT cannot use TopN scan. \
+        c"paradedb.check_topk_scan",
+        c"Validate Top K scan eligibility for LIMIT queries",
+        c"When enabled, logs a warning if a query with LIMIT cannot use the Top K scan. \
           This helps detect performance issues during development where queries expected \
-          to use TopN optimization fall back to slower execution methods.",
-        &CHECK_TOPN_SCAN,
+          to use the Top K optimization fall back to slower execution methods.",
+        &CHECK_TOPK_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -358,11 +376,25 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_segmented_topk",
+        c"Enable SegmentedTopK optimization for Top K queries on deferred columns",
+        c"When enabled, ORDER BY on a late-materialized string/bytes column with LIMIT \
+          uses per-segment ordinal pruning to reduce dictionary decoding. \
+          All input is collected before emitting (EmissionType::Final) so only \
+          the exact Top K rows per segment are sent to dictionary decoding. \
+          Global thresholds are published progressively to the scanner \
+          for early row pruning during collection.",
+        &ENABLE_SEGMENTED_TOPK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.dynamic_filter_batch_size",
         c"Scanner batch size override for dynamic filter pushdown",
         c"When > 0, caps the scanner batch size during dynamic filter pushdown so that \
-          TopK can tighten its threshold between batches. 0 disables the override.",
+          Top K can tighten its threshold between batches. 0 disables the override.",
         &DYNAMIC_FILTER_BATCH_SIZE,
         0,
         128_000,
@@ -377,6 +409,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn check_aggregate_scan() -> bool {
+    CHECK_AGGREGATE_SCAN.get()
 }
 
 pub fn enable_join_custom_scan() -> bool {
@@ -395,24 +431,22 @@ pub fn is_fast_field_exec_enabled() -> bool {
     ENABLE_FAST_FIELD_EXEC.get()
 }
 
-pub fn is_mixed_fast_field_exec_enabled() -> bool {
-    ENABLE_MIXED_FAST_FIELD_EXEC.get()
+pub fn is_columnar_exec_enabled() -> bool {
+    ENABLE_COLUMNAR_EXEC.get()
 }
 
-pub fn is_mixed_fast_field_sort_enabled() -> bool {
-    ENABLE_MIXED_FAST_FIELD_SORT.get()
+pub fn is_columnar_sort_enabled() -> bool {
+    ENABLE_COLUMNAR_SORT.get()
 }
 
-pub fn mixed_fast_field_exec_column_threshold() -> usize {
-    MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD
+pub fn columnar_exec_column_threshold() -> usize {
+    COLUMNAR_EXEC_COLUMN_THRESHOLD
         .get()
         .try_into()
         .unwrap_or_else(|e| {
             panic!(
                 "{} must be positive. {e}",
-                MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME
-                    .to_str()
-                    .unwrap()
+                COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME.to_str().unwrap()
             );
         })
 }
@@ -421,8 +455,8 @@ pub fn per_tuple_cost() -> f64 {
     PER_TUPLE_COST.get()
 }
 
-pub fn max_topn_chunk_size() -> i32 {
-    MAX_TOPN_CHUNK_SIZE.get()
+pub fn max_topk_chunk_size() -> i32 {
+    MAX_TOPK_CHUNK_SIZE.get()
 }
 
 pub fn global_target_segment_count() -> i32 {
@@ -500,8 +534,8 @@ pub fn max_window_aggregate_response_bytes() -> usize {
     MAX_WINDOW_AGGREGATE_RESPONSE_BYTES.get() as usize
 }
 
-pub fn topn_retry_scale_factor() -> i32 {
-    TOPN_RETRY_SCALE_FACTOR.get()
+pub fn topk_retry_scale_factor() -> i32 {
+    TOPK_RETRY_SCALE_FACTOR.get()
 }
 
 pub fn global_mutable_segment_rows() -> Option<usize> {
@@ -517,8 +551,8 @@ pub fn explain_recursive_estimates() -> bool {
     EXPLAIN_RECURSIVE_ESTIMATES.get()
 }
 
-pub fn check_topn_scan() -> bool {
-    CHECK_TOPN_SCAN.get()
+pub fn check_topk_scan() -> bool {
+    CHECK_TOPK_SCAN.get()
 }
 
 pub fn enable_heuristic_selectivity() -> bool {
@@ -535,6 +569,10 @@ pub fn add_doc_count_to_aggs() -> bool {
 
 pub fn dynamic_filter_batch_size() -> i32 {
     DYNAMIC_FILTER_BATCH_SIZE.get()
+}
+
+pub fn enable_segmented_topk() -> bool {
+    ENABLE_SEGMENTED_TOPK.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

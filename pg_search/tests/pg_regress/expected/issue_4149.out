@@ -56,14 +56,14 @@ LIMIT 10;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: file_id, file_title, (paradedb.score(row_id))
-   ->  Custom Scan (ParadeDB Scan) on public.documents t
+   ->  Custom Scan (ParadeDB Base Scan) on public.documents t
          Output: file_id, file_title, paradedb.score(row_id)
          Table: documents
          Index: documents_bm25
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc
-            TopN Limit: 10
+            TopK Order By: pdb.score() desc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"doc_parents","query_string":"PARENT_GROUP","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"file_title","query_string":"Title","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"doc_title","query_string":"Title","lenient":null,"conjunction_mode":null}}}}]}}]}}
 (11 rows)
 

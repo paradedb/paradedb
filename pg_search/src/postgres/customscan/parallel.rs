@@ -52,29 +52,46 @@ pub fn compute_nworkers(
     // we don't need any workers.
     let mut nworkers = segment_count.saturating_sub(1);
 
-    // Limit workers based on row estimate if we have reliable stats.
+    // When the scan declares sorted output (TopK with ORDER BY, or sorted columnar),
+    // skip row-based worker reductions. TopK must scan ALL segments to produce globally
+    // correct results, so the cost is segment-scan dominated and row-count thresholds
+    // would starve parallelism for queries matching few rows across many segments.
+    // Sorted columnar is lazy (SortPreservingMergeExec can stop early), but we
+    // conservatively skip reductions for it too since it still benefits from parallelism
+    // across segments.
+    //
+    // For unsorted scans with reliable row estimates (RowEstimate::Known), we apply two
+    // reductions to avoid spawning workers whose startup overhead exceeds the benefit:
+    //
+    // 1. Limit-based: cap workers to the number of segments needed to reach the LIMIT.
+    // 2. Row-based: cap so each worker processes at least `min_rows_per_worker` rows
+    //    (~300K default, based on benchmarks where worker startup is ~10ms).
+    //    Skipped in join contexts to avoid preventing Parallel Hash Join.
+    //
+    // When RowEstimate::Unknown (table not ANALYZEd), we don't limit workers since
+    // we can't trust the estimate.
+    //
     // See: https://github.com/paradedb/paradedb/issues/3055
-    //
-    // The worker startup overhead (~10ms) means we need enough rows per worker
-    // for parallelism to be worthwhile. Based on benchmarks, the crossover point
-    // is around 300K rows total.
-    //
-    // When RowEstimate::Unknown, we don't limit workers based on rows since we can't
-    // trust the estimate - the table could be large.
-    //
-    // Also, if we are in a join context (is_join_context = true), we aggressively claim workers
-    // to enable Parallel Hash Join, ignoring the row count threshold.
-    //
-    // In a single-table query, the overhead of spawning parallel workers might exceed the performance gain.
-    // However, in a join, failing to claim parallel workers can prevent the planner from choosing a
-    // `Parallel Hash Join`, leading to inefficient plans where joins or sorts are executed serially after a `Gather`.
-    if !is_join_context {
+    if !declares_sorted_output {
         if let RowEstimate::Known(total_rows) = estimated_total_rows {
-            let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
-            if min_rows_per_worker > 0 {
-                // Calculate max workers such that each worker processes at least min_rows_per_worker
-                let max_workers_for_rows = (total_rows / min_rows_per_worker) as usize;
-                nworkers = nworkers.min(max_workers_for_rows);
+            // Cap to the number of segments needed to reach the LIMIT
+            if let Some(limit) = limit {
+                let rows_per_segment = total_rows as f64 / segment_count.max(1) as f64;
+                let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;
+                // The leader is not included in `nworkers`, so subtract 1.
+                let nworkers_for_limited_segments = segments_to_reach_limit.saturating_sub(1);
+                nworkers = nworkers.min(nworkers_for_limited_segments);
+            }
+
+            // Cap so each worker processes at least min_rows_per_worker rows.
+            // Skipped for joins: failing to claim workers can prevent the planner from
+            // choosing Parallel Hash Join, leading to inefficient serial plans.
+            if !is_join_context {
+                let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
+                if min_rows_per_worker > 0 {
+                    let max_workers_for_rows = (total_rows / min_rows_per_worker) as usize;
+                    nworkers = nworkers.min(max_workers_for_rows);
+                }
             }
         }
     }
@@ -86,21 +103,6 @@ pub fn compute_nworkers(
             .min(pg_sys::max_parallel_workers_per_gather as usize)
             .min(pg_sys::max_parallel_workers as usize)
     };
-
-    // if we are not sorting the data (which always requires fetching data from all segments), then
-    // limit the number of workers to the number of segments we expect to have to query to reach
-    // the limit.
-    //
-    // Only apply this optimization when we have reliable row estimates.
-    if let (false, Some(limit)) = (declares_sorted_output, limit) {
-        if let RowEstimate::Known(total_rows) = estimated_total_rows {
-            let rows_per_segment = total_rows as f64 / segment_count.max(1) as f64;
-            let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;
-            // See above re: the leader not being included in `nworkers`.
-            let nworkers_for_limited_segments = segments_to_reach_limit.saturating_sub(1);
-            nworkers = nworkers.min(nworkers_for_limited_segments);
-        }
-    }
 
     if has_external_quals {
         // Don't attempt to parallelize if we depend on external variables (e.g. inner side of a nested loop join).

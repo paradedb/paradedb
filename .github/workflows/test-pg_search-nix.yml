@@ -7,7 +7,7 @@ name: Test pg_search (Nix)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
     branches:
       - main
       - 0.*.x # Release branches
@@ -25,14 +25,22 @@ concurrency:
   group: test-pg_search-nix-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
-  test-pg_search-nix:
-    name: Test pg_search Builds with Determinate Nix
+  nix-cargo-hash-check:
+    name: Verify Nix Cargo Hash
     runs-on: ubuntu-latest
+    env:
+      PG_MAJOR_VERSION: "18"
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.GHA_CREATE_PR_PAT || github.token }}
 
       - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@main
@@ -41,17 +49,27 @@ jobs:
       - name: Use Magic Nix Cache Action
         uses: DeterminateSystems/magic-nix-cache-action@main
 
-      # https://nix.dev/manual/nix/latest/command-ref/new-cli/nix3-flake-check
-      - name: Run Flake Checks
-        run: nix flake check
-
-      # If this step fails due to an incorrect hash in flake.nix, the error will
-      # provide the correct hash
-      - name: Build pg_search for Nix
+      # Build only cargo deps to surface cargoHash mismatches quickly, without
+      # compiling pg_search for every Postgres variant. If the hash is stale,
+      # compute the correct one and push a fix commit to the PR branch.
+      - name: Verify Nix Cargo Hash
         run: |
-          system=$(nix eval --raw --impure --expr builtins.currentSystem)
-          nix flake show --json 2>/dev/null \
-            | jq -r --arg s "$system" '.packages[$s] | keys[] | ".#\(.)"' \
-            | xargs -L1 nix build
+          if ! nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps" 2>/dev/null; then
+            echo "cargoHash mismatch detected, computing correct hash..."
+            chmod +x scripts/update-nix-cargo-hash.sh
+            scripts/update-nix-cargo-hash.sh "${{ env.PG_MAJOR_VERSION }}"
 
-          echo "All pg_search packages built successfully."
+            if git diff --quiet nix/pg_search.nix; then
+              echo "::error::cargoHash mismatch but auto-update failed"
+              exit 1
+            fi
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add nix/pg_search.nix
+            git commit -m "fix: update nix cargoHash for changed Cargo.lock"
+            git push
+            echo "Pushed updated cargoHash"
+          else
+            echo "cargoHash is correct"
+          fi

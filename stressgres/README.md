@@ -55,4 +55,4 @@ If it behaves as desired, merge your new singleton driver to `main`. The new sui
 
 To facilitate testing with Antithesis, we deploy the ParadeDB CloudNativePG cluster with a manifest that hardcodes a dummy password. This ensures we can modify the Stressgres suite `connection_string` without needing to extract passwords dynamically.
 
-The manifests can be found at `docker/manifests/paradedb.yaml` in `paradedb/paradedb`/`paradedb/paradedb-enterprise` and the password used in the singleton driver files must match.
+The manifests can be found at `docker/manifests/antithesis-paradedb.yaml` in `paradedb/paradedb`/`paradedb/paradedb-enterprise` and the password used in the singleton driver files must match.

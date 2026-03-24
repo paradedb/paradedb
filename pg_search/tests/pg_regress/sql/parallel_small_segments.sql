@@ -4,6 +4,11 @@
 -- limits parallel workers based on row count, so each worker processes
 -- enough rows for parallelism to be worthwhile (~10ms startup overhead).
 --
+-- However, when the scan declares sorted output (TopK with ORDER BY, or
+-- sorted columnar), it must visit ALL segments to produce globally correct
+-- results. In that case, cost is segment-scan dominated and the
+-- min_rows_per_worker threshold is bypassed.
+--
 -- Based on benchmarks, the crossover point where parallel becomes beneficial
 -- is around 300K rows total. Default min_rows_per_worker is 300000.
 --
@@ -44,43 +49,53 @@ ANALYZE items;
 -- Verify reltuples is set correctly
 SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 
--- Test 1: Default behavior (min_rows_per_worker=300000)
+-- Test 1: Unsorted scan with high threshold (min_rows_per_worker=300000)
 -- With 10000 rows, max_workers = 10000/300000 = 0, so parallel should be DISABLED
+-- for non-sorted scans (Normal exec method, no ORDER BY).
 SET paradedb.min_rows_per_worker = 300000;
 
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) 
-SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, name FROM items WHERE name @@@ 'item';
 
--- Test 2: Lower the threshold (min_rows_per_worker=5000)
+-- Test 2: Unsorted scan with lower threshold (min_rows_per_worker=5000)
 -- With 10000 rows, max_workers = 10000/5000 = 2, parallel SHOULD be used
 SET paradedb.min_rows_per_worker = 5000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
+SELECT id, name FROM items WHERE name @@@ 'item';
 
--- Test 3: Disable threshold completely (0)
+-- Test 3: Unsorted scan with threshold disabled (0)
 -- Parallel SHOULD be used based on segment count only
 SET paradedb.min_rows_per_worker = 0;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
+SELECT id, name FROM items WHERE name @@@ 'item';
 
--- Test 4: TopN query with ORDER BY score and LIMIT
--- With high threshold, parallel should be disabled for 10000 rows
+-- Test 4: TopK sorted scan bypasses min_rows_per_worker
+-- Even with a high min_rows_per_worker threshold, TopK queries that declare sorted
+-- output (ORDER BY score) should still use parallel workers because they must scan
+-- ALL segments to produce globally correct top-K results. The cost is segment-scan
+-- dominated, not row-count dominated.
 SET paradedb.min_rows_per_worker = 300000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items 
+SELECT id, name FROM items
 WHERE name @@@ pdb.match('item')
-ORDER BY paradedb.score(id) DESC
+ORDER BY paradedb.score(id) DESC, id
 LIMIT 10;
 
-SELECT id, name FROM items 
+SELECT id, name FROM items
 WHERE name @@@ pdb.match('item')
-ORDER BY paradedb.score(id) DESC
+ORDER BY paradedb.score(id) DESC, id
 LIMIT 10;
 
--- Test 5: Verify unanalyzed table behavior
+-- Test 5: TopK with ORDER BY column also bypasses min_rows_per_worker
+-- TopK with ORDER BY id (not score) also declares sorted output and must visit
+-- all segments, so parallel should be enabled despite high threshold.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
+
+-- Test 6: Verify unanalyzed table behavior
 -- When reltuples is unknown (-1), parallel should still be allowed
 -- (we shouldn't limit workers when we can't trust the row estimate)
 DROP TABLE items;
@@ -101,21 +116,12 @@ INSERT INTO items (name) SELECT 'item ' || g FROM generate_series(5001, 10000) g
 -- Verify reltuples is -1 (unanalyzed)
 SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 
--- Even with high threshold that would normally disable parallel,
+-- Even with high threshold that would normally disable parallel for unsorted scans,
 -- parallel should still be used because we don't have reliable row estimates
 SET paradedb.min_rows_per_worker = 300000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
-
--- Now ANALYZE the table and run again - parallel should be DISABLED
--- because we now have reliable row estimates (10000 rows / 300000 = 0 workers)
-ANALYZE items;
-
-SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
+SELECT id, name FROM items WHERE name @@@ 'item';
 
 -- Clean up
 DROP TABLE items;

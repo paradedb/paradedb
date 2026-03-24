@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Window Function Support for TopN Queries (Faceting)
+//! Window Function Support for Top K Queries (Faceting)
 //!
-//! This module implements window function support for TopN queries, enabling
+//! This module implements window function support for Top K queries, enabling
 //! Elasticsearch-style faceting patterns where result sets and aggregates are
 //! computed in a single pass.
 //!
@@ -28,7 +28,7 @@
 //! 1. **Detection**: Identify queries with window functions and `@@@` operator or `pdb.agg()`
 //! 2. **Extraction**: Parse `WindowFunc` AST nodes and extract aggregate definitions into `TargetList`
 //! 3. **Replacement**: Replace `WindowFunc` nodes with `paradedb.window_agg(json)` placeholders
-//! 4. **Execution**: Execute aggregations via Tantivy's `MultiCollector` in TopN scan
+//! 4. **Execution**: Execute aggregations via Tantivy's `MultiCollector` in Top K scan
 //! 5. **Injection**: Inject aggregate results as constant values in each output row
 //!
 //! # Why Early Replacement?
@@ -38,7 +38,7 @@
 //!
 //! - **Simpler Integration**: Reuses existing `BaseScan` infrastructure without nested scans
 //! - **Avoids Complexity**: No need for `WindowCustomScan` wrapping `BaseScan`
-//! - **Single Scan**: Allows TopN + aggregation in one scan pass
+//! - **Single Scan**: Allows Top K + aggregation in one scan pass
 //!
 //! Note: `AggregateCustomScan` uses `create_upper_paths_hook` with `UPPERREL_GROUP_AGG`,
 //! not `planner_hook`. The approaches differ because:
@@ -67,7 +67,6 @@
 //! LIMIT 10;
 //! ```
 
-use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::FieldName;
 use crate::api::{
@@ -96,10 +95,10 @@ use std::ptr::addr_of_mut;
 ///
 /// When a feature is fully implemented and stable, its flag should be set to `true`.
 pub mod window_aggregates {
-    /// Only allow window function replacement in TopN queries (with ORDER BY and LIMIT).
-    /// When true, window functions are only replaced with window_agg in TopN execution context.
+    /// Only allow window function replacement in Top K queries (with ORDER BY and LIMIT).
+    /// When true, window functions are only replaced with window_agg in Top K execution context.
     /// When false, window functions can be replaced in any query context.
-    pub const ONLY_ALLOW_TOP_N: bool = true;
+    pub const ONLY_ALLOW_TOP_K: bool = true;
 
     /// Enable support for window functions in queries with HAVING clauses.
     pub const HAVING_SUPPORT: bool = false;
@@ -111,7 +110,7 @@ pub mod window_aggregates {
     pub const WINDOW_AGG_FILTER_CLAUSE: bool = false;
 }
 
-/// Information about a window aggregate to compute during TopN execution
+/// Information about a window aggregate to compute during Top K execution
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WindowAggregateInfo {
     /// Target entry index where this aggregate should be projected
@@ -196,13 +195,13 @@ impl WindowAggregateInfo {
 pub unsafe fn extract_and_convert_window_functions(
     parse: *mut pg_sys::Query,
 ) -> HashMap<usize, TargetList> {
-    // Check TopN context requirement if enabled
-    if window_aggregates::ONLY_ALLOW_TOP_N {
+    // Check Top K context requirement if enabled
+    if window_aggregates::ONLY_ALLOW_TOP_K {
         let has_order_by = !(*parse).sortClause.is_null();
         let has_limit = !(*parse).limitCount.is_null();
-        let is_top_n_query = has_order_by && has_limit;
-        if !is_top_n_query {
-            // Not a TopN query - return empty map so PostgreSQL handles all window functions
+        let is_top_k_query = has_order_by && has_limit;
+        if !is_top_k_query {
+            // Not a Top K query - return empty map so PostgreSQL handles all window functions
             return HashMap::new();
         }
     }
@@ -425,7 +424,7 @@ unsafe fn extract_field_name_from_aggregate_arg(
 ) -> Option<(FieldName, Option<f64>)> {
     let (var, missing) =
         if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, arg_node) {
-            parse_coalesce_expression(coalesce_node)?
+            parse_coalesce_expression(coalesce_node).ok()?
         } else if let Some(var) = nodecast!(Var, T_Var, arg_node) {
             (var, None)
         } else {
@@ -595,7 +594,6 @@ pub unsafe fn resolve_window_aggregate_filters_at_plan_time(
                             &PlannerContext::from_planner(root),
                             heap_rti,
                             filter_node,
-                            anyelement_query_input_opoid(),
                             RestrictInfoType::BaseRelation,
                             bm25_index,
                             false, // convert_external_to_special_qual

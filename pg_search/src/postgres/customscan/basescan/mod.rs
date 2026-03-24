@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
-mod exec_methods;
+pub mod exec_methods;
 pub mod parallel;
 mod privdat;
 pub mod projections;
@@ -25,15 +25,14 @@ mod scan_state;
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
-use std::sync::Once;
 
-use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
+use crate::api::operator::estimate_selectivity;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, MAX_TOPN_FEATURES};
+use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
@@ -64,8 +63,8 @@ use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::qual_inspect::{
-    extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, PlannerContext, Qual,
-    QualExtractState,
+    extract_join_predicates, extract_quals, is_subplan, optimize_quals_with_heap_expr,
+    PlannerContext, Qual, QualExtractState,
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -76,14 +75,15 @@ use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::filter_implied_predicates;
+use crate::postgres::utils::{filter_implied_predicates, is_unnest_func};
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
-use pgrx::{direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
+use crate::postgres::customscan::limit_offset::extract_const_i64;
+use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -231,13 +231,54 @@ impl BaseScan {
             &context,
             rti,
             filtered_restrict_info.as_ptr().cast(),
-            anyelement_query_input_opoid(),
             ri_type,
             indexrel,
             false, // Base relation quals should not convert external to all
             &mut state,
             attempt_pushdown,
         );
+
+        // If full extraction failed (e.g., baserestrictinfo contains SubPlan from
+        // RLS policies alongside our @@@ operator), try partial extraction: extract
+        // each restrict_info item individually, skipping ones we can't handle.
+        // Only use partial extraction when ALL skipped clauses are SubPlans
+        // (which will be evaluated via plan.qual). If any non-SubPlan clause
+        // is skipped, fall back to let PostgreSQL handle the query normally.
+        //
+        // TODO: We do something similar in `collect_join_sources_base_rel`,
+        // is unification possible?
+        if quals.is_none() {
+            let mut partial_quals = Vec::new();
+            let mut partial_state = QualExtractState::default();
+            let mut all_skipped_are_subplans = true;
+            for ri in filtered_restrict_info.iter_ptr() {
+                if let Some(qual) = extract_quals(
+                    &context,
+                    rti,
+                    ri.cast(),
+                    ri_type,
+                    indexrel,
+                    false,
+                    &mut partial_state,
+                    attempt_pushdown,
+                ) {
+                    partial_quals.push(qual);
+                } else if !is_subplan(ri.cast()) {
+                    all_skipped_are_subplans = false;
+                }
+            }
+            if !partial_quals.is_empty()
+                && partial_state.uses_our_operator
+                && all_skipped_are_subplans
+            {
+                state = partial_state;
+                quals = if partial_quals.len() == 1 {
+                    partial_quals.pop()
+                } else {
+                    Some(Qual::And(partial_quals))
+                };
+            }
+        }
 
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
@@ -248,7 +289,6 @@ impl BaseScan {
                 &context,
                 rti,
                 joinri.as_ptr().cast(),
-                anyelement_query_input_opoid(),
                 RestrictInfoType::Join,
                 indexrel,
                 true, // Join quals should convert external to all
@@ -319,7 +359,7 @@ impl BaseScan {
 /// Used to determine if we should create a custom path even without @@@ operator.
 ///
 /// Also validates that pdb.agg() is not present - if it is, that means the planner hook
-/// didn't replace it (e.g., not a TopN query), and we should reject it.
+/// didn't replace it (e.g., not a Top K query), and we should reject it.
 unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool {
     if root.is_null() || (*root).parse.is_null() {
         return false;
@@ -349,9 +389,9 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
                         return true;
                     } else if func_oid == paradedb_agg_func_oid {
                         // pdb.agg() should have been replaced by planner hook
-                        // If it's still here, it means it wasn't a valid TopN query
+                        // If it's still here, it means it wasn't a valid Top K query
                         pgrx::error!(
-                            "pdb.agg() can only be used as a window function in TopN queries \
+                            "pdb.agg() can only be used as a window function in Top K queries \
                              (queries with ORDER BY and LIMIT). For GROUP BY aggregates, use standard \
                              SQL aggregates like COUNT(*), SUM(), etc. \
                              Hint: Try using '@@@ pdb.all()' with ORDER BY and LIMIT, \
@@ -366,25 +406,6 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
     false
 }
 
-/// Is the function identified by `funcid` an approved set-returning-function
-/// that is safe for our limit push-down optimization?
-fn is_limit_safe_srf(funcid: pg_sys::Oid) -> bool {
-    static mut UNNEST_OID: pg_sys::Oid = pg_sys::InvalidOid;
-    static APPROVE_SRF_ONCE: Once = Once::new();
-
-    unsafe {
-        APPROVE_SRF_ONCE.call_once(|| {
-            if let Some(oid) = direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"pg_catalog.unnest(anyarray)".into_datum()],
-            ) {
-                UNNEST_OID = oid;
-            }
-        });
-        funcid == UNNEST_OID && UNNEST_OID != pg_sys::InvalidOid
-    }
-}
-
 /// Check if the query's target list contains only set-returning functions (e.g. `unnest()`) which
 /// are safe for use with our LIMIT optimization, and if so, then return the LIMIT from the parse.
 ///
@@ -393,14 +414,13 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
     if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
         return None;
     }
+    let parse = *(*root).parse;
     // non-Const LIMIT is not a thing we can handle here
-    let limit_const = nodecast!(Const, T_Const, (*(*root).parse).limitCount)?;
-    let limit =
-        i64::from_datum((*limit_const).constvalue, (*limit_const).constisnull).map(|v| v as f64)?;
+    let limit = extract_const_i64(parse.limitCount).map(|v| v as f64)?;
 
-    let offset = if (*(*root).parse).limitOffset.is_null() {
+    let offset = if parse.limitOffset.is_null() {
         0.0
-    } else if let Some(offset_const) = nodecast!(Const, T_Const, (*(*root).parse).limitOffset) {
+    } else if let Some(offset_const) = nodecast!(Const, T_Const, parse.limitOffset) {
         i64::from_datum((*offset_const).constvalue, (*offset_const).constisnull)
             .map(|v| v as f64)?
     } else {
@@ -409,12 +429,12 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
     };
 
     let mut found_limit_safe_srf = false;
-    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*(*root).parse).targetList);
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
     for te in target_list.iter_ptr() {
         if !(*te).expr.is_null() && pg_sys::expression_returns_set((*te).expr.cast()) {
             // It's a set-returning function, is it one we approve of?
             if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                if is_limit_safe_srf((*func_expr).funcid) {
+                if is_unnest_func((*func_expr).funcid) {
                     found_limit_safe_srf = true;
                 } else {
                     // We don't recognize this SRF, and can't vouch for it.
@@ -435,7 +455,7 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
 }
 
 impl CustomScan for BaseScan {
-    const NAME: &'static CStr = c"ParadeDB Scan";
+    const NAME: &'static CStr = c"ParadeDB Base Scan";
 
     type Args = RelPathlistHookArgs;
     type State = BaseScanState;
@@ -608,7 +628,9 @@ impl CustomScan for BaseScan {
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
-            let topn_pathkey_info = pullup_topn_pathkeys(rti, &schema, root);
+            let index_expressions = bm25_index.index_expressions();
+            let topk_pathkey_info =
+                pullup_topk_pathkeys(rti, &schema, root, Some(&index_expressions));
 
             #[cfg(feature = "pg15")]
             let baserels = (*builder.args().root).all_baserels;
@@ -653,7 +675,7 @@ impl CustomScan for BaseScan {
             // Save the count of referenced columns for decision-making
             custom_private.set_referenced_columns_count(referenced_columns.len());
 
-            let is_maybe_topn = limit.is_some() && topn_pathkey_info.is_usable();
+            let is_maybe_topk = limit.is_some() && topk_pathkey_info.is_usable();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
             // not just those in the target list. To avoid execution-time surprises, the "planned"
@@ -702,8 +724,8 @@ impl CustomScan for BaseScan {
             custom_private.set_segment_count(segment_count);
 
             // Determine whether we might be able to sort.
-            if is_maybe_topn && topn_pathkey_info.pathkeys().is_some() {
-                custom_private.set_maybe_orderby_info(topn_pathkey_info.pathkeys());
+            if is_maybe_topk && topk_pathkey_info.pathkeys().is_some() {
+                custom_private.set_maybe_orderby_info(topk_pathkey_info.pathkeys());
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
@@ -713,7 +735,7 @@ impl CustomScan for BaseScan {
             // Check if the index has a sort_by configuration and the query has a matching pathkey.
             // If so, create an additional sorted path that declares the pathkey.
             // This allows Postgres to use merge joins when joining with other sorted inputs.
-            let sort_by_pathkey = if gucs::is_mixed_fast_field_sort_enabled() {
+            let sort_by_pathkey = if gucs::is_columnar_sort_enabled() {
                 let sort_by_fields = bm25_index.options().sort_by();
                 sort_by_fields
                     .first()
@@ -746,7 +768,7 @@ impl CustomScan for BaseScan {
 
             let exec_method_types = choose_exec_method(
                 &custom_private,
-                &topn_pathkey_info,
+                &topk_pathkey_info,
                 limit_is_explicit,
                 table.name(),
                 sort_by_pathkey.is_some(),
@@ -766,7 +788,7 @@ impl CustomScan for BaseScan {
             for method in exec_method_types {
                 let per_tuple_cost = match &method {
                     // returning fields from fast fields
-                    ExecMethodType::FastFieldMixed { .. } => pg_sys::cpu_index_tuple_cost,
+                    ExecMethodType::Columnar { .. } => pg_sys::cpu_index_tuple_cost,
                     // requires heap access to return fields
                     _ => pg_sys::cpu_tuple_cost,
                 };
@@ -780,7 +802,7 @@ impl CustomScan for BaseScan {
                 // we must use this path if we need to do const projections for scores or snippets
                 path_builder = path_builder.set_force_path(
                     maybe_needs_const_projections
-                        || matches!(method, ExecMethodType::TopN { .. })
+                        || matches!(method, ExecMethodType::TopK { .. })
                         || quals.contains_all(),
                 );
 
@@ -841,17 +863,17 @@ impl CustomScan for BaseScan {
                 // indicate that we'll be doing projection ourselves
                 path_builder = path_builder.set_flag(Flags::Projection);
 
-                // If TopN, add pathkeys to builder
+                // If Top K, add pathkeys to builder
                 if matches!(
                     method,
-                    ExecMethodType::TopN {
+                    ExecMethodType::TopK {
                         orderby_info: Some(..),
                         ..
                     }
                 ) {
                     path_builder = path_builder.set_pathkeys((*builder.args().root).query_pathkeys);
                 } else if is_sorted {
-                    // For sorted mixed fast field execution, add the sort pathkey
+                    // For sorted columnar execution, add the sort pathkey
                     if let Some(ref pathkey_style) = sort_by_pathkey {
                         path_builder = path_builder.add_path_key(pathkey_style);
                     }
@@ -969,7 +991,6 @@ impl CustomScan for BaseScan {
             let join_predicates = extract_join_predicates(
                 &PlannerContext::from_planner(builder.args().root),
                 rti as pg_sys::Index,
-                anyelement_query_input_opoid(),
                 &indexrel,
                 true,
             );
@@ -986,7 +1007,43 @@ impl CustomScan for BaseScan {
                 .custom_private_mut()
                 .set_ambulkdelete_epoch(MetaPage::open(&indexrel).ambulkdelete_epoch());
 
-            builder.build()
+            // Collect subplans that our Custom Scan doesn't handle internally and set them as plan.qual.
+            // PostgreSQL's ExecInitCustomScan will call ExecInitQual on plan.qual,
+            // which properly initializes SubPlans. We then evaluate these in exec_custom_scan.
+            let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
+            let mut subplan_quals = PgList::<pg_sys::Node>::new();
+            for clause in clauses.iter_ptr() {
+                if is_subplan(clause) {
+                    // strip RestrictInfo wrapper, plan.qual needs bare expressions
+                    let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
+                        let ri = clause as *mut pg_sys::RestrictInfo;
+                        (*ri).clause.cast()
+                    } else {
+                        clause
+                    };
+                    subplan_quals.push(bare_clause);
+                }
+            }
+
+            // SubPlan quals require per-tuple heap access for ExecQual, which would
+            // negate the benefit of columnar. Fall back to Normal so we don't pay for both
+            // batch processing AND per-tuple heap fetches.
+            if !subplan_quals.is_empty()
+                && matches!(
+                    builder.custom_private().exec_method_type(),
+                    ExecMethodType::Columnar { .. }
+                )
+            {
+                builder
+                    .custom_private_mut()
+                    .set_exec_method_type(ExecMethodType::Normal);
+            }
+
+            let mut scan = builder.build();
+            if !subplan_quals.is_empty() {
+                scan.scan.plan.qual = subplan_quals.into_pg();
+            }
+            scan
         }
     }
 
@@ -1110,7 +1167,19 @@ impl CustomScan for BaseScan {
 
             assign_exec_method(&mut builder);
 
-            builder.build()
+            let state = builder.build();
+
+            // Tell ExecInitCustomScan to create the scan slot as BufferHeapTuple
+            // (matching what begin_custom_scan will use via table_slot_callbacks).
+            // This ensures ExecInitQual compiles plan.qual expressions for the
+            // correct slot type, avoiding TTS_IS_VIRTUAL assertion failures.
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            {
+                (*state).csstate.slotOps =
+                    pg_sys::table_slot_callbacks((*state).custom_state().heaprel().as_ptr());
+            }
+
+            state
         }
     }
 
@@ -1174,12 +1243,15 @@ impl CustomScan for BaseScan {
         explainer.add_bool("Scores", state.custom_state().need_scores());
         if let Some(orderby_info) = state.custom_state().orderby_info().as_ref() {
             explainer.add_text(
-                "   TopN Order By",
+                "   TopK Order By",
                 orderby_info
                     .iter()
                     .map(|oi| match oi {
                         OrderByInfo {
-                            feature: OrderByFeature::Field(fieldname),
+                            feature:
+                                OrderByFeature::Field {
+                                    name: fieldname, ..
+                                },
                             direction,
                             ..
                         } => {
@@ -1193,7 +1265,7 @@ impl CustomScan for BaseScan {
                             format!("{} {}", name.as_deref().unwrap_or("?"), direction.as_ref())
                         }
                         OrderByInfo {
-                            feature: OrderByFeature::Score,
+                            feature: OrderByFeature::Score { .. },
                             direction,
                             ..
                         } => {
@@ -1206,7 +1278,7 @@ impl CustomScan for BaseScan {
         }
 
         if let Some(limit) = state.custom_state().limit() {
-            explainer.add_unsigned_integer("   TopN Limit", limit as u64, None);
+            explainer.add_unsigned_integer("   TopK Limit", limit as u64, None);
             if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
                     "   Queries",
@@ -1310,6 +1382,21 @@ impl CustomScan for BaseScan {
                 tupdesc,
                 pg_sys::table_slot_callbacks(state.custom_state().heaprel().as_ptr()),
             );
+
+            // On PG15, ExecInitCustomScan hardcodes &TTSOpsVirtual for the scan slot
+            // (there's no slotOps override mechanism). ExecInitQual then compiles
+            // plan.qual expressions assuming virtual slots. Since we just replaced
+            // the slot with BufferHeapTuple above, we must re-initialize the qual
+            // so expressions are compiled for the correct slot type.
+            #[cfg(feature = "pg15")]
+            {
+                let plan = state.csstate.ss.ps.plan;
+                if !(*plan).qual.is_null() {
+                    state.csstate.ss.ps.qual =
+                        pg_sys::ExecInitQual((*plan).qual, state.planstate());
+                }
+            }
+
             pg_sys::ExecInitResultTypeTL(addr_of_mut!(state.csstate.ss.ps));
             pg_sys::ExecAssignProjectionInfo(
                 state.planstate(),
@@ -1363,6 +1450,13 @@ impl CustomScan for BaseScan {
                                 continue;
                             }
                         };
+
+                        // Evaluate executor-level quals (e.g., RLS policy SubPlan expressions)
+                        // that couldn't be pushed into the tantivy query.
+                        // These are set as plan.qual in plan_custom_path.
+                        if !satisfies_subplan_quals(state, slot) {
+                            continue;
+                        }
 
                         let needs_special_projection = state.custom_state().need_scores()
                             || state.custom_state().need_snippets()
@@ -1527,55 +1621,55 @@ unsafe fn is_minmax_implicit_limit(root: *mut pg_sys::PlannerInfo) -> bool {
 }
 
 ///
-/// Validates whether a query that should use TopN scan is actually using it.
+/// Validates whether a query that should use Top K scan is actually using it.
 ///
-/// When `paradedb.check_topn_scan` is enabled, this function checks if a query with LIMIT
-/// that uses ParadeDB's search operators is using the TopN execution method. If TopN was
+/// When `paradedb.check_topk_scan` is enabled, this function checks if a query with LIMIT
+/// that uses ParadeDB's search operators is using the Top K execution method. If Top K was
 /// expected but not chosen, it logs a warning with diagnostic information to help developers
 /// identify performance issues.
 ///
 /// # Performance Note
 /// This function has minimal overhead as it returns early when the GUC is disabled.
-fn validate_topn_expectation(
+fn validate_topk_expectation(
     privdata: &PrivateData,
-    topn_pathkey_info: &PathKeyInfo,
+    topk_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
     chosen_method: &ExecMethodType,
     table_name: &str,
 ) {
     // Fast path: if validation is disabled, return immediately
-    if !crate::gucs::check_topn_scan() {
+    if !crate::gucs::check_topk_scan() {
         return;
     }
 
-    // Check if this query should be using TopN
+    // Check if this query should be using Top K
     let has_limit = privdata.limit().is_some();
     let has_search_query = privdata.query().is_some();
     let no_group_by = privdata.window_aggregates().is_empty();
 
-    // TopN is expected when we have: explicit LIMIT + search query + no GROUP BY
-    let should_use_topn = has_limit && limit_is_explicit && has_search_query && no_group_by;
+    // Top K is expected when we have: explicit LIMIT + search query + no GROUP BY
+    let should_use_topk = has_limit && limit_is_explicit && has_search_query && no_group_by;
 
-    // Check if we actually got TopN
-    let is_using_topn = matches!(chosen_method, ExecMethodType::TopN { .. });
+    // Check if we actually got Top K
+    let is_using_topk = matches!(chosen_method, ExecMethodType::TopK { .. });
 
-    // If TopN is not expected or we're already using TopN, nothing to warn about
-    if !should_use_topn || is_using_topn {
+    // If Top K is not expected or we're already using Top K, nothing to warn about
+    if !should_use_topk || is_using_topk {
         return;
     }
 
-    // At this point: should_use_topn is true AND we're not using TopN - emit warning
+    // At this point: should_use_topk is true AND we're not using Top K - emit warning
     let limit = privdata.limit().unwrap();
     let method_name = match chosen_method {
         ExecMethodType::Normal => "Normal",
-        ExecMethodType::FastFieldMixed { .. } => "FastFieldMixed",
-        ExecMethodType::TopN { .. } => "TopN",
+        ExecMethodType::Columnar { .. } => "Columnar",
+        ExecMethodType::TopK { .. } => "TopK",
     };
 
-    let (reason, remedies) = match topn_pathkey_info {
+    let (reason, remedies) = match topk_pathkey_info {
         PathKeyInfo::Unusable(UnusableReason::TooManyColumns { count, max }) => (
             format!(
-                "ORDER BY has {} columns but TopN supports maximum {}",
+                "ORDER BY has {} columns but Top K supports maximum {}",
                 count, max
             ),
             format!("Reduce ORDER BY columns to {} or fewer", max),
@@ -1609,8 +1703,8 @@ fn validate_topn_expectation(
                 .to_string(),
         ),
         PathKeyInfo::None => (
-            // This case should normally use TopN with no ordering
-            "unknown reason (no pathkeys but should still use TopN)".to_string(),
+            // This case should normally use Top K with no ordering
+            "unknown reason (no pathkeys but should still use Top K)".to_string(),
             "This is unexpected - please report this issue".to_string(),
         ),
         PathKeyInfo::UsableAll(_) => (
@@ -1621,11 +1715,11 @@ fn validate_topn_expectation(
 
     BaseScan::add_planner_warning(
         format!(
-            "Query has LIMIT {} but is not using TopN scan (using {} instead). \
+            "Query has LIMIT {} but is not using Top K scan (using {} instead). \
              Reason: {}. \
              This may cause poor performance on large datasets. \
              Remedies: {}. \
-             To disable this warning: SET paradedb.check_topn_scan = false",
+             To disable this warning: SET paradedb.check_topk_scan = false",
             limit, method_name, reason, remedies
         ),
         table_name,
@@ -1638,7 +1732,7 @@ fn validate_topn_expectation(
 /// If the query can return "fast fields", make that determination here, falling back to the
 /// [`NormalScanExecState`] if not.
 ///
-/// We support [`MixedFastFieldExecState`] when there are a mix of string and numeric fast fields.
+/// We support [`ColumnarExecState`] when there are a mix of string and numeric fast fields.
 ///
 /// If we have failed to extract all relevant information at planning time, then the fast-field
 /// execution methods might still fall back to `Normal` at execution time: see the notes in
@@ -1649,44 +1743,44 @@ fn validate_topn_expectation(
 ///
 fn choose_exec_method(
     privdata: &PrivateData,
-    topn_pathkey_info: &PathKeyInfo,
+    topk_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
     table_name: &str,
     has_sort_by_pathkey: bool,
 ) -> Vec<ExecMethodType> {
-    // See if we can use TopN.
+    // See if we can use Top K.
     if let Some(limit) = privdata.limit() {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
-            // having a valid limit and sort direction means we can do a TopN query
-            // and TopN can do snippets
-            let method = ExecMethodType::TopN {
+            // having a valid limit and sort direction means we can do a Top K query
+            // and Top K can do snippets
+            let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: Some(orderby_info.clone()),
                 window_aggregates: privdata.window_aggregates().clone(),
             };
-            validate_topn_expectation(
+            validate_topk_expectation(
                 privdata,
-                topn_pathkey_info,
+                topk_pathkey_info,
                 limit_is_explicit,
                 &method,
                 table_name,
             );
             return vec![method];
         }
-        if matches!(topn_pathkey_info, PathKeyInfo::None) {
-            // we have a limit but no pathkeys at all. we can still go through our "top n"
+        if matches!(topk_pathkey_info, PathKeyInfo::None) {
+            // we have a limit but no pathkeys at all. we can still go through our "top k"
             // machinery, but getting "limit" (essentially) random docs, which is what the user
             // asked for
-            let method = ExecMethodType::TopN {
+            let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: None,
                 window_aggregates: privdata.window_aggregates().clone(),
             };
-            validate_topn_expectation(
+            validate_topk_expectation(
                 privdata,
-                topn_pathkey_info,
+                topk_pathkey_info,
                 limit_is_explicit,
                 &method,
                 table_name,
@@ -1696,12 +1790,12 @@ fn choose_exec_method(
     }
 
     // Otherwise, see if we can use a fast fields method.
-    let is_capable = fast_fields::is_mixed_fast_field_capable(privdata);
+    let is_capable = fast_fields::is_columnar_capable(privdata);
     if is_capable {
         let mut methods = Vec::new();
 
         // Always create the Unsorted variant
-        methods.push(ExecMethodType::FastFieldMixed {
+        methods.push(ExecMethodType::Columnar {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             limit: privdata.limit(),
             sort_order: None,
@@ -1709,7 +1803,7 @@ fn choose_exec_method(
 
         // Check if the index has a sort_by configuration (and sorting is enabled)
         // and we have a matching pathkey from the query
-        if gucs::is_mixed_fast_field_sort_enabled() && has_sort_by_pathkey {
+        if gucs::is_columnar_sort_enabled() && has_sort_by_pathkey {
             let sort_order = privdata.indexrelid().and_then(|indexrelid| {
                 let indexrel =
                     PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
@@ -1719,7 +1813,7 @@ fn choose_exec_method(
             });
 
             if let Some(sort_order) = sort_order {
-                methods.push(ExecMethodType::FastFieldMixed {
+                methods.push(ExecMethodType::Columnar {
                     which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
                     limit: privdata.limit(),
                     sort_order: Some(sort_order),
@@ -1728,9 +1822,9 @@ fn choose_exec_method(
         }
 
         // Validate expectations for the first method (Unsorted)
-        validate_topn_expectation(
+        validate_topk_expectation(
             privdata,
-            topn_pathkey_info,
+            topk_pathkey_info,
             limit_is_explicit,
             &methods[0],
             table_name,
@@ -1741,9 +1835,9 @@ fn choose_exec_method(
 
     // Else, fall back to normal execution
     let method = ExecMethodType::Normal;
-    validate_topn_expectation(
+    validate_topk_expectation(
         privdata,
-        topn_pathkey_info,
+        topk_pathkey_info,
         limit_is_explicit,
         &method,
         table_name,
@@ -1763,17 +1857,17 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
         ExecMethodType::Normal => builder
             .custom_state()
             .assign_exec_method(NormalScanExecState::default(), Some(ExecMethodType::Normal)),
-        ExecMethodType::TopN {
+        ExecMethodType::TopK {
             heaprelid,
             limit,
             orderby_info,
             window_aggregates: _,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
+            exec_methods::top_k::TopKScanExecState::new(heaprelid, limit, orderby_info),
             None,
         ),
 
-        ExecMethodType::FastFieldMixed {
+        ExecMethodType::Columnar {
             which_fast_fields,
             limit,
             sort_order,
@@ -1813,7 +1907,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                     if !is_projected {
                         // Retrieve the sort field from the planned fast fields
                         let planned_fields = match &builder.custom_state_ref().exec_method_type {
-                            ExecMethodType::FastFieldMixed {
+                            ExecMethodType::Columnar {
                                 which_fast_fields, ..
                             } => which_fast_fields,
                             _ => unreachable!(),
@@ -1829,7 +1923,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                 }
 
                 builder.custom_state().assign_exec_method(
-                    exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
+                    exec_methods::fast_fields::columnar::ColumnarExecState::new(
                         which_fast_fields,
                         extra_fast_fields,
                         limit,
@@ -1918,6 +2012,24 @@ fn check_visibility(
         .custom_state_mut()
         .visibility_checker()
         .exec_if_visible(ctid, bslot.cast(), move |_| bslot.cast())
+}
+
+/// Evaluate executor-level quals (e.g., RLS policy SubPlan expressions) that couldn't be pushed
+/// into the tantivy query. These are set as `plan.qual` in `plan_custom_path`.
+/// Returns `true` if qual passes (or no qual exists), `false` if the row should be skipped.
+#[inline(always)]
+unsafe fn satisfies_subplan_quals(
+    state: &mut CustomScanStateWrapper<BaseScan>,
+    slot: *mut pg_sys::TupleTableSlot,
+) -> bool {
+    let qual = state.csstate.ss.ps.qual;
+    if qual.is_null() {
+        return true;
+    }
+    let econtext = (*state.projection_info()).pi_exprContext;
+    (*econtext).ecxt_scantuple = slot;
+    pg_sys::slot_getallattrs(slot);
+    pg_sys::ExecQual(qual, econtext)
 }
 
 /// Inject ParadeDB-specific placeholders (score, snippets, window aggregates) into the tuple slot
@@ -2086,17 +2198,18 @@ unsafe fn replace_window_agg_with_const(
 }
 
 /// Determine whether there are any pathkeys at all, and whether we might be able to push down
-/// ordering in TopN.
+/// ordering in Top K.
 ///
 /// If between 1 and 3 pathkeys are declared, and are indexed as fast, then return
-/// `UsableAll(Vec<OrderByStyles>)` for them for use in TopN.
+/// `UsableAll(Vec<OrderByStyles>)` for them for use in Top K.
 ///
-/// This function must be kept in sync with `validate_topn_compatibility` in `hook.rs` to ensure
+/// This function must be kept in sync with `validate_topk_compatibility` in `hook.rs` to ensure
 /// that queries validated during the planner hook phase can be executed by the custom scan.
-unsafe fn pullup_topn_pathkeys(
+unsafe fn pullup_topk_pathkeys(
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
+    index_expressions: Option<&PgList<pg_sys::Expr>>,
 ) -> PathKeyInfo {
     match extract_pathkey_styles_with_sortability_check(
         root,
@@ -2104,21 +2217,22 @@ unsafe fn pullup_topn_pathkeys(
         schema,
         |search_field| search_field.is_raw_sortable(),
         |search_field| search_field.is_lower_sortable(),
+        index_expressions,
     ) {
-        PathKeyInfo::UsableAll(styles) if styles.len() <= MAX_TOPN_FEATURES => {
-            // TopN is the base scan's only executor which supports sorting, and supports up to
-            // MAX_TOPN_FEATURES order-by clauses.
+        PathKeyInfo::UsableAll(styles) if styles.len() <= MAX_TOPK_FEATURES => {
+            // Top K is the base scan's only executor which supports sorting, and supports up to
+            // MAX_TOPK_FEATURES order-by clauses.
             PathKeyInfo::UsableAll(styles)
         }
         PathKeyInfo::UsableAll(ref styles) => {
             // Too many pathkeys were extracted.
             PathKeyInfo::Unusable(UnusableReason::TooManyColumns {
                 count: styles.len(),
-                max: MAX_TOPN_FEATURES,
+                max: MAX_TOPK_FEATURES,
             })
         }
         PathKeyInfo::UsablePrefix(ref prefix) => {
-            // TopN cannot execute for a prefix of pathkeys, because it eliminates results before
+            // Top K cannot execute for a prefix of pathkeys, because it eliminates results before
             // the suffix of the pathkey comes into play.
             PathKeyInfo::Unusable(UnusableReason::PrefixOnly {
                 matched: prefix.len(),
@@ -2345,9 +2459,9 @@ unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64) {
 /// 1. The parse tree contains a LEFT JOIN node
 /// 2. That LEFT JOIN's right side is marked as LATERAL in the range table
 ///
-/// This enables TopN optimization because LEFT JOIN semantics guarantee all
+/// This enables Top K optimization because LEFT JOIN semantics guarantee all
 /// left-side rows are preserved. If WHERE/ORDER BY/LIMIT only reference the
-/// left table, we can safely apply TopN to the left scan before the join.
+/// left table, we can safely apply Top K to the left scan before the join.
 unsafe fn is_left_join_lateral(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
@@ -2469,8 +2583,8 @@ unsafe fn is_lateral_subquery(node: *mut pg_sys::Node, query: *mut pg_sys::Query
 
 /// Verify WHERE clause only references the left table (current relation)
 ///
-/// This method is used to check whether we can safely push down a LEFT LATERAL JOIN as TopN.
-/// Because TopN eliminates rows _before_ the JOIN is actually executed, the WHERE clause (and
+/// This method is used to check whether we can safely push down a LEFT LATERAL JOIN as Top K.
+/// Because Top K eliminates rows _before_ the JOIN is actually executed, the WHERE clause (and
 /// join condition) may only reference the left hand side of the join to avoid eliminating rows via the
 /// limit which would be filtered by conditions on the right hand side.
 unsafe fn where_clause_only_references_left(

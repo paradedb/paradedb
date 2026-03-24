@@ -1,0 +1,71 @@
+---
+title: DigitalOcean
+description: Deploy ParadeDB on a DigitalOcean Droplet
+canonical: https://docs.paradedb.com/deploy/cloud-platforms/digitalocean
+---
+
+<Note>
+  Cloud platform deployments run ParadeDB Community, which does not include WAL
+  support. This makes them suitable for hobby, development, and staging
+  environments. For production, we recommend [ParadeDB
+  Enterprise](/deploy/enterprise) deployed via
+  [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
+</Note>
+
+[DigitalOcean](https://www.digitalocean.com) is a cloud platform for deploying and managing applications. This guide walks through
+deploying ParadeDB on a DigitalOcean Droplet using Docker. Docker packages PostgreSQL and `pg_search` together, so you don't need to install them manually.
+
+## Prerequisites
+
+1. A DigitalOcean account
+2. Your local machine's public IPv4 address (used to restrict access to the Droplet)
+
+## Create a Droplet
+
+1. In the DigitalOcean console, create a new Droplet
+2. Select **Ubuntu 24.04 (LTS) x64** as the image
+3. Choose a plan size — see the [DigitalOcean sizing guide](https://docs.digitalocean.com/products/droplets/concepts/choosing-a-plan/) for recommendations
+
+Once the Droplet is running, SSH into it to complete the remaining steps.
+
+## Install Docker
+
+```bash
+curl -fsSL https://get.docker.com | sh
+```
+
+## Install ParadeDB
+
+The `tag` query parameter pins the ParadeDB version. See the [Docker Hub page](https://hub.docker.com/r/paradedb/paradedb/tags) for available tags.
+
+```bash
+curl -fsSL "https://paradedb.com/install.sh?tag=0.22.3-pg18" | sh
+```
+
+Once the install completes, note the password printed to the terminal — you will need it for the `psql` connection string below.
+
+To ensure the container restarts automatically if the Droplet reboots:
+
+```bash
+docker update --restart unless-stopped paradedb
+```
+
+## Configure Firewall
+
+In the DigitalOcean console, navigate to **Networking → Firewalls** and create a firewall with the following inbound rule:
+
+| Type   | Protocol | Port   | Sources                |
+| ------ | -------- | ------ | ---------------------- |
+| Custom | TCP      | `5432` | `<YOUR_IP_ADDRESS>/32` |
+
+Replace `<YOUR_IP_ADDRESS>` with your local machine's public IPv4 address (not the Droplet IP). To allow access from any IP, use `0.0.0.0/0` instead. Apply the firewall to your Droplet.
+
+## Connect to ParadeDB
+
+From your local machine:
+
+```bash
+psql postgres://myuser:mypassword@<DROPLET_IP>:5432/paradedb
+```
+
+Replace `<DROPLET_IP>` with the public IPv4 address of your Droplet, found on the DigitalOcean console.

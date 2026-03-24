@@ -46,7 +46,7 @@ ENV PATH="/usr/local/bin:/root/.cargo/bin:$PATH" \
 COPY Cargo.toml /tmp/
 WORKDIR /tmp/
 
-# Extract version from Cargo.toml (handles 'pgrx = "=0.16.1"')
+# Extract version from Cargo.toml (handles 'pgrx = "=0.17.0"')
 # This replaces `cargo tree` to avoid needing the full source tree
 RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -d '=') && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
@@ -173,7 +173,7 @@ COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2 && \
     rm /usr/lib/python*/EXTERNALLY-MANAGED && \
-    pip3 install --no-cache-dir 'barman[cloud,azure,snappy,google]==3.13.2' && \
+    pip3 install --no-cache-dir 'setuptools==82.0.1' 'barman[cloud,azure,snappy,google]==3.18.0' && \
     apt-get remove -y python3-dev python3-pip --purge && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* && \

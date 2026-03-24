@@ -96,7 +96,7 @@ fn parallel_with_subselect(mut conn: PgConnection) {
             .unwrap();
         pretty_assertions::assert_eq!(
             plan.get("Custom Plan Provider"),
-            Some(&Value::String(String::from("ParadeDB Scan")))
+            Some(&Value::String(String::from("ParadeDB Base Scan")))
         );
     }
 }

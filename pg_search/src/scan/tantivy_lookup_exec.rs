@@ -1,10 +1,8 @@
 use std::any::Any;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
 use crate::index::fast_fields_helper::{
-    ords_to_bytes_array, ords_to_string_array, FFHelper, FFType,
+    ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
 };
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
@@ -14,23 +12,40 @@ use arrow_array::{StructArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
 use datafusion::common::{DataFusionError, Result};
-use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
-use datafusion::physical_expr::EquivalenceProperties;
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::physical_expr::{EquivalenceProperties, PhysicalExpr};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
-use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
+use datafusion::physical_plan::filter_pushdown::{
+    ChildFilterDescription, ChildPushdownResult, FilterDescription, FilterPushdownPhase,
+    FilterPushdownPropagation,
+};
+use datafusion::physical_plan::metrics::{
+    BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
+};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
-use futures::Stream;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct DeferredField {
-    pub field_name: String,
+/// Tracks a deferred column inside DataFusion's physical execution plan.
+///
+/// Unlike the logical `DeferredField` which uses the base column's string name, this struct
+/// identifies the column strictly by its `usize` index within the physical `RecordBatch`.
+/// This is necessary because DataFusion physical schemas (`arrow_schema::Schema`) drop
+/// all relation qualifiers and names are no longer used for strict identity.
+///
+/// The `display_name` is preserved purely for `EXPLAIN` rendering and debugging; it should
+/// never be used for matching columns in the physical plan.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PhysicalDeferredField {
+    /// The positional index of the column in the physical Arrow schema
+    pub col_idx: usize,
+    /// A human-readable name used purely for `EXPLAIN` formatting
+    pub display_name: String,
     pub is_bytes: bool,
-    pub ff_index: usize,
+    pub canonical: CanonicalColumn,
 }
 
-impl DeferredField {
+impl PhysicalDeferredField {
     pub fn output_data_type(&self) -> DataType {
         if self.is_bytes {
             DataType::BinaryView
@@ -40,12 +55,14 @@ impl DeferredField {
     }
 }
 
+use crate::api::HashMap;
+
 pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
-    deferred_fields: Vec<DeferredField>,
+    deferred_fields: Vec<PhysicalDeferredField>,
     decoders: Vec<DecoderInfo>,
-    ffhelper: Arc<FFHelper>,
-    properties: PlanProperties,
+    ffhelpers: HashMap<u32, Arc<FFHelper>>,
+    properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
 
@@ -61,26 +78,63 @@ impl std::fmt::Debug for TantivyLookupExec {
 impl TantivyLookupExec {
     pub fn new(
         input: Arc<dyn ExecutionPlan>,
-        deferred_fields: Vec<DeferredField>,
-        ffhelper: Arc<FFHelper>,
+        deferred_fields: Vec<PhysicalDeferredField>,
+        ffhelpers: HashMap<u32, Arc<FFHelper>>,
     ) -> Result<Self> {
         let (output_schema, decoders) =
             build_schema_and_decoders(input.schema(), &deferred_fields)?;
-        let eq_props = EquivalenceProperties::new(output_schema);
-        let properties = PlanProperties::new(
+        let mut eq_props = EquivalenceProperties::new(output_schema.clone());
+        // Propagate input ordering: TantivyLookupExec preserves row order
+        // within batches (uses interleave), so if the input is sorted the
+        // output retains that ordering.
+        if let Some(input_ordering) = input.properties().output_ordering() {
+            // Rewrite ordering expressions to reference the output schema
+            // (column names are preserved, only data types change for deferred cols).
+            use datafusion::physical_expr::expressions::Column;
+            let rewritten: Vec<_> = input_ordering
+                .iter()
+                .filter_map(|sort_expr| {
+                    if let Some(col) = sort_expr.expr.as_any().downcast_ref::<Column>() {
+                        if let Ok(new_idx) = output_schema.index_of(col.name()) {
+                            let new_col =
+                                Arc::new(Column::new(col.name(), new_idx)) as Arc<dyn PhysicalExpr>;
+                            return Some(datafusion::physical_expr::PhysicalSortExpr {
+                                expr: new_col,
+                                options: sort_expr.options,
+                            });
+                        }
+                    }
+                    None
+                })
+                .collect();
+            if rewritten.len() == input_ordering.len() {
+                if let Some(lex) = datafusion::physical_expr::LexOrdering::new(rewritten) {
+                    eq_props.add_ordering(lex);
+                }
+            }
+        }
+        let properties = Arc::new(PlanProperties::new(
             eq_props,
             input.properties().output_partitioning().clone(),
             EmissionType::Incremental,
             Boundedness::Bounded,
-        );
+        ));
         Ok(Self {
             input,
             deferred_fields,
             decoders,
-            ffhelper,
+            ffhelpers,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
         })
+    }
+
+    pub fn deferred_fields(&self) -> &[PhysicalDeferredField] {
+        &self.deferred_fields
+    }
+
+    pub fn ffhelper(&self, indexrelid: u32) -> Option<&Arc<FFHelper>> {
+        self.ffhelpers.get(&indexrelid)
     }
 }
 
@@ -88,12 +142,12 @@ impl TantivyLookupExec {
 pub struct DecoderInfo {
     pub col_idx: usize,
     pub is_bytes: bool,
-    pub ff_index: usize,
+    pub canonical: CanonicalColumn,
 }
 
 fn build_schema_and_decoders(
     input_schema: SchemaRef,
-    deferred: &[DeferredField],
+    deferred: &[PhysicalDeferredField],
 ) -> Result<(SchemaRef, Vec<DecoderInfo>)> {
     let mut fields: Vec<Field> = Vec::with_capacity(input_schema.fields().len());
     let mut decoders = Vec::new();
@@ -103,24 +157,24 @@ fn build_schema_and_decoders(
     // This pairs the first "description" in the schema with the first "description"
     // in the deferred pool, removing it so the second one pairs correctly.
     for (col_idx, field) in input_schema.fields().iter().enumerate() {
-        let name = field.name();
         let is_union = matches!(field.data_type(), DataType::Union(_, _));
 
         if is_union {
-            if let Some(pos) = deferred_pool.iter().position(|d| &d.field_name == name) {
+            if let Some(pos) = deferred_pool.iter().position(|d| d.col_idx == col_idx) {
                 let d = deferred_pool.remove(pos);
-                fields.push(Field::new(&d.field_name, d.output_data_type(), true));
+                fields.push(Field::new(field.name(), d.output_data_type(), true));
                 decoders.push(DecoderInfo {
                     col_idx,
                     is_bytes: d.is_bytes,
-                    ff_index: d.ff_index,
+                    canonical: d.canonical,
                 });
-                continue;
+            } else {
+                fields.push(field.as_ref().clone());
             }
+        } else {
+            // Pass through fields that are not unions or not in our deferred pool
+            fields.push(field.as_ref().clone());
         }
-
-        // Pass through fields that are not unions or not in our deferred pool
-        fields.push(field.as_ref().clone());
     }
 
     Ok((Arc::new(Schema::new(fields)), decoders))
@@ -133,7 +187,7 @@ impl DisplayAs for TantivyLookupExec {
             "TantivyLookupExec: decode=[{}]",
             self.deferred_fields
                 .iter()
-                .map(|d| d.field_name.as_str())
+                .map(|d| d.display_name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
         )
@@ -153,7 +207,7 @@ impl ExecutionPlan for TantivyLookupExec {
         Some(self.metrics.clone_inner())
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 
@@ -168,7 +222,7 @@ impl ExecutionPlan for TantivyLookupExec {
         Ok(Arc::new(TantivyLookupExec::new(
             children.remove(0),
             self.deferred_fields.clone(),
-            Arc::clone(&self.ffhelper),
+            self.ffhelpers.clone(),
         )?))
     }
 
@@ -177,59 +231,102 @@ impl ExecutionPlan for TantivyLookupExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        let input_stream = self.input.execute(partition, context)?;
+        let mut input_stream = self.input.execute(partition, context)?;
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
+        let decoders = self.decoders.clone();
+        let ffhelpers = self.ffhelpers.clone();
+        let schema = self.properties.eq_properties.schema().clone();
+
+        let stream_gen = async_stream::try_stream! {
+            use futures::StreamExt;
+            while let Some(batch_res) = input_stream.next().await {
+                let timer = baseline_metrics.elapsed_compute().timer();
+                let result = match batch_res {
+                    Ok(batch) => enrich_batch(batch, &decoders, &ffhelpers, &schema),
+                    Err(e) => Err(e),
+                };
+                timer.done();
+
+                yield result.record_output(&baseline_metrics)?;
+            }
+            baseline_metrics.done();
+        };
+
         let stream = unsafe {
-            UnsafeSendStream::new(LookupStream {
-                input: input_stream,
-                decoders: self.decoders.clone(),
-                ffhelper: Arc::clone(&self.ffhelper),
-                schema: self.properties.eq_properties.schema().clone(),
-                baseline_metrics,
-            })
+            UnsafeSendStream::new(stream_gen, self.properties.eq_properties.schema().clone())
         };
         Ok(Box::pin(stream))
     }
-}
 
-struct LookupStream {
-    input: SendableRecordBatchStream,
-    decoders: Vec<DecoderInfo>,
-    ffhelper: Arc<FFHelper>,
-    schema: SchemaRef,
-    baseline_metrics: BaselineMetrics,
-}
-
-impl LookupStream {
-    fn enrich_batch(&self, batch: RecordBatch) -> Result<RecordBatch> {
-        let num_rows = batch.num_rows();
-        // Clone the input arrays. We will overwrite the deferred ones by exact index.
-        let mut output_columns: Vec<ArrayRef> = batch.columns().to_vec();
-
-        for decoder in &self.decoders {
-            let union_array = output_columns[decoder.col_idx]
-                .as_any()
-                .downcast_ref::<arrow_array::UnionArray>()
-                .ok_or_else(|| {
-                    DataFusionError::Execution(format!(
-                        "expected UnionArray for deferred column at index {}",
-                        decoder.col_idx
-                    ))
-                })?;
-
-            // Replace the raw UnionArray with the decoded String/Binary array
-            output_columns[decoder.col_idx] = materialize_deferred_column(
-                &self.ffhelper,
-                union_array,
-                decoder.ff_index,
-                decoder.is_bytes,
-                num_rows,
-            )?;
+    fn gather_filters_for_pushdown(
+        &self,
+        phase: FilterPushdownPhase,
+        parent_filters: Vec<Arc<dyn PhysicalExpr>>,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterDescription> {
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterDescription::all_unsupported(
+                &parent_filters,
+                &self.children(),
+            ));
         }
-
-        RecordBatch::try_new(self.schema.clone(), output_columns)
-            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+        // ChildFilterDescription::from_child automatically reassigns indices if names match
+        let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?;
+        Ok(FilterDescription::new().with_child(child_desc))
     }
+
+    fn handle_child_pushdown_result(
+        &self,
+        _phase: FilterPushdownPhase,
+        child_pushdown_result: ChildPushdownResult,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+    }
+}
+
+fn enrich_batch(
+    batch: RecordBatch,
+    decoders: &[DecoderInfo],
+    ffhelpers: &HashMap<u32, Arc<FFHelper>>,
+    schema: &SchemaRef,
+) -> Result<RecordBatch> {
+    let num_rows = batch.num_rows();
+    // Clone the input arrays. We will overwrite the deferred ones by exact index.
+    let mut output_columns: Vec<ArrayRef> = batch.columns().to_vec();
+
+    for decoder in decoders {
+        let union_array = output_columns[decoder.col_idx]
+            .as_any()
+            .downcast_ref::<arrow_array::UnionArray>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(format!(
+                    "expected UnionArray for deferred column at index {}",
+                    decoder.col_idx
+                ))
+            })?;
+
+        let ffhelper = ffhelpers
+            .get(&decoder.canonical.indexrelid)
+            .ok_or_else(|| {
+                DataFusionError::Execution(format!(
+                    "missing FFHelper for relation ID {}",
+                    decoder.canonical.indexrelid
+                ))
+            })?;
+
+        // Replace the raw UnionArray with the decoded String/Binary array
+        output_columns[decoder.col_idx] = materialize_deferred_column(
+            ffhelper,
+            union_array,
+            decoder.canonical.ff_index,
+            decoder.is_bytes,
+            num_rows,
+        )?;
+    }
+
+    RecordBatch::try_new(schema.clone(), output_columns)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }
 
 /// Materializes deferred union values into their original text or bytes representation.
@@ -247,96 +344,100 @@ fn materialize_deferred_column(
     is_bytes: bool,
     num_rows: usize,
 ) -> Result<ArrayRef> {
-    // Extract the type_ids buffer that tells us which state each row is in
+    // Dense union: each child is compact (contains only its type's rows).
+    // Partition original row indices by type, then iterate compact children.
     let type_ids = union_array.type_ids();
+    let offsets = union_array.offsets().ok_or_else(|| {
+        DataFusionError::Execution("expected dense union with offsets in deferred column".into())
+    })?;
 
-    // Extract the underlying arrays from the union
-    let doc_address_child = union_array
-        .child(0)
-        .as_any()
-        .downcast_ref::<UInt64Array>()
-        .ok_or_else(|| {
-            DataFusionError::Execution(
-                "expected UInt64Array for doc_address child in deferred union".into(),
-            )
-        })?;
-
-    let term_ord_child = union_array
-        .child(1)
-        .as_any()
-        .downcast_ref::<StructArray>()
-        .ok_or_else(|| {
-            DataFusionError::Execution(
-                "expected StructArray for term_ord child in deferred union".into(),
-            )
-        })?;
-
-    let materialized_child = union_array.child(2);
-
-    let seg_ord_array = term_ord_child
-        .column(0)
-        .as_any()
-        .downcast_ref::<UInt32Array>()
-        .ok_or_else(|| {
-            DataFusionError::Execution("expected UInt32Array for seg_ord column".into())
-        })?;
-
-    let ord_array = term_ord_child
-        .column(1)
-        .as_any()
-        .downcast_ref::<UInt64Array>()
-        .ok_or_else(|| {
-            DataFusionError::Execution("expected UInt64Array for term_ord column".into())
-        })?;
-
-    // 1. Group requests by segment ordinal to process one segment at a time.
-    // We maintain separate groups for State 0 (needs doc_id lookup) and State 1 (already has ordinals).
-    let mut state_0_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, DocId)>> =
-        crate::api::HashMap::default();
-    let mut state_1_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, Option<TermOrdinal>)>> =
-        crate::api::HashMap::default();
-    let mut pre_materialized_rows = Vec::new();
-
-    // TODO: Use Arrow to perform this unpacking directly into Arrow arrays, then use
-    // `FFType::fetch_values_or_ords_to_arrow` and `ords_to_{string|bytes}_array` directly on Arrow.
+    let mut state_0_rows: Vec<usize> = Vec::new();
+    let mut state_1_rows: Vec<usize> = Vec::new();
+    let mut state_2_rows: Vec<usize> = Vec::new();
     for row in 0..num_rows {
         match type_ids[row] {
-            0 => {
-                let packed = doc_address_child.value(row);
-                let (seg_ord, doc_id) = unpack_doc_address(packed);
-                state_0_by_seg
-                    .entry(seg_ord)
-                    .or_default()
-                    .push((row, doc_id));
-            }
-            1 => {
-                let seg_ord = seg_ord_array.value(row);
-                let term_ord = if ord_array.is_null(row) {
-                    None
-                } else {
-                    Some(ord_array.value(row))
-                };
-                state_1_by_seg
-                    .entry(seg_ord)
-                    .or_default()
-                    .push((row, term_ord));
-            }
-            2 => {
-                pre_materialized_rows.push(row);
-            }
+            0 => state_0_rows.push(row),
+            1 => state_1_rows.push(row),
+            2 => state_2_rows.push(row),
             _ => unreachable!("Invalid Union State"),
+        }
+    }
+
+    // 1. Group requests by segment ordinal to process one segment at a time.
+    let mut state_0_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, DocId)>> =
+        crate::api::HashMap::default();
+    if !state_0_rows.is_empty() {
+        let doc_address_child = union_array
+            .child(0)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(
+                    "expected UInt64Array for doc_address child in deferred union".into(),
+                )
+            })?;
+        for &row in &state_0_rows {
+            let packed = doc_address_child.value(offsets[row] as usize);
+            let (seg_ord, doc_id) = unpack_doc_address(packed);
+            state_0_by_seg
+                .entry(seg_ord)
+                .or_default()
+                .push((row, doc_id));
+        }
+    }
+
+    let mut state_1_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, Option<TermOrdinal>)>> =
+        crate::api::HashMap::default();
+    if !state_1_rows.is_empty() {
+        let term_ord_child = union_array
+            .child(1)
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(
+                    "expected StructArray for term_ord child in deferred union".into(),
+                )
+            })?;
+        let seg_ord_array = term_ord_child
+            .column(0)
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution("expected UInt32Array for seg_ord column".into())
+            })?;
+        let ord_array = term_ord_child
+            .column(1)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution("expected UInt64Array for term_ord column".into())
+            })?;
+
+        for &row in &state_1_rows {
+            let ci = offsets[row] as usize;
+            let seg_ord = seg_ord_array.value(ci);
+            let term_ord = if ord_array.is_null(ci) {
+                None
+            } else {
+                Some(ord_array.value(ci))
+            };
+            state_1_by_seg
+                .entry(seg_ord)
+                .or_default()
+                .push((row, term_ord));
         }
     }
 
     let mut segment_arrays: Vec<ArrayRef> = Vec::new();
     let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
 
-    // Map pre-materialized rows (State 2) directly.
-    if !pre_materialized_rows.is_empty() {
+    // Map pre-materialized rows (State 2) directly from the compact child.
+    if !state_2_rows.is_empty() {
+        let materialized_child = union_array.child(2);
         segment_arrays.push(materialized_child.clone());
         let array_idx = 0;
-        for row_idx in pre_materialized_rows {
-            indices[row_idx] = (array_idx, row_idx);
+        for &row_idx in &state_2_rows {
+            indices[row_idx] = (array_idx, offsets[row_idx] as usize);
         }
     }
 
@@ -434,26 +535,4 @@ fn materialize_deferred_column(
         segment_arrays.iter().map(|a| a.as_ref()).collect();
     interleave(&segment_arrays_refs, &indices)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
-}
-
-impl Stream for LookupStream {
-    type Item = Result<RecordBatch>;
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll = Pin::new(&mut self.input).poll_next(cx);
-        let final_poll = match poll {
-            Poll::Ready(Some(Ok(batch))) => {
-                let timer = self.baseline_metrics.elapsed_compute().timer();
-                let result = self.enrich_batch(batch);
-                timer.done();
-                Poll::Ready(Some(result))
-            }
-            other => other,
-        };
-        self.baseline_metrics.record_poll(final_poll)
-    }
-}
-impl RecordBatchStream for LookupStream {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
-    }
 }

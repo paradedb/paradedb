@@ -17,6 +17,10 @@
 
 //! DataFusion `ExecutionPlan` implementations for scanning `pg_search` indexes.
 //!
+//! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
+//! how `PgSearchScanPlan` integrates with the JoinScan physical plan and
+//! dynamic filters.
+//!
 //! This module provides the `PgSearchScanPlan`, which handles scanning of `pg_search`
 //! index segments. It supports both single-partition (serial) and multi-partition
 //! (parallel or sorted) scans.
@@ -42,9 +46,7 @@ use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
 };
-use datafusion::physical_plan::metrics::{
-    Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
-};
+use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricBuilder, MetricsSet};
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
@@ -56,8 +58,8 @@ use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::query::SearchQueryInput;
+use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{collect_filters, PreFilter};
-use crate::scan::tantivy_lookup_exec::DeferredField;
 use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -74,13 +76,19 @@ pub type ScanState = (Scanner, Arc<FFHelper>, Box<VisibilityChecker>);
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
-/// This plan represents a scan over one or more segments, where each segment
-/// corresponds to a DataFusion partition. It handles both:
+/// This plan represents a scan over one or more index segments. It exposes these
+/// segments to DataFusion in two distinct ways:
 ///
-/// 1.  **Serial Scans**: The plan is initialized with a single partition, or segments are
-///     processed lazily.
-/// 2.  **Parallel/Sorted Scans**: The plan is initialized with multiple pre-opened segments,
-///     each exposed as a distinct partition.
+/// 1.  **Lazy Execution (Single Partition)**: For standard queries that do not require
+///     globally sorted outputs. The plan is initialized with exactly one partition containing
+///     a lazily-evaluated `MultiSegmentSearchResults` stream. The underlying segments are
+///     claimed dynamically (if running in parallel) or chained sequentially (if serial),
+///     allowing segments to be dynamically load balanced across parallel workers as they process data.
+/// 2.  **Eager/Throttled Execution (Multiple Partitions)**: For queries that require
+///     globally sorted output (e.g. `ORDER BY` or sort-merge joins). The plan is initialized
+///     with multiple pre-opened segments, each exposed as a distinct DataFusion partition.
+///     DataFusion will automatically apply a `SortPreservingMergeExec` across these streams
+///     to produce a single, globally sorted result.
 pub struct PgSearchScanPlan {
     /// Segments to scan, indexed by partition.
     ///
@@ -94,9 +102,9 @@ pub struct PgSearchScanPlan {
     /// Stored separately so `partition_statistics` is deterministic, even after
     /// the states have been consumed.
     partition_row_counts: Vec<u64>,
-    properties: PlanProperties,
+    properties: Arc<PlanProperties>,
     query_for_display: SearchQueryInput,
-    /// Dynamic filters pushed down from parent operators (e.g. TopK threshold
+    /// Dynamic filters pushed down from parent operators (e.g. Top K threshold
     /// from SortExec, join-key bounds from HashJoinExec). Each batch produced
     /// by the scanner is filtered against all of these expressions so that rows
     /// which cannot contribute to the final result are pruned early.
@@ -105,6 +113,7 @@ pub struct PgSearchScanPlan {
     metrics: ExecutionPlanMetricsSet,
     deferred_fields: Vec<DeferredField>,
     ffhelper_for_lookup: Option<Arc<FFHelper>>,
+    pub indexrelid: u32,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -131,6 +140,7 @@ impl PgSearchScanPlan {
         sort_order: Option<&SortByField>,
         deferred_fields: Vec<DeferredField>,
         ffhelper_for_lookup: Option<Arc<FFHelper>>,
+        indexrelid: u32,
     ) -> Self {
         // Ensure we always return at least one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
@@ -138,12 +148,12 @@ impl PgSearchScanPlan {
         let partition_count = states.len().max(1);
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
-        let properties = PlanProperties::new(
+        let properties = Arc::new(PlanProperties::new(
             eq_properties,
             Partitioning::UnknownPartitioning(partition_count),
             EmissionType::Incremental,
             Boundedness::Bounded,
-        );
+        ));
 
         let partition_row_counts: Vec<u64> = if states.is_empty() {
             vec![0]
@@ -168,16 +178,12 @@ impl PgSearchScanPlan {
             metrics: ExecutionPlanMetricsSet::new(),
             deferred_fields,
             ffhelper_for_lookup,
+            indexrelid,
         }
     }
-    pub fn deferred_fields(&self) -> &[DeferredField] {
-        &self.deferred_fields
-    }
 
-    pub fn ffhelper(&self) -> &Arc<FFHelper> {
-        self.ffhelper_for_lookup
-            .as_ref()
-            .expect("ffhelper_for_lookup must be Some when late materialization is active")
+    pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {
+        self.ffhelper_for_lookup.as_ref()
     }
 }
 
@@ -240,12 +246,8 @@ impl ExecutionPlan for PgSearchScanPlan {
         self
     }
 
-    fn properties(&self) -> &PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
-    }
-
-    fn statistics(&self) -> Result<Statistics> {
-        self.partition_statistics(None)
     }
 
     fn partition_statistics(&self, partition: Option<usize>) -> Result<Statistics> {
@@ -309,12 +311,13 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         // Handle the case where no segments were claimed (EmptyStream).
         if states.is_empty() {
-            return Ok(Box::pin(EmptyStream::new(
-                self.properties.eq_properties.schema().clone(),
-            )));
+            let schema = self.properties.eq_properties.schema().clone();
+            return Ok(Box::pin(unsafe {
+                UnsafeSendStream::new(futures::stream::empty(), schema)
+            }));
         }
 
-        let UnsafeSendSync((scanner, ffhelper, visibility)) =
+        let UnsafeSendSync((mut scanner, ffhelper, mut visibility)) =
             states[partition].take().ok_or_else(|| {
                 DataFusionError::Internal(format!(
                     "Partition {} has already been executed",
@@ -328,18 +331,47 @@ impl ExecutionPlan for PgSearchScanPlan {
         let rows_pruned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", partition));
 
+        let schema = self.properties.eq_properties.schema().clone();
+        let dynamic_filters = self.dynamic_filters.clone();
+
+        let stream_gen = async_stream::try_stream! {
+            loop {
+                let pre_filters = build_filters(&dynamic_filters, &schema);
+                let pre_filters_wrapper = if pre_filters.is_empty() {
+                    None
+                } else {
+                    Some(crate::scan::pre_filter::PreFilters {
+                        filters: &pre_filters,
+                        schema: &schema,
+                    })
+                };
+
+                match scanner.next(
+                    &ffhelper,
+                    &mut visibility,
+                    pre_filters_wrapper.as_ref(),
+                ) {
+                    Some(batch) => {
+                        yield batch.to_record_batch(&schema);
+                    }
+                    None => {
+                        // Flush pre-materialization filter stats from Scanner.
+                        if let Some(ref counter) = rows_scanned {
+                            counter.add(scanner.pre_filter_rows_scanned);
+                        }
+                        if let Some(ref counter) = rows_pruned {
+                            counter.add(scanner.pre_filter_rows_pruned);
+                        }
+                        break;
+                    }
+                }
+            }
+        };
+
         // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres,
         // so it is safe to wrap !Send types for use within DataFusion.
         let stream = unsafe {
-            UnsafeSendStream::new(ScanStream {
-                scanner,
-                ffhelper,
-                visibility,
-                schema: self.properties.eq_properties.schema().clone(),
-                dynamic_filters: self.dynamic_filters.clone(),
-                rows_scanned,
-                rows_pruned,
-            })
+            UnsafeSendStream::new(stream_gen, self.properties.eq_properties.schema().clone())
         };
         Ok(Box::pin(stream))
     }
@@ -354,13 +386,13 @@ impl ExecutionPlan for PgSearchScanPlan {
         child_pushdown_result: ChildPushdownResult,
         _config: &datafusion::common::config::ConfigOptions,
     ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
-        // Only handle dynamic filters in the Post phase (TopK pushdown happens here).
+        // Only handle dynamic filters in the Post phase (Top K pushdown happens here).
         if !matches!(phase, FilterPushdownPhase::Post) {
             return Ok(FilterPushdownPropagation::if_all(child_pushdown_result));
         }
 
         // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
-        // Multiple sources may push dynamic filters (e.g. TopK from SortExec,
+        // Multiple sources may push dynamic filters (e.g. Top K from SortExec,
         // join-key bounds from HashJoinExec). We accept and apply all of them.
         let mut dynamic_filters = Vec::new();
         let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
@@ -392,7 +424,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 .drain(..)
                 .collect();
 
-            // When the GUC is set, cap the scanner batch size so that TopK
+            // When the GUC is set, cap the scanner batch size so that Top K
             // can tighten its threshold between batches.
             let df_batch_size = crate::gucs::dynamic_filter_batch_size();
             if df_batch_size > 0 {
@@ -400,7 +432,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                     inner.0.set_batch_size(df_batch_size as usize);
                 }
             }
-
             let new_plan = Arc::new(PgSearchScanPlan {
                 states: Mutex::new(states),
                 partition_row_counts: self.partition_row_counts.clone(),
@@ -410,8 +441,8 @@ impl ExecutionPlan for PgSearchScanPlan {
                 metrics: self.metrics.clone(),
                 deferred_fields: self.deferred_fields.clone(),
                 ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
+                indexrelid: self.indexrelid,
             });
-
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
                     .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
@@ -422,80 +453,26 @@ impl ExecutionPlan for PgSearchScanPlan {
     }
 }
 
-struct ScanStream {
-    scanner: Scanner,
-    ffhelper: Arc<FFHelper>,
-    visibility: Box<VisibilityChecker>,
-    schema: SchemaRef,
-    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
-    /// Metrics counters for EXPLAIN ANALYZE (only set when dynamic filters are present).
-    rows_scanned: Option<Count>,
-    rows_pruned: Option<Count>,
-}
-
-impl ScanStream {
-    /// Evaluate the current dynamic filter expressions and convert them into
-    /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
-    ///
-    /// This is called on every `poll_next` so that tightening thresholds (e.g.
-    /// from TopK) are picked up immediately.
-    ///
-    /// Only filter predicates that can be lowered to fast-field or term-ordinal
-    /// comparisons are retained. Anything else (unsupported types, non-comparison
-    /// operators) is silently dropped — the parent operator is still responsible
-    /// for enforcing the full predicate, so correctness is not affected.
-    fn build_filters(&self) -> Vec<PreFilter> {
-        let mut filters = Vec::new();
-        for df in &self.dynamic_filters {
-            if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
-                if let Ok(current_expr) = dynamic.current() {
-                    collect_filters(&current_expr, &self.schema, &mut filters);
-                }
-            }
-        }
-        filters
-    }
-}
-
-impl Stream for ScanStream {
-    type Item = Result<RecordBatch>;
-
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        let pre_filters = this.build_filters();
-        let pre_filters_wrapper = if pre_filters.is_empty() {
-            None
-        } else {
-            Some(crate::scan::pre_filter::PreFilters {
-                filters: &pre_filters,
-                schema: &this.schema,
-            })
-        };
-
-        match this.scanner.next(
-            &this.ffhelper,
-            &mut this.visibility,
-            pre_filters_wrapper.as_ref(),
-        ) {
-            Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
-            None => {
-                // Flush pre-materialization filter stats from Scanner.
-                if let Some(ref counter) = this.rows_scanned {
-                    counter.add(this.scanner.pre_filter_rows_scanned);
-                }
-                if let Some(ref counter) = this.rows_pruned {
-                    counter.add(this.scanner.pre_filter_rows_pruned);
-                }
-                Poll::Ready(None)
+/// Evaluate the current dynamic filter expressions and convert them into
+/// [`PreFilter`]s that the `Scanner` can apply before column materialization.
+///
+/// This is called on every `poll_next` (or loop iteration) so that tightening thresholds (e.g.
+/// from Top K) are picked up immediately.
+///
+/// Only filter predicates that can be lowered to fast-field or term-ordinal
+/// comparisons are retained. Anything else (unsupported types, non-comparison
+/// operators) is silently dropped — the parent operator is still responsible
+/// for enforcing the full predicate, so correctness is not affected.
+fn build_filters(dynamic_filters: &[Arc<dyn PhysicalExpr>], schema: &SchemaRef) -> Vec<PreFilter> {
+    let mut filters = Vec::new();
+    for df in dynamic_filters {
+        if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
+            if let Ok(current_expr) = dynamic.current() {
+                collect_filters(&current_expr, schema, &mut filters);
             }
         }
     }
-}
-
-impl RecordBatchStream for ScanStream {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
-    }
+    filters
 }
 
 /// A wrapper that unsafely implements Send for a Stream.
@@ -503,11 +480,14 @@ impl RecordBatchStream for ScanStream {
 /// This is used to wrap `ScanStream` which is !Send because it contains Tantivy and Postgres
 /// state that is not Send. This is safe because pg_search operates in a single-threaded
 /// Tokio executor within Postgres, and these objects will never cross thread boundaries.
-pub(crate) struct UnsafeSendStream<T>(pub(crate) T);
+pub(crate) struct UnsafeSendStream<T> {
+    stream: T,
+    schema: SchemaRef,
+}
 
 impl<T> UnsafeSendStream<T> {
-    pub(crate) unsafe fn new(t: T) -> Self {
-        Self(t)
+    pub(crate) unsafe fn new(stream: T, schema: SchemaRef) -> Self {
+        Self { stream, schema }
     }
 }
 
@@ -517,36 +497,11 @@ impl<T: Stream> Stream for UnsafeSendStream<T> {
     type Item = T::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().0).poll_next(cx) }
+        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().stream).poll_next(cx) }
     }
 }
 
-impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
-    fn schema(&self) -> SchemaRef {
-        self.0.schema()
-    }
-}
-
-/// A stream that produces no batches.
-struct EmptyStream {
-    schema: SchemaRef,
-}
-
-impl EmptyStream {
-    fn new(schema: SchemaRef) -> Self {
-        Self { schema }
-    }
-}
-
-impl Stream for EmptyStream {
-    type Item = Result<RecordBatch>;
-
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(None)
-    }
-}
-
-impl RecordBatchStream for EmptyStream {
+impl<T: Stream<Item = Result<RecordBatch>>> RecordBatchStream for UnsafeSendStream<T> {
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }
@@ -591,6 +546,7 @@ pub fn create_sorted_scan(
         Some(sort_order),
         Vec::new(),
         None,
+        0,
     ));
 
     // For a single segment, no merging is needed

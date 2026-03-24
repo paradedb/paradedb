@@ -5,7 +5,7 @@ WITH (key_field='id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.slop(2);
                                                         QUERY PLAN                                                        
 --------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
@@ -16,7 +16,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.phrase('running shoes')::pdb.slop(2);
                                                         QUERY PLAN                                                        
 --------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
+ Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState

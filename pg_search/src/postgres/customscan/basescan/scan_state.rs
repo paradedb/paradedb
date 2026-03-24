@@ -194,7 +194,8 @@ impl BaseScanState {
         let with_aggregates = !self.window_aggregates.is_empty();
 
         ParallelScanArgs {
-            segment_readers,
+            all_sources: vec![segment_readers],
+            partitioning_source_idx: 0,
             query,
             with_aggregates,
         }
@@ -317,14 +318,14 @@ impl BaseScanState {
 
     pub fn limit(&self) -> Option<usize> {
         match &self.exec_method_type {
-            ExecMethodType::TopN { limit, .. } => Some(*limit),
+            ExecMethodType::TopK { limit, .. } => Some(*limit),
             _ => None,
         }
     }
 
     pub fn orderby_info(&self) -> &Option<Vec<OrderByInfo>> {
         match &self.exec_method_type {
-            ExecMethodType::TopN { orderby_info, .. } => orderby_info,
+            ExecMethodType::TopK { orderby_info, .. } => orderby_info,
             _ => &None,
         }
     }
@@ -358,9 +359,14 @@ impl BaseScanState {
         }
         self.query_count = 0;
         self.virtual_tuple_count = 0;
-        if let Some(vc) = &mut self.visibility_checker {
-            vc.heap_tuple_check_count = 0;
-            vc.invisible_tuple_count = 0;
+        if self.visibility_checker.is_some() {
+            self.visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
+                self.heaprel(),
+                unsafe { pg_sys::GetActiveSnapshot() },
+            ));
+        }
+        if self.doc_from_heap_state.is_some() {
+            self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));
         }
         self.window_aggregate_results = None;
         self.exec_method_mut().reset(self);
@@ -378,11 +384,9 @@ impl BaseScanState {
 
         let mut call_again = false;
         let mut all_dead = false;
-        if !pg_sys::table_index_fetch_tuple(
-            state.scan,
+        if !state.fetch_tuple(
             &mut ipd,
             pg_sys::GetActiveSnapshot(),
-            state.slot(),
             &mut call_again,
             &mut all_dead,
         ) {
@@ -489,5 +493,123 @@ impl SolvePostgresExpressions for BaseScanState {
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
         self.search_query_input
             .solve_postgres_expressions(expr_context);
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+    use pgrx::prelude::*;
+
+    #[derive(Default)]
+    struct NoopExecMethod;
+
+    impl ExecMethod for NoopExecMethod {
+        fn query(&mut self, _state: &mut BaseScanState) -> bool {
+            false
+        }
+
+        fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
+            ExecState::Eof
+        }
+
+        fn reset(&mut self, _state: &mut BaseScanState) {}
+    }
+
+    fn parse_ctid(ctid: &str) -> u64 {
+        let trimmed = ctid.trim_matches(|c| c == '(' || c == ')');
+        let (block, offset) = trimmed
+            .split_once(',')
+            .expect("ctid should contain block and offset");
+        let block: u64 = block.parse().expect("block should parse");
+        let offset: u64 = offset.parse().expect("offset should parse");
+        (block << 16) | offset
+    }
+
+    unsafe fn push_active_snapshot() {
+        pg_sys::CommandCounterIncrement();
+        let snapshot = pg_sys::GetTransactionSnapshot();
+        pg_sys::PushActiveSnapshot(snapshot);
+    }
+
+    #[pg_test]
+    fn basescan_reset_refreshes_visibility_checker_after_heap_shrink() {
+        // After the heap relation shrinks, a rescan can retain heap/visibility state
+        // that was initialized against the old number of heap blocks. Without rebuilding
+        // that state in `reset()`, a stale CTID from a truncated tail block can be
+        // misinterpreted as still being in range, causing visibility checks and heap fetches
+        // to run against invalid assumptions about the current heap layout.
+        Spi::run("DROP TABLE IF EXISTS basescan_reset_refresh CASCADE;").unwrap();
+        Spi::run(
+            "CREATE TABLE basescan_reset_refresh (
+                id BIGSERIAL PRIMARY KEY,
+                value TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        Spi::run(
+            "INSERT INTO basescan_reset_refresh (value)
+             SELECT repeat('beer ', 1500)
+             FROM generate_series(1, 64);",
+        )
+        .unwrap();
+
+        let heap_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'basescan_reset_refresh'::regclass::oid;")
+                .expect("heap oid lookup should succeed")
+                .expect("heap oid should exist");
+
+        let stale_ctid = parse_ctid(
+            &Spi::get_one::<String>(
+                "SELECT ctid::text
+                 FROM basescan_reset_refresh
+                 ORDER BY ctid DESC
+                 LIMIT 1;",
+            )
+            .expect("ctid lookup should succeed")
+            .expect("tail ctid should exist"),
+        );
+        assert!(
+            (stale_ctid >> 16) > 0,
+            "test needs a tuple outside block zero",
+        );
+
+        let heaprel = PgSearchRelation::open(heap_oid);
+        unsafe {
+            push_active_snapshot();
+        }
+
+        let mut state = BaseScanState {
+            heaprelid: heap_oid,
+            heaprel: Some(heaprel.clone()),
+            visibility_checker: Some(VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
+                pg_sys::GetActiveSnapshot()
+            })),
+            doc_from_heap_state: Some(HeapFetchState::new(&heaprel)),
+            ..Default::default()
+        };
+        state.assign_exec_method(NoopExecMethod, None);
+
+        unsafe {
+            pg_sys::RelationTruncate(heaprel.as_ptr(), 0);
+        }
+        unsafe {
+            push_active_snapshot();
+        }
+
+        state.reset();
+
+        let slot =
+            unsafe { pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple) };
+        let visible = state
+            .visibility_checker()
+            .exec_if_visible(stale_ctid, slot, |_| true);
+        unsafe {
+            pg_sys::ExecDropSingleTupleTableSlot(slot);
+        }
+
+        assert_eq!(visible, None);
     }
 }

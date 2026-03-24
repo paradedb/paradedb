@@ -42,6 +42,16 @@ use tantivy::{DocAddress, DocId};
 /// A fast-field index position value.
 pub type FFIndex = usize;
 
+/// Uniquely identifies a specific dictionary/array in the underlying storage layer
+/// by combining the table's index relation ID and the fast field index.
+#[derive(
+    Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct CanonicalColumn {
+    pub indexrelid: u32,
+    pub ff_index: FFIndex,
+}
+
 /// A cache of fast field columns for a single segment, indexed by FFIndex.
 type ColumnCache = Vec<(String, OnceLock<FFType>)>;
 
@@ -69,7 +79,7 @@ impl FFHelper {
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
-                        WhichFastField::Named(name, _) | WhichFastField::Deferred(name, _, _) => {
+                        WhichFastField::Named(name, _) | WhichFastField::Deferred(name, _) => {
                             lookup.push((name.to_string(), OnceLock::default()))
                         }
                         WhichFastField::Ctid
@@ -315,7 +325,7 @@ pub enum WhichFastField {
     TableOid,
     Score,
     Named(String, SearchFieldType),
-    Deferred(String, SearchFieldType, bool),
+    Deferred(String, SearchFieldType),
 }
 
 impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
@@ -346,7 +356,7 @@ impl WhichFastField {
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
             WhichFastField::Named(s, _) => s.clone(),
-            WhichFastField::Deferred(s, _, _) => s.clone(),
+            WhichFastField::Deferred(s, _) => s.clone(),
         }
     }
 
@@ -354,7 +364,7 @@ impl WhichFastField {
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
             WhichFastField::Named(_, field_type) => Some(field_type),
-            WhichFastField::Deferred(_, field_type, _) => Some(field_type),
+            WhichFastField::Deferred(_, field_type) => Some(field_type),
             _ => None,
         }
     }
@@ -368,8 +378,12 @@ impl WhichFastField {
             WhichFastField::Score => DataType::Float32,
             WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
             WhichFastField::Junk(_) => DataType::Null,
-            WhichFastField::Deferred(_, _, is_bytes) => {
-                crate::scan::deferred_encode::deferred_union_data_type(*is_bytes)
+            WhichFastField::Deferred(_, field_type) => {
+                let is_bytes = matches!(
+                    field_type.arrow_data_type(),
+                    arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+                );
+                crate::scan::deferred_encode::deferred_union_data_type(is_bytes)
             }
         }
     }
@@ -377,7 +391,7 @@ impl WhichFastField {
 
 /// Build an Arrow schema from a list of fast fields.
 ///
-/// This is used by Scanner and MixedFastFieldExecState to create consistent
+/// This is used by Scanner and ColumnarExecState to create consistent
 /// Arrow schemas for DataFusion execution.
 pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema::SchemaRef {
     use arrow_schema::{Field, Schema};

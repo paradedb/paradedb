@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- Test: ngram match + conjunction_mode on TEXT[] columns
 CREATE TABLE books (
     id SERIAL PRIMARY KEY,
@@ -53,7 +53,7 @@ ORDER BY id;
  Sort
    Output: id, all_titles
    Sort Key: books.id
-   ->  Custom Scan (ParadeDB Scan) on public.books
+   ->  Custom Scan (ParadeDB Base Scan) on public.books
          Output: id, all_titles
          Table: books
          Index: idx_books
@@ -83,7 +83,7 @@ ORDER BY id;
  Sort
    Output: id, all_titles
    Sort Key: books.id
-   ->  Custom Scan (ParadeDB Scan) on public.books
+   ->  Custom Scan (ParadeDB Base Scan) on public.books
          Output: id, all_titles
          Table: books
          Index: idx_books
@@ -116,7 +116,7 @@ ORDER BY id;
  Sort
    Output: id, all_titles
    Sort Key: books.id
-   ->  Custom Scan (ParadeDB Scan) on public.books
+   ->  Custom Scan (ParadeDB Base Scan) on public.books
          Output: id, all_titles
          Table: books
          Index: idx_books
@@ -151,7 +151,7 @@ ORDER BY id;
  Sort
    Output: id, all_titles
    Sort Key: books.id
-   ->  Custom Scan (ParadeDB Scan) on public.books
+   ->  Custom Scan (ParadeDB Base Scan) on public.books
          Output: id, all_titles
          Table: books
          Index: idx_books
@@ -177,7 +177,7 @@ ORDER BY id;
  Sort
    Output: id, all_titles
    Sort Key: books.id
-   ->  Custom Scan (ParadeDB Scan) on public.books
+   ->  Custom Scan (ParadeDB Base Scan) on public.books
          Output: id, all_titles
          Table: books
          Index: idx_books
@@ -205,7 +205,7 @@ ORDER BY id;
  Sort
    Output: id, all_titles
    Sort Key: books.id
-   ->  Custom Scan (ParadeDB Scan) on public.books
+   ->  Custom Scan (ParadeDB Base Scan) on public.books
          Output: id, all_titles
          Table: books
          Index: idx_books
@@ -235,7 +235,7 @@ ORDER BY id;
  Sort
    Output: id, all_titles
    Sort Key: books.id
-   ->  Custom Scan (ParadeDB Scan) on public.books
+   ->  Custom Scan (ParadeDB Base Scan) on public.books
          Output: id, all_titles
          Table: books
          Index: idx_books

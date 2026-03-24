@@ -12,42 +12,43 @@ CREATE TABLE logs (
     severity TEXT,
     category TEXT,
     response_time INT,
+    unindexed_metric INT,
     status_code INT,
     timestamp TIMESTAMP
 );
 
-INSERT INTO logs (description, severity, category, response_time, status_code, timestamp) VALUES
+INSERT INTO logs (description, severity, category, response_time, unindexed_metric, status_code, timestamp) VALUES
     -- Database errors
-    ('Database connection error', 'error', 'database', 150, 500, '2024-01-01 10:00:00'),
-    ('Invalid query syntax error', 'error', 'database', 50, 400, '2024-01-01 10:03:00'),
-    ('Database timeout error', 'critical', 'database', 3000, 503, '2024-01-01 10:05:00'),
-    ('Database deadlock detected', 'error', 'database', 200, 500, '2024-01-01 10:10:00'),
-    ('Database connection pool exhausted', 'critical', 'database', 5000, 503, '2024-01-01 10:15:00'),
-    ('Slow database query', 'warning', 'database', 2500, 200, '2024-01-01 10:20:00'),
-    
+    ('Database connection error', 'error', 'database', 150, 150, 500, '2024-01-01 10:00:00'),
+    ('Invalid query syntax error', 'error', 'database', 50, 151, 400, '2024-01-01 10:03:00'),
+    ('Database timeout error', 'critical', 'database', 3000, 152, 503, '2024-01-01 10:05:00'),
+    ('Database deadlock detected', 'error', 'database', 200, 153, 500, '2024-01-01 10:10:00'),
+    ('Database connection pool exhausted', 'critical', 'database', 5000, 154, 503, '2024-01-01 10:15:00'),
+    ('Slow database query', 'warning', 'database', 2500, 155, 200, '2024-01-01 10:20:00'),
+
     -- API errors
-    ('Failed to fetch data', 'error', 'api', 200, 404, '2024-01-01 10:01:00'),
-    ('API rate limit exceeded', 'warning', 'api', 100, 429, '2024-01-01 10:06:00'),
-    ('API authentication failed', 'error', 'api', 80, 401, '2024-01-01 10:11:00'),
-    ('API endpoint not found', 'error', 'api', 50, 404, '2024-01-01 10:16:00'),
-    ('API internal server error', 'critical', 'api', 1500, 500, '2024-01-01 10:21:00'),
-    
+    ('Failed to fetch data', 'error', 'api', 200, 156, 404, '2024-01-01 10:01:00'),
+    ('API rate limit exceeded', 'warning', 'api', 100, 157, 429, '2024-01-01 10:06:00'),
+    ('API authentication failed', 'error', 'api', 80, 158, 401, '2024-01-01 10:11:00'),
+    ('API endpoint not found', 'error', 'api', 50, 159, 404, '2024-01-01 10:16:00'),
+    ('API internal server error', 'critical', 'api', 1500, 160, 500, '2024-01-01 10:21:00'),
+
     -- Network errors
-    ('Timeout connecting to service', 'error', 'network', 5000, 503, '2024-01-01 10:02:00'),
-    ('Network connection refused', 'error', 'network', 100, 503, '2024-01-01 10:07:00'),
-    ('DNS resolution failed', 'error', 'network', 30, 503, '2024-01-01 10:12:00'),
-    ('Network timeout error', 'critical', 'network', 10000, 504, '2024-01-01 10:17:00'),
-    
+    ('Timeout connecting to service', 'error', 'network', 5000, 161, 503, '2024-01-01 10:02:00'),
+    ('Network connection refused', 'error', 'network', 100, 162, 503, '2024-01-01 10:07:00'),
+    ('DNS resolution failed', 'error', 'network', 30, 163, 503, '2024-01-01 10:12:00'),
+    ('Network timeout error', 'critical', 'network', 10000, 164, 504, '2024-01-01 10:17:00'),
+
     -- Application errors
-    ('Application crashed', 'critical', 'application', 0, 500, '2024-01-01 10:04:00'),
-    ('Memory allocation error', 'critical', 'application', 10, 500, '2024-01-01 10:08:00'),
-    ('Null pointer exception', 'error', 'application', 5, 500, '2024-01-01 10:13:00'),
-    ('Stack overflow error', 'critical', 'application', 2, 500, '2024-01-01 10:18:00'),
-    
+    ('Application crashed', 'critical', 'application', 0, 165, 500, '2024-01-01 10:04:00'),
+    ('Memory allocation error', 'critical', 'application', 10, 166, 500, '2024-01-01 10:08:00'),
+    ('Null pointer exception', 'error', 'application', 5, 167, 500, '2024-01-01 10:13:00'),
+    ('Stack overflow error', 'critical', 'application', 2, 168, 500, '2024-01-01 10:18:00'),
+
     -- Security errors
-    ('Unauthorized access attempt', 'warning', 'security', 20, 403, '2024-01-01 10:09:00'),
-    ('Invalid authentication token', 'error', 'security', 15, 401, '2024-01-01 10:14:00'),
-    ('Suspicious activity detected', 'critical', 'security', 25, 403, '2024-01-01 10:19:00');
+    ('Unauthorized access attempt', 'warning', 'security', 20, 169, 403, '2024-01-01 10:09:00'),
+    ('Invalid authentication token', 'error', 'security', 15, 170, 401, '2024-01-01 10:14:00'),
+    ('Suspicious activity detected', 'critical', 'security', 25, 171, 403, '2024-01-01 10:19:00');
 
 CREATE INDEX logs_idx ON logs USING bm25 (id, description, severity, category, response_time, status_code, timestamp)
 WITH (
@@ -83,14 +84,14 @@ ORDER BY timestamp DESC LIMIT 10;
 
 -- Test 3: Mix custom and standard aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, 
+SELECT category,
        COUNT(*),
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 
-SELECT category, 
+SELECT category,
        COUNT(*),
        pdb.agg('{"terms": {"field": "severity"}}'::jsonb)
 FROM logs
@@ -99,12 +100,12 @@ GROUP BY category;
 
 -- Test 4: Custom agg with FILTER (extracted at planning time)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
 
-SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) 
+SELECT pdb.agg('{"avg": {"field": "response_time"}}'::jsonb)
        FILTER (WHERE status_code >= 500)
 FROM logs
 WHERE description @@@ 'error';
@@ -113,7 +114,7 @@ WHERE description @@@ 'error';
 -- NOTE: FILTER with window functions is currently not supported
 -- This test documents the current limitation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) 
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb)
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
@@ -121,7 +122,7 @@ ORDER BY timestamp DESC LIMIT 10;
 
 -- This query is expected to fail because FILTER with OVER is not yet supported
 -- The error message guides users to file an issue or use paradedb.all()
-SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb) 
+SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb)
        FILTER (WHERE status_code >= 500) OVER ()
 FROM logs
 WHERE description @@@ 'error'
@@ -129,14 +130,14 @@ ORDER BY timestamp DESC LIMIT 10;
 
 -- Test 6: EXPLAIN query to show custom agg is recognized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, 
+SELECT category,
        COUNT(*),
        pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
 WHERE description @@@ 'error'
 GROUP BY category;
 
-SELECT category, 
+SELECT category,
        COUNT(*),
        pdb.agg('{"max": {"field": "response_time"}}'::jsonb)
 FROM logs
@@ -412,7 +413,7 @@ GROUP BY category
 ORDER BY category;
 
 -- =====================================================================
--- SECTION 7: pdb.agg() Window Functions (TopN)
+-- SECTION 7: pdb.agg() Window Functions (Top K)
 -- =====================================================================
 
 -- Test 29: Multiple pdb.agg() window functions
@@ -616,7 +617,7 @@ WHERE description @@@ 'error';
 -- Test 42: Range histogram with GROUP BY
 -- Facet response time buckets per category
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, 
+SELECT category,
        pdb.agg('{"range": {"field": "response_time", "ranges": [
            {"to": 100, "key": "fast"},
            {"from": 100, "to": 1000, "key": "medium"},
@@ -627,7 +628,7 @@ WHERE description @@@ 'error'
 GROUP BY category
 ORDER BY category;
 
-SELECT category, 
+SELECT category,
        pdb.agg('{"range": {"field": "response_time", "ranges": [
            {"to": 100, "key": "fast"},
            {"from": 100, "to": 1000, "key": "medium"},
@@ -686,8 +687,8 @@ SELECT pdb.agg('{"range": {"field": "response_time", "ranges": [
 FROM logs
 WHERE description @@@ 'error';
 
--- Test 45: Range histogram with TopN (window function)
--- Get response time distribution alongside top N results
+-- Test 45: Range histogram with Top K (window function)
+-- Get response time distribution alongside Top K results
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *,
        pdb.agg('{"range": {"field": "response_time", "ranges": [
@@ -747,13 +748,13 @@ SET paradedb.enable_custom_scan TO on;
 SET paradedb.enable_filter_pushdown TO off;
 EXPLAIN SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
-WHERE response_time = 150
+WHERE unindexed_metric = 150
 ORDER BY timestamp DESC
 LIMIT 1;
 
 SELECT id, description, pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM logs
-WHERE response_time = 150
+WHERE unindexed_metric = 150
 ORDER BY timestamp DESC
 LIMIT 1;
 
@@ -911,13 +912,13 @@ WHERE description @@@ 'laptop OR keyboard';
 -- These run as SEPARATE, INDEPENDENT aggregations (not nested)
 -- Each pdb.agg() returns its own complete breakdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown
 FROM products
@@ -925,14 +926,14 @@ WHERE description @@@ 'laptop OR keyboard';
 
 -- Test 57: Multiple pdb.agg() calls with different aggregation types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price
@@ -942,7 +943,7 @@ WHERE description @@@ 'laptop OR keyboard';
 -- Test 58: One GROUP BY column with pdb.agg() for sub-aggregation
 -- This groups by category, and within each category, gets brand breakdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     category,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     COUNT(*) AS count
@@ -951,7 +952,7 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
 
-SELECT 
+SELECT
     category,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     COUNT(*) AS count
@@ -963,7 +964,7 @@ ORDER BY category;
 -- Test 59: Multiple pdb.agg() with GROUP BY
 -- Each pdb.agg() is computed independently for each category group
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     category,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     pdb.agg('{"avg": {"field": "rating"}}'::jsonb) AS avg_rating,
@@ -973,7 +974,7 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
 
-SELECT 
+SELECT
     category,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brand_breakdown,
     pdb.agg('{"avg": {"field": "rating"}}'::jsonb) AS avg_rating,
@@ -1021,14 +1022,14 @@ WHERE description @@@ 'laptop OR keyboard';
 -- Test 62: Multiple independent terms vs nested terms - showing the difference
 -- Independent: Each field gets its own top-level breakdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS categories,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brands,
     pdb.agg('{"terms": {"field": "rating"}}'::jsonb) AS ratings
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
 
-SELECT 
+SELECT
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS categories,
     pdb.agg('{"terms": {"field": "brand"}}'::jsonb) AS brands,
     pdb.agg('{"terms": {"field": "rating"}}'::jsonb) AS ratings
@@ -1189,8 +1190,7 @@ FROM mvcc_test
 WHERE description @@@ 'test'
 ORDER BY id DESC LIMIT 3;
 
--- Test 68: pdb.agg() in GROUP BY context with solve_mvcc = false should ERROR
--- solve_mvcc=false is only allowed in TopN (window function) context
+-- Test 68: pdb.agg() in GROUP BY context with solve_mvcc = false should work
 SELECT category, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false)
 FROM mvcc_test
 WHERE description @@@ 'test'
@@ -1236,7 +1236,7 @@ DROP TABLE mvcc_test CASCADE;
 -- Test that window functions work correctly when combined with ORDER BY and LIMIT
 -- and when the ORDER BY column is not fast/columnar.
 
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 

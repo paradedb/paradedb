@@ -25,15 +25,22 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub enum OrderByStyle {
-    Score(*mut pg_sys::PathKey),
-    Field(*mut pg_sys::PathKey, FieldName),
+    Score {
+        pathkey: *mut pg_sys::PathKey,
+        rti: u32,
+    },
+    Field {
+        pathkey: *mut pg_sys::PathKey,
+        name: FieldName,
+        rti: u32,
+    },
 }
 
 impl OrderByStyle {
     pub fn pathkey(&self) -> *mut pg_sys::PathKey {
         match self {
-            OrderByStyle::Score(pathkey) => *pathkey,
-            OrderByStyle::Field(pathkey, _) => *pathkey,
+            OrderByStyle::Score { pathkey, .. } => *pathkey,
+            OrderByStyle::Field { pathkey, .. } => *pathkey,
         }
     }
 
@@ -79,8 +86,11 @@ impl OrderByStyle {
 impl From<&OrderByStyle> for OrderByInfo {
     fn from(value: &OrderByStyle) -> Self {
         let feature = match value {
-            OrderByStyle::Field(_, name) => OrderByFeature::Field(name.to_owned()),
-            OrderByStyle::Score(_) => OrderByFeature::Score,
+            OrderByStyle::Field { name, rti, .. } => OrderByFeature::Field {
+                name: name.to_owned(),
+                rti: *rti,
+            },
+            OrderByStyle::Score { rti, .. } => OrderByFeature::Score { rti: *rti },
         };
         OrderByInfo {
             feature,
@@ -103,13 +113,13 @@ impl From<&OrderByStyle> for OrderByInfo {
 pub enum ExecMethodType {
     #[default]
     Normal,
-    TopN {
+    TopK {
         heaprelid: pg_sys::Oid,
         limit: usize,
         orderby_info: Option<Vec<OrderByInfo>>,
         window_aggregates: Vec<WindowAggregateInfo>,
     },
-    FastFieldMixed {
+    Columnar {
         which_fast_fields: HashSet<WhichFastField>,
         limit: Option<usize>,
         sort_order: Option<SortByField>,
@@ -119,21 +129,21 @@ pub enum ExecMethodType {
 impl ExecMethodType {
     /// Returns true if this execution method type can support sorted output via sort_by index.
     /// This is specifically for the sorted index feature (SortPreservingMergeExec).
-    /// TopN has its own separate pathkey handling and is not included here.
+    /// Top K has its own separate pathkey handling and is not included here.
     pub fn supports_sorted_index_merge(&self) -> bool {
-        matches!(self, ExecMethodType::FastFieldMixed { .. })
+        matches!(self, ExecMethodType::Columnar { .. })
     }
 
     /// Returns true if this execution method declares sorted output.
     /// This checks if sorted output is actually ENABLED for this instance.
     pub fn declares_sorted_output(&self) -> bool {
         match self {
-            ExecMethodType::TopN {
+            ExecMethodType::TopK {
                 orderby_info: Some(..),
                 ..
             } => true,
-            ExecMethodType::FastFieldMixed { sort_order, .. } => sort_order.is_some(),
-            ExecMethodType::Normal | ExecMethodType::TopN { .. } => false,
+            ExecMethodType::Columnar { sort_order, .. } => sort_order.is_some(),
+            ExecMethodType::Normal | ExecMethodType::TopK { .. } => false,
         }
     }
 }

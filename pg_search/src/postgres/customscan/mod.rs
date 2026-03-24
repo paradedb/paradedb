@@ -34,6 +34,7 @@ pub mod explain;
 mod explainer;
 mod hook;
 pub mod joinscan;
+pub mod limit_offset;
 pub mod opexpr;
 pub mod orderby;
 pub mod parallel;
@@ -211,23 +212,38 @@ pub trait CustomScan: Default + Sized {
         )
     }
 
+    /// Add a detailed planner warning associated with this CustomScan type.
+    ///
+    /// The warning will be deduplicated and emitted at the end of the planning phase.
+    /// The category is automatically set to `Self::NAME`.
+    fn add_detailed_planner_warning<
+        S: Into<String>,
+        C: crate::postgres::planner_warnings::ToWarningContexts,
+        D: IntoIterator<Item = String>,
+    >(
+        message: S,
+        contexts: C,
+        details: D,
+    ) {
+        crate::postgres::planner_warnings::add_detailed_planner_warning(
+            Self::NAME
+                .to_str()
+                .expect("CustomScan name should be valid UTF-8"),
+            message,
+            contexts,
+            details,
+        )
+    }
+
     /// Clear planner warnings for the specified contexts (e.g., table aliases).
     ///
     /// This should be called when a CustomScan is successfully planned for a set of tables,
     /// to suppress any "failure" warnings that might have been generated during the
     /// exploration of alternative (rejected) paths for these tables.
-    /// The category is automatically set to `Self::NAME`.
-    fn clear_planner_warnings_for_contexts<
-        C: crate::postgres::planner_warnings::ToWarningContexts,
-    >(
+    fn mark_contexts_successful<C: crate::postgres::planner_warnings::ToWarningContexts>(
         contexts: C,
     ) {
-        crate::postgres::planner_warnings::clear_planner_warnings_for_contexts(
-            Self::NAME
-                .to_str()
-                .expect("CustomScan name should be valid UTF-8"),
-            contexts,
-        )
+        crate::postgres::planner_warnings::mark_contexts_successful(contexts)
     }
 }
 

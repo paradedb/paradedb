@@ -6,7 +6,7 @@ noindex: true
 ## Stability Improvements 💪
 
 - Correctly support correlated subqueries with the aggregate custom scan enabled
-- Fixed an issue where TopN queries with an `UNNEST` would not receive a TopN query plan
+- Fixed an issue where Top K queries with an `UNNEST` would not receive a Top K query plan
 - Fixed a race condition that caused prepared statements to return incorrect results
 - Fixed an issue where `varchar[]` arrays could not be indexed
 

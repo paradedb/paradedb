@@ -2,13 +2,12 @@
 -- Join: Single Feature (Fast Field)
 -- Description: The sort is simple (e.g., by Title), but the filter involves a "List" logic where the valid IDs are derived from a complex subquery or list. This was previously implemented using a term_set, effectively pushing a semi-join down to the search index.
 
-SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
+SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
     f.id,
     f.title,
     f."createdAt"
 FROM files f
 WHERE
-    -- The "Join" is a filter against a list of IDs (Semi-Join)
     f."documentId" IN (
         SELECT id
         FROM documents
@@ -16,16 +15,16 @@ WHERE
         AND title @@@ 'Document Title 1'
     )
 ORDER BY
-    f.title ASC                       -- Single Feature Sort (Local Fast Field)
+    f.title ASC
 LIMIT 25;
 
-SET work_mem TO '4GB'; SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO on; SELECT
+-- Sortedness disabled, with join scan.
+SET work_mem TO '4GB'; SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO on; SELECT
     f.id,
     f.title,
     f."createdAt"
 FROM files f
 WHERE
-    -- The "Join" is a filter against a list of IDs (Semi-Join)
     f."documentId" IN (
         SELECT id
         FROM documents
@@ -33,17 +32,16 @@ WHERE
         AND title @@@ 'Document Title 1'
     )
 ORDER BY
-    f.title ASC                       -- Single Feature Sort (Local Fast Field)
+    f.title ASC
 LIMIT 25;
 
 -- Sortedness enabled, no join scan.
-SET paradedb.enable_mixed_fast_field_sort TO on; SET paradedb.enable_join_custom_scan TO off; SELECT
+SET paradedb.enable_columnar_sort TO on; SET paradedb.enable_join_custom_scan TO off; SELECT
     f.id,
     f.title,
     f."createdAt"
 FROM files f
 WHERE
-    -- The "Join" is a filter against a list of IDs (Semi-Join)
     f."documentId" IN (
         SELECT id
         FROM documents
@@ -51,11 +49,11 @@ WHERE
         AND title @@@ 'Document Title 1'
     )
 ORDER BY
-    f.title ASC                       -- Single Feature Sort (Local Fast Field)
+    f.title ASC
 LIMIT 25;
 
 -- term_set workaround, no join
-SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
+SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
     f.id,
     f.title,
     f."createdAt"
@@ -64,6 +62,23 @@ WHERE
     f."documentId" @@@ pdb.term_set((
         SELECT array_agg(id) FROM documents WHERE parents @@@ 'PROJECT_ALPHA' AND title @@@ 'Document Title 1'
     ))
+ORDER BY
+    f.title ASC
+LIMIT 25;
+
+-- Sortedness enabled, with join scan.
+SET work_mem TO '4GB'; SET paradedb.enable_columnar_sort TO on; SET paradedb.enable_join_custom_scan TO on; SELECT
+    f.id,
+    f.title,
+    f."createdAt"
+FROM files f
+WHERE
+    f."documentId" IN (
+        SELECT id
+        FROM documents
+        WHERE parents @@@ 'PROJECT_ALPHA'
+        AND title @@@ 'Document Title 1'
+    )
 ORDER BY
     f.title ASC
 LIMIT 25;

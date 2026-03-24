@@ -1,0 +1,398 @@
+-- Tests for Semi and Anti Joins with Join Custom Scan
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS table_a CASCADE;
+CREATE TABLE table_a (
+    id bigint NOT NULL PRIMARY KEY,
+    category character varying
+);
+INSERT INTO table_a (id, category)
+SELECT
+    i,
+    CASE WHEN i % 2 = 0 THEN 'target_category' ELSE 'other_category' END
+FROM generate_series(1, 2000) as i;
+DROP TABLE IF EXISTS table_b CASCADE;
+CREATE TABLE table_b (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    group_id character varying,
+    a_id bigint,
+    category character varying
+);
+INSERT INTO table_b (group_id, a_id, category)
+SELECT
+    CASE WHEN i % 10 = 0 THEN 'group_1' ELSE 'group_2' END,
+    i,
+    CASE WHEN i % 2 = 0 THEN 'target_category' ELSE 'other_category' END
+FROM generate_series(1, 2000) as i;
+CREATE INDEX table_a_idx ON table_a
+USING bm25 (id, category)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
+    }'
+);
+CREATE INDEX table_b_group_id_idx ON table_b USING btree (group_id);
+CREATE INDEX table_b_group_id_a_id_idx ON table_b USING btree (group_id, a_id);
+CREATE INDEX table_b_idx ON table_b
+USING bm25 (id, group_id, a_id, category)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "group_id": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
+    }',
+    numeric_fields = '{
+        "a_id": {"fast": true}
+    }'
+);
+-- Query execution
+SET paradedb.enable_join_custom_scan TO on;
+-- =====================================================================
+-- 1. Semi Join Only
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: table_a.id, table_a.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: table_a.id, table_a.category
+         Relation Tree: table_a SEMI table_b
+         Join Cond: table_a.id = table_b.a_id
+         Limit: 10
+         Order By: table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
+
+-- =====================================================================
+-- 2a. Anti Join (No Pushdown)
+-- =====================================================================
+-- This does not trigger an anti join because Postgres cannot prove that group_id is not NULL.
+-- TODO: This query only triggers set_rel_pathlist_hook and not set_join_pathlist_hook, and so does
+-- not render our warning. See https://github.com/paradedb/paradedb/issues/4236 about resolving this.
+SELECT id, category
+FROM table_a
+WHERE id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+ id |    category     
+----+-----------------
+  2 | target_category
+  4 | target_category
+  6 | target_category
+  8 | target_category
+ 10 | target_category
+ 12 | target_category
+ 14 | target_category
+ 16 | target_category
+ 18 | target_category
+ 20 | target_category
+(10 rows)
+
+-- =====================================================================
+-- 2b. Anti Join (Pushdown)
+-- =====================================================================
+-- This does trigger an anti join because we use NOT EXISTS
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM table_b
+    WHERE table_b.a_id = table_a.id
+    AND table_b.group_id IN ('group_3', 'group_4')
+)
+AND table_a.id @@@ 'category:"target_category"'
+ORDER BY table_a.id ASC
+LIMIT 10;
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: table_a.id, table_a.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: table_a.id, table_a.category
+         Relation Tree: table_a ANTI table_b
+         Join Cond: table_b.a_id = table_a.id
+         Limit: 10
+         Order By: table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
+
+-- =====================================================================
+-- 3. Both Semi and Anti Join
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: table_a.id, table_a.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: table_a.id, table_a.category
+         Relation Tree: (table_a ANTI table_b) SEMI table_b
+         Join Cond: table_a.id = table_b.a_id, table_a.id = table_b.a_id
+         Limit: 10
+         Order By: table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
+           :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+ id  |    category     
+-----+-----------------
+  10 | target_category
+  20 | target_category
+  30 | target_category
+  40 | target_category
+  50 | target_category
+  60 | target_category
+  70 | target_category
+  80 | target_category
+  90 | target_category
+ 100 | target_category
+(10 rows)
+
+-- =====================================================================
+-- 4. Tuple Semi Join
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE (id, category) IN (
+    SELECT a_id, category
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ pdb.all()
+ORDER BY id ASC
+LIMIT 10;
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: table_a.id, table_a.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: table_a.id, table_a.category
+         Relation Tree: table_a SEMI table_b
+         Join Cond: table_a.id = table_b.a_id, table_a.category = table_b.category
+         Limit: 10
+         Order By: table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
+           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1), (category@1, category@2)]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, category@2 as category]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+(17 rows)
+
+SELECT id, category
+FROM table_a
+WHERE (id, category) IN (
+    SELECT a_id, category
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ pdb.all()
+ORDER BY id ASC
+LIMIT 10;
+ id  |    category     
+-----+-----------------
+  10 | target_category
+  20 | target_category
+  30 | target_category
+  40 | target_category
+  50 | target_category
+  60 | target_category
+  70 | target_category
+  80 | target_category
+  90 | target_category
+ 100 | target_category
+(10 rows)
+
+-- =====================================================================
+-- 5. SELECT * and ORDER BY varchar column (RelabelType wrapper reproduction)
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT *
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY category ASC, id ASC
+LIMIT 10;
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: table_a.id, table_a.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: table_a.id, table_a.category
+         Relation Tree: table_a SEMI table_b
+         Join Cond: table_a.id = table_b.a_id
+         Limit: 10
+         Order By: table_a.category asc, table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
+           :   TantivyLookupExec: decode=[category]
+           :     SegmentedTopKExec: expr=[category@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=10
+           :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, category@2 as category]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT *
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY category ASC, id ASC
+LIMIT 10;
+ id  |    category     
+-----+-----------------
+  10 | target_category
+  20 | target_category
+  30 | target_category
+  40 | target_category
+  50 | target_category
+  60 | target_category
+  70 | target_category
+  80 | target_category
+  90 | target_category
+ 100 | target_category
+(10 rows)
+
+-- =====================================================================
+-- 6. Semi Join with selective outer filter
+-- =====================================================================
+-- The outer filter is so selective that this query requires our ability to force the left side
+-- to be partitioned (even when that might be less efficient).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+)
+AND id @@@ 'id:1'
+ORDER BY id ASC
+LIMIT 10;
+WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: table_a.id, table_a.category
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: table_a.id, table_a.category
+         Relation Tree: table_a SEMI table_b
+         Join Cond: table_a.id = table_b.a_id
+         Limit: 10
+         Order By: table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"id:1","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query="all"
+(17 rows)
+
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+)
+AND id @@@ 'id:1'
+ORDER BY id ASC
+LIMIT 10;
+WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ id |    category    
+----+----------------
+  1 | other_category
+(1 row)
+
+-- Cleanup
+DROP TABLE table_a CASCADE;
+DROP TABLE table_b CASCADE;
+RESET paradedb.enable_join_custom_scan;

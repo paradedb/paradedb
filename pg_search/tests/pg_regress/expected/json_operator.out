@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 DROP TABLE IF EXISTS mock_items;
 CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
@@ -39,13 +39,13 @@ ORDER BY id LIMIT 5;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 5
+            TopK Order By: id asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -69,13 +69,13 @@ ORDER BY id LIMIT 5;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 5
+            TopK Order By: id asc
+            TopK Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -95,13 +95,13 @@ ORDER BY id LIMIT 5;
                                                                                                                                            QUERY PLAN                                                                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 5
+            TopK Order By: id asc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"metadata.price","lower_bound":{"excluded":100},"upper_bound":null,"is_datetime":false}}]}}
 (9 rows)
 
@@ -123,13 +123,13 @@ ORDER BY id LIMIT 5;
                                                                                                          QUERY PLAN                                                                                                         
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 5
+            TopK Order By: id asc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"exists":{"field":"metadata.price"}}]}}
 (9 rows)
 
@@ -151,13 +151,13 @@ ORDER BY id LIMIT 5;
                                                                                                                               QUERY PLAN                                                                                                                              
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 5
+            TopK Order By: id asc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"metadata.price"}}]}}]}}
 (9 rows)
 
@@ -179,13 +179,13 @@ ORDER BY id LIMIT 5;
                                                                                                                           QUERY PLAN                                                                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 5
+            TopK Order By: id asc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"metadata.in_stock","value":true,"is_datetime":false}}]}}
 (9 rows)
 
@@ -209,13 +209,13 @@ ORDER BY id LIMIT 5;
                                                                                                                 QUERY PLAN                                                                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 5
+            TopK Order By: id asc
+            TopK Limit: 5
          Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"((metadata ->> 'color'::text) = ANY ('{white,black}'::text[]))"}]}}]}}
 (10 rows)
@@ -238,13 +238,13 @@ ORDER BY id LIMIT 5;
                                                                                                                                       QUERY PLAN                                                                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 5
+            TopK Order By: id asc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"must":[{"term_set":{"terms":[{"field":"metadata.price","value":80,"is_datetime":false},{"field":"metadata.price","value":100,"is_datetime":false},{"field":"metadata.price","value":120,"is_datetime":false}]}},{"with_index":{"query":"all"}}]}}
 (9 rows)
 
@@ -259,13 +259,13 @@ ORDER BY id LIMIT 5;
                                                                                                              QUERY PLAN                                                                                                              
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on mock_items
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
          Index: search_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 5
+            TopK Order By: id asc
+            TopK Limit: 5
          Tantivy Query: {"boolean":{"must":[{"term_set":{"terms":[{"field":"metadata.color","value":"white","is_datetime":false},{"field":"metadata.color","value":"black","is_datetime":false}]}},{"with_index":{"query":"all"}}]}}
 (9 rows)
 

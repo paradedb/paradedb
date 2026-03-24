@@ -491,6 +491,7 @@ SELECT
     STDDEV(price) FILTER (WHERE category @@@ 'electronics') AS price_stddev,
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test;
+WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2158. To disable this warning: SET paradedb.check_aggregate_scan = false (table: filter_agg_test)
  total |   price_stddev   | apple_count 
 -------+------------------+-------------
     20 | 901.871070925012 |           3
@@ -1030,6 +1031,7 @@ SELECT
     COUNT(DISTINCT category) AS unique_categories,
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test;
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678). To disable this warning: SET paradedb.check_aggregate_scan = false (table: filter_agg_test)
  unique_categories | apple_count 
 -------------------+-------------
                  4 |           3

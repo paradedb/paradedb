@@ -19,18 +19,20 @@ pub mod batch_scanner;
 pub mod codec;
 pub mod deferred_encode;
 pub mod execution_plan;
+pub mod filter_passthrough_exec;
 pub mod filter_pushdown;
 pub mod info;
-pub mod late_materialization_rule;
+pub mod late_materialization;
 pub mod pre_filter;
 pub mod search_predicate_udf;
+pub mod segmented_topk_exec;
+pub mod segmented_topk_rule;
 pub mod table_provider;
 pub mod tantivy_lookup_exec;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
 
 pub use batch_scanner::Scanner;
-pub use codec::PgSearchExtensionCodec;
 pub use info::ScanInfo;
 pub use search_predicate_udf::SearchPredicateUDF;
 pub use table_provider::PgSearchTableProvider;

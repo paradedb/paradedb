@@ -179,6 +179,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false # Disable cache on publish workflows
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version
@@ -292,7 +293,7 @@ jobs:
           rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec
 
       - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm

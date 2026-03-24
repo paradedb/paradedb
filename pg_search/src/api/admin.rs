@@ -571,6 +571,17 @@ fn verify_heap_references(
                 last_progress_report = total_checked;
             }
 
+            // Guard against stale ctids referencing heap blocks truncated by VACUUM.
+            if !unsafe {
+                crate::postgres::utils::ctid_satisfies_nblocks(ctid_u64, heap_rel.as_ptr())
+            } {
+                let mut tid = pg_sys::ItemPointerData::default();
+                u64_to_item_pointer(ctid_u64, &mut tid);
+                let (block, offset) = pgrx::itemptr::item_pointer_get_both(tid);
+                missing_ctids.push((block, offset));
+                continue;
+            }
+
             // Convert u64 to ItemPointerData
             let mut tid = pg_sys::ItemPointerData::default();
             u64_to_item_pointer(ctid_u64, &mut tid);

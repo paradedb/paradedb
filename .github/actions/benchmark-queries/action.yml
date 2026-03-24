@@ -23,6 +23,10 @@ inputs:
   pr_label:
     description: "The human readable version of the commit being tested"
     required: true
+  fail_on_error:
+    description: "Whether to fail on query errors. Set to 'false' for backfills against older versions."
+    required: false
+    default: "true"
 
 runs:
   using: "composite"
@@ -38,7 +42,16 @@ runs:
           echo "Unknown dataset!"
           exit 1
         fi
-        cargo run -- --url postgresql://localhost:288${{ env.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ inputs.dataset }} --output json
+
+        # Run the benchmark.
+        cargo run --release -- \
+          --url postgresql://localhost:288${{ env.pg_version }}/postgres \
+          --rows ${NUM_ROWS} \
+          --type pg_search \
+          --dataset ${{ inputs.dataset }} \
+          --runs 10 \
+          --output json \
+          --fail-on-error ${{ inputs.fail_on_error }}
 
         # Format row count for display (e.g., 100000 -> 100K, 1000000 -> 1M)
         if [ ${NUM_ROWS} -ge 1000000000 ]; then
@@ -64,7 +77,7 @@ runs:
       run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish Benchmark Metrics
-      uses: paradedb/github-action-benchmark@paradedb-v1
+      uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "pg_search '${{ inputs.dataset }}' (${{ env.ROWS_LABEL }} rows)"
         ref: ${{ inputs.ref }}

@@ -122,6 +122,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false # Disable cache on publish workflows
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version
@@ -218,7 +219,7 @@ jobs:
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
       - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb

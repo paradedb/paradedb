@@ -54,8 +54,8 @@ use tantivy::{
 };
 
 /// The maximum number of sort-features/`OrderByInfo`s supported for
-/// `SearchIndexReader::search_top_n_in_segments`.
-pub const MAX_TOPN_FEATURES: usize = 5;
+/// `SearchIndexReader::search_top_k_in_segments`.
+pub const MAX_TOPK_FEATURES: usize = 5;
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
@@ -82,19 +82,19 @@ impl PartialOrd for SearchIndexScore {
 pub type FastFieldCache = HashMap<SegmentOrdinal, FFType>;
 
 /// See `SearchIndexReader::top_in_segments`.
-type TopNWithAggregate<T> = (
+type TopKWithAggregate<T> = (
     Vec<((T, Option<Score>), DocAddress)>,
     Option<IntermediateAggregationResults>,
 );
 
-/// A known-size iterator of results for Top-N.
-pub struct TopNSearchResults {
+/// A known-size iterator of results for Top K.
+pub struct TopKSearchResults {
     results_original_len: usize,
     results: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
     aggregation_results: Option<IntermediateAggregationResults>,
 }
 
-impl TopNSearchResults {
+impl TopKSearchResults {
     pub fn empty() -> Self {
         Self::new(vec![], None)
     }
@@ -146,7 +146,7 @@ impl TopNSearchResults {
     ///
     /// TODO: We could in theory actually render that field using a virtual tuple (for the right
     /// query), similar to what we do in fast-fields execution.
-    fn new_for_discarded_field<T>(searcher: &Searcher, results: TopNWithAggregate<T>) -> Self {
+    fn new_for_discarded_field<T>(searcher: &Searcher, results: TopKWithAggregate<T>) -> Self {
         let (results, aggregation_results) = results;
         Self::new_for_score(
             searcher,
@@ -173,6 +173,8 @@ pub struct MultiSegmentSearchResults {
     searcher: Searcher,
     ctid_column: Option<FFType>,
     iterators: Vec<ScorerIter>,
+    lazy_iterators: Option<Box<dyn Iterator<Item = ScorerIter> + Send>>,
+    lazy_estimated_rows: Option<u64>,
 }
 
 /// A score which sorts in ascending direction.
@@ -187,7 +189,7 @@ impl PartialOrd for AscendingScore {
     }
 }
 
-impl Iterator for TopNSearchResults {
+impl Iterator for TopKSearchResults {
     type Item = (SearchIndexScore, DocAddress);
 
     #[inline]
@@ -198,6 +200,13 @@ impl Iterator for TopNSearchResults {
 
 impl MultiSegmentSearchResults {
     pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
+        if self.iterators.is_empty() {
+            if let Some(ref mut lazy) = self.lazy_iterators {
+                if let Some(next_iter) = lazy.next() {
+                    self.iterators.push(next_iter);
+                }
+            }
+        }
         self.iterators.last_mut()
     }
 
@@ -208,12 +217,16 @@ impl MultiSegmentSearchResults {
     /// Returns the total estimated number of documents across all segments in these results.
     ///
     /// This has no visible sideeffects, but it requires actually opening all DeferredScorers
-    /// for this iterator.
+    /// for this iterator (if they are not lazy).
     pub fn estimated_doc_count(&self) -> u64 {
-        self.iterators
-            .iter()
-            .map(|iter| iter.estimated_doc_count() as u64)
-            .sum()
+        if let Some(rows) = self.lazy_estimated_rows {
+            rows
+        } else {
+            self.iterators
+                .iter()
+                .map(|iter| iter.estimated_doc_count() as u64)
+                .sum()
+        }
     }
 
     /// Consumes and returns all segment iterators along with the searcher.
@@ -233,6 +246,8 @@ impl MultiSegmentSearchResults {
             searcher,
             ctid_column: None,
             iterators: vec![scorer_iter],
+            lazy_iterators: None,
+            lazy_estimated_rows: None,
         }
     }
 }
@@ -243,7 +258,7 @@ impl Iterator for MultiSegmentSearchResults {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let last = self.iterators.last_mut()?;
+            let last = self.current_segment()?;
             match last.next() {
                 Some((score, doc_address)) => {
                     let ctid_ff = self.ctid_column.get_or_insert_with(|| {
@@ -265,7 +280,7 @@ impl Iterator for MultiSegmentSearchResults {
                 None => {
                     // last iterator is empty, so pop it off, clear the fast field type cache,
                     // and loop back around to get the next one
-                    self.iterators.pop();
+                    self.current_segment_pop();
                     self.ctid_column = None;
                     continue;
                 }
@@ -274,20 +289,20 @@ impl Iterator for MultiSegmentSearchResults {
     }
 }
 
-/// Defines auxiliary `Collector`s that may be used in parallel/around TopN.
+/// Defines auxiliary `Collector`s that may be used in parallel/around Top K.
 ///
 /// The TopDocs collectors themselves are highly specialized based on field and query types, and so
 /// usually cannot have their types spelled all the way out: they are defined by the method calls
-/// below `search_top_n_in_segments`. This struct defines optional wrappers and neighbors for that
-/// core TopN collector.
-pub struct TopNAuxiliaryCollector {
-    /// If aggregations should be computed alongside TopN, the collector to use.
+/// below `search_top_k_in_segments`. This struct defines optional wrappers and neighbors for that
+/// core Top K collector.
+pub struct TopKAuxiliaryCollector {
+    /// If aggregations should be computed alongside Top K, the collector to use.
     pub aggregation_collector: DistributedAggregationCollector,
     /// If MVCC filtering should be applied, then the visibility checker to use for that.
     ///
-    /// Note: If enabled, visibility checking is applied to _both_ the TopN and to any
+    /// Note: If enabled, visibility checking is applied to _both_ the Top K and to any
     /// aggregation collector: this is because once you've bothered to filter for MVCC, you might
-    /// as well feed the filtered result to TopN too.
+    /// as well feed the filtered result to Top K too.
     pub vischeck: Option<VisibilityChecker>,
 }
 
@@ -309,6 +324,13 @@ pub struct SearchIndexReader {
     _cleanup_lock: Arc<PinnedBuffer>,
 }
 
+/// A queryless snapshot of visible segments used to capture canonical manifests for parallel
+/// JoinScan initialization without requiring executor state.
+pub struct SearchIndexManifest {
+    searcher: Searcher,
+    _cleanup_lock: Arc<PinnedBuffer>,
+}
+
 impl Clone for SearchIndexReader {
     fn clone(&self) -> Self {
         Self {
@@ -326,7 +348,51 @@ impl Clone for SearchIndexReader {
     }
 }
 
+struct IndexComponents {
+    cleanup_lock: Arc<PinnedBuffer>,
+    index: Index,
+    reader: IndexReader,
+    searcher: Searcher,
+    total_segment_count: usize,
+    total_docs: u64,
+    schema: SearchIndexSchema,
+}
+
 impl SearchIndexReader {
+    fn open_index_components(
+        index_relation: &PgSearchRelation,
+        mvcc_style: MvccSatisfies,
+    ) -> Result<IndexComponents> {
+        let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
+
+        let directory = mvcc_style.directory(index_relation);
+        let mut index = Index::open(directory.clone())?;
+        let total_segment_count = directory
+            .total_segment_count()
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let total_docs = directory
+            .total_docs()
+            .load(std::sync::atomic::Ordering::Relaxed) as u64;
+        let schema = index_relation.schema()?;
+        setup_tokenizers(index_relation, &mut index)?;
+
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        let searcher = reader.searcher();
+
+        Ok(IndexComponents {
+            cleanup_lock,
+            index,
+            reader,
+            searcher,
+            total_segment_count,
+            total_docs,
+            schema,
+        })
+    }
+
     /// Open a tantivy index where, if searched, will return zero results, but has access to all
     /// the underlying [`SegmentReader`]s and such as specified by the `mvcc_style`.
     pub fn empty(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
@@ -359,36 +425,16 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
     ) -> Result<Self> {
-        // It is possible for index only scans and custom scans, which only check the visibility map
-        // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
-        // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
-        // reads in some dead ctids. ambulkdelete finishes immediately after, and Postgres updates its visibility map,
-        //rendering those dead ctids visible. The concurrent scan then returns the wrong results.
-        // To prevent this, ambulkdelete acquires an exclusive cleanup lock. Readers must also acquire this lock (shared)
-        // to prevent a reader from reading dead ctids right before ambulkdelete finishes.
-        //
-        // It's sufficient, and **required** for parallel scans to operate correctly, for us to hold onto
-        // a pinned but unlocked buffer.
-        let cleanup_lock = MetaPage::open(index_relation).cleanup_lock_pinned();
-
-        let directory = mvcc_style.directory(index_relation);
-        let mut index = Index::open(directory.clone())?;
-        // The total_segment_count in the directory is updated as part of Index::open (via load_metas).
-        // It reflects the total number of visible segments, even if we are in LargestSegment mode.
-        let total_segment_count = directory
-            .total_segment_count()
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let total_docs = directory
-            .total_docs()
-            .load(std::sync::atomic::Ordering::Relaxed) as u64;
-        let schema = index_relation.schema()?;
-        setup_tokenizers(index_relation, &mut index)?;
-
-        let reader = index
-            .reader_builder()
-            .reload_policy(ReloadPolicy::Manual)
-            .try_into()?;
-        let searcher = reader.searcher();
+        let components = Self::open_index_components(index_relation, mvcc_style)?;
+        let IndexComponents {
+            cleanup_lock,
+            index,
+            reader,
+            searcher,
+            total_segment_count,
+            total_docs,
+            schema,
+        } = components;
 
         let need_scores = need_scores || search_query_input.need_scores();
         let query = {
@@ -420,7 +466,7 @@ impl SearchIndexReader {
             need_scores,
             total_segment_count,
             total_docs,
-            _cleanup_lock: Arc::new(cleanup_lock),
+            _cleanup_lock: cleanup_lock,
         })
     }
 
@@ -608,6 +654,71 @@ impl SearchIndexReader {
             searcher: self.searcher.clone(),
             ctid_column: Default::default(),
             iterators,
+            lazy_iterators: None,
+            lazy_estimated_rows: None,
+        }
+    }
+
+    /// Search all available index segments for matching documents using lazy checkout from the
+    /// parallel state to allow load balancing across parallel workers.
+    ///
+    /// `estimated_rows` is required because a lazily-evaluated iterator does not inherently know
+    /// which or how many segments it will eventually open, and thus cannot compute an accurate
+    /// sum of matching documents by asking each segment upfront. It should be passed the value
+    /// computed during Postgres query planning.
+    pub fn search_lazy(
+        &self,
+        parallel_state: *mut crate::postgres::ParallelScanState,
+        estimated_rows: u64,
+    ) -> MultiSegmentSearchResults {
+        struct ParallelSegmentIterator {
+            parallel_state: *mut crate::postgres::ParallelScanState,
+        }
+        unsafe impl Send for ParallelSegmentIterator {}
+        unsafe impl Sync for ParallelSegmentIterator {}
+        impl Iterator for ParallelSegmentIterator {
+            type Item = tantivy::index::SegmentId;
+            fn next(&mut self) -> Option<Self::Item> {
+                pgrx::check_for_interrupts!();
+                unsafe {
+                    crate::postgres::customscan::parallel::checkout_segment(self.parallel_state)
+                }
+            }
+        }
+
+        let segment_ids = ParallelSegmentIterator { parallel_state };
+
+        let searcher = self.searcher.clone();
+        let query = self.query.box_clone();
+        let need_scores = self.need_scores;
+
+        let lazy_iterators = segment_ids.map(move |segment_id| {
+            let (segment_ord, segment_reader) = searcher
+                .segment_readers()
+                .iter()
+                .enumerate()
+                .find(|(_, reader)| reader.segment_id() == segment_id)
+                .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
+            let segment_ord = segment_ord as SegmentOrdinal;
+
+            ScorerIter::new(
+                DeferredScorer::new(
+                    query.box_clone(),
+                    need_scores,
+                    segment_reader.clone(),
+                    searcher.clone(),
+                ),
+                segment_ord,
+                segment_reader.clone(),
+            )
+        });
+
+        MultiSegmentSearchResults {
+            searcher: self.searcher.clone(),
+            ctid_column: Default::default(),
+            iterators: vec![],
+            lazy_iterators: Some(Box::new(lazy_iterators)),
+            lazy_estimated_rows: Some(estimated_rows),
         }
     }
 
@@ -615,14 +726,14 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search_top_n_unordered_in_segments(
+    pub fn search_top_k_unordered_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         n: usize,
         offset: usize,
-    ) -> TopNSearchResults {
+    ) -> TopKSearchResults {
         // Do an un-ordered search.
-        TopNSearchResults::new(
+        TopKSearchResults::new(
             self.search_segments(segment_ids)
                 .skip(offset)
                 .take(n)
@@ -631,26 +742,29 @@ impl SearchIndexReader {
         )
     }
 
-    /// Search the Tantivy index for the "top N" matching documents in specific segments.
+    /// Search the Tantivy index for the Top K matching documents in specific segments.
     ///
     /// The documents are returned in either score or field order, in the given direction: at least
     /// one `OrderByInfo` must be defined.
     ///
-    /// If a TopNAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
+    /// If a TopKAuxiliaryCollector is provided, this method can optionally pre-filter for MVCC
     /// visibility: if a collector is _not_ provided, then it is up to the caller to filter the
     /// results for MVCC visibility, and re-query if necessary.
-    pub fn search_top_n_in_segments(
+    pub fn search_top_k_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         orderby_info: &[OrderByInfo],
         n: usize,
         offset: usize,
-        aux_collector: Option<TopNAuxiliaryCollector>,
-    ) -> TopNSearchResults {
+        aux_collector: Option<TopKAuxiliaryCollector>,
+    ) -> TopKSearchResults {
         let (first_orderby_info, erased_features) = self.prepare_features(orderby_info);
         match first_orderby_info {
             OrderByInfo {
-                feature: OrderByFeature::Field(sort_field),
+                feature:
+                    OrderByFeature::Field {
+                        name: sort_field, ..
+                    },
                 direction,
             } => {
                 let field = self
@@ -659,7 +773,7 @@ impl SearchIndexReader {
                     .expect("sort field should exist in index schema");
                 let order: ComparatorEnum = (*direction).into();
                 match field.field_entry().field_type().value_type() {
-                    tantivy::schema::Type::Str => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::Str => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -670,7 +784,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::U64 => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::U64 => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -681,7 +795,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::I64 => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::I64 => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -692,7 +806,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::F64 => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::F64 => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -703,7 +817,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::Bool => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::Bool => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -714,7 +828,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::Date => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::Date => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -728,7 +842,7 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
-                    tantivy::schema::Type::Bytes => TopNSearchResults::new_for_discarded_field(
+                    tantivy::schema::Type::Bytes => TopKSearchResults::new_for_discarded_field(
                         &self.searcher,
                         self.top_in_segments(
                             segment_ids,
@@ -754,7 +868,7 @@ impl SearchIndexReader {
                 ..
             } => unimplemented!("Sorting by variable is not supported in raw index search"),
             OrderByInfo {
-                feature: OrderByFeature::Score,
+                feature: OrderByFeature::Score { .. },
                 direction,
             } if !erased_features.is_empty() => {
                 // If we've directly sorted on the score, then we have it available here.
@@ -767,14 +881,14 @@ impl SearchIndexReader {
                     offset,
                     aux_collector,
                 );
-                TopNSearchResults::new_for_score(
+                TopKSearchResults::new_for_score(
                     &self.searcher,
                     top_docs.into_iter().map(|((f, _), doc)| (f, doc)),
                     aggregation_results,
                 )
             }
             OrderByInfo {
-                feature: OrderByFeature::Score,
+                feature: OrderByFeature::Score { .. },
                 direction,
             } => {
                 // TODO: See method docs.
@@ -783,13 +897,13 @@ impl SearchIndexReader {
         }
     }
 
-    /// Called by `search_top_n_in_segments`.
+    /// Called by `search_top_k_in_segments`.
     ///
-    /// `search_top_n_in_segments` is specialized for all combinations of:
+    /// `search_top_k_in_segments` is specialized for all combinations of:
     /// 1. first sort field type -- via the generic `S: SortKeyComputer` parameter of this method. This
     ///    gets us unboxed/optimized comparison for the first feature, which always receives more
     ///    comparison than the remaining features (sometimes a lot more).
-    /// 2. supported sort field counts (from 1 to MAX_TOPN_FEATURES) -- by calls to
+    /// 2. supported sort field counts (from 1 to MAX_TOPK_FEATURES) -- by calls to
     ///    `top_for_orderable_in_segments` for varying tuple lengths. Ordering on tuples is what is
     ///    supported by `TopDocs::order_by`, because it avoids allocation, and allows for the most
     ///    inlining of comparisons.
@@ -806,8 +920,8 @@ impl SearchIndexReader {
         mut erased_features: ErasedFeatures,
         n: usize,
         offset: usize,
-        aux_collector: Option<TopNAuxiliaryCollector>,
-    ) -> TopNWithAggregate<S::SortKey>
+        aux_collector: Option<TopKAuxiliaryCollector>,
+    ) -> TopKWithAggregate<S::SortKey>
     where
         S: SortKeyComputer + Clone + Send + 'static,
     {
@@ -930,11 +1044,11 @@ impl SearchIndexReader {
                 if erased_features.score_index() == Some(x - 1) {
                     panic!(
                         "Unsupported sort-field count: {}. At most {} are supported when `pdb.score` is requested.",
-                        x, MAX_TOPN_FEATURES - 1
+                        x, MAX_TOPK_FEATURES - 1
                     )
                 } else {
                     panic!(
-                        "Unsupported sort-field count: {}. At most {MAX_TOPN_FEATURES} are supported.",
+                        "Unsupported sort-field count: {}. At most {MAX_TOPK_FEATURES} are supported.",
                         x + 1,
                     )
                 }
@@ -956,8 +1070,8 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
         offset: usize,
-        aux_collector: Option<TopNAuxiliaryCollector>,
-    ) -> TopNSearchResults {
+        aux_collector: Option<TopKAuxiliaryCollector>,
+    ) -> TopKSearchResults {
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::AscNullsFirst | SortDirection::AscNullsLast => {
@@ -972,7 +1086,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
-                TopNSearchResults::new_for_score(
+                TopKSearchResults::new_for_score(
                     &self.searcher,
                     top_docs
                         .into_iter()
@@ -988,7 +1102,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
-                TopNSearchResults::new_for_score(&self.searcher, top_docs, aggregation_results)
+                TopKSearchResults::new_for_score(&self.searcher, top_docs, aggregation_results)
             }
         }
     }
@@ -1187,7 +1301,7 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         top_docs_collector: C,
-        aux_collector: Option<TopNAuxiliaryCollector>,
+        aux_collector: Option<TopKAuxiliaryCollector>,
     ) -> (C::Fruit, Option<IntermediateAggregationResults>) {
         let query = self.query();
         let weight = query
@@ -1199,7 +1313,7 @@ impl SearchIndexReader {
             let fruits = self.collect_segments(segment_ids, &top_docs_collector, weight.as_ref());
             let top_docs = top_docs_collector
                 .merge_fruits(fruits)
-                .expect("should be able to merge top-n in segments");
+                .expect("should be able to merge Top K in segments");
             return (top_docs, None);
         };
 
@@ -1212,13 +1326,13 @@ impl SearchIndexReader {
             let fruits = self.collect_segments(segment_ids, &collector, weight.as_ref());
             let (top_docs, aggregation_results) = collector
                 .merge_fruits(fruits)
-                .expect("should be able to merge top-n in segment");
+                .expect("should be able to merge Top K in segment");
             (top_docs, Some(aggregation_results))
         } else {
             let fruits = self.collect_segments(segment_ids, &compound_collector, weight.as_ref());
             let (top_docs, aggregation_results) = compound_collector
                 .merge_fruits(fruits)
-                .expect("should be able to merge top-n in segment");
+                .expect("should be able to merge Top K in segment");
             (top_docs, Some(aggregation_results))
         }
     }
@@ -1241,7 +1355,10 @@ impl SearchIndexReader {
         for orderby_info in remainder.iter() {
             match orderby_info {
                 OrderByInfo {
-                    feature: OrderByFeature::Field(sort_field),
+                    feature:
+                        OrderByFeature::Field {
+                            name: sort_field, ..
+                        },
                     direction,
                 } => {
                     // NOTE: The list of supported field types for `SortByErasedType` must be synced with
@@ -1250,7 +1367,7 @@ impl SearchIndexReader {
                         .push_feature(SortByErasedType::for_field(sort_field), *direction);
                 }
                 OrderByInfo {
-                    feature: OrderByFeature::Score,
+                    feature: OrderByFeature::Score { .. },
                     direction,
                 } => {
                     erased_features.push_score_feature(*direction);
@@ -1275,7 +1392,7 @@ impl SearchIndexReader {
     }
 
     /// NOTE: It is very important that this method consumes the input SegmentIds lazily, because
-    /// some callers (the TopN exec method in particular) are producing them lazily by checking
+    /// some callers (the Top K exec method in particular) are producing them lazily by checking
     /// them out of shared mutable state as they go.
     ///
     /// TODO: See https://github.com/paradedb/paradedb/issues/2758 about removing the O(N) behavior
@@ -1309,6 +1426,25 @@ impl SearchIndexReader {
                     .expect("should be able to collect in segment")
             })
             .collect()
+    }
+}
+
+impl SearchIndexManifest {
+    /// Capture the currently visible segment set without building a search query.
+    pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
+        let components = SearchIndexReader::open_index_components(index_relation, mvcc_style)?;
+        Ok(Self {
+            searcher: components.searcher,
+            _cleanup_lock: components.cleanup_lock,
+        })
+    }
+
+    pub fn segment_readers(&self) -> &[SegmentReader] {
+        self.searcher.segment_readers()
+    }
+
+    pub fn segment_count(&self) -> usize {
+        self.searcher.segment_readers().len()
     }
 }
 

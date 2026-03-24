@@ -17,6 +17,7 @@
 
 use crate::api::tokenizers::type_is_tokenizer;
 use crate::nodecast;
+use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
@@ -101,6 +102,13 @@ impl TantivyValue {
                     _ => return Err(TantivyValueError::UnsupportedOid(oid.value())),
                 };
                 Ok(datum)
+            }
+
+            PgOid::Custom(custom) => {
+                if is_citext_oid(*custom) {
+                    return Ok(String::try_from(self)?.into_datum());
+                }
+                Err(TantivyValueError::UnsupportedOid(oid.value()))
             }
             _ => Err(TantivyValueError::InvalidOid),
         }
@@ -322,7 +330,14 @@ impl TantivyValue {
                 String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
             ),
 
-            PgOid::Custom(_) => Err(TantivyValueError::UnsupportedOid(oid.value())),
+            PgOid::Custom(custom) => {
+                if is_citext_oid(*custom) {
+                    return TantivyValue::try_from(
+                        String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                    );
+                }
+                Err(TantivyValueError::UnsupportedOid(oid.value()))
+            }
 
             _ => Err(TantivyValueError::InvalidOid),
         }
@@ -958,6 +973,7 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
         let posix_secs = val.to_posix_time();
+        // The resulting nanos must fit within MIN_SAFE_TANTIVY_NANOS and MAX_SAFE_TANTIVY_NANOS.
         let nanos = posix_secs.checked_mul(1_000_000_000).ok_or_else(|| {
             TantivyValueError::DateOutOfRange(
                 val,
@@ -1030,6 +1046,7 @@ impl TryFrom<pgrx::datum::Timestamp> for TantivyValue {
         use crate::postgres::datetime::micros_to_tantivy_datetime;
         static mut EPOCH_TS: Option<pg_sys::Timestamp> = None;
         let epoch_ts = unsafe { EPOCH_TS.get_or_insert_with(|| pg_sys::SetEpochTimestamp()) };
+        // Valid micros range maps into `MIN_SAFE_TANTIVY_NANOS` to `MAX_SAFE_TANTIVY_NANOS`
         let micros = val.into_inner().checked_sub(*epoch_ts).ok_or(
             TantivyValueError::DateTimeConversionError(DateTimeConversionError::OutOfRange),
         )?;

@@ -1,6 +1,8 @@
 # PostgreSQL Regression Tests for ParadeDB
 
-This directory contains regression tests for ParadeDB's `pg_search` extension.
+This directory contains the **pg regress tests** for ParadeDB's `pg_search` extension. These run with `cargo pgrx regress` and do not need the extension to be manually installed: it is handled automatically.
+
+For a complete overview of ParadeDB's testing infrastructure (including unit tests, integration tests, and client property tests), please see the [Testing section in `CONTRIBUTING.md`](../../../CONTRIBUTING.md#testing).
 
 ## Directory Structure
 
@@ -13,11 +15,11 @@ This directory contains regression tests for ParadeDB's `pg_search` extension.
 
 Tests are organized into logical groups with a common prefix:
 
-- `mixedff_`: Mixed Fast Fields tests
-  - `mixedff_basic_*`: Basic mixed fast fields functionality tests
-  - `mixedff_edgecases_*`: Edge cases and boundary condition tests
-  - `mixedff_queries_*`: Tests for complex query features
-  - `mixedff_advanced_*`: Tests for advanced features and optimizations
+- `columnar_`: Columnar tests
+  - `columnar_basic_*`: Basic columnar storage functionality tests
+  - `columnar_edgecases_*`: Edge cases and boundary condition tests
+  - `columnar_queries_*`: Tests for complex query features
+  - `columnar_advanced_*`: Tests for advanced features and optimizations
 
 Each group uses its own setup and cleanup scripts from the `common/` directory.
 
@@ -72,8 +74,7 @@ cargo pgrx regress
 ### Run Specific Tests
 
 ```bash
-cd pg_search
-cargo pgrx regress pg18 PREFIX_your_test
+cargo pgrx regress -p pg_search --auto -- pg18 PREFIX_your_test
 ```
 
 ## Common Pitfalls

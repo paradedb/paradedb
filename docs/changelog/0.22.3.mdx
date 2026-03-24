@@ -1,0 +1,19 @@
+---
+title: 0.22.3
+noindex: true
+---
+
+## New Features
+
+- Support `ORDER BY` indexed expressions in the TopN scan path.
+- Add Czech stemming and stopwords support.
+- (beta) Snapshot all indexes via `ParallelScanState` for consistent parallel JoinScan `DocAddress`es.
+- (beta) Add a sort-merge-join variant of `semi_join_filter`.
+
+## Stability Improvements
+
+- Fix bypass of `min_rows_per_worker` for sorted/TopK scans.
+- Fix rebuild of custom scan heap state on rescan.
+- Use upstream `tantivy-jieba` ordinal position support.
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.22.3).

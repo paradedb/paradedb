@@ -128,6 +128,7 @@ FROM json_test
 WHERE id @@@ paradedb.exists('metadata_json.value')
 GROUP BY metadata_json->>'value'
 ORDER BY value;
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: json_test)
  value  | count | min_count | max_count 
 --------+-------+-----------+-----------
  apple  |     3 |         2 |         5

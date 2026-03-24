@@ -3,7 +3,10 @@
 # Publish ParadeDB (Docker)
 # Publish ParadeDB as Docker images for all of our supported PostgreSQL versions to Docker Hub. Stable
 # releases publish Docker images for all of our supported PostgreSQL versions, while beta releases
-# only publish the default PostgreSQL version we run as default (currently 18).
+# only publish the default PostgreSQL version we run as default (currently 18). Once all Docker images
+# are published, notify ORM wrapper repositories via repository_dispatch so they can run compatibility
+# checks against the new version. This is done in `publish-paradedb-docker.yml` since ORM integration
+# tests are run against our Docker image.
 
 name: Publish ParadeDB (Docker)
 
@@ -164,8 +167,44 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: index.docker.io/paradedb/paradedb
           subject-digest: ${{ steps.build-push.outputs.digest }}
           push-to-registry: true
+
+  notify-orm-repos:
+    name: Notify ORM Repos of New Release
+    runs-on: ubuntu-latest
+    needs: publish-paradedb-docker-image
+    if: ${{ !contains(github.ref, '-rc.') }}
+    env:
+      # ORM repos to notify on new releases
+      ORM_REPOS: |
+        paradedb/django-paradedb
+        paradedb/rails-paradedb
+        paradedb/sqlalchemy-paradedb
+
+    steps:
+      - name: Retrieve GitHub Release Version
+        id: version
+        run: |
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Notify ORM Repos of New Release
+        env:
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+        run: |
+          while IFS= read -r repo; do
+            repo=$(echo "$repo" | xargs)
+            [ -z "$repo" ] && continue
+            echo "Dispatching to $repo..."
+            gh api "repos/$repo/dispatches" \
+              --field event_type=paradedb-release \
+              --field "client_payload[version]=${{ steps.version.outputs.version }}"
+          done <<< "$ORM_REPOS"

@@ -1,0 +1,648 @@
+-- Test for the JoinScan Custom Scan planning
+-- Exhaustive testing of different join key data types and composite key edge cases.
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+-- Load the pg_search extension
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Make sure the GUC is enabled
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- TEST 1: TEXT join keys (non-integer)
+-- =============================================================================
+-- Create tables with TEXT join keys
+DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS customers CASCADE;
+CREATE TABLE customers (
+    customer_code TEXT PRIMARY KEY,
+    name TEXT,
+    email TEXT
+);
+CREATE TABLE orders (
+    id INTEGER PRIMARY KEY,
+    customer_code TEXT,
+    description TEXT,
+    amount DECIMAL(10,2)
+);
+INSERT INTO customers (customer_code, name, email) VALUES
+('CUST-001', 'Alice Corp', 'alice@corp.com'),
+('CUST-002', 'Bob Industries', 'bob@industries.com'),
+('CUST-003', 'Carol Enterprises', 'carol@enterprises.com');
+INSERT INTO orders (id, customer_code, description, amount) VALUES
+(1, 'CUST-001', 'wireless mouse order', 29.99),
+(2, 'CUST-001', 'keyboard order premium', 89.99),
+(3, 'CUST-002', 'wireless headphones bulk', 599.97),
+(4, 'CUST-003', 'monitor stand', 49.99),
+(5, 'CUST-002', 'cable wireless charger', 19.99);
+-- Note: orders.customer_code must be a fast field for the join key
+CREATE INDEX orders_bm25_idx ON orders USING bm25 (id, description, customer_code)
+WITH (key_field = 'id', text_fields = '{"customer_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+CREATE INDEX customers_bm25_idx ON customers USING bm25 (customer_code, name, email) WITH (key_field = 'customer_code');
+-- TEXT join key test
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT o.id, o.description, c.name AS customer_name
+FROM orders o
+JOIN customers c ON o.customer_code = c.customer_code
+WHERE o.description @@@ 'wireless'
+ORDER BY o.id
+LIMIT 10;
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: o.id, o.description, c.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: o.id, o.description, c.name
+         Relation Tree: c INNER o
+         Join Cond: o.customer_code = c.customer_code
+         Limit: 10
+         Order By: o.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(customer_code@1, customer_code@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, customer_code@1 as customer_code]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, customer_code@1 as customer_code, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT o.id, o.description, c.name AS customer_name
+FROM orders o
+JOIN customers c ON o.customer_code = c.customer_code
+WHERE o.description @@@ 'wireless'
+ORDER BY o.id
+LIMIT 10;
+ id |       description        | customer_name  
+----+--------------------------+----------------
+  1 | wireless mouse order     | Alice Corp
+  3 | wireless headphones bulk | Bob Industries
+  5 | cable wireless charger   | Bob Industries
+(3 rows)
+
+-- =============================================================================
+-- TEST 2: Composite join keys (multiple columns)
+-- =============================================================================
+-- Create tables with composite keys
+DROP TABLE IF EXISTS inventory CASCADE;
+DROP TABLE IF EXISTS warehouses CASCADE;
+CREATE TABLE warehouses (
+    region_id INTEGER,
+    warehouse_code TEXT,
+    name TEXT,
+    description TEXT,
+    PRIMARY KEY (region_id, warehouse_code)
+);
+CREATE TABLE inventory (
+    id INTEGER PRIMARY KEY,
+    region_id INTEGER,
+    warehouse_code TEXT,
+    product_name TEXT,
+    quantity INTEGER
+);
+INSERT INTO warehouses (region_id, warehouse_code, name, description) VALUES
+(1, 'WH-A', 'East Coast Main', 'Primary warehouse for east coast distribution'),
+(1, 'WH-B', 'East Coast Backup', 'Backup warehouse for east coast'),
+(2, 'WH-A', 'West Coast Main', 'Primary warehouse for west coast distribution'),
+(2, 'WH-B', 'West Coast Express', 'Express shipping warehouse west coast');
+INSERT INTO inventory (id, region_id, warehouse_code, product_name, quantity) VALUES
+(1, 1, 'WH-A', 'wireless mouse', 100),
+(2, 1, 'WH-A', 'keyboard', 50),
+(3, 1, 'WH-B', 'monitor', 25),
+(4, 2, 'WH-A', 'wireless headphones', 75),
+(5, 2, 'WH-B', 'wireless charger', 200);
+-- Note: inventory needs region_id and warehouse_code as fast fields for composite join keys
+CREATE INDEX inventory_bm25_idx ON inventory USING bm25 (id, product_name, region_id, warehouse_code)
+WITH (key_field = 'id', numeric_fields = '{"region_id": {"fast": true}}',
+      text_fields = '{"warehouse_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+CREATE INDEX warehouses_bm25_idx ON warehouses USING bm25 (region_id, warehouse_code, name, description)
+WITH (key_field = 'region_id',
+      text_fields = '{"warehouse_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+-- Composite key join test (region_id AND warehouse_code)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.product_name, w.name AS warehouse_name
+FROM inventory i
+JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehouse_code
+WHERE i.product_name @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.product_name, w.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: i.id, i.product_name, w.name
+         Relation Tree: w INNER i
+         Join Cond: i.region_id = w.region_id, i.warehouse_code = w.warehouse_code
+         Limit: 10
+         Order By: i.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(region_id@1, region_id@1), (warehouse_code@2, warehouse_code@2)], projection=[ctid_1@0, id@3, ctid_0@4]
+           :         ProjectionExec: expr=[ctid@0 as ctid_1, region_id@1 as region_id, warehouse_code@2 as warehouse_code, id@3 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_0, region_id@1 as region_id, warehouse_code@2 as warehouse_code]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(19 rows)
+
+SELECT i.id, i.product_name, w.name AS warehouse_name
+FROM inventory i
+JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehouse_code
+WHERE i.product_name @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+ id |    product_name     |   warehouse_name   
+----+---------------------+--------------------
+  1 | wireless mouse      | East Coast Main
+  4 | wireless headphones | West Coast Main
+  5 | wireless charger    | West Coast Express
+(3 rows)
+
+-- =============================================================================
+-- TEST 3: Join key value of 0 (regression test for magic key collision)
+-- =============================================================================
+-- Create tables where join key value 0 is valid
+DROP TABLE IF EXISTS items CASCADE;
+DROP TABLE IF EXISTS item_types CASCADE;
+CREATE TABLE item_types (
+    type_id INTEGER PRIMARY KEY,
+    type_name TEXT,
+    description TEXT
+);
+CREATE TABLE items (
+    id INTEGER PRIMARY KEY,
+    type_id INTEGER,
+    name TEXT,
+    details TEXT
+);
+-- Explicitly include type_id = 0
+INSERT INTO item_types (type_id, type_name, description) VALUES
+(0, 'Uncategorized', 'Items without category'),
+(1, 'Electronics', 'Electronic items'),
+(2, 'Accessories', 'Accessory items');
+INSERT INTO items (id, type_id, name, details) VALUES
+(1, 0, 'Mystery Box', 'wireless mystery item'),
+(2, 0, 'Unknown Gadget', 'unclassified wireless device'),
+(3, 1, 'Smart Speaker', 'wireless bluetooth speaker'),
+(4, 2, 'Phone Case', 'protective case');
+-- Note: items.type_id must be a fast field for the join key
+CREATE INDEX items_bm25_idx ON items USING bm25 (id, name, details, type_id)
+WITH (key_field = 'id', numeric_fields = '{"type_id": {"fast": true}}');
+CREATE INDEX item_types_bm25_idx ON item_types USING bm25 (type_id, type_name, description) WITH (key_field = 'type_id');
+-- Test that items with type_id = 0 are correctly joined (not treated as cross-join)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, t.type_name
+FROM items i
+JOIN item_types t ON i.type_id = t.type_id
+WHERE i.details @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.id, i.name, t.type_name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: i.id, i.name, t.type_name
+         Relation Tree: t INNER i
+         Join Cond: i.type_id = t.type_id
+         Limit: 10
+         Order By: i.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(type_id@1, type_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_0, type_id@1 as type_id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, type_id@1 as type_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
+
+SELECT i.id, i.name, t.type_name
+FROM items i
+JOIN item_types t ON i.type_id = t.type_id
+WHERE i.details @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+ id |      name      |   type_name   
+----+----------------+---------------
+  1 | Mystery Box    | Uncategorized
+  2 | Unknown Gadget | Uncategorized
+  3 | Smart Speaker  | Electronics
+(3 rows)
+
+-- Verify type_id = 0 items are joined to 'Uncategorized' type
+SELECT i.id, i.name, t.type_name, t.type_id
+FROM items i
+JOIN item_types t ON i.type_id = t.type_id
+WHERE i.type_id = 0
+ORDER BY i.id;
+ id |      name      |   type_name   | type_id 
+----+----------------+---------------+---------
+  1 | Mystery Box    | Uncategorized |       0
+  2 | Unknown Gadget | Uncategorized |       0
+(2 rows)
+
+-- =============================================================================
+-- TEST 4: Different join key types - TEXT keys
+-- =============================================================================
+-- Verify JoinScan works with TEXT join keys, not just INTEGER
+DROP TABLE IF EXISTS docs CASCADE;
+DROP TABLE IF EXISTS authors CASCADE;
+CREATE TABLE authors (
+    author_code TEXT PRIMARY KEY,
+    name TEXT,
+    bio TEXT
+);
+CREATE TABLE docs (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT,
+    author_code TEXT
+);
+INSERT INTO authors (author_code, name, bio) VALUES
+('AUTH001', 'Alice Smith', 'Expert in database systems and search technology'),
+('AUTH002', 'Bob Jones', 'Specialist in distributed computing'),
+('AUTH003', 'Carol White', 'Focus on machine learning and AI');
+INSERT INTO docs (title, content, author_code) VALUES
+('Database Indexing', 'Full-text search indexing techniques', 'AUTH001'),
+('Search Optimization', 'Optimizing search queries for performance', 'AUTH001'),
+('Distributed Systems', 'Building scalable distributed architectures', 'AUTH002'),
+('ML Basics', 'Introduction to machine learning concepts', 'AUTH003');
+-- Note: docs.author_code must be a fast field for the join key
+CREATE INDEX docs_bm25_idx ON docs USING bm25 (id, title, content, author_code)
+WITH (key_field = 'id', text_fields = '{"author_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+CREATE INDEX authors_bm25_idx ON authors USING bm25 (author_code, name, bio) WITH (key_field = 'author_code');
+-- JoinScan with TEXT join keys
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.title, a.name
+FROM docs d
+JOIN authors a ON d.author_code = a.author_code
+WHERE d.content @@@ 'search'
+ORDER BY d.id
+LIMIT 10;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: d.title, a.name, d.id
+   ->  Result
+         Output: d.title, a.name, d.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: d.title, d.id, a.name
+               Relation Tree: a INNER d
+               Join Cond: d.author_code = a.author_code
+               Limit: 10
+               Order By: d.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(author_code@1, author_code@1)], projection=[ctid_1@0, id@2, ctid_0@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, author_code@1 as author_code, id@2 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_0, author_code@1 as author_code]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(21 rows)
+
+SELECT d.title, a.name
+FROM docs d
+JOIN authors a ON d.author_code = a.author_code
+WHERE d.content @@@ 'search'
+ORDER BY d.id
+LIMIT 10;
+        title        |    name     
+---------------------+-------------
+ Database Indexing   | Alice Smith
+ Search Optimization | Alice Smith
+(2 rows)
+
+-- =============================================================================
+-- TEST 5: NULL key handling
+-- =============================================================================
+-- Verify that NULL join keys are correctly excluded (standard SQL semantics)
+DROP TABLE IF EXISTS items_with_nulls CASCADE;
+DROP TABLE IF EXISTS categories_with_nulls CASCADE;
+CREATE TABLE categories_with_nulls (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT
+);
+CREATE TABLE items_with_nulls (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    content TEXT,
+    category_id INTEGER  -- Nullable foreign key
+);
+INSERT INTO categories_with_nulls (id, name, description) VALUES
+(1, 'Electronics', 'Electronic devices and gadgets'),
+(2, 'Books', 'Physical and digital books'),
+(3, 'Clothing', 'Apparel and accessories');
+INSERT INTO items_with_nulls (id, name, content, category_id) VALUES
+(101, 'Laptop', 'Powerful laptop for programming', 1),
+(102, 'Phone', 'Smartphone with great camera', 1),
+(103, 'Novel', 'Bestselling fiction novel', 2),
+(104, 'Orphan Item', 'Item with no category assignment', NULL),  -- NULL category
+(105, 'Another Orphan', 'Another uncategorized item', NULL);     -- NULL category
+-- Note: items.category_id must be a fast field for the join key
+CREATE INDEX items_nulls_bm25_idx ON items_with_nulls USING bm25 (id, name, content, category_id)
+WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
+CREATE INDEX categories_nulls_bm25_idx ON categories_with_nulls USING bm25 (id, name, description) WITH (key_field = 'id');
+-- Query should NOT return items with NULL category_id
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.name AS item_name, c.name AS category_name
+FROM items_with_nulls i
+JOIN categories_with_nulls c ON i.category_id = c.id
+WHERE i.content @@@ 'item OR laptop OR novel'
+ORDER BY i.id
+LIMIT 10;
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: i.name, c.name, i.id
+   ->  Result
+         Output: i.name, c.name, i.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: i.name, i.id, c.name
+               Relation Tree: c INNER i
+               Join Cond: i.category_id = c.id
+               Limit: 10
+               Order By: i.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_0@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, id@2 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR novel","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(21 rows)
+
+-- Should return only rows with non-NULL category_id that match the search
+-- The 2 items with NULL category_id are excluded by the JOIN
+SELECT i.name AS item_name, c.name AS category_name
+FROM items_with_nulls i
+JOIN categories_with_nulls c ON i.category_id = c.id
+WHERE i.content @@@ 'item OR laptop OR novel'
+ORDER BY i.id
+LIMIT 10;
+ item_name | category_name 
+-----------+---------------
+ Laptop    | Electronics
+ Novel     | Books
+(2 rows)
+
+-- =============================================================================
+-- TEST 6: Multi-column composite join keys
+-- =============================================================================
+-- Verify JoinScan handles composite (multi-column) join keys
+DROP TABLE IF EXISTS order_items CASCADE;
+DROP TABLE IF EXISTS order_details CASCADE;
+CREATE TABLE order_details (
+    order_id INTEGER,
+    line_num INTEGER,
+    product_name TEXT,
+    description TEXT,
+    PRIMARY KEY (order_id, line_num)
+);
+CREATE TABLE order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER,
+    line_num INTEGER,
+    quantity INTEGER,
+    notes TEXT
+);
+INSERT INTO order_details (order_id, line_num, product_name, description) VALUES
+(1, 1, 'Widget A', 'High quality widget for industrial use'),
+(1, 2, 'Widget B', 'Standard widget for general purpose'),
+(2, 1, 'Gadget X', 'Advanced gadget with wireless connectivity'),
+(2, 2, 'Gadget Y', 'Basic gadget for everyday use');
+INSERT INTO order_items (order_id, line_num, quantity, notes) VALUES
+(1, 1, 10, 'Rush order for wireless widgets'),
+(1, 2, 5, 'Standard delivery'),
+(2, 1, 3, 'Wireless gadget order'),
+(2, 2, 7, 'Bulk order');
+-- Note: Both tables need order_id and line_num as fast fields for composite join keys
+CREATE INDEX order_details_bm25_idx ON order_details USING bm25 (order_id, product_name, description, line_num)
+WITH (key_field = 'order_id', numeric_fields = '{"line_num": {"fast": true}}');
+CREATE INDEX order_items_bm25_idx ON order_items USING bm25 (id, notes, order_id, line_num)
+WITH (key_field = 'id', numeric_fields = '{"order_id": {"fast": true}, "line_num": {"fast": true}}');
+-- Join on composite key (order_id, line_num)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT od.product_name, oi.quantity, oi.notes
+FROM order_details od
+JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
+WHERE od.description @@@ 'wireless'
+ORDER BY od.order_id, od.line_num
+LIMIT 10;
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: od.product_name, oi.quantity, oi.notes, od.order_id, od.line_num
+   ->  Result
+         Output: od.product_name, oi.quantity, oi.notes, od.order_id, od.line_num
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: od.product_name, od.order_id, od.line_num, oi.quantity, oi.notes
+               Relation Tree: oi INNER od
+               Join Cond: od.order_id = oi.order_id, od.line_num = oi.line_num
+               Limit: 10
+               Order By: od.order_id asc, od.line_num asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, order_id@2 as col_2, line_num@3 as col_3, NULL as col_4, NULL as col_5, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[order_id@2 ASC NULLS LAST, line_num@3 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, order_id@1 as order_id, line_num@2 as line_num]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(order_id@1, order_id@1), (line_num@2, line_num@2)], projection=[ctid_1@0, order_id@1, line_num@2, ctid_0@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, order_id@1 as order_id, line_num@2 as line_num]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_0, order_id@1 as order_id, line_num@2 as line_num]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(21 rows)
+
+SELECT od.product_name, oi.quantity, oi.notes
+FROM order_details od
+JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
+WHERE od.description @@@ 'wireless'
+ORDER BY od.order_id, od.line_num
+LIMIT 10;
+ product_name | quantity |         notes         
+--------------+----------+-----------------------
+ Gadget X     |        3 | Wireless gadget order
+(1 row)
+
+-- =============================================================================
+-- TEST 7: UUID join keys
+-- =============================================================================
+-- Verify JoinScan works with UUID join keys
+DROP TABLE IF EXISTS uuid_orders CASCADE;
+DROP TABLE IF EXISTS uuid_customers CASCADE;
+CREATE TABLE uuid_customers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT,
+    email TEXT
+);
+CREATE TABLE uuid_orders (
+    id SERIAL PRIMARY KEY,
+    customer_id UUID,
+    description TEXT,
+    amount NUMERIC(10,2)
+);
+-- Insert with explicit UUIDs for reproducibility
+INSERT INTO uuid_customers (id, name, email) VALUES
+('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Alice', 'alice@example.com'),
+('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Bob', 'bob@example.com'),
+('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Carol', 'carol@example.com');
+INSERT INTO uuid_orders (customer_id, description, amount) VALUES
+('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Wireless keyboard order', 99.99),
+('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'USB hub purchase', 29.99),
+('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Monitor stand order', 49.99),
+('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Wireless mouse order', 39.69);
+-- Note: uuid_orders.customer_id must be a fast field for the join key
+-- UUID columns use key_field which is implicitly fast, or explicit text_fields config
+CREATE INDEX uuid_orders_bm25_idx ON uuid_orders USING bm25 (id, description, customer_id)
+WITH (key_field = 'id', text_fields = '{"customer_id": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+-- uuid_customers.id is the key_field, which is implicitly fast
+CREATE INDEX uuid_customers_bm25_idx ON uuid_customers USING bm25 (id, name, email) WITH (key_field = 'id');
+-- JoinScan with UUID join keys
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT o.description, c.name
+FROM uuid_orders o
+JOIN uuid_customers c ON o.customer_id = c.id
+WHERE o.description @@@ 'wireless'
+ORDER BY o.id
+LIMIT 10;
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: o.description, c.name, o.id
+   ->  Result
+         Output: o.description, c.name, o.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: o.description, o.id, c.name
+               Relation Tree: c INNER o
+               Join Cond: o.customer_id = c.id
+               Limit: 10
+               Order By: o.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(customer_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_0@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, customer_id@1 as customer_id, id@2 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(21 rows)
+
+SELECT o.description, c.name
+FROM uuid_orders o
+JOIN uuid_customers c ON o.customer_id = c.id
+WHERE o.description @@@ 'wireless'
+ORDER BY o.id
+LIMIT 10;
+       description       | name  
+-------------------------+-------
+ Wireless keyboard order | Alice
+ Wireless mouse order    | Carol
+(2 rows)
+
+-- =============================================================================
+-- TEST 8: NUMERIC join keys
+-- =============================================================================
+-- Verify JoinScan works with NUMERIC (decimal) join keys
+DROP TABLE IF EXISTS numeric_transactions CASCADE;
+DROP TABLE IF EXISTS numeric_accounts CASCADE;
+CREATE TABLE numeric_accounts (
+    account_num NUMERIC(20,0) PRIMARY KEY,
+    holder_name TEXT,
+    account_type TEXT
+);
+CREATE TABLE numeric_transactions (
+    id SERIAL PRIMARY KEY,
+    account_num NUMERIC(20,0),
+    description TEXT,
+    amount NUMERIC(15,2)
+);
+INSERT INTO numeric_accounts (account_num, holder_name, account_type) VALUES
+(12345678901234567890, 'John Doe', 'Checking'),
+(98765432109876543210, 'Jane Smith', 'Savings'),
+(11111111111111111111, 'Bob Wilson', 'Investment');
+INSERT INTO numeric_transactions (account_num, description, amount) VALUES
+(12345678901234567890, 'Wire transfer received', 1000.00),
+(12345678901234567890, 'ATM withdrawal', -200.00),
+(98765432109876543210, 'Interest payment', 50.00),
+(11111111111111111111, 'Stock purchase wire', 5000.00);
+-- Note: numeric_transactions.account_num must be a fast field for the join key
+CREATE INDEX numeric_trans_bm25_idx ON numeric_transactions USING bm25 (id, description, account_num)
+WITH (key_field = 'id', numeric_fields = '{"account_num": {"fast": true}}');
+-- numeric_accounts.account_num is the key_field, which is implicitly fast
+CREATE INDEX numeric_accounts_bm25_idx ON numeric_accounts USING bm25 (account_num, holder_name, account_type)
+WITH (key_field = 'account_num');
+-- JoinScan with NUMERIC join keys
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT t.description, a.holder_name, t.amount
+FROM numeric_transactions t
+JOIN numeric_accounts a ON t.account_num = a.account_num
+WHERE t.description @@@ 'wire'
+ORDER BY t.id
+LIMIT 10;
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: t.description, a.holder_name, t.amount, t.id
+   ->  Result
+         Output: t.description, a.holder_name, t.amount, t.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: t.description, t.amount, t.id, a.holder_name
+               Relation Tree: a INNER t
+               Join Cond: t.account_num = a.account_num
+               Limit: 10
+               Order By: t.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@2 as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(account_num@1, account_num@1)], projection=[ctid_1@0, id@2, ctid_0@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, account_num@1 as account_num, id@2 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_0, account_num@1 as account_num]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(21 rows)
+
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS customers CASCADE;
+DROP TABLE IF EXISTS inventory CASCADE;
+DROP TABLE IF EXISTS warehouses CASCADE;
+DROP TABLE IF EXISTS items CASCADE;
+DROP TABLE IF EXISTS item_types CASCADE;
+DROP TABLE IF EXISTS docs CASCADE;
+DROP TABLE IF EXISTS authors CASCADE;
+DROP TABLE IF EXISTS items_with_nulls CASCADE;
+DROP TABLE IF EXISTS categories_with_nulls CASCADE;
+DROP TABLE IF EXISTS order_items CASCADE;
+DROP TABLE IF EXISTS order_details CASCADE;
+DROP TABLE IF EXISTS uuid_orders CASCADE;
+DROP TABLE IF EXISTS uuid_customers CASCADE;
+DROP TABLE IF EXISTS numeric_transactions CASCADE;
+DROP TABLE IF EXISTS numeric_accounts CASCADE;
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_join_custom_scan;

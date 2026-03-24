@@ -432,6 +432,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
 WHERE description @@@ 'laptop';
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
@@ -439,11 +440,11 @@ WHERE description @@@ 'laptop';
    ->  Sort
          Output: category, price
          Sort Key: products.category
-         ->  Custom Scan (ParadeDB Scan) on public.products
+         ->  Custom Scan (ParadeDB Base Scan) on public.products
                Output: category, price
                Table: products
                Index: products_idx
-               Exec Method: MixedFastFieldExecState
+               Exec Method: ColumnarExecState
                Fast Fields: category, price
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
@@ -452,6 +453,7 @@ WHERE description @@@ 'laptop';
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
 WHERE description @@@ 'laptop';
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
  count |        sum         
 -------+--------------------
      2 | 2799.9700000000003
@@ -463,11 +465,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(LENGTH(description))
 FROM products
 WHERE category @@@ 'Electronics';
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: avg(length(description))
-   ->  Custom Scan (ParadeDB Scan) on public.products
+   ->  Custom Scan (ParadeDB Base Scan) on public.products
          Output: description
          Table: products
          Index: products_idx
@@ -479,6 +482,7 @@ WHERE category @@@ 'Electronics';
 SELECT AVG(LENGTH(description))
 FROM products
 WHERE category @@@ 'Electronics';
+WARNING:  Aggregate Scan not used: argument to aggregate function is neither a direct column reference nor a COALESCE expression. To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
          avg         
 ---------------------
  24.5000000000000000

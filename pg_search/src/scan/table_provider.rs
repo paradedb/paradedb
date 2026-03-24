@@ -17,7 +17,7 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -29,7 +29,7 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use tantivy::index::SegmentId;
 
-use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
@@ -40,15 +40,19 @@ use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
-use crate::scan::tantivy_lookup_exec::DeferredField;
+use crate::scan::late_materialization::DeferredField;
 use crate::scan::Scanner;
+
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PgSearchTableProvider {
     scan_info: ScanInfo,
     fields: Vec<WhichFastField>,
     #[serde(skip)]
-    schema: OnceLock<SchemaRef>,
+    schema: std::sync::OnceLock<SchemaRef>,
+    #[serde(skip)]
+    late_materialization_schema: std::sync::OnceLock<SchemaRef>,
     is_parallel: bool,
     /// Parallel state is skipped during serialization because it's a raw pointer
     /// to shared memory that is only valid in the current process. It is
@@ -56,6 +60,66 @@ pub struct PgSearchTableProvider {
     /// if `is_parallel` is true.
     #[serde(skip)]
     parallel_state: Option<*mut ParallelScanState>,
+    /// Postgres expression context, skipped during serialization and
+    /// re-injected by the `PgSearchExtensionCodec` during deserialization.
+    #[serde(skip)]
+    expr_context: Option<*mut pg_sys::ExprContext>,
+    /// Executor planstate, skipped during serialization and re-injected only for execution paths
+    /// that need to solve runtime Postgres expressions before opening a real reader.
+    #[serde(skip)]
+    planstate: Option<*mut pg_sys::PlanState>,
+    /// Position of this source in the non-partitioning source list (0-based), or `None`
+    /// if this is the partitioning source or a serial scan.
+    ///
+    /// This is serialized so that the `PgSearchExtensionCodec` can look up and inject the
+    /// correct canonical segment IDs (`canonical_segment_ids`) during plan deserialization
+    /// in both the leader and parallel workers.
+    non_partitioning_index: Option<usize>,
+    /// Canonical segment IDs for replicated-parallel execution.
+    ///
+    /// When `Some`, `scan()` uses `MvccSatisfies::ParallelWorker(ids)` instead of
+    /// `MvccSatisfies::Snapshot`.  Injected by the `PgSearchExtensionCodec` based on
+    /// `non_partitioning_index`; `None` for the partitioning source and serial scans.
+    #[serde(skip)]
+    canonical_segment_ids: Option<crate::api::HashSet<SegmentId>>,
+
+    /// A lifecycle toggle that dictates what schema is exposed to DataFusion.
+    ///
+    /// - **Phase 1 (false) - SQL Planning:** During initial plan construction (`joinscan`),
+    ///   this provider must expose a standard relational schema (i.e. `Utf8View` for strings)
+    ///   so that DataFusion's SQL expression builder and `TypeCoercion` pass don't panic
+    ///   when trying to apply normal string functions/sorts to a `Union` type.
+    ///
+    /// - **Phase 2 (true) - Logical Optimization:** Once the plan is structurally validated,
+    ///   our `LateMaterializationRule` flips this to `true` (via interior mutability).
+    ///   The provider immediately begins returning the physical `Union` schema. The rule
+    ///   then updates the `TableScan.projected_schema` to match, allowing the `Union`
+    ///   types to legally bubble up to our `LateMaterializeNode` anchor.
+    ///
+    /// SAFETY: Relaxed ordering is sufficient because the store (in LateMaterializationRule)
+    /// and load (in get_schema) execute sequentially within the same single-threaded optimization pass.
+    #[serde(with = "atomic_bool_serde")]
+    late_materialization_active: AtomicBool,
+}
+
+mod atomic_bool_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    pub fn serialize<S>(val: &AtomicBool, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bool(val.load(Ordering::Relaxed))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<AtomicBool, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let b = bool::deserialize(deserializer)?;
+        Ok(AtomicBool::new(b))
+    }
 }
 
 unsafe impl Send for PgSearchTableProvider {}
@@ -71,10 +135,22 @@ impl PgSearchTableProvider {
         Self {
             scan_info,
             fields,
-            schema: OnceLock::new(),
+            schema: std::sync::OnceLock::new(),
+            late_materialization_schema: std::sync::OnceLock::new(),
             is_parallel,
             parallel_state,
+            expr_context: None,
+            planstate: None,
+            non_partitioning_index: None,
+            canonical_segment_ids: None,
+            late_materialization_active: AtomicBool::new(false),
         }
+    }
+
+    /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
+    pub fn enable_late_materialization_schema(&self) {
+        self.late_materialization_active
+            .store(true, Ordering::Relaxed);
     }
 
     pub(crate) fn is_parallel(&self) -> bool {
@@ -84,6 +160,32 @@ impl PgSearchTableProvider {
     pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
         assert!(self.is_parallel);
         self.parallel_state = parallel_state;
+    }
+
+    /// Mark this provider as a non-partitioning source at position `idx` in the
+    /// non-partitioning source list.  The `PgSearchExtensionCodec` uses this index to
+    /// inject the correct canonical segment IDs during plan deserialization.
+    pub(crate) fn set_non_partitioning_index(&mut self, idx: usize) {
+        self.non_partitioning_index = Some(idx);
+    }
+
+    /// Return the position of this provider in the non-partitioning source list, or `None`.
+    pub(crate) fn non_partitioning_index(&self) -> Option<usize> {
+        self.non_partitioning_index
+    }
+
+    /// Inject the canonical segment IDs for this replicated-parallel provider.
+    /// Called by `PgSearchExtensionCodec::try_decode_table_provider` in workers.
+    pub(crate) fn set_canonical_segment_ids(&mut self, ids: crate::api::HashSet<SegmentId>) {
+        self.canonical_segment_ids = Some(ids);
+    }
+
+    pub(crate) fn set_expr_context(&mut self, expr_context: Option<*mut pg_sys::ExprContext>) {
+        self.expr_context = expr_context;
+    }
+
+    pub(crate) fn set_planstate(&mut self, planstate: Option<*mut pg_sys::PlanState>) {
+        self.planstate = planstate;
     }
     pub fn try_enable_late_materialization(
         &mut self,
@@ -99,40 +201,94 @@ impl PgSearchTableProvider {
                         | arrow_schema::DataType::LargeBinary
                 );
                 if is_string_or_bytes && !required_early_columns.contains(name.as_str()) {
-                    let is_bytes = matches!(
-                        field_type.arrow_data_type(),
-                        arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
-                    );
-                    *wff = WhichFastField::Deferred(name.clone(), *field_type, is_bytes);
+                    let cloned_name = name.clone();
+                    let cloned_type = *field_type;
+                    *wff = WhichFastField::Deferred(cloned_name, cloned_type);
                 }
             }
         }
     }
 
+    pub fn deferred_fields(&self) -> Vec<DeferredField> {
+        let mut deferred = Vec::new();
+        for (ff_index, wff) in self.fields.iter().enumerate() {
+            if let WhichFastField::Deferred(name, field_type) = wff {
+                let is_bytes = matches!(
+                    field_type.arrow_data_type(),
+                    arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+                );
+                deferred.push(DeferredField {
+                    name: name.clone(),
+                    is_bytes,
+                    canonical: CanonicalColumn {
+                        indexrelid: self.scan_info.indexrelid.to_u32(),
+                        ff_index,
+                    },
+                });
+            }
+        }
+        deferred
+    }
+
     fn get_schema(&self) -> SchemaRef {
-        self.schema
-            .get_or_init(|| crate::index::fast_fields_helper::build_arrow_schema(&self.fields))
-            .clone()
+        if self.late_materialization_active.load(Ordering::Relaxed) {
+            self.late_materialization_schema
+                .get_or_init(|| crate::index::fast_fields_helper::build_arrow_schema(&self.fields))
+                .clone()
+        } else {
+            self.schema
+                .get_or_init(|| {
+                    let logical_fields: Vec<_> = self
+                        .fields
+                        .iter()
+                        .map(|wff| {
+                            if let WhichFastField::Deferred(name, ty) = wff {
+                                WhichFastField::Named(name.clone(), *ty)
+                            } else {
+                                wff.clone()
+                            }
+                        })
+                        .collect();
+                    crate::index::fast_fields_helper::build_arrow_schema(&logical_fields)
+                })
+                .clone()
+        }
     }
 
     fn projected_fields_and_schema(
         &self,
         projection: Option<&Vec<usize>>,
     ) -> Result<(Vec<WhichFastField>, SchemaRef)> {
+        let active_fields: Vec<_> = if self.late_materialization_active.load(Ordering::Relaxed) {
+            self.fields.clone()
+        } else {
+            self.fields
+                .iter()
+                .map(|wff| {
+                    if let WhichFastField::Deferred(name, ty) = wff {
+                        WhichFastField::Named(name.clone(), *ty)
+                    } else {
+                        wff.clone()
+                    }
+                })
+                .collect()
+        };
+
+        let schema = self.get_schema();
         match projection {
-            None => Ok((self.fields.clone(), self.get_schema())),
+            None => Ok((active_fields, schema)),
             Some(indices) => {
                 let mut fields = Vec::with_capacity(indices.len());
                 for &idx in indices {
-                    let field = self.fields.get(idx).ok_or_else(|| {
+                    let field = active_fields.get(idx).ok_or_else(|| {
                         DataFusionError::Execution(format!(
                             "Projection index {idx} out of bounds for {} fields",
-                            self.fields.len()
+                            active_fields.len()
                         ))
                     })?;
                     fields.push(field.clone());
                 }
-                let schema = build_arrow_schema(&fields);
+                let schema = Arc::new(schema.project(indices)?);
                 Ok((fields, schema))
             }
         }
@@ -175,7 +331,11 @@ impl PgSearchTableProvider {
         combine_with_and(all_queries).unwrap_or(SearchQueryInput::All)
     }
 
-    /// Creates a single scan partition for a segment.
+    /// Creates a single scan partition representing exactly one segment.
+    ///
+    /// This function directly opens the index segment, calculates the estimated number of
+    /// documents contained within it, and initializes a `Scanner` bounded to this specific segment.
+    #[allow(clippy::too_many_arguments)]
     fn create_scan_partition(
         &self,
         reader: &SearchIndexReader,
@@ -186,25 +346,13 @@ impl PgSearchTableProvider {
         heap_relid: pg_sys::Oid,
     ) -> ScanState {
         let search_results = reader.search_segments(std::iter::once(segment_id));
+
         let scanner = Scanner::new(search_results, None, fields.to_vec(), heap_relid.into());
         (
             scanner,
-            Arc::clone(ffhelper),
+            ffhelper.clone(),
             Box::new(visibility.clone()) as Box<VisibilityChecker>,
         )
-    }
-    pub fn deferred_fields(&self) -> Vec<DeferredField> {
-        let mut deferred = Vec::new();
-        for (ff_index, wff) in self.fields.iter().enumerate() {
-            if let WhichFastField::Deferred(name, _, is_bytes) = wff {
-                deferred.push(DeferredField {
-                    field_name: name.clone(),
-                    is_bytes: *is_bytes,
-                    ff_index,
-                });
-            }
-        }
-        deferred
     }
     /// Creates a PgSearchScanPlan from a list of segments.
     fn create_scan(
@@ -227,10 +375,10 @@ impl PgSearchTableProvider {
 
         let deferred = self.deferred_fields();
 
-        let maybe_ff = if deferred.is_empty() {
+        let ffhelper_opt = if deferred.is_empty() {
             None
         } else {
-            Some(Arc::clone(&ffhelper))
+            Some(ffhelper.clone())
         };
 
         Ok(Arc::new(PgSearchScanPlan::new(
@@ -239,15 +387,24 @@ impl PgSearchTableProvider {
             query_for_display,
             actual_sort_order,
             deferred,
-            maybe_ff,
+            ffhelper_opt,
+            self.scan_info.indexrelid.to_u32(),
         )))
     }
 
-    /// Creates a PgSearchScanPlan for throttled parallel scans.
+    /// Creates a multi-partition `PgSearchScanPlan` for throttled parallel scans.
     ///
-    /// This method uses a throttled loop to claim segments from the shared `parallel_state`.
-    /// It ensures fair work distribution by prefetching data from each claimed segment
-    /// before attempting to claim the next one.
+    /// This method is specifically designed for parallel execution paths that require
+    /// sorted outputs. Because the results need to be globally sorted, DataFusion needs
+    /// to see all segments concurrently as distinct partitions so it can apply a
+    /// `SortPreservingMergeExec` across them.
+    ///
+    /// To ensure fair work distribution among multiple Postgres parallel workers, this
+    /// method uses a throttled loop to claim segments from the shared `parallel_state`.
+    /// When a worker claims a segment, it explicitly prefetches a single batch from that
+    /// segment before attempting to claim the next one. This small amount of work prevents
+    /// a single fast-starting worker from immediately checking out all available segments
+    /// and starving the other workers.
     #[allow(clippy::too_many_arguments)]
     fn create_throttled_scan(
         &self,
@@ -289,10 +446,17 @@ impl PgSearchTableProvider {
         self.create_scan(segments, schema, query_for_display, sort_order, ffhelper)
     }
 
-    /// Creates a PgSearchScanPlan for eager scans (or fully replicated parallel joins).
+    /// Creates a multi-partition `PgSearchScanPlan` for eager scans.
     ///
-    /// This method opens all segments upfront as separate partitions, allowing DataFusion
-    /// to treat them as distinct streams (sorted or not).
+    /// This method is used when we need to expose every segment as its own distinct
+    /// DataFusion partition, but we are *not* dynamically claiming segments from a shared
+    /// parallel pool (e.g., serial execution with an `ORDER BY`, or a fully replicated
+    /// parallel source where every worker must scan the entire table).
+    ///
+    /// It opens all segments sequentially upfront and assigns each to a distinct `Scanner`
+    /// partition. If a sort order is specified, this allows DataFusion to apply a
+    /// `SortPreservingMergeExec` across the partitions. Since there is no competition
+    /// with other workers for these segments, no prefetching or throttling is necessary.
     #[allow(clippy::too_many_arguments)]
     fn create_eager_scan(
         &self,
@@ -322,6 +486,63 @@ impl PgSearchTableProvider {
             .collect();
 
         self.create_scan(segments, schema, query_for_display, sort_order, ffhelper)
+    }
+
+    /// Creates a single-partition `PgSearchScanPlan` for lazy scans.
+    ///
+    /// This method is used when the output does *not* need to be globally sorted, meaning
+    /// DataFusion doesn't need to perform a `SortPreservingMergeExec` across multiple streams.
+    /// Thus, we can optimize execution by exposing exactly 1 partition natively and chaining
+    /// segments end-to-end.
+    ///
+    /// In the parallel case, segments are dynamically checked out from `parallel_state` only
+    /// when the previous segment is exhausted. This inherently yields execution time to other
+    /// parallel workers at segment boundaries without requiring explicit prefetching. In the
+    /// serial case, it simply chains all segments.
+    ///
+    /// We require `planner_estimated_rows` to be passed in because a lazy scan cannot know
+    /// exactly which segments it will end up scanning at planning time to sum their individual
+    /// sizes. Instead, it relies on the estimated partition size computed during query planning.
+    #[allow(clippy::too_many_arguments)]
+    fn create_lazy_scan(
+        &self,
+        reader: &SearchIndexReader,
+        fields: &[WhichFastField],
+        ffhelper: FFHelper,
+        visibility: VisibilityChecker,
+        heap_relid: pg_sys::Oid,
+        schema: SchemaRef,
+        query_for_display: SearchQueryInput,
+        planner_estimated_rows: u64,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let search_results = if let Some(parallel_state) = self.parallel_state {
+            reader.search_lazy(parallel_state, planner_estimated_rows)
+        } else {
+            // Unsorted Serial
+            reader.search()
+        };
+
+        let scanner = Scanner::new(
+            search_results,
+            None, // batch size hint
+            fields.to_vec(),
+            heap_relid.into(),
+        );
+
+        let ffhelper_arc = Arc::new(ffhelper);
+        let state = (
+            scanner,
+            ffhelper_arc.clone(),
+            Box::new(visibility) as Box<VisibilityChecker>,
+        );
+
+        self.create_scan(
+            vec![state],
+            schema,
+            query_for_display,
+            None, // no sort order
+            ffhelper_arc,
+        )
     }
 }
 
@@ -396,14 +617,45 @@ impl TableProvider for PgSearchTableProvider {
         let heap_rel = PgSearchRelation::open(heap_relid);
         let index_rel = PgSearchRelation::open(index_relid);
 
-        // Start with the base query from scan_info
-        let base_query = self.scan_info.query.clone();
+        // Solve runtime Postgres expressions (prepared-statement params, etc.) here in scan()
+        // rather than earlier because each process (leader and workers) independently
+        // deserializes the logical plan from PrivateData and must resolve expressions in its
+        // own executor context. The planstate and expr_context are injected by
+        // PgSearchExtensionCodec during deserialization in exec_custom_scan.
+        let mut query = self.combine_query_with_filters(self.scan_info.query.clone(), filters);
+        if query.has_postgres_expressions() {
+            let Some(planstate) = self.planstate else {
+                return Err(DataFusionError::Internal(
+                    "postgres expressions have not been solved: missing planstate".to_string(),
+                ));
+            };
+            let Some(expr_context) = self.expr_context else {
+                return Err(DataFusionError::Internal(
+                    "postgres expressions have not been solved: missing expr_context".to_string(),
+                ));
+            };
+            query.init_postgres_expressions(planstate);
+            query.solve_postgres_expressions(expr_context);
+        }
 
-        // Convert pushed-down filters to SearchQueryInput and combine with base query
-        let query = self.combine_query_with_filters(base_query, filters);
-
-        // Determine MVCC strategy based on whether we are running in parallel mode
-        let mvcc_style = if let Some(parallel_state) = self.parallel_state {
+        // Determine MVCC strategy based on whether we are running in parallel mode.
+        //
+        // For the partitioning source (`parallel_state` is Some):
+        //   - Leader: Snapshot (claims segments dynamically; its own snapshot is the source
+        //             of truth for which segments exist).
+        //   - Workers: ParallelWorker(partitioning_segment_ids) – frozen set from leader.
+        //
+        // For non-partitioning / replicated sources (`canonical_segment_ids` is Some):
+        //   - Both leader and workers use ParallelWorker(canonical_ids) so that every
+        //     participant opens exactly the same frozen segment set, preventing DocAddress
+        //     mismatches when late materialization stores (segment_ord, doc_id) pairs.
+        //
+        // Serial scans (both fields None): Snapshot.
+        let mvcc_style = if let Some(ids) = self.canonical_segment_ids.clone() {
+            // Non-partitioning source in a parallel join scan: use the frozen segment list
+            // that the leader snapshotted and wrote to shared memory.
+            MvccSatisfies::ParallelWorker(ids)
+        } else if let Some(parallel_state) = self.parallel_state {
             unsafe {
                 if pg_sys::ParallelWorkerNumber == -1 {
                     // Leader only sees snapshot-visible segments
@@ -422,7 +674,7 @@ impl TableProvider for PgSearchTableProvider {
             query.clone(),
             self.scan_info.score_needed,
             mvcc_style,
-            None,
+            self.expr_context.and_then(std::ptr::NonNull::new),
             None,
         )
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
@@ -432,40 +684,42 @@ impl TableProvider for PgSearchTableProvider {
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
         let sort_order = self.scan_info.sort_order.as_ref();
 
-        if let Some(parallel_state) = self.parallel_state {
-            // In joinscan, the "partitioning source" (the first source) uses the throttled checkout
-            // strategy to dynamically claim segments.
-            self.create_throttled_scan(
-                parallel_state,
-                &reader,
-                &projected_fields,
-                ffhelper,
-                visibility,
-                heap_relid,
-                projected_schema,
-                query,
-                sort_order,
-            )
-        } else if let Some(sort_order) = sort_order {
-            // Serial sorted scan (or replicated source with sorting)
-            self.create_eager_scan(
-                &reader,
-                &projected_fields,
-                ffhelper,
-                visibility,
-                heap_relid,
-                projected_schema,
-                query,
-                Some(sort_order),
-            )
+        if let Some(sort_order) = sort_order {
+            if let Some(parallel_state) = self.parallel_state {
+                // In joinscan, the "partitioning source" (the first source) uses the throttled checkout
+                // strategy to dynamically claim segments.
+                self.create_throttled_scan(
+                    parallel_state,
+                    &reader,
+                    &projected_fields,
+                    ffhelper,
+                    visibility,
+                    heap_relid,
+                    projected_schema,
+                    query,
+                    Some(sort_order),
+                )
+            } else {
+                // Serial sorted scan (or replicated source with sorting)
+                self.create_eager_scan(
+                    &reader,
+                    &projected_fields,
+                    ffhelper,
+                    visibility,
+                    heap_relid,
+                    projected_schema,
+                    query,
+                    Some(sort_order),
+                )
+            }
         } else {
-            // For serial/replicated scans without sorting, we use a multi-partition scan
-            // (1 partition per segment).
-            //
-            // Exposing segments as partitions to DataFusion allows parallel processing within
-            // the DataFusion executor if we configured target_partitions > 1 (though
-            // currently joinscan uses 1). It also unifies the code path.
-            self.create_eager_scan(
+            // When parallel execution is planned, we expect `estimated_rows_per_worker` to be explicitly computed.
+            // For serial execution, it will also be computed (divided by 1).
+            let total_estimated_rows = self.scan_info.estimated_rows_per_worker.unwrap_or_else(|| {
+                panic!("PgSearchTableProvider requires `estimated_rows_per_worker` to be explicitly set during planning");
+            });
+
+            self.create_lazy_scan(
                 &reader,
                 &projected_fields,
                 ffhelper,
@@ -473,7 +727,7 @@ impl TableProvider for PgSearchTableProvider {
                 heap_relid,
                 projected_schema,
                 query,
-                None,
+                total_estimated_rows,
             )
         }
     }

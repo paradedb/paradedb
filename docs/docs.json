@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "willow",
+  "theme": "aspen",
   "name": "ParadeDB",
   "colors": {
     "primary": "#4f46e5",
@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.21.10",
+        "version": "v0.22.3",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -58,6 +58,9 @@
                           "documentation/indexing/indexing-expressions",
                           "documentation/indexing/indexing-json",
                           "documentation/indexing/indexing-arrays",
+                          "documentation/indexing/indexing-composite",
+                          "documentation/indexing/indexing-partial",
+                          "documentation/indexing/columnar",
                           "documentation/indexing/reindexing",
                           "documentation/indexing/verify-index"
                         ]
@@ -117,7 +120,7 @@
                         "pages": [
                           "documentation/sorting/score",
                           "documentation/sorting/boost",
-                          "documentation/sorting/topn"
+                          "documentation/sorting/topk"
                         ]
                       },
                       "documentation/filtering",
@@ -154,6 +157,12 @@
                         ]
                       },
                       {
+                        "group": "Joins",
+                        "pages": [
+                          "documentation/joins/overview"
+                        ]
+                      },
+                      {
                         "group": "Advanced Query Functions",
                         "pages": [
                           "documentation/query-builder/overview",
@@ -171,7 +180,6 @@
                         "pages": [
                           "documentation/performance-tuning/overview",
                           "documentation/performance-tuning/create-index",
-                          "documentation/performance-tuning/joins",
                           "documentation/performance-tuning/reads",
                           "documentation/performance-tuning/writes"
                         ]
@@ -291,25 +299,28 @@
                 "pages": [
                   "deploy/overview",
                   {
-                    "group": "ParadeDB Self-Hosted",
+                    "group": "Self-Hosted",
                     "pages": [
                       "deploy/self-hosted/kubernetes",
-                      "deploy/self-hosted/docker",
                       "deploy/self-hosted/extension",
-                      {
-                        "group": "Logical Replication",
-                        "pages": [
-                          "deploy/self-hosted/logical-replication/getting-started",
-                          "deploy/self-hosted/logical-replication/configuration",
-                          "deploy/self-hosted/logical-replication/multi-database"
-                        ]
-                      },
-                      {
-                        "group": "High Availability",
-                        "pages": [
-                          "deploy/self-hosted/high-availability/configuration"
-                        ]
-                      }
+                      "deploy/self-hosted/high-availability"
+                    ]
+                  },
+                  {
+                    "group": "Cloud Platforms",
+                    "pages": [
+                      "deploy/cloud-platforms/railway",
+                      "deploy/cloud-platforms/render",
+                      "deploy/cloud-platforms/digitalocean"
+                    ]
+                  },
+                  {
+                    "group": "Logical Replication",
+                    "pages": [
+                      "deploy/logical-replication/getting-started",
+                      "deploy/logical-replication/operational-guide",
+                      "deploy/logical-replication/configuration",
+                      "deploy/logical-replication/multi-database"
                     ]
                   },
                   "deploy/byoc",
@@ -332,6 +343,16 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.22.3",
+                  "changelog/0.22.2",
+                  "changelog/0.22.1",
+                  "changelog/0.22.0",
+                  "changelog/0.21.16",
+                  "changelog/0.21.15",
+                  "changelog/0.21.14",
+                  "changelog/0.21.13",
+                  "changelog/0.21.12",
+                  "changelog/0.21.11",
                   "changelog/0.21.10",
                   "changelog/0.21.9",
                   "changelog/0.21.8",
@@ -453,7 +474,7 @@
     "links": [
       {
         "label": "Community",
-        "href": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw"
+        "href": "https://paradedb.com/slack"
       },
       {
         "label": "Blog",
@@ -502,7 +523,7 @@
   "footer": {
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
-      "slack": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw",
+      "slack": "https://paradedb.com/slack",
       "twitter": "https://twitter.com/paradedb"
     }
   },

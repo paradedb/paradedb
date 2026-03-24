@@ -38,6 +38,7 @@ use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
+use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::opexpr::{
@@ -127,6 +128,24 @@ pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
         )
         .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist")
     }
+}
+
+pub fn anyelement_pdb_query_opoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regoperatorin,
+            &[c"@@@(anyelement, pdb.query)".into_datum()],
+        )
+        .expect("the `@@@(anyelement, pdb.query)` operator should exist")
+    }
+}
+
+pub fn anyelement_search_opoids() -> [pg_sys::Oid; 2] {
+    [anyelement_query_input_opoid(), anyelement_pdb_query_opoid()]
+}
+
+pub fn is_anyelement_search_opoid(opno: pg_sys::Oid) -> bool {
+    anyelement_search_opoids().contains(&opno)
 }
 
 pub fn searchqueryinput_typoid() -> pg_sys::Oid {
@@ -355,7 +374,7 @@ pub unsafe fn field_name_from_node(
         }
     }
 
-    let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+    let index_info = unsafe { *indexrel.index_info() };
     if let Some(var) = nodecast!(Var, T_Var, node) {
         // the expression we're looking for is just a simple Var.
 
@@ -371,7 +390,7 @@ pub unsafe fn field_name_from_node(
 
         // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
 
-        let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
+        let expressions = indexrel.index_expressions();
         let mut expr_no = 0;
         for i in 0..index_info.ii_NumIndexAttrs {
             let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
@@ -585,7 +604,7 @@ unsafe fn make_lhs_var(
     indexrel: &PgSearchRelation,
     lhs: *mut pg_sys::Node,
 ) -> *mut pg_sys::Var {
-    let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+    let index_info = unsafe { *indexrel.index_info() };
     let heap_attno = index_info.ii_IndexAttrNumbers[0];
 
     let vars = find_vars(lhs);
@@ -725,7 +744,10 @@ where
                 String::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs text value must not be NULL"),
             ),
-
+            other if is_citext_oid(other) => RHSValue::Text(
+                String::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs text value must not be NULL"),
+            ),
             // these arrays are only supported by the === operator
             pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => RHSValue::TextArray(
                 Vec::<String>::from_datum((*const_).constvalue, (*const_).constisnull)

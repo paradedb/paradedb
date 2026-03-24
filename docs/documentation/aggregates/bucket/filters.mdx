@@ -8,7 +8,8 @@ The filters aggregation allows a single query to return aggregations for multipl
 To use this aggregation, pass `pdb.agg` to the left-hand side of `FILTER` and a search query to the right-hand side.
 For example:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT
     pdb.agg('{"value_count": {"field": "id"}}')
     FILTER (WHERE category === 'electronics') AS electronics_count,
@@ -16,6 +17,44 @@ SELECT
     FILTER (WHERE category === 'footwear') AS footwear_count
 FROM mock_items;
 ```
+
+```python Django
+from django.db.models import Q
+from paradedb import Agg, ParadeDB, Term
+
+result = MockItem.objects.aggregate(
+    electronics_count=Agg(
+        '{"value_count": {"field": "id"}}',
+        filter=Q(category=ParadeDB(Term('electronics'))),
+    ),
+    footwear_count=Agg(
+        '{"value_count": {"field": "id"}}',
+        filter=Q(category=ParadeDB(Term('footwear'))),
+    ),
+)
+```
+
+```ruby Rails
+result = MockItem.facets_agg(
+  electronics_count: ParadeDB::Aggregations.filtered(
+    ParadeDB::Aggregations.value_count(:id),
+    field: :category,
+    term: "electronics"
+  ),
+  footwear_count: ParadeDB::Aggregations.filtered(
+    ParadeDB::Aggregations.value_count(:id),
+    field: :category,
+    term: "footwear"
+  )
+)
+```
+
+</CodeGroup>
+
+<Note>
+  Use lowercase `electronics` and `footwear`. The default BM25 tokenizer
+  lowercases terms, so `Electronics` and `Footwear` would not match here.
+</Note>
 
 ```ini Expected Response
  electronics_count | footwear_count

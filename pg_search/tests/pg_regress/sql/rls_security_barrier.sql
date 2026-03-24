@@ -1,0 +1,111 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_roles
+        WHERE rolname = 'authenticated'
+    ) THEN
+        CREATE ROLE authenticated;
+    END IF;
+END
+$$;
+
+DO $$
+DECLARE
+    v_session_user name := session_user;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_auth_members m
+        JOIN pg_roles r_member ON r_member.oid = m.member
+        JOIN pg_roles r_role   ON r_role.oid   = m.roleid
+        WHERE r_member.rolname = v_session_user
+          AND r_role.rolname = 'authenticated'
+    ) THEN
+        EXECUTE format('GRANT authenticated TO %I', v_session_user);
+    END IF;
+END
+$$;
+
+DROP TABLE IF EXISTS rls_score_bug_test CASCADE;
+DROP FUNCTION IF EXISTS rls_bug_check_definer(uuid);
+DROP FUNCTION IF EXISTS rls_bug_check_invoker(uuid);
+
+CREATE TABLE rls_score_bug_test (
+    id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    org_id uuid NOT NULL,
+    title text NOT NULL
+);
+
+INSERT INTO rls_score_bug_test (org_id, title) VALUES
+    ('00000000-0000-0000-0000-000000000001', 'sheriff department los angeles'),
+    ('00000000-0000-0000-0000-000000000002', 'cloud computing infrastructure'),
+    ('00000000-0000-0000-0000-000000000001', 'sheriff office county records'),
+    ('00000000-0000-0000-0000-000000000002', 'unrelated document about nothing');
+
+CREATE INDEX rls_score_bug_bm25 ON rls_score_bug_test
+    USING bm25 (id, title) WITH (key_field=id);
+
+GRANT SELECT ON rls_score_bug_test TO authenticated;
+ALTER TABLE rls_score_bug_test ENABLE ROW LEVEL SECURITY;
+
+CREATE FUNCTION rls_bug_check_invoker(uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$ SELECT true; $$;
+
+CREATE FUNCTION rls_bug_check_definer(uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$ SELECT true; $$;
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+RESET ROLE;
+CREATE POLICY allow_all ON rls_score_bug_test FOR SELECT USING (true);
+SET LOCAL ROLE authenticated;
+
+SELECT id,
+       title,
+       pdb.score(id) AS score,
+       pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
+FROM rls_score_bug_test
+WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
+
+EXPLAIN (COSTS OFF)
+SELECT id, pdb.score(id)
+FROM rls_score_bug_test
+WHERE id @@@ paradedb.match(field => 'title', value => 'sheriff');
+COMMIT;
+
+DROP POLICY allow_all ON rls_score_bug_test;
+
+CREATE POLICY definer_policy ON rls_score_bug_test FOR SELECT
+    USING (rls_bug_check_definer(org_id));
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+
+SELECT id,
+       title,
+       pdb.score(id) AS score,
+       pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
+FROM rls_score_bug_test
+WHERE title ||| 'sheriff';
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, pdb.score(id)
+FROM rls_score_bug_test
+WHERE title ||| 'sheriff';
+COMMIT;
+
+DROP POLICY definer_policy ON rls_score_bug_test;
+
+DROP TABLE rls_score_bug_test CASCADE;
+DROP FUNCTION IF EXISTS rls_bug_check_definer(uuid);
+DROP FUNCTION IF EXISTS rls_bug_check_invoker(uuid);

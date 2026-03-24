@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.21.10"
+version = "0.22.4"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -28,16 +28,16 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "b12ba0aae3a60dff03fa0daa684bf62f49ba8c59", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "16f69d65ce5d78f02d97ddc941f716e134a93328", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "quickwit",                  # for sstable support
   "stemmer",
   "stopwords",
 ], default-features = false }
-pgrx = "=0.16.1"
-pgrx-tests = "=0.16.1"
-tantivy-jieba = "0.17.0"
+pgrx = "=0.17.0"
+pgrx-tests = "=0.17.0"
+tantivy-jieba = "0.18.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "b12ba0aae3a60dff03fa0daa684bf62f49ba8c59" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "16f69d65ce5d78f02d97ddc941f716e134a93328" }

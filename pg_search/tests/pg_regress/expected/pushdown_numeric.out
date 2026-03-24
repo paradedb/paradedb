@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- ============================================================================
 -- PART 1: Regular numeric column tests (non-JSON)
 -- ============================================================================
@@ -32,13 +32,13 @@ ORDER BY id LIMIT 10;
                                                                   QUERY PLAN                                                                   
 -----------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on numeric_pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
          Index: numeric_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"numeric_col","value":"1","is_datetime":false}}]}}
 (9 rows)
 
@@ -68,13 +68,13 @@ ORDER BY id LIMIT 10;
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on numeric_pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
          Index: numeric_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"numeric_col","lower_bound":{"excluded":"1"},"upper_bound":null,"is_datetime":false}}]}}
 (9 rows)
 
@@ -104,13 +104,13 @@ ORDER BY id LIMIT 10;
                                                                                                QUERY PLAN                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on numeric_pushdown
+   ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
          Index: numeric_pushdown_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
+            TopK Order By: id asc
+            TopK Limit: 10
          Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"((numeric_col)::integer > 1)"}]}}]}}
 (10 rows)
@@ -215,7 +215,7 @@ ORDER BY id;
 ----------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+   ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
          Table: json_numeric_types
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
@@ -244,7 +244,7 @@ ORDER BY id;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+   ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
          Table: json_numeric_types
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
@@ -273,7 +273,7 @@ ORDER BY id;
 --------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+   ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
          Table: json_numeric_types
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
@@ -303,7 +303,7 @@ ORDER BY id;
 ----------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+   ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
          Table: json_numeric_types
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
@@ -382,7 +382,7 @@ ORDER BY id;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+   ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
          Table: json_numeric_types
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
@@ -779,7 +779,7 @@ ORDER BY id;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+   ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
          Table: json_numeric_types
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
@@ -895,7 +895,7 @@ ORDER BY id;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+   ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
          Table: json_numeric_types
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
@@ -970,7 +970,7 @@ ORDER BY id;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_numeric_types
+   ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
          Table: json_numeric_types
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
@@ -1460,7 +1460,7 @@ ORDER BY id;
 ----------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_scientific_test
+   ->  Custom Scan (ParadeDB Base Scan) on json_scientific_test
          Table: json_scientific_test
          Index: json_sci_idx
          Exec Method: NormalScanExecState
@@ -1489,7 +1489,7 @@ ORDER BY id;
 ----------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_scientific_test
+   ->  Custom Scan (ParadeDB Base Scan) on json_scientific_test
          Table: json_scientific_test
          Index: json_sci_idx
          Exec Method: NormalScanExecState
@@ -1518,7 +1518,7 @@ ORDER BY id;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_scientific_test
+   ->  Custom Scan (ParadeDB Base Scan) on json_scientific_test
          Table: json_scientific_test
          Index: json_sci_idx
          Exec Method: NormalScanExecState
@@ -1548,7 +1548,7 @@ ORDER BY id;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on json_scientific_test
+   ->  Custom Scan (ParadeDB Base Scan) on json_scientific_test
          Table: json_scientific_test
          Index: json_sci_idx
          Exec Method: NormalScanExecState
@@ -1614,10 +1614,10 @@ ORDER BY id;
 -----------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on numeric_scientific_test
+   ->  Custom Scan (ParadeDB Base Scan) on numeric_scientific_test
          Table: numeric_scientific_test
          Index: numeric_sci_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":"1000000","is_datetime":false}}]}}
@@ -1644,10 +1644,10 @@ ORDER BY id;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on numeric_scientific_test
+   ->  Custom Scan (ParadeDB Base Scan) on numeric_scientific_test
          Table: numeric_scientific_test
          Index: numeric_sci_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"included":"100"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"included":"10000"},"is_datetime":false}}]}}

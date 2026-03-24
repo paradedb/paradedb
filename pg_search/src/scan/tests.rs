@@ -101,6 +101,7 @@ mod tests {
             None,
             Vec::new(),
             None,
+            0,
         );
 
         let task_ctx = Arc::new(TaskContext::default());
@@ -304,6 +305,7 @@ mod tests {
                 heaprelid: heap_oid,
                 indexrelid: index_oid,
                 query: crate::query::SearchQueryInput::All,
+                estimated_rows_per_worker: Some(100),
                 ..Default::default()
             };
 

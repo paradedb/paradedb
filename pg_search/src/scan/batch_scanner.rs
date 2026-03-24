@@ -15,19 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
-
-use arrow_array::builder::BooleanBuilder;
-use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
-use arrow_schema::SchemaRef;
-use datafusion::arrow::compute;
-use tantivy::{DocAddress, DocId, Score, SegmentOrdinal};
-
 use crate::index::fast_fields_helper::{
     build_arrow_schema, ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, WhichFastField,
 };
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::heap::VisibilityChecker;
+use arrow_array::builder::BooleanBuilder;
+use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
+use arrow_schema::SchemaRef;
+use datafusion::arrow::compute;
+use std::sync::Arc;
+use tantivy::{DocAddress, DocId, Score, SegmentOrdinal};
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
@@ -35,6 +33,11 @@ use crate::postgres::heap::VisibilityChecker;
 /// terms to be looked up at a time, but increases our memory usage by forcing more column values to
 /// be held in memory at a time.
 const MAX_BATCH_SIZE: usize = 128_000;
+
+/// The maximum number of rows to batch when all string/byte columns are
+/// deferred during late materialization. Aligned with DataFusion's default
+/// batch size, since we are not fetching string dictionaries during the scan phase.
+const DEFERRED_BATCH_SIZE: usize = 8_192;
 
 /// Compact `ids` and `scores` in-place based on a boolean mask.
 fn compact_with_mask(
@@ -66,6 +69,23 @@ fn compact_with_mask(
         if let Some(col) = opt_col {
             *opt_col = Some(compute::filter(col, mask).expect("Filter failed"));
         }
+    }
+}
+
+/// Ensure `memoized_columns[ff_index]` is populated, fetching from the fast field helper if needed.
+fn ensure_column_fetched(
+    memoized_columns: &mut [Option<ArrayRef>],
+    ffhelper: &FFHelper,
+    segment_ord: SegmentOrdinal,
+    ff_index: usize,
+    ids: &[DocId],
+) {
+    if memoized_columns[ff_index].is_none() {
+        memoized_columns[ff_index] = Some(
+            ffhelper
+                .column(segment_ord, ff_index)
+                .fetch_values_or_ords_to_arrow(ids),
+        );
     }
 }
 
@@ -126,19 +146,39 @@ impl Scanner {
     /// `MAX_BATCH_SIZE`.
     ///
     /// Note: `batch_size_hint` should only be provided when we have a very good idea of how
-    /// many total rows will be requested (e.g. `LIMIT` queries where `MixedFastFieldExecState`
+    /// many total rows will be requested (e.g. `LIMIT` queries where `ColumnarExecState`
     /// is the top-level node). In all other cases (e.g. `JoinScan`, `TableProvider`), it
     /// should be `None` to allow the default batch size to be used, which is optimized for
-    /// mixed fast field string lookups.
+    /// columnar string lookups.
     pub fn new(
         search_results: MultiSegmentSearchResults,
         batch_size_hint: Option<usize>,
         which_fast_fields: Vec<WhichFastField>,
         table_oid: u32,
     ) -> Self {
+        let all_strings_deferred = !which_fast_fields.iter().any(|wff| {
+            matches!(
+                wff,
+                WhichFastField::Named(_, field_type) if matches!(
+                    field_type.arrow_data_type(),
+                    arrow_schema::DataType::Utf8View
+                        | arrow_schema::DataType::BinaryView
+                        | arrow_schema::DataType::LargeUtf8
+                        | arrow_schema::DataType::LargeBinary
+                )
+            )
+        });
+
+        let default_batch_size = if all_strings_deferred {
+            DEFERRED_BATCH_SIZE
+        } else {
+            MAX_BATCH_SIZE
+        };
+
         let batch_size = batch_size_hint
-            .unwrap_or(MAX_BATCH_SIZE)
-            .min(MAX_BATCH_SIZE);
+            .unwrap_or(default_batch_size)
+            .min(default_batch_size);
+
         Self {
             search_results,
             batch_size,
@@ -166,17 +206,6 @@ impl Scanner {
     /// Returns the estimated number of rows that will be produced by this scanner.
     pub fn estimated_rows(&self) -> u64 {
         self.search_results.estimated_doc_count()
-    }
-
-    fn fetch_column(
-        ffhelper: &FFHelper,
-        segment_ord: SegmentOrdinal,
-        ff_index: usize,
-        ids: &[u32],
-    ) -> ArrayRef {
-        ffhelper
-            .column(segment_ord, ff_index)
-            .fetch_values_or_ords_to_arrow(ids)
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
@@ -214,7 +243,8 @@ impl Scanner {
     /// pre-materialization filters.
     ///
     /// `pre_filters` are applied after visibility checks but *before* column
-    /// materialization, allowing string-column filters to operate on cheap
+    /// materialization, allowing string-column filters (including dynamically
+    /// generated lexicographical thresholds) to operate natively on cheap
     /// term ordinals rather than requiring expensive dictionary lookups.
     pub fn next(
         &mut self,
@@ -245,16 +275,15 @@ impl Scanner {
                 if ids.is_empty() {
                     break;
                 }
-
-                // Fetch columns if needed
                 for &ff_index in &pre_filter.required_columns {
-                    if memoized_columns[ff_index].is_none() {
-                        memoized_columns[ff_index] =
-                            Some(Self::fetch_column(ffhelper, segment_ord, ff_index, &ids));
-                    }
+                    ensure_column_fetched(
+                        &mut memoized_columns,
+                        ffhelper,
+                        segment_ord,
+                        ff_index,
+                        &ids,
+                    );
                 }
-
-                // Apply filter
                 let mask = pre_filter
                     .apply_arrow(
                         ffhelper,
@@ -264,8 +293,6 @@ impl Scanner {
                         ids.len(),
                     )
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
-
-                // Compact state
                 compact_with_mask(&mut ids, &mut scores, &mut memoized_columns, &mask);
             }
             self.pre_filter_rows_scanned += before;
@@ -303,6 +330,13 @@ impl Scanner {
             ctids
         };
 
+        // Pre-fetch any Named columns that weren't already fetched by pre-filters.
+        for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
+            if matches!(which_ff, WhichFastField::Named(_, _)) {
+                ensure_column_fetched(&mut memoized_columns, ffhelper, segment_ord, ff_index, &ids);
+            }
+        }
+
         // Execute batch lookups of the fast-field values, fetch term content from the dictionaries,
         // and construct the batch.
         let fields = self
@@ -325,12 +359,7 @@ impl Scanner {
                 }
                 WhichFastField::Junk(_) => None,
                 WhichFastField::Named(_, _) => {
-                    // Check if memoized
-                    let col_array = if let Some(col_array) = &memoized_columns[ff_index] {
-                        col_array.clone()
-                    } else {
-                        Self::fetch_column(ffhelper, segment_ord, ff_index, &ids)
-                    };
+                    let col_array = memoized_columns[ff_index].clone().unwrap();
 
                     match ffhelper.column(segment_ord, ff_index) {
                         FFType::Text(str_column) => {
@@ -360,7 +389,11 @@ impl Scanner {
                 // 1. Some(UInt64) -> The pre-filter already fetched ordinals. Emit State 1 (Term Ordinals).
                 // 2. Some(other)  -> The pre-filter fully materialized the column. Emit State 2 (Materialized).
                 // 3. None         -> The pre-filter didn't touch this column. Emit State 0 (DocAddress).
-                WhichFastField::Deferred(_, _, is_bytes) => {
+                WhichFastField::Deferred(_, field_type) => {
+                    let is_bytes = matches!(
+                        field_type.arrow_data_type(),
+                        arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+                    );
                     use arrow_schema::DataType;
 
                     match &memoized_columns[ff_index] {
@@ -368,19 +401,19 @@ impl Scanner {
                             Some(crate::scan::deferred_encode::build_state_term_ordinals(
                                 segment_ord,
                                 col_array.clone(),
-                                *is_bytes,
+                                is_bytes,
                             ))
                         }
                         Some(col_array) => {
                             Some(crate::scan::deferred_encode::build_state_hydrated(
                                 col_array.clone(),
-                                *is_bytes,
+                                is_bytes,
                             ))
                         }
                         None => Some(crate::scan::deferred_encode::build_state_doc_address(
                             segment_ord,
                             &ids,
-                            *is_bytes,
+                            is_bytes,
                         )),
                     }
                 }
@@ -407,6 +440,11 @@ impl Scanner {
     ///
     /// This is used to force some work between parallel segment checkouts while
     /// preserving correctness (the prefetched batch will still be returned).
+    ///
+    /// **WARNING:** This method is specialized for multi-partition parallel workflows
+    /// (where all partitions must be opened concurrently and checked out via throttled loop).
+    /// It should **not** be used for single-partition lazy execution, as chaining segments
+    /// end-on-end dynamically does not require prefetching to yield time.
     pub fn prefetch_next(
         &mut self,
         ffhelper: &FFHelper,

@@ -125,13 +125,13 @@ SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where message |||
 
 [[jobs]]
 refresh_ms = 5
-title = "Mixed Fast Field Scan"
+title = "Columnar Scan"
 log_tps = true
 on_connect = """
-SET paradedb.enable_mixed_fast_field_exec = on;
+SET paradedb.enable_columnar_exec = on;
 SELECT assert_plan_contains(
     $q$ SELECT id, category FROM test WHERE message ||| 'beer' $q$,
-    'MixedFastFieldExecState'
+    'ColumnarExecState'
 );
 """
 sql = """

@@ -17,6 +17,8 @@
 
 //! Predicate extraction functions for JoinScan.
 //!
+//! See the [JoinScan README](README.md) for the full architecture overview.
+//!
 //! This module handles the transformation of PostgreSQL expressions containing
 //! search predicates into `JoinLevelExpr` trees that can be evaluated
 //! during join execution. It supports:
@@ -52,7 +54,7 @@ use pgrx::{pg_sys, PgList};
 pub(super) unsafe fn extract_join_level_conditions(
     root: *mut pg_sys::PlannerInfo,
     extra: *mut pg_sys::JoinPathExtraData,
-    sources: &[JoinSource],
+    sources: &[&JoinSource],
     other_conditions: &[*mut pg_sys::RestrictInfo],
     mut join_clause: JoinCSClause,
 ) -> Result<(JoinCSClause, Vec<*mut pg_sys::Expr>), String> {
@@ -154,7 +156,7 @@ pub(super) unsafe fn extract_join_level_conditions(
 pub(super) unsafe fn transform_to_search_expr(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
-    sources: &[JoinSource],
+    sources: &[&JoinSource],
     join_clause: &mut JoinCSClause,
     multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Option<JoinLevelExpr> {
@@ -178,8 +180,8 @@ pub(super) unsafe fn transform_to_search_expr(
     // If this is a single-table expression with search predicate, extract as Predicate
     if has_search_op && rtis.len() == 1 && referenced_source_indices.len() == 1 {
         let rti = *rtis.iter().next().unwrap();
-        let source_idx = referenced_source_indices[0];
-        let source = &sources[source_idx];
+        let plan_position = referenced_source_indices[0];
+        let source = &sources[plan_position];
 
         // Extract the Tantivy query for this expression
         if let Some(base_info) = find_base_info_recursive(source, rti) {
@@ -187,7 +189,7 @@ pub(super) unsafe fn transform_to_search_expr(
                 extract_single_table_predicate(root, rti, &base_info, node, join_clause)
             {
                 return Some(JoinLevelExpr::SingleTablePredicate {
-                    source_idx,
+                    plan_position,
                     predicate_idx,
                 });
             }
@@ -304,7 +306,6 @@ pub(super) unsafe fn extract_single_table_predicate(
         &context,
         rti,
         ri_list.as_ptr().cast(),
-        anyelement_query_input_opoid(),
         RestrictInfoType::BaseRelation,
         &bm25_idx,
         false,
@@ -328,7 +329,7 @@ pub(super) unsafe fn extract_single_table_predicate(
 /// Check if all Var references in an expression are fast fields.
 unsafe fn all_vars_are_fast_fields_recursive(
     node: *mut pg_sys::Node,
-    sources: &[JoinSource],
+    sources: &[&JoinSource],
 ) -> bool {
     let vars = expr_collect_vars(node, false);
 

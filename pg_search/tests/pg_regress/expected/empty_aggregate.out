@@ -502,6 +502,7 @@ FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 HAVING COUNT(*) > 0;
+WARNING:  Aggregate Scan not used: HAVING clause is not supported (see https://github.com/paradedb/paradedb/issues/4206). To disable this warning: SET paradedb.check_aggregate_scan = false (table: empty_test)
  category | cnt 
 ----------+-----
 (0 rows)
@@ -516,6 +517,7 @@ SELECT
 FROM empty_test
 WHERE id @@@ paradedb.all()
 GROUP BY category;
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678). To disable this warning: SET paradedb.check_aggregate_scan = false (table: empty_test)
  category | total_count | distinct_values | high_values | doubled_avg 
 ----------+-------------+-----------------+-------------+-------------
 (0 rows)

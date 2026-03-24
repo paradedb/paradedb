@@ -62,14 +62,14 @@ LIMIT 100;
      ->  Index Scan using items_pkey on public.items items_3
            Output: items_3.created_at
            Index Cond: (items_3.id = '4'::text)
-   ->  Custom Scan (ParadeDB Scan) on public.items
+   ->  Custom Scan (ParadeDB Base Scan) on public.items
          Output: items.id, items.status, items.created_at
          Table: items
          Index: items_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: created_at desc, id desc
-            TopN Limit: 100
+            TopK Order By: created_at desc, id desc
+            TopK Limit: 100
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"IN [posted pending]","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<='::text, $1)"}}},{"boolean":{"should":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<'::text, $2)"}}},{"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"excluded":"4"},"is_datetime":false}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '='::text, $3)"}}}]}}]}},{"term":{"field":"group_id","value":"g1","is_datetime":false}}]}}
 (23 rows)
 

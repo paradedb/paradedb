@@ -23,6 +23,7 @@ use crate::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
 use crate::fixtures::querygen::numericgen::arb_numeric_expr;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
+use crate::fixtures::querygen::wheregen::Expr as WhereExpr;
 use crate::fixtures::querygen::{
     arb_joins_and_wheres, compare, generated_queries_setup, Column, PgGucs,
 };
@@ -113,6 +114,12 @@ const COLUMNS: &[Column] = &[
         })
         .bm25_numeric_field(r#""rating": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
+    Column::new("category", "TEXT", "'electronics'")
+        .whereable(false)
+        .bm25_v2_expression(r#"(upper(category)::pdb.literal)"#)
+        .random_generator_sql(
+            "(ARRAY ['electronics', 'clothing', 'food', 'books', 'toys', 'sports', 'home']::text[])[(floor(random() * 7) + 1)::int]"
+        ),
     Column::new("literal_normalized", "TEXT", "'Hello World'")
         .whereable({
             // literal_normalized lowercases text, so BM25 @@@ would match case-insensitively
@@ -132,6 +139,58 @@ fn columns_named(names: Vec<&'static str>) -> Vec<Column> {
         .filter(|c| names.contains(&c.name))
         .cloned()
         .collect()
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SubqueryKind {
+    Exists,
+    In,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SubqueryPolarity {
+    Positive,
+    Negated,
+}
+
+#[derive(Clone, Debug)]
+struct GeneratedSubquery {
+    kind: SubqueryKind,
+    polarity: SubqueryPolarity,
+    column: &'static str,
+    inner_where_expr: WhereExpr,
+    paging_exprs: String,
+}
+
+impl GeneratedSubquery {
+    fn to_sql(&self, op: &str, outer_table_name: &str, inner_table_name: &str) -> String {
+        let base = match self.kind {
+            SubqueryKind::Exists => format!(
+                "EXISTS (\
+                    SELECT 1 FROM {inner_table_name} \
+                    WHERE {inner_table_name}.{column} = {outer_table_name}.{column} \
+                    AND {} {}\
+                )",
+                self.inner_where_expr.to_sql(op),
+                self.paging_exprs,
+                column = self.column,
+            ),
+            SubqueryKind::In => format!(
+                "{outer_table_name}.{column} IN (\
+                    SELECT {column} FROM {inner_table_name} WHERE {} {}\
+                )",
+                self.inner_where_expr.to_sql(op),
+                self.paging_exprs,
+                column = self.column,
+            ),
+        };
+
+        match (self.kind, self.polarity) {
+            (_, SubqueryPolarity::Positive) => base,
+            (SubqueryKind::Exists, SubqueryPolarity::Negated) => format!("NOT {base}"),
+            (SubqueryKind::In, SubqueryPolarity::Negated) => format!("NOT ({base})"),
+        }
+    }
 }
 
 ///
@@ -490,23 +549,32 @@ async fn generated_subquery(database: Db) {
             COLUMNS,
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
+        subquery_kind in prop_oneof![Just(SubqueryKind::Exists), Just(SubqueryKind::In)],
+        subquery_polarity in prop_oneof![
+            Just(SubqueryPolarity::Positive),
+            Just(SubqueryPolarity::Negated),
+        ],
         paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
+        let subquery = GeneratedSubquery {
+            kind: subquery_kind,
+            polarity: subquery_polarity,
+            column: subquery_column,
+            inner_where_expr,
+            paging_exprs,
+        };
+
         let pg = format!(
             "SELECT COUNT(*) FROM {outer_table_name} \
-            WHERE {outer_table_name}.{subquery_column} IN (\
-                SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
-            ) AND {}",
-            inner_where_expr.to_sql(" = "),
+            WHERE {} AND {}",
+            subquery.to_sql(" = ", outer_table_name, inner_table_name),
             outer_where_expr.to_sql(" = "),
         );
         let bm25 = format!(
             "SELECT COUNT(*) FROM {outer_table_name} \
-            WHERE {outer_table_name}.{subquery_column} IN (\
-                SELECT {subquery_column} FROM {inner_table_name} WHERE {} {paging_exprs}\
-            ) AND {}",
-            inner_where_expr.to_sql("@@@"),
+            WHERE {} AND {}",
+            subquery.to_sql("@@@", outer_table_name, inner_table_name),
             outer_where_expr.to_sql("@@@"),
         );
 
@@ -533,7 +601,8 @@ async fn generated_subquery(database: Db) {
 /// - 2 or 3 table joins
 /// - BM25 predicates on outer table only, or on both outer and inner tables
 /// - Optional HeapConditions (cross-relation predicates like a.price > b.price)
-/// - Score-based ordering vs regular column ordering
+/// - Optional DISTINCT keyword (deduplication of result rows)
+/// - Score-based ordering vs regular column ordering (currently skipped, see prop_assume!)
 ///
 /// This verifies that JoinScan produces the same results as PostgreSQL's
 /// native join implementation across all these variations.
@@ -577,9 +646,17 @@ async fn generated_joinscan(database: Db) {
         // HeapCondition (cross-relation predicate)
         include_heap_condition in proptest::bool::ANY,
         heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], numeric_columns.to_vec()),
+        // Optional DISTINCT keyword
+        include_distinct in proptest::bool::ANY,
+        // Indexed expression ORDER BY (e.g. ORDER BY upper(category))
+        include_expr_ordering in proptest::bool::ANY,
         // Result limit
         limit in 1..=50usize,
     )| {
+        // DISTINCT + expression ORDER BY requires projecting the expression in SELECT,
+        // which JoinScan doesn't support yet. Skip this combination.
+        prop_assume!(!(include_distinct && include_expr_ordering));
+
         // Build join with selected number of tables
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 
@@ -604,7 +681,7 @@ async fn generated_joinscan(database: Db) {
         // Select columns from the first table
         // When HeapCondition is used, include the referenced columns in target list
         // (JoinScan requires columns to be projected to evaluate HeapConditions)
-        let target_list = if include_heap_condition {
+        let mut target_cols = if include_heap_condition {
             format!(
                 "{}.id, {}.name, {}.{}, {}.{}",
                 used_tables[0], used_tables[0],
@@ -614,7 +691,18 @@ async fn generated_joinscan(database: Db) {
         } else {
             format!("{}.id, {}.name", used_tables[0], used_tables[0])
         };
-        let from = format!("SELECT {target_list} {join_clause}");
+
+        if include_distinct {
+            for table in &used_tables[1..] {
+                let col = format!("{}.id", table);
+                if !target_cols.contains(&col) {
+                    target_cols = format!("{target_cols}, {col}");
+                }
+            }
+        }
+
+        let distinct_kw = if include_distinct { "DISTINCT " } else { "" };
+        let from = format!("SELECT {distinct_kw}{target_cols} {join_clause}");
 
         // Build WHERE clause parts for BM25 query
         let mut bm25_where_parts = vec![outer_bm25.to_sql("@@@")];
@@ -639,9 +727,17 @@ async fn generated_joinscan(database: Db) {
         // Build deterministic ORDER BY with tie-breaker columns
         // When joins produce multiple matching rows, we need to include columns from both sides
         // to ensure deterministic results when LIMIT is applied
-        let mut order_parts = vec![format!("{}.id", used_tables[0])];
-        for table in &used_tables[1..] {
-            order_parts.push(format!("{}.id", table));
+        let mut order_parts = Vec::new();
+        if include_expr_ordering {
+            order_parts.push(format!("upper({}.category)", used_tables[0]));
+        }
+        order_parts.push(format!("{}.id", used_tables[0]));
+        // Only add inner table tiebreakers when NOT using expression ordering,
+        // because SegmentedTopKExec may not project all sort keys from inner tables.
+        if !include_expr_ordering {
+            for table in &used_tables[1..] {
+                order_parts.push(format!("{}.id", table));
+            }
         }
         let order_by = order_parts.join(", ");
 
@@ -775,14 +871,22 @@ async fn generated_numeric_pushdown(database: Db) {
 }
 
 ///
-/// Property test for JoinScan SEMI joins using EXISTS subqueries.
+/// Property test for JoinScan SEMI and ANTI joins.
+///
+/// Fuzzes between:
+/// - SEMI join via `IN (SELECT ...)` subquery
+/// - ANTI join via `NOT EXISTS (SELECT ... WHERE correlated)` with `IS NOT NULL`
+///
+/// PostgreSQL only triggers an anti join plan with `NOT EXISTS`, not `NOT IN`
+/// (due to NULL semantics). An `IS NOT NULL` condition on the join column is
+/// also required for the anti join optimization.
 ///
 /// This complements `generated_joinscan` (INNER joins) and verifies both:
 /// - `paradedb.enable_join_custom_scan = false`: no ParadeDB Join Scan is used
-/// - `paradedb.enable_join_custom_scan = true`: ParadeDB Join Scan is used and
+/// - `paradedb.enable_join_custom_scan = true`: ParadeDB Join Scan is used
 #[rstest]
 #[tokio::test]
-async fn generated_joinscan_semi(database: Db) {
+async fn generated_joinscan_semi_like(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
         move || {
             block_on(async {
@@ -794,12 +898,18 @@ async fn generated_joinscan_semi(database: Db) {
         |_| {},
     );
 
-    // Keep the semi-join left side ("users") decisively larger than right-side candidates.
-    // JoinScan's SEMI implementation requires the left side to be the largest source.
-    let tables_and_sizes = [("users", 500), ("products", 120), ("orders", 40)];
+    // Use varied table sizes to test both when the left side is the largest source
+    // and when the right side is the largest source (which now forces the partition
+    // to the left side anyway for SEMI/ANTI correctness).
+    let tables_and_sizes = [
+        ("users", 500),
+        ("products", 120),
+        ("orders", 40),
+        ("logs", 1000),
+    ];
     let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
 
-    let all_tables = vec!["users", "products", "orders"];
+    let all_tables = vec!["users", "products", "orders", "logs"];
     let join_key_columns = vec!["id", "age", "uuid"];
     let search_terms = vec![
         "alice", "bob", "cloe", "sally", "brandy", "brisket", "anchovy",
@@ -808,27 +918,38 @@ async fn generated_joinscan_semi(database: Db) {
     proptest!(|(
         semi_join in arb_semi_joins(all_tables.clone(), join_key_columns.clone()),
         inner_term in proptest::sample::select(search_terms.clone()),
+        is_anti_join in proptest::bool::ANY,
         limit in 1..=50usize,
     )| {
-        // For now, JoinScan SEMI requires the left side to be the largest source.
-        // TODO: Remove this once JoinScan SEMI supports non-base-table joins.
-        prop_assume!(semi_join.outer_table() == "users");
         let outer = semi_join.outer_table();
         let inner = semi_join.inner_table();
         let join_col = semi_join.join_column();
 
-        let pg_where = format!(
-            "TRUE AND {outer}.{join_col} IN (\
-                SELECT {inner}.{join_col} FROM {inner} \
-                WHERE {inner}.name = '{inner_term}'\
-            )"
-        );
-        let bm25_where = format!(
-            "{outer}.id @@@ pdb.all() AND {outer}.{join_col} IN (\
-                SELECT {inner}.{join_col} FROM {inner} \
-                WHERE {inner}.name @@@ '{inner_term}'\
-            )"
-        );
+        // Build the subquery clause parameterized by operator.
+        // SEMI: IN (SELECT ...), ANTI: IS NOT NULL AND NOT EXISTS (SELECT 1 ... WHERE correlated)
+        // PostgreSQL only uses an anti join plan with NOT EXISTS (not NOT IN) and
+        // requires IS NOT NULL on the join column.
+        let subquery_clause = |op: &str| {
+            if is_anti_join {
+                format!(
+                    "{outer}.{join_col} IS NOT NULL AND NOT EXISTS (\
+                        SELECT 1 FROM {inner} \
+                        WHERE {inner}.{join_col} = {outer}.{join_col} \
+                        AND {inner}.name {op} '{inner_term}'\
+                    )"
+                )
+            } else {
+                format!(
+                    "{outer}.{join_col} IN (\
+                        SELECT {inner}.{join_col} FROM {inner} \
+                        WHERE {inner}.name {op} '{inner_term}'\
+                    )"
+                )
+            }
+        };
+
+        let pg_where = format!("TRUE AND {}", subquery_clause(" = "));
+        let bm25_where = format!("{outer}.id @@@ pdb.all() AND {}", subquery_clause("@@@"));
 
         let pg_query = format!(
             "SELECT {outer}.id, {outer}.name \

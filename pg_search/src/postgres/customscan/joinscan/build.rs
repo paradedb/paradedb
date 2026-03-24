@@ -17,11 +17,13 @@
 
 //! Data structures for JoinScan planning and serialization.
 //!
+//! See the [JoinScan README](README.md) for the full architecture overview.
+//!
 //! These structures are serialized to JSON and stored in CustomScan's custom_private
 //! field, then deserialized during execution.
 //!
 //! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
-//! time. See `extract_score_pathkey()` in mod.rs.
+//! time. See `pathkey_uses_scores_from_source()` in planning.rs.
 
 use crate::api::OrderByInfo;
 use crate::postgres::utils::ExprContextGuard;
@@ -32,6 +34,105 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ptr::NonNull;
+
+/// DataFusion-facing relation alias helper.
+///
+/// JoinScan may reference the same PostgreSQL relation multiple times in one
+/// DataFusion plan, so we centralize execution-time alias generation here.
+#[derive(Debug, Clone, Copy)]
+pub struct RelationAlias<'a> {
+    name: Option<&'a str>,
+}
+
+impl<'a> RelationAlias<'a> {
+    pub fn new(name: Option<&'a str>) -> Self {
+        Self { name }
+    }
+
+    /// For EXPLAIN output, don't suffix the relation to make it more readable
+    pub fn display(&self, index: usize) -> String {
+        self.name
+            .map(ToString::to_string)
+            .unwrap_or_else(|| format!("source_{}", index))
+    }
+
+    /// For DataFusion execution, suffix the relation to make it unique
+    pub fn execution(&self, index: usize) -> String {
+        match self.name {
+            Some(alias) => format!("{alias}_{index}"),
+            None => format!("source_{}", index),
+        }
+    }
+
+    /// Returns a stable context label for planner warnings.
+    ///
+    /// Context labels should not depend on per-plan source ordering, otherwise
+    /// failed exploratory paths cannot be cleared when a successful path is found.
+    pub fn warning_context(&self, heaprelid: pg_sys::Oid) -> String {
+        self.name
+            .map(ToString::to_string)
+            .unwrap_or_else(|| format!("relid_{}", heaprelid))
+    }
+}
+
+/// DataFusion-facing synthetic CTID column name helper.
+///
+/// JoinScan exposes per-source CTID columns into DataFusion so rows can be
+/// materialized back to PostgreSQL tuples after query execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CtidColumn {
+    plan_position: usize,
+}
+
+impl CtidColumn {
+    const PREFIX: &'static str = "ctid_";
+
+    pub fn new(plan_position: usize) -> Self {
+        Self { plan_position }
+    }
+
+    pub fn plan_position(self) -> usize {
+        self.plan_position
+    }
+}
+
+impl fmt::Display for CtidColumn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", Self::PREFIX, self.plan_position)
+    }
+}
+
+impl TryFrom<&str> for CtidColumn {
+    type Error = ();
+
+    fn try_from(col_name: &str) -> Result<Self, Self::Error> {
+        let plan_position = col_name
+            .strip_prefix(Self::PREFIX)
+            .ok_or(())?
+            .parse::<usize>()
+            .map_err(|_| ())?;
+        Ok(Self::new(plan_position))
+    }
+}
+
+/// DataFusion/planning identity for the PostgreSQL planner root that produced a source.
+///
+/// We carry this through JoinScan planning so repeated RTIs from different
+/// subquery roots can be disambiguated before building the DataFusion plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PlannerRootId(usize);
+
+impl From<usize> for PlannerRootId {
+    fn from(value: usize) -> Self {
+        Self(value)
+    }
+}
+
+impl From<*mut pg_sys::PlannerInfo> for PlannerRootId {
+    fn from(value: *mut pg_sys::PlannerInfo) -> Self {
+        Self(value as usize)
+    }
+}
 
 /// Represents the join type for serialization.
 ///
@@ -46,6 +147,10 @@ pub enum JoinType {
     Right,
     Semi,
     Anti,
+    RightSemi,
+    RightAnti,
+    UniqueOuter,
+    UniqueInner,
 }
 
 impl fmt::Display for JoinType {
@@ -57,21 +162,33 @@ impl fmt::Display for JoinType {
             JoinType::Right => "Right",
             JoinType::Semi => "Semi",
             JoinType::Anti => "Anti",
+            JoinType::RightSemi => "RightSemi",
+            JoinType::RightAnti => "RightAnti",
+            JoinType::UniqueOuter => "UniqueOuter",
+            JoinType::UniqueInner => "UniqueInner",
         };
         write!(f, "{}", s)
     }
 }
 
-impl From<pg_sys::JoinType::Type> for JoinType {
-    fn from(jt: pg_sys::JoinType::Type) -> Self {
+impl TryFrom<pg_sys::JoinType::Type> for JoinType {
+    type Error = anyhow::Error;
+
+    fn try_from(jt: pg_sys::JoinType::Type) -> Result<Self, Self::Error> {
         match jt {
-            pg_sys::JoinType::JOIN_INNER => JoinType::Inner,
-            pg_sys::JoinType::JOIN_LEFT => JoinType::Left,
-            pg_sys::JoinType::JOIN_FULL => JoinType::Full,
-            pg_sys::JoinType::JOIN_RIGHT => JoinType::Right,
-            pg_sys::JoinType::JOIN_SEMI => JoinType::Semi,
-            pg_sys::JoinType::JOIN_ANTI => JoinType::Anti,
-            other => panic!("JoinScan: unsupported join type {:?}", other),
+            pg_sys::JoinType::JOIN_INNER => Ok(JoinType::Inner),
+            pg_sys::JoinType::JOIN_LEFT => Ok(JoinType::Left),
+            pg_sys::JoinType::JOIN_FULL => Ok(JoinType::Full),
+            pg_sys::JoinType::JOIN_RIGHT => Ok(JoinType::Right),
+            pg_sys::JoinType::JOIN_SEMI => Ok(JoinType::Semi),
+            pg_sys::JoinType::JOIN_ANTI => Ok(JoinType::Anti),
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            pg_sys::JoinType::JOIN_RIGHT_ANTI => Ok(JoinType::RightAnti),
+            #[cfg(feature = "pg18")]
+            pg_sys::JoinType::JOIN_RIGHT_SEMI => Ok(JoinType::RightSemi),
+            pg_sys::JoinType::JOIN_UNIQUE_OUTER => Ok(JoinType::UniqueOuter),
+            pg_sys::JoinType::JOIN_UNIQUE_INNER => Ok(JoinType::UniqueInner),
+            other => Err(anyhow::anyhow!("JoinScan: unknown join type {}", other)),
         }
     }
 }
@@ -93,6 +210,34 @@ pub struct JoinKeyPair {
     pub typlen: i16,
     /// Whether type is pass-by-value.
     pub typbyval: bool,
+}
+
+impl JoinKeyPair {
+    pub fn resolve_against<'a>(
+        &self,
+        left: &'a RelNode,
+        right: &'a RelNode,
+    ) -> Option<(JoinKeySide<'a>, JoinKeySide<'a>)> {
+        if let (Some(left_source), Some(right_source)) = (
+            left.source_for_rti_in_subtree(self.outer_rti),
+            right.source_for_rti_in_subtree(self.inner_rti),
+        ) {
+            Some((
+                (left_source, self.outer_attno),
+                (right_source, self.inner_attno),
+            ))
+        } else if let (Some(left_source), Some(right_source)) = (
+            left.source_for_rti_in_subtree(self.inner_rti),
+            right.source_for_rti_in_subtree(self.outer_rti),
+        ) {
+            Some((
+                (left_source, self.inner_attno),
+                (right_source, self.outer_attno),
+            ))
+        } else {
+            None
+        }
+    }
 }
 
 /// A join-level search predicate - a search query that applies to a specific relation.
@@ -123,6 +268,7 @@ pub struct ChildProjection {
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::info::{FieldInfo, RowEstimate};
@@ -131,8 +277,9 @@ use crate::scan::info::{FieldInfo, RowEstimate};
 ///
 /// This represents a relation before all required JoinScan invariants are verified.
 /// Optional fields are progressively filled as planning discovers index metadata.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinSourceCandidate {
+    pub root_id: PlannerRootId,
     pub heap_rti: pg_sys::Index,
     pub heaprelid: Option<pg_sys::Oid>,
     pub indexrelid: Option<pg_sys::Oid>,
@@ -144,13 +291,25 @@ pub struct JoinSourceCandidate {
     pub sort_order: Option<SortByField>,
     pub estimate: Option<RowEstimate>,
     pub segment_count: Option<usize>,
+    pub estimated_rows_per_worker: Option<u64>,
 }
 
 impl JoinSourceCandidate {
-    pub fn new(heap_rti: pg_sys::Index) -> Self {
+    pub fn new(root_id: PlannerRootId, heap_rti: pg_sys::Index) -> Self {
         Self {
+            root_id,
             heap_rti,
-            ..Default::default()
+            heaprelid: None,
+            indexrelid: None,
+            query: None,
+            has_search_predicate: false,
+            alias: None,
+            score_needed: false,
+            fields: Vec::new(),
+            sort_order: None,
+            estimate: None,
+            segment_count: None,
+            estimated_rows_per_worker: None,
         }
     }
 
@@ -171,6 +330,10 @@ impl JoinSourceCandidate {
 
     pub fn with_query(mut self, query: SearchQueryInput) -> Self {
         self.query = Some(query);
+        self
+    }
+
+    pub fn with_search_predicate(mut self) -> Self {
         self.has_search_predicate = true;
         self
     }
@@ -190,11 +353,6 @@ impl JoinSourceCandidate {
 
     pub fn alias(&self) -> Option<String> {
         self.alias.clone()
-    }
-
-    /// Returns the alias to be used for this source in the DataFusion plan.
-    pub fn execution_alias(&self, index: usize) -> String {
-        self.alias().unwrap_or_else(|| format!("source_{}", index))
     }
 
     /// Check if this source contains the given RTI.
@@ -219,15 +377,23 @@ impl JoinSourceCandidate {
 
         let index_rel = PgSearchRelation::open(indexrelid);
         let heap_rel = PgSearchRelation::open(heaprelid);
+        let mut query = self.query.clone().unwrap_or(SearchQueryInput::All);
+        let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
+        let has_pg_exprs = query.has_postgres_expressions();
+        if has_pg_exprs {
+            let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::LargestSegment)
+                .expect("Failed to open index reader for estimation");
+            self.segment_count = Some(reader.total_segment_count());
+            self.estimate = Some(RowEstimate::Known(reader.total_docs()));
+            return;
+        }
 
         // `expr_context` only lives until the end of this function,
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
-            self.query
-                .clone()
-                .unwrap_or(crate::query::SearchQueryInput::All),
+            query,
             false,
             MvccSatisfies::LargestSegment,
             NonNull::new(expr_context.as_ptr()),
@@ -237,8 +403,6 @@ impl JoinSourceCandidate {
 
         self.segment_count = Some(reader.total_segment_count());
 
-        let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
-
         let (estimate, _) = reader.estimate_docs(row_estimate);
         self.estimate = Some(RowEstimate::Known(estimate as u64));
     }
@@ -247,21 +411,14 @@ impl JoinSourceCandidate {
 /// Represents the validated source of data for a join side used during execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinSource {
+    /// Stable plan position in `RelNode::sources()` order.
+    pub plan_position: usize,
+    /// Identity of the PlannerInfo root this source originated from.
+    pub root_id: Option<PlannerRootId>,
     pub scan_info: ScanInfo,
 }
 
 impl JoinSource {
-    /// Returns the alias to be used for this source in the DataFusion plan.
-    ///
-    /// If the source has an explicit alias (from SQL), it is used.
-    /// Otherwise, a synthetic alias `source_{index}` is generated based on its position.
-    pub fn execution_alias(&self, index: usize) -> String {
-        self.scan_info
-            .alias
-            .clone()
-            .unwrap_or_else(|| format!("source_{}", index))
-    }
-
     /// Check if this source contains the given RTI.
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
         self.scan_info.heap_rti == rti
@@ -270,6 +427,22 @@ impl JoinSource {
     /// Check if this source has a search predicate.
     pub fn has_search_predicate(&self) -> bool {
         self.scan_info.has_search_predicate
+    }
+
+    /// Returns true when this source can reference the provided attribute number.
+    pub fn has_attno(&self, attno: pg_sys::AttrNumber) -> bool {
+        if attno == 0 {
+            return true;
+        }
+        if attno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
+            return true;
+        }
+        if attno < 0 {
+            return false;
+        }
+        let heaprel = PgSearchRelation::open(self.scan_info.heaprelid);
+        let tupdesc = heaprel.tuple_desc();
+        (attno as usize) <= tupdesc.len()
     }
 
     /// Map a base relation variable to its position in this source's output.
@@ -308,23 +481,9 @@ impl JoinSource {
     pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
         acc.push(self.scan_info.clone());
     }
-}
 
-impl From<JoinSource> for JoinSourceCandidate {
-    fn from(source: JoinSource) -> Self {
-        Self {
-            heap_rti: source.scan_info.heap_rti,
-            heaprelid: Some(source.scan_info.heaprelid),
-            indexrelid: Some(source.scan_info.indexrelid),
-            query: Some(source.scan_info.query.clone()),
-            has_search_predicate: source.scan_info.has_search_predicate,
-            alias: source.scan_info.alias.clone(),
-            score_needed: source.scan_info.score_needed,
-            fields: source.scan_info.fields.clone(),
-            sort_order: source.scan_info.sort_order.clone(),
-            estimate: Some(source.scan_info.estimate),
-            segment_count: Some(source.scan_info.segment_count),
-        }
+    pub fn execution_alias(&self) -> String {
+        RelationAlias::new(self.scan_info.alias.as_deref()).execution(self.plan_position)
     }
 }
 
@@ -333,6 +492,8 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
 
     fn try_from(candidate: JoinSourceCandidate) -> Result<Self, Self::Error> {
         Ok(JoinSource {
+            plan_position: 0,
+            root_id: Some(candidate.root_id),
             scan_info: ScanInfo {
                 heap_rti: candidate.heap_rti,
                 heaprelid: candidate.heaprelid.ok_or_else(|| {
@@ -347,9 +508,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
-                query: candidate
-                    .query
-                    .unwrap_or(crate::query::SearchQueryInput::All),
+                query: candidate.query.unwrap_or(SearchQueryInput::All),
                 has_search_predicate: candidate.has_search_predicate,
                 alias: candidate.alias,
                 score_needed: candidate.score_needed,
@@ -367,6 +526,7 @@ impl TryFrom<JoinSourceCandidate> for JoinSource {
                         candidate.heap_rti
                     )
                 })?,
+                estimated_rows_per_worker: candidate.estimated_rows_per_worker,
             },
         })
     }
@@ -390,8 +550,8 @@ pub struct MultiTablePredicateInfo {
 pub enum JoinLevelExpr {
     /// Leaf: single-table predicate, check if ctid is in the Tantivy result set.
     SingleTablePredicate {
-        /// Index of the source in `JoinCSClause.sources` this predicate references.
-        source_idx: usize,
+        /// Plan position of the source (in the order yielded by `RelNode::sources()`) this predicate references.
+        plan_position: usize,
         /// Index into the `join_level_predicates` vector.
         predicate_idx: usize,
     },
@@ -408,46 +568,308 @@ pub enum JoinLevelExpr {
     Not(Box<JoinLevelExpr>),
 }
 
-/// The clause information for a Join Custom Scan.
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct JoinCSClause {
-    /// Information about the sources involved in the join (N-way).
-    pub sources: Vec<JoinSource>,
-    /// The type of join (Currently implicitly inner for all).
+/// A node in the intermediate relational plan tree.
+///
+/// `RelNode` serves as the Intermediate Representation (IR) between PostgreSQL's C-based
+/// planning structures and DataFusion's pure-Rust logical plan builder.
+///
+/// Using `RelNode` allows `JoinScan` to:
+/// 1. Pre-validate query topology (e.g., separating equi-join keys from general filters)
+///    prior to executing DataFusion.
+/// 2. Implement DataFusion's `TreeNode` trait for plan rewrites
+///    (e.g., hoisting subqueries into `SemiJoin` or `AntiJoin` nodes) via bottom-up
+///    and top-down traversals.
+/// 3. Lower PostgreSQL's execution plan (which frequently mixes boolean
+///    predicates and hash/merge keys) into DataFusion's typed `Join` structures.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RelNode {
+    /// A base relation scan.
+    Scan(Box<JoinSource>),
+    /// A join between two relational nodes.
+    Join(Box<JoinNode>),
+    /// A filter applied to a relational node.
+    Filter(Box<FilterNode>),
+}
+
+/// A join node in the relational plan tree.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JoinNode {
     pub join_type: JoinType,
-    /// The join key column pairs (for equi-joins).
-    pub join_keys: Vec<JoinKeyPair>,
-    /// The LIMIT value from the query, if any.
-    pub limit: Option<usize>,
+    pub left: RelNode,
+    pub right: RelNode,
+    /// Explicitly separated equi-join keys for DataFusion's Hash/Merge joins.
+    pub equi_keys: Vec<JoinKeyPair>,
+    /// Any remaining non-equi join conditions.
+    pub filter: Option<JoinLevelExpr>,
+}
+
+/// A filter node in the relational plan tree.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterNode {
+    pub input: RelNode,
+    pub predicate: JoinLevelExpr,
+}
+
+type JoinKeySide<'a> = (&'a JoinSource, pg_sys::AttrNumber);
+
+// TODO: Implement `datafusion::common::tree_node::TreeNode` for `RelNode`.
+// This trait will likely be implemented in a future patch to enable functional, boilerplate-free
+// tree rewrites (using `.transform_up()` and `.transform_down()`). This is specifically
+// useful for hoisting PostgreSQL subqueries (like `InitPlan`s temporarily stored inside
+// expressions) into relational `SemiJoin` or `AntiJoin` nodes in the IR tree.
+
+impl RelNode {
+    /// Recursively collects all unsupported join types found in the tree.
+    pub fn unsupported_join_types(&self) -> Vec<JoinType> {
+        let mut unsupported = Vec::new();
+        self.collect_unsupported_join_types(&mut unsupported);
+        unsupported.sort_by_key(|t| t.to_string());
+        unsupported.dedup_by_key(|t| t.to_string());
+        unsupported
+    }
+
+    /// Returns true if the query tree contains a SEMI or ANTI join at any level.
+    pub fn has_semi_or_anti(&self) -> bool {
+        match self {
+            RelNode::Scan(_) => false,
+            RelNode::Join(j) => {
+                matches!(j.join_type, JoinType::Semi | JoinType::Anti)
+                    || j.left.has_semi_or_anti()
+                    || j.right.has_semi_or_anti()
+            }
+            RelNode::Filter(f) => f.input.has_semi_or_anti(),
+        }
+    }
+
+    fn collect_unsupported_join_types(&self, acc: &mut Vec<JoinType>) {
+        match self {
+            RelNode::Scan(_) => {}
+            RelNode::Join(j) => {
+                if !matches!(
+                    j.join_type,
+                    JoinType::Inner | JoinType::Semi | JoinType::Anti
+                ) {
+                    acc.push(j.join_type);
+                }
+                j.left.collect_unsupported_join_types(acc);
+                j.right.collect_unsupported_join_types(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_unsupported_join_types(acc),
+        }
+    }
+
+    pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
+        match self {
+            RelNode::Scan(s) => s.scan_info.heap_rti == rti,
+            RelNode::Join(j) => j.left.contains_rti(rti) || j.right.contains_rti(rti),
+            RelNode::Filter(f) => f.input.contains_rti(rti),
+        }
+    }
+
+    pub fn source_for_rti_in_subtree(&self, rti: pg_sys::Index) -> Option<&JoinSource> {
+        self.sources().into_iter().find(|s| s.contains_rti(rti))
+    }
+
+    /// Recursively collects all base join sources from this tree.
+    pub fn sources(&self) -> Vec<&JoinSource> {
+        let mut result = Vec::new();
+        self.collect_sources(&mut result);
+        result
+    }
+
+    fn collect_sources<'a>(&'a self, acc: &mut Vec<&'a JoinSource>) {
+        match self {
+            RelNode::Scan(s) => acc.push(&**s),
+            RelNode::Join(j) => {
+                j.left.collect_sources(acc);
+                j.right.collect_sources(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_sources(acc),
+        }
+    }
+
+    /// Recursively collects all mutable base join sources from this tree.
+    pub fn sources_mut(&mut self) -> Vec<&mut JoinSource> {
+        let mut result = Vec::new();
+        self.collect_sources_mut(&mut result);
+        result
+    }
+
+    fn collect_sources_mut<'a>(&'a mut self, acc: &mut Vec<&'a mut JoinSource>) {
+        match self {
+            RelNode::Scan(s) => acc.push(&mut **s),
+            RelNode::Join(j) => {
+                j.left.collect_sources_mut(acc);
+                j.right.collect_sources_mut(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_sources_mut(acc),
+        }
+    }
+
+    /// Recursively collects all output RTIs (ignoring pruned sides like the right side of SemiJoin).
+    pub fn output_rtis(&self) -> Vec<pg_sys::Index> {
+        self.output_sources()
+            .into_iter()
+            .map(|s| s.scan_info.heap_rti)
+            .collect()
+    }
+
+    /// Recursively collects output-visible base sources (ignoring pruned sides like the
+    /// right side of SemiJoin).
+    pub fn output_sources(&self) -> Vec<&JoinSource> {
+        let mut result = Vec::new();
+        self.collect_output_sources(&mut result);
+        result
+    }
+
+    fn collect_output_sources<'a>(&'a self, acc: &mut Vec<&'a JoinSource>) {
+        match self {
+            RelNode::Scan(s) => acc.push(&**s),
+            RelNode::Join(j) => match j.join_type {
+                JoinType::Semi | JoinType::Anti => {
+                    j.left.collect_output_sources(acc);
+                }
+                JoinType::RightSemi | JoinType::RightAnti => {
+                    j.right.collect_output_sources(acc);
+                }
+                _ => {
+                    j.left.collect_output_sources(acc);
+                    j.right.collect_output_sources(acc);
+                }
+            },
+            RelNode::Filter(f) => f.input.collect_output_sources(acc),
+        }
+    }
+
+    /// Recursively collects all equi-join keys from this tree.
+    pub fn join_keys(&self) -> Vec<JoinKeyPair> {
+        let mut result = Vec::new();
+        self.collect_join_keys(&mut result);
+        result
+    }
+
+    fn collect_join_keys(&self, acc: &mut Vec<JoinKeyPair>) {
+        match self {
+            RelNode::Scan(_) => {}
+            RelNode::Join(j) => {
+                acc.extend(j.equi_keys.clone());
+                j.left.collect_join_keys(acc);
+                j.right.collect_join_keys(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_join_keys(acc),
+        }
+    }
+
+    /// Extract the top-level join_level_expr if present.
+    pub fn join_level_expr(&self) -> Option<&JoinLevelExpr> {
+        match self {
+            RelNode::Filter(f) => Some(&f.predicate),
+            _ => None,
+        }
+    }
+
+    /// Recursively renders a human-readable representation of the join tree.
+    pub fn explain(&self) -> String {
+        self.explain_internal(true)
+    }
+
+    fn explain_internal(&self, is_root: bool) -> String {
+        match self {
+            RelNode::Scan(s) => {
+                if let Some(alias) = &s.scan_info.alias {
+                    alias.clone()
+                } else {
+                    PgSearchRelation::open(s.scan_info.heaprelid)
+                        .name()
+                        .to_string()
+                }
+            }
+            RelNode::Join(j) => {
+                let join_type_str = j.join_type.to_string().to_uppercase();
+                let inner = format!(
+                    "{} {} {}",
+                    j.left.explain_internal(false),
+                    join_type_str,
+                    j.right.explain_internal(false)
+                );
+
+                if is_root {
+                    inner
+                } else {
+                    format!("({})", inner)
+                }
+            }
+            RelNode::Filter(f) => f.input.explain_internal(is_root),
+        }
+    }
+}
+
+impl Default for RelNode {
+    fn default() -> Self {
+        RelNode::Scan(Box::new(JoinSource {
+            plan_position: 0,
+            root_id: None,
+            scan_info: ScanInfo::default(),
+        }))
+    }
+}
+
+/// The clause information for a Join Custom Scan.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct JoinCSClause {
+    /// The root of the relational execution tree.
+    pub plan: RelNode,
+    /// The LIMIT and OFFSET value from the query, if any.
+    pub limit_offset: LimitOffset,
     /// Join-level search predicates (Tantivy queries to execute).
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
     /// Heap conditions (PostgreSQL expressions referencing both sides).
     pub multi_table_predicates: Vec<MultiTablePredicateInfo>,
-    /// The boolean expression tree that combines predicates and heap conditions.
-    pub join_level_expr: Option<JoinLevelExpr>,
     /// ORDER BY clause to be applied to the DataFusion plan.
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
+    /// Whether the join has DISTINCT specified.
+    pub has_distinct: bool,
+    /// Optional index of the source that MUST be partitioned, overriding cost-based selection.
+    pub forced_partitioning_idx: Option<usize>,
 }
 
 impl JoinCSClause {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(plan: RelNode) -> Self {
+        let mut clause = Self {
+            plan,
+            limit_offset: Default::default(),
+            join_level_predicates: Vec::new(),
+            multi_table_predicates: Vec::new(),
+            order_by: Vec::new(),
+            output_projection: None,
+            has_distinct: false,
+            forced_partitioning_idx: None,
+        };
+        for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
+            source.plan_position = i;
+        }
+        clause
     }
 
-    pub fn with_join_type(mut self, join_type: JoinType) -> Self {
-        self.join_type = join_type;
+    pub fn with_limit(mut self, limit: Option<u32>) -> Self {
+        self.limit_offset.limit = limit;
         self
     }
 
-    pub fn with_limit(mut self, limit: Option<usize>) -> Self {
-        self.limit = limit;
+    pub fn with_offset(mut self, offset: Option<u32>) -> Self {
+        self.limit_offset.offset = offset;
         self
     }
 
     pub fn with_order_by(mut self, order_by: Vec<OrderByInfo>) -> Self {
         self.order_by = order_by;
+        self
+    }
+
+    pub fn with_distinct(mut self, has_distinct: bool) -> Self {
+        self.has_distinct = has_distinct;
         self
     }
 
@@ -495,55 +917,38 @@ impl JoinCSClause {
         !self.multi_table_predicates.is_empty()
     }
 
-    /// Set the join-level expression tree.
+    /// Set the join-level expression tree by wrapping the current plan in a FilterNode.
     pub fn with_join_level_expr(mut self, expr: JoinLevelExpr) -> Self {
-        self.join_level_expr = Some(expr);
+        let current_plan = self.plan.clone();
+        self.plan = RelNode::Filter(Box::new(FilterNode {
+            input: current_plan,
+            predicate: expr,
+        }));
         self
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_join_key(
-        mut self,
-        outer_rti: pg_sys::Index,
-        outer_attno: pg_sys::AttrNumber,
-        inner_rti: pg_sys::Index,
-        inner_attno: pg_sys::AttrNumber,
-        type_oid: pg_sys::Oid,
-        typlen: i16,
-        typbyval: bool,
-    ) -> Self {
-        self.join_keys.push(JoinKeyPair {
-            outer_rti,
-            outer_attno,
-            inner_rti,
-            inner_attno,
-            type_oid,
-            typlen,
-            typbyval,
-        });
+    pub fn with_forced_partitioning(mut self, idx: usize) -> Self {
+        self.forced_partitioning_idx = Some(idx);
         self
-    }
-
-    /// Returns the index of the ordering side (the source with a search predicate).
-    /// If multiple have it, returns the first one.
-    pub fn ordering_side_index(&self) -> Option<usize> {
-        self.sources.iter().position(|s| s.has_search_predicate())
-    }
-
-    /// Get the ordering side source (side with search predicate).
-    pub fn ordering_side(&self) -> Option<&JoinSource> {
-        self.ordering_side_index().map(|i| &self.sources[i])
     }
 
     /// Returns the source that should be partitioned for parallel execution.
-    /// This is the source with the largest row estimate.
-    pub fn partitioning_source(&self) -> &JoinSource {
-        &self.sources[self.partitioning_source_index()]
+    pub fn partitioning_source(&self) -> JoinSource {
+        let sources = self.plan.sources();
+        sources
+            .get(self.partitioning_source_index())
+            .cloned()
+            .expect("JoinScan requires at least one source")
+            .clone()
     }
 
     /// Returns the index of the source that should be partitioned for parallel execution.
     pub fn partitioning_source_index(&self) -> usize {
-        self.sources
+        if let Some(idx) = self.forced_partitioning_idx {
+            return idx;
+        }
+        let sources = self.plan.sources();
+        sources
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.scan_info.estimate.cmp(&b.scan_info.estimate))
@@ -553,8 +958,59 @@ impl JoinCSClause {
 
     /// Recursively collect all base relations in this join tree.
     pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
-        for source in &self.sources {
+        for source in self.plan.sources() {
             source.collect_base_relations(acc);
+        }
+    }
+
+    /// Resolve an output Var to a unique source index using output-visible sources.
+    pub fn plan_position(
+        &self,
+        root_id: PlannerRootId,
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<usize> {
+        let mut matches = self
+            .plan
+            .output_sources()
+            .into_iter()
+            .filter(|s| s.root_id == Some(root_id) && s.contains_rti(rti) && s.has_attno(attno))
+            .map(|s| s.plan_position);
+
+        let first = matches.next()?;
+        if matches.next().is_none() {
+            Some(first)
+        } else {
+            None
+        }
+    }
+
+    pub fn source_for_var(
+        &self,
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<&JoinSource> {
+        let mut root_ids = self
+            .plan
+            .sources()
+            .into_iter()
+            .filter(|s| s.contains_rti(rti))
+            .filter_map(|s| s.root_id);
+        let root_id = root_ids.next()?;
+        if !root_ids.all(|id| id == root_id) {
+            return None;
+        }
+
+        let mut matches =
+            self.plan.sources().into_iter().filter(|s| {
+                s.root_id == Some(root_id) && s.contains_rti(rti) && s.has_attno(attno)
+            });
+
+        let first = matches.next()?;
+        if matches.next().is_none() {
+            Some(first)
+        } else {
+            None
         }
     }
 }

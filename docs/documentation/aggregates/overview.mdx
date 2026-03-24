@@ -9,11 +9,28 @@ The `pdb.agg` function accepts an Elasticsearch-compatible JSON aggregate query 
 
 For example, the following query counts the total number of results for a search query.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"value_count": {"field": "id"}}')
 FROM mock_items
 WHERE category === 'electronics';
 ```
+
+```python Django
+from paradedb import Agg, ParadeDB, Term
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).aggregate(agg=Agg('{"value_count": {"field": "id"}}'))
+```
+
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .facets_agg(agg: ParadeDB::Aggregations.value_count(:id))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
       agg
@@ -24,7 +41,8 @@ WHERE category === 'electronics';
 
 This query counts the number of results for every distinct group:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT rating, pdb.agg('{"value_count": {"field": "id"}}')
 FROM mock_items
 WHERE category === 'electronics'
@@ -32,6 +50,29 @@ GROUP BY rating
 ORDER BY rating
 LIMIT 5;
 ```
+
+```python Django
+from paradedb import Agg, ParadeDB, Term
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).values('rating').annotate(
+    agg=Agg('{"value_count": {"field": "id"}}')
+).order_by('rating')[:5]
+```
+
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.value_count(:id)
+        )
+        .order(:rating)
+        .limit(5)
+```
+
+</CodeGroup>
 
 ```ini Expected Response
  rating |      agg
@@ -46,13 +87,36 @@ LIMIT 5;
 
 To compute multiple aggregations at once, simply include multiple `pdb.agg` functions in the target list:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT
   pdb.agg('{"avg": {"field": "rating"}}') AS avg_rating,
   pdb.agg('{"value_count": {"field": "id"}}') AS count
 FROM mock_items
 WHERE category === 'electronics';
 ```
+
+```python Django
+from paradedb import Agg, ParadeDB, Term
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).aggregate(
+    avg_rating=Agg('{"avg": {"field": "rating"}}'),
+    count=Agg('{"value_count": {"field": "id"}}'),
+)
+```
+
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .facets_agg(
+          avg_rating: ParadeDB::Aggregations.avg(:rating),
+          count: ParadeDB::Aggregations.value_count(:id)
+        )
+```
+
+</CodeGroup>
 
 ```ini Expected Response
    avg_rating   |     count
@@ -61,15 +125,70 @@ WHERE category === 'electronics';
 (1 row)
 ```
 
+## Performance Optimization
+
+On every query, ParadeDB runs checks to ensure that deleted or updated-away rows are not factored into the result set.
+
+If your table is not frequently updated or you can tolerate an approximate result, the performance of aggregate queries can be improved by disabling these visibility checks.
+To do so, set the second argument of `pdb.agg` to `false`.
+
+<CodeGroup>
+```sql SQL
+SELECT pdb.agg('{"value_count": {"field": "id"}}', false)
+FROM mock_items
+WHERE description ||| 'running shoes';
+```
+
+```python Django
+from paradedb import Agg, Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR'))
+).aggregate(
+    agg=Agg('{"value_count": {"field": "id"}}', exact=False)
+)
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
+```
+
+</CodeGroup>
+
+Disabling this check can improve query times by 2-4x in some cases (at the expense of correctness).
+
+<Note>
+If a single query contains multiple `pdb.agg` calls, all of them must use the same visibility setting (either all `true` or all `false`).
+</Note>
+
 ## JSON Fields
 
 If `metadata` is a JSON field with key `color`, use `metadata.color` as the field name:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"terms": {"field": "metadata.color"}}'))
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.terms("metadata.color"))
+```
+
+</CodeGroup>
 
 <Note>
 If a text or JSON field is used inside `pdb.agg`, it must use the [literal](/documentation/tokenizers/available-tokenizers/literal) or

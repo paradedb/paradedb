@@ -21,17 +21,12 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 ## Migration Tips
 
-<Note>
-  ParadeDB's `pdb.agg()` function accepts **Elasticsearch-compatible JSON** for
-  aggregations, so many of your existing aggregation queries can be reused with
-  minimal changes. See the [aggregates
-  documentation](/documentation/aggregates/overview).
-</Note>
-
 - **Start with your most common queries.** Map your highest-traffic Elasticsearch queries using the
   [full-text search reference](/documentation/full-text/overview).
 - **Use SQL JOINs instead of denormalization.** Elasticsearch requires denormalized documents, but ParadeDB supports
   full SQL JOINs. You can normalize your schema and simplify your data model.
+- **Reuse your aggregation queries.** ParadeDB's `pdb.agg()` function accepts [Elasticsearch-compatible JSON](/documentation/aggregates/overview),
+  so many of your existing aggregation queries can be migrated with minimal changes.
 - **Leverage Postgres tooling.** Backups, replication, monitoring, and CI/CD integrate with standard Postgres tools
   you may already use.
 
@@ -41,17 +36,17 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 | Feature                     | Elasticsearch | ParadeDB | Notes                                                                                                                                                                     |
 | --------------------------- | :-----------: | :------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full-text search (BM25)     |      ✅       |    ✅    |                                                                                                                                                                           |
-| Fuzzy matching              |      ✅       |    ✅    | Max edit distance of 2                                                                                                                                                    |
-| Phrase matching             |      ✅       |    ✅    |                                                                                                                                                                           |
-| Phrase prefix               |      ✅       |    ✅    |                                                                                                                                                                           |
-| Regular expressions         |      ✅       |    ✅    |                                                                                                                                                                           |
+| Full-text search (BM25)     |      ✅       |    ✅    | [`|||` and `&&&` operators](/documentation/full-text/overview)                                                                                                             |
+| Fuzzy matching              |      ✅       |    ✅    | Max edit distance of 2 via [`pdb.fuzzy()`](/documentation/full-text/fuzzy)                                                                                                |
+| Phrase matching             |      ✅       |    ✅    | [`###` operator](/documentation/full-text/phrase)                                                                                                                          |
+| Phrase prefix               |      ✅       |    ✅    | [`pdb.phrase_prefix()`](/documentation/query-builder/phrase/phrase-prefix)                                                                                                 |
+| Regular expressions         |      ✅       |    ✅    | [`pdb.regex()`](/documentation/query-builder/term/regex)                                                                                                                  |
 | Wildcard queries            |      ✅       |    ✅    | Via [regex](/documentation/query-builder/term/regex)                                                                                                                      |
 | Boolean queries             |      ✅       |    ✅    | Via SQL `AND`/`OR`/`NOT` or [`paradedb.boolean`](/documentation/query-builder/overview)                                                                                   |
 | Proximity search            |      ✅       |    ✅    | [`##` operator](/documentation/full-text/proximity)                                                                                                                       |
 | More Like This              |      ✅       |    ✅    | [`paradedb.more_like_this`](/documentation/query-builder/specialized/more-like-this)                                                                                      |
-| Nested queries              |      ✅       |    ✅    | Via SQL `JOIN`s                                                                                                                                                           |
-| Parent-child queries        |      ✅       |    ✅    | Via SQL `JOIN`s                                                                                                                                                           |
+| Nested queries              |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview)                                                                                                                           |
+| Parent-child queries        |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview)                                                                                                                           |
 | Geo queries                 |      ✅       |    ❌    | Use [PostGIS](https://postgis.net/)                                                                                                                                       |
 | Percolator (reverse search) |      ✅       |    ❌    |                                                                                                                                                                           |
 | Script-based scoring        |      ✅       |    ❌    |                                                                                                                                                                           |
@@ -62,7 +57,7 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 | Feature                        | Elasticsearch | ParadeDB | Notes                                                                                                                                                                                                                   |
 | ------------------------------ | :-----------: | :------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Custom tokenizers              |      ✅       |    ✅    | 12+ built-in [tokenizers](/documentation/tokenizers/overview)                                                                                                                                                           |
-| Token filters                  |      ✅       |    ✅    | 7 filters: lowercase, stemmer, stopwords, ascii_folding, alpha_num_only, trim, token_length                                                                                                                             |
+| Token filters                  |      ✅       |    ✅    | 7 [filters](/documentation/token-filters/overview): [lowercase](/documentation/token-filters/lowercase), [stemmer](/documentation/token-filters/stemming), [stopwords](/documentation/token-filters/stopwords), [ascii_folding](/documentation/token-filters/ascii-folding), [alpha_num_only](/documentation/token-filters/alphanumeric), [trim](/documentation/token-filters/trim), [token_length](/documentation/token-filters/token-length) |
 | Character filters              |      ✅       |    ❌    |                                                                                                                                                                                                                         |
 | Synonyms                       |      ✅       |    ⚠️    | Coming soon                                                                                                                                                                                                             |
 | Different search-time analyzer |      ✅       |    ✅    | Via [search_tokenizer](/documentation/tokenizers/search-tokenizer) or [multiple tokenizers per field](/documentation/tokenizers/multiple-per-field)                                                                     |
@@ -92,11 +87,11 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 | Feature            | Elasticsearch | ParadeDB | Notes                                                   |
 | ------------------ | :-----------: | :------: | ------------------------------------------------------- |
-| BM25 scoring       |      ✅       |    ✅    |                                                         |
+| BM25 scoring       |      ✅       |    ✅    | [`pdb.score()`](/documentation/sorting/score)           |
 | Custom boost       |      ✅       |    ✅    | [`pdb.boost()`](/documentation/sorting/boost) type cast |
-| Constant score     |      ✅       |    ✅    | `paradedb.const_score()`                                |
+| Constant score     |      ✅       |    ✅    | [`pdb.const()`](/documentation/sorting/boost#constant-scoring)  |
 | Disjunction max    |      ✅       |    ✅    | `paradedb.disjunction_max()`                            |
-| Function score     |      ✅       |    ❌    | Use boost / const_score as partial alternatives         |
+| Function score     |      ✅       |    ❌    | Use [boost](/documentation/sorting/boost) / [const](/documentation/sorting/boost#constant-scoring) as partial alternatives |
 | Script scoring     |      ✅       |    ❌    |                                                         |
 | Decay functions    |      ✅       |    ❌    |                                                         |
 | Field value factor |      ✅       |    ❌    |                                                         |
@@ -121,7 +116,7 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 | Index aliases     |      ✅       |    ✅    | Via Postgres views                                                    |
 | Index templates   |      ✅       |    ❌    |                                                                       |
 | Dynamic mapping   |      ✅       |    ❌    | Schema defined at index creation; requires `REINDEX` to change        |
-| Multi-field index |      ✅       |    ✅    | All columns included in one index per table                           |
+| Multi-field index |      ✅       |    ✅    | All columns included in [one index per table](/documentation/indexing/create-index) |
 
 ## Data Operations
 
@@ -129,9 +124,9 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 | ------------------ | :-----------: | :------: | ------------------------------------------------------------------------------------- |
 | ACID transactions  |      ❌       |    ✅    | Full Postgres ACID compliance                                                         |
 | Real-time indexing |      ⚠️       |    ✅    | ES is near-real-time (requires refresh); ParadeDB provides immediate read-after-write |
-| JOINs              |      ❌       |    ✅    | Full SQL JOIN support                                                                 |
+| JOINs              |      ❌       |    ✅    | Full SQL [JOIN](/documentation/joins/overview) support                                |
 | UPDATE / DELETE    |      ⚠️       |    ✅    | ES internally reindexes; Postgres handles natively                                    |
-| Bulk insert        |      ✅       |    ✅    | `COPY` or batch `INSERT`                                                              |
+| Bulk insert        |      ✅       |    ✅    | [`COPY` or batch `INSERT`](/documentation/performance-tuning/writes)                  |
 | SQL queries        |      ❌       |    ✅    | Full SQL including subqueries, CTEs, window functions                                 |
 
 ## Deployment and Operations
@@ -141,8 +136,8 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 | Horizontal sharding        |      ✅       |    ⚠️    | Via [Citus](/deploy/citus) for distributed workloads                                   |
 | Read replicas              |      ✅       |    ✅    | Postgres streaming replication                                                         |
 | Kubernetes                 |      ✅       |    ✅    | [CNPG / Helm charts](/deploy/self-hosted/kubernetes)                                   |
-| Docker                     |      ✅       |    ✅    | [Official Docker image](/deploy/self-hosted/docker)                                    |
-| Logical replication ingest |      ❌       |    ✅    | [Sync from existing Postgres](/deploy/self-hosted/logical-replication/getting-started) |
+| Docker                     |      ✅       |    ✅    | [Official Docker image](/documentation/getting-started/install)                         |
+| Logical replication ingest |      ❌       |    ✅    | [Sync from existing Postgres](/deploy/logical-replication/getting-started)              |
 | Cross-cluster search       |      ✅       |    ❌    |                                                                                        |
 | Snapshot / restore         |      ✅       |    ✅    | Via Postgres backup tools (pg_dump, WAL archiving)                                     |
 | Monitoring                 |      ✅       |    ✅    | pg_stat, pganalyze, standard Postgres tools                                            |
@@ -154,4 +149,4 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 | `from` / `size`   |      ✅       |    ✅    | SQL `LIMIT` / `OFFSET`                                           |
 | `scroll` API      |      ✅       |    ❌    | Use SQL cursors (`DECLARE` / `FETCH`) instead                    |
 | `search_after`    |      ✅       |    ❌    | Use keyset pagination (`WHERE id > last_id ORDER BY id`) instead |
-| TopN optimization |      ✅       |    ✅    | [`paradedb.limit_fetch_multiplier`](/documentation/sorting/topn) |
+| TopN optimization |      ✅       |    ✅    | [`paradedb.limit_fetch_multiplier`](/documentation/sorting/topk) |

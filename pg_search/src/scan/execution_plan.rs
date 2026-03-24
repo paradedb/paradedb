@@ -44,7 +44,8 @@ use datafusion::physical_expr::{
 };
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
-    ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
+    ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
+    PushedDown,
 };
 use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricBuilder, MetricsSet};
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
@@ -330,11 +331,17 @@ impl ExecutionPlan for PgSearchScanPlan {
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", partition));
         let rows_pruned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", partition));
+        let rows_seeked_past = has_dynamic_filters
+            .then(|| MetricBuilder::new(&self.metrics).counter("rows_seeked_past", partition));
 
         let schema = self.properties.eq_properties.schema().clone();
         let dynamic_filters = self.dynamic_filters.clone();
 
         let stream_gen = async_stream::try_stream! {
+            let mut last_rows_scanned = 0;
+            let mut last_rows_pruned = 0;
+            let mut last_rows_seeked_past = 0;
+
             loop {
                 let pre_filters = build_filters(&dynamic_filters, &schema);
                 let pre_filters_wrapper = if pre_filters.is_empty() {
@@ -352,16 +359,30 @@ impl ExecutionPlan for PgSearchScanPlan {
                     pre_filters_wrapper.as_ref(),
                 ) {
                     Some(batch) => {
+                        // We flush pre-materialization filter stats from the Scanner continuously on every batch
+                        // rather than waiting for the stream to exhaust (`None`), because downstream
+                        // execution nodes (like `LimitExec`) will simply drop the stream early when they
+                        // have seen enough rows. If we don't continuously flush, the metrics for the
+                        // scanned data before the early exit are lost entirely.
+                        if let Some(ref counter) = rows_scanned {
+                            let current = scanner.pre_filter_rows_scanned;
+                            counter.add(current - last_rows_scanned);
+                            last_rows_scanned = current;
+                        }
+                        if let Some(ref counter) = rows_pruned {
+                            let current = scanner.pre_filter_rows_pruned;
+                            counter.add(current - last_rows_pruned);
+                            last_rows_pruned = current;
+                        }
+                        if let Some(ref counter) = rows_seeked_past {
+                            let current = scanner.docs_seeked_past() as usize;
+                            counter.add(current - last_rows_seeked_past);
+                            last_rows_seeked_past = current;
+                        }
+
                         yield batch.to_record_batch(&schema);
                     }
                     None => {
-                        // Flush pre-materialization filter stats from Scanner.
-                        if let Some(ref counter) = rows_scanned {
-                            counter.add(scanner.pre_filter_rows_scanned);
-                        }
-                        if let Some(ref counter) = rows_pruned {
-                            counter.add(scanner.pre_filter_rows_pruned);
-                        }
                         break;
                     }
                 }
@@ -378,6 +399,15 @@ impl ExecutionPlan for PgSearchScanPlan {
 
     fn metrics(&self) -> Option<MetricsSet> {
         Some(self.metrics.clone_inner())
+    }
+
+    fn gather_filters_for_pushdown(
+        &self,
+        _phase: FilterPushdownPhase,
+        _parent_filters: Vec<Arc<dyn PhysicalExpr>>,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterDescription> {
+        Ok(FilterDescription::new())
     }
 
     fn handle_child_pushdown_result(

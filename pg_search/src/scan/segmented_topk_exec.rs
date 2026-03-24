@@ -398,8 +398,19 @@ impl ExecutionPlan for SegmentedTopKExec {
         child_pushdown_result: ChildPushdownResult,
         _config: &datafusion::common::config::ConfigOptions,
     ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
-        // Pass through: report parent filter support based on what the child accepted.
-        Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+        let mut result = FilterPushdownPropagation::if_all(child_pushdown_result);
+        if let Some(updated_child) = result.updated_node.take() {
+            let mut new_exec = SegmentedTopKExec::new(
+                updated_child,
+                self.sort_exprs.clone(),
+                self.deferred_columns.clone(),
+                Arc::clone(&self.ffhelper),
+                self.k,
+            );
+            new_exec.dynamic_filter = Arc::clone(&self.dynamic_filter);
+            result.updated_node = Some(Arc::new(new_exec) as Arc<dyn ExecutionPlan>);
+        }
+        Ok(result)
     }
 }
 

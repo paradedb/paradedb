@@ -205,26 +205,13 @@ pub fn create_session_context() -> SessionContext {
         .options_mut()
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
+    config
+        .options_mut()
+        .optimizer
+        .enable_join_dynamic_filter_pushdown = true;
 
     let mut builder = SessionStateBuilder::new().with_config(config);
 
-    if crate::gucs::is_columnar_sort_enabled() {
-        let rule = Arc::new(SortMergeJoinEnforcer::new());
-        builder = builder.with_physical_optimizer_rule(rule);
-        // Re-run dynamic filter pushdown after the enforcer. The enforcer's
-        // transform_up causes `with_new_children` on ancestor nodes, which in
-        // SortExec's case creates a new DynamicFilterPhysicalExpr that hasn't
-        // been pushed to PgSearchScan yet. This second pass establishes the
-        // connection.
-        //
-        // NOTE: Inserting the enforcer before the default FilterPushdown(Post)
-        // rule (rather than appending a second pass) was considered, but the
-        // enforcer relies on detecting CoalescePartitionsExec on HashJoin
-        // children — the plan structure at that earlier pipeline point differs,
-        // causing missing SortPreservingMergeExec and incorrect join results.
-        builder =
-            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-    }
     builder = builder.with_optimizer_rule(Arc::new(
         crate::scan::late_materialization::LateMaterializationRule,
     ));
@@ -232,9 +219,15 @@ pub fn create_session_context() -> SessionContext {
     builder = builder.with_physical_optimizer_rule(Arc::new(
         crate::scan::segmented_topk_rule::SegmentedTopKRule,
     ));
+
+    if crate::gucs::is_columnar_sort_enabled() {
+        let rule = Arc::new(SortMergeJoinEnforcer::new());
+        builder = builder.with_physical_optimizer_rule(rule);
+    }
+
     // Run a second FilterPushdown(Post) pass so that filters from nodes injected
     // by SegmentedTopKRule (e.g. SegmentedTopKExec's DynamicFilterPhysicalExpr)
-    // are pushed down through TantivyLookupExec to PgSearchScan.
+    // and/or SortMergeJoinEnforcer are pushed down through TantivyLookupExec to PgSearchScan.
     builder =
         builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
     let state = builder.build();

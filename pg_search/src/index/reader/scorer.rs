@@ -18,9 +18,9 @@
 use crate::index::reader::index::enable_scoring;
 use std::sync::OnceLock;
 use tantivy::query::{Query, Scorer};
-use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
+use tantivy::{DocAddress, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
 
-pub struct DeferredScorer {
+struct DeferredScorer {
     query: Box<dyn Query>,
     need_scores: bool,
     segment_reader: SegmentReader,
@@ -29,21 +29,6 @@ pub struct DeferredScorer {
 }
 
 impl DeferredScorer {
-    pub fn new(
-        query: Box<dyn Query>,
-        need_scores: bool,
-        segment_reader: SegmentReader,
-        searcher: Searcher,
-    ) -> Self {
-        Self {
-            query,
-            need_scores,
-            segment_reader,
-            searcher,
-            scorer: Default::default(),
-        }
-    }
-
     #[track_caller]
     #[inline(always)]
     fn scorer_mut(&mut self) -> &mut Box<dyn Scorer> {
@@ -69,29 +54,6 @@ impl DeferredScorer {
     }
 }
 
-impl DocSet for DeferredScorer {
-    #[inline(always)]
-    fn advance(&mut self) -> DocId {
-        self.scorer_mut().advance()
-    }
-
-    #[inline(always)]
-    fn doc(&self) -> DocId {
-        self.scorer().doc()
-    }
-
-    fn size_hint(&self) -> u32 {
-        self.scorer().size_hint()
-    }
-}
-
-impl Scorer for DeferredScorer {
-    #[inline(always)]
-    fn score(&mut self) -> Score {
-        self.scorer_mut().score()
-    }
-}
-
 pub struct ScorerIter {
     deferred: DeferredScorer,
     segment_ord: SegmentOrdinal,
@@ -100,12 +62,20 @@ pub struct ScorerIter {
 
 impl ScorerIter {
     pub fn new(
-        scorer: DeferredScorer,
+        query: Box<dyn Query>,
+        need_scores: bool,
+        searcher: Searcher,
         segment_ord: SegmentOrdinal,
         segment_reader: SegmentReader,
     ) -> Self {
         Self {
-            deferred: scorer,
+            deferred: DeferredScorer {
+                query,
+                need_scores,
+                segment_reader: segment_reader.clone(),
+                searcher,
+                scorer: OnceLock::new(),
+            },
             segment_ord,
             segment_reader,
         }
@@ -115,11 +85,15 @@ impl ScorerIter {
         self.segment_ord
     }
 
+    pub fn segment_id(&self) -> tantivy::index::SegmentId {
+        self.segment_reader.segment_id()
+    }
+
     /// Returns the estimated number of documents that will be yielded by this iterator.
     ///
     /// This is used for query planning statistics and uses Tantivy's `size_hint`.
     pub fn estimated_doc_count(&self) -> u32 {
-        self.deferred.size_hint()
+        self.deferred.scorer().size_hint()
     }
 }
 
@@ -128,7 +102,7 @@ impl Iterator for ScorerIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let doc_id = self.deferred.doc();
+            let doc_id = self.deferred.scorer().doc();
 
             if doc_id == tantivy::TERMINATED {
                 // we've read all the docs
@@ -141,18 +115,18 @@ impl Iterator for ScorerIter {
                 .unwrap_or(true)
             {
                 // this doc is alive
-                let score = self.deferred.score();
+                let score = self.deferred.scorer_mut().score();
                 let this = (score, DocAddress::new(self.segment_ord, doc_id));
 
                 // move to the next doc for the next iteration
-                self.deferred.advance();
+                self.deferred.scorer_mut().advance();
 
                 // return the live doc
                 return Some(this);
             }
 
             // this doc isn't alive, move to the next doc and loop around
-            self.deferred.advance();
+            self.deferred.scorer_mut().advance();
         }
     }
 

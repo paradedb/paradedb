@@ -49,10 +49,10 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
-                 :     SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
+                 :     SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], left_dynamic_filter=DynamicFilter [ empty ], right_dynamic_filter=DynamicFilter [ empty ]
                  :       ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query="all"
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :       ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
@@ -107,10 +107,10 @@ OFFSET 5 LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
-                 :     SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
+                 :     SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], left_dynamic_filter=DynamicFilter [ empty ], right_dynamic_filter=DynamicFilter [ empty ]
                  :       ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query="all"
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :       ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
@@ -178,10 +178,10 @@ LIMIT 10;
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   SortPreservingMergeExec: [id@2 ASC], fetch=10
                  :     ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
-                 :       SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
+                 :       SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], left_dynamic_filter=DynamicFilter [ empty ], right_dynamic_filter=DynamicFilter [ empty ]
                  :         SortPreservingMergeExec: [t1_id@1 ASC]
                  :           ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
-                 :             PgSearchScan: segments=2, query="all"
+                 :             PgSearchScan: segments=2, dynamic_filters=1, query="all"
                  :         SortPreservingMergeExec: [id@1 ASC]
                  :           ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
                  :             PgSearchScan: segments=2, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
@@ -243,8 +243,8 @@ JOIN recursive_smj_3 t3 ON t1.id = t3.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC NULLS FIRST
 LIMIT 10;
-                                                                                       QUERY PLAN                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t1.val, t2.val, t3.val, t1.id
    ->  Result
@@ -258,14 +258,14 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
                  :   ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
-                 :     SortMergeJoinExec: join_type=Inner, on=[(t1_id@3, t1_id@1)]
-                 :       SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
+                 :     SortMergeJoinExec: join_type=Inner, on=[(t1_id@3, t1_id@1)], left_dynamic_filter=DynamicFilter [ empty ], right_dynamic_filter=DynamicFilter [ empty ]
+                 :       SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], left_dynamic_filter=DynamicFilter [ empty ], right_dynamic_filter=DynamicFilter [ empty ]
                  :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
                  :         ProjectionExec: expr=[ctid@0 as ctid_1, t1_id@1 as t1_id]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
@@ -337,10 +337,10 @@ LIMIT 10;
            :     TantivyLookupExec: decode=[val]
            :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val]
-           :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
+           :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], left_dynamic_filter=DynamicFilter [ empty ], right_dynamic_filter=DynamicFilter [ empty ]
            :             SortPreservingMergeExec: [t1_id@1 ASC]
            :               ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
-           :                 PgSearchScan: segments=2, query="all"
+           :                 PgSearchScan: segments=2, dynamic_filters=1, query="all"
            :             SortPreservingMergeExec: [id@1 ASC]
            :               ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val]
            :                 PgSearchScan: segments=2, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}
@@ -356,8 +356,8 @@ JOIN dyn_filter_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
-                                                                                                                               QUERY PLAN                                                                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=10.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
          Relation Tree: t2 INNER t1
@@ -368,15 +368,15 @@ LIMIT 10;
            : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10, metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :     TantivyLookupExec: decode=[val], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, metrics=[rows_input=20.00 K, rows_output=10, segments_seen=2]
-           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val], metrics=[output_rows=20.00 K, output_bytes=1184.8 KB, output_batches=3]
-           :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=20.00 K, output_bytes=1568.8 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=40.00 K, peak_mem_used=1.20 M]
+           :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, metrics=[rows_input=18.19 K, rows_output=10, segments_seen=2]
+           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val], metrics=[output_rows=18.19 K, output_bytes=1112.4 KB, output_batches=3]
+           :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], left_dynamic_filter=DynamicFilter [ false ], right_dynamic_filter=DynamicFilter [ false ], metrics=[output_rows=18.19 K, output_bytes=1496.4 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, dynamic_filter_updates=6, input_batches=6, input_rows=38.19 K, peak_mem_used=1.20 M]
            :             SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
            :               ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
-           :                 PgSearchScan: segments=2, query="all"
-           :             SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=1113.3 KB, output_batches=3]
-           :               ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=20.00 K, output_bytes=566.4 KB, output_batches=4]
-           :                 PgSearchScan: segments=2, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=0, rows_scanned=20.00 K]
+           :                 PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=20.00 K, rows_seeked_past=0]
+           :             SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=18.19 K, output_bytes=1012.7 KB, output_batches=3]
+           :               ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=18.19 K, output_bytes=515.2 KB, output_batches=4]
+           :                 PgSearchScan: segments=2, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=1.81 K, rows_scanned=20.00 K, rows_seeked_past=0]
 (19 rows)
 
 -- Verify results
@@ -461,10 +461,10 @@ LIMIT 25;
            :       SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25
            :         ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
            :           ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0]
-           :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
+           :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], left_dynamic_filter=DynamicFilter [ empty ], right_dynamic_filter=DynamicFilter [ empty ]
            :               SortPreservingMergeExec: [id@1 ASC]
            :                 ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val]
-           :                   PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+           :                   PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
            :               SortPreservingMergeExec: [t1_id@1 ASC]
            :                 ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
            :                   PgSearchScan: segments=2, dynamic_filters=1, query="all"
@@ -477,8 +477,8 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
 ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
-                                                                                                                                                                          QUERY PLAN                                                                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=25.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)
          Relation Tree: t2 INNER t1
@@ -492,13 +492,13 @@ LIMIT 25;
            :       SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, metrics=[rows_input=16.62 K, rows_output=25, segments_seen=2]
            :         ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=16.62 K, output_bytes=1292.9 KB, output_batches=3]
            :           ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0], metrics=[output_rows=16.62 K, output_bytes=1292.9 KB, output_batches=3]
-           :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], metrics=[output_rows=16.62 K, output_bytes=1472.6 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=36.62 K, peak_mem_used=524.9 K]
+           :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], left_dynamic_filter=DynamicFilter [ false ], right_dynamic_filter=DynamicFilter [ false ], metrics=[output_rows=16.62 K, output_bytes=1472.6 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, dynamic_filter_updates=6, input_batches=6, input_rows=36.62 K, peak_mem_used=524.9 K]
            :               SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=16.62 K, output_bytes=925.4 KB, output_batches=3]
            :                 ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=16.62 K, output_bytes=471.9 KB, output_batches=4]
-           :                   PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[rows_pruned=3.38 K, rows_scanned=20.00 K]
+           :                   PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[rows_pruned=3.38 K, rows_scanned=20.00 K, rows_seeked_past=0]
            :               SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
            :                 ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
-           :                   PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=20.00 K]
+           :                   PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=20.00 K, rows_seeked_past=0]
 (20 rows)
 
 SELECT t1.id, t1.val
@@ -566,10 +566,10 @@ LIMIT 10;
            :       SegmentedTopKExec: expr=[val@3 ASC NULLS LAST], k=10
            :         ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
            :           ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0]
-           :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
+           :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], left_dynamic_filter=DynamicFilter [ empty ], right_dynamic_filter=DynamicFilter [ empty ]
            :               SortPreservingMergeExec: [id@1 ASC]
            :                 ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val]
-           :                   PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+           :                   PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
            :               SortPreservingMergeExec: [t1_id@1 ASC]
            :                 ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
            :                   PgSearchScan: segments=2, dynamic_filters=1, query="all"
@@ -672,10 +672,10 @@ LIMIT 15;
            :     SortExec: TopK(fetch=15), expr=[id@2 DESC], preserve_partitioning=[true]
            :       ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
            :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, ctid_0@2 as ctid_0]
-           :           SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
+           :           SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], left_dynamic_filter=DynamicFilter [ empty ], right_dynamic_filter=DynamicFilter [ empty ]
            :             SortPreservingMergeExec: [id@1 ASC]
            :               ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
-           :                 PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
+           :                 PgSearchScan: segments=2, dynamic_filters=2, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}
            :             SortPreservingMergeExec: [t1_id@1 ASC]
            :               ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id]
            :                 PgSearchScan: segments=2, dynamic_filters=1, query="all"
@@ -721,6 +721,94 @@ DROP TABLE IF EXISTS dyn_filter_t1 CASCADE;
 DROP TABLE IF EXISTS dyn_filter_t2 CASCADE;
 DROP TABLE IF EXISTS null_val_t1 CASCADE;
 DROP TABLE IF EXISTS null_val_t2 CASCADE;
+DROP TABLE IF EXISTS sparse_t1 CASCADE;
+DROP TABLE IF EXISTS sparse_t2 CASCADE;
+-- =============================================================================
+-- TEST 11: Zig-zag SortMergeJoin dynamic filter pushdown
+-- Both tables have interleaved sparse and dense regions.
+-- DataFusion SMJ will jump ahead by large strides alternating between tables,
+-- forcing the scanner for both tables to dynamically seek and skip blocks.
+-- Note: The gaps are carefully aligned to multiples of the scanner's batch size
+-- (128 rows). DataFusion's SMJ operator publishes dynamic filter bounds at batch
+-- boundaries (`first_join_key` and `last_join_key`). If a batch "straddles" a gap, 
+-- it will publish a pre-gap key, and the opposing side will not be able to 
+-- skip the gap effectively.
+-- =============================================================================
+CREATE TABLE sparse_t1 (id INTEGER PRIMARY KEY, val TEXT);
+CREATE TABLE sparse_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+CREATE INDEX sparse_t1_idx ON sparse_t1 USING bm25 (id, val)
+WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}', mutable_segment_rows = 10000);
+CREATE INDEX sparse_t2_idx ON sparse_t2 USING bm25 (id, t1_id, val)
+WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}', mutable_segment_rows = 10000);
+-- Insert zig-zag pattern:
+-- Cycle of 400 rows.
+-- First 5 rows: both tables have data (Intersection)
+-- Next 195 rows: only t1 has data
+-- Next 200 rows: only t2 has data
+INSERT INTO sparse_t1 
+SELECT i, 'val ' || i 
+FROM generate_series(1, 2000) i 
+WHERE (i - 1) % 400 < 200;
+INSERT INTO sparse_t2 
+SELECT i, i, 'val ' || i 
+FROM generate_series(1, 2000) i 
+WHERE (i - 1) % 400 < 5 OR (i - 1) % 400 >= 200;
+ANALYZE sparse_t1;
+ANALYZE sparse_t2;
+-- We set batch size small to ensure thresholds are pushed and checked frequently
+SET paradedb.dynamic_filter_batch_size = 128;
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.id, t2.id
+FROM sparse_t1 t1
+JOIN sparse_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ pdb.all()
+ORDER BY t1.id ASC
+OFFSET 15 LIMIT 10;
+                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=10.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)
+         Relation Tree: t2 INNER t1
+         Join Cond: t1.id = t2.t1_id
+         Limit: 10
+         Offset: 15
+         Order By: t1.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=25, output_bytes=600.0 B, output_batches=1]
+           :   SortExec: TopK(fetch=25), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 1605], metrics=[output_rows=25, output_bytes=600.0 B, output_batches=1, row_replacements=25]
+           :     ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id], metrics=[output_rows=25, output_bytes=192.0 KB, output_batches=1]
+           :       ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, ctid_0@2 as ctid_0], metrics=[output_rows=25, output_bytes=192.0 KB, output_batches=1]
+           :         SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], left_dynamic_filter=DynamicFilter [ false ], right_dynamic_filter=DynamicFilter [ false ], metrics=[output_rows=25, output_bytes=256.0 KB, output_batches=1, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, dynamic_filter_updates=15, input_batches=17, input_rows=1.90 K, peak_mem_used=8.82 K]
+           :           ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id], metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=8]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"all":{"field":"val"}}}}, metrics=[rows_pruned=0, rows_scanned=1.00 K, rows_seeked_past=0]
+           :           ProjectionExec: expr=[ctid@0 as ctid_0, t1_id@1 as t1_id], metrics=[output_rows=896, output_bytes=14.0 KB, output_batches=9]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[rows_pruned=129, rows_scanned=1.02 K, rows_seeked_past=0]
+(19 rows)
+
+SELECT t1.id, t2.id
+FROM sparse_t1 t1
+JOIN sparse_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ pdb.all()
+ORDER BY t1.id ASC
+OFFSET 15 LIMIT 10;
+  id  |  id  
+------+------
+ 1201 | 1201
+ 1202 | 1202
+ 1203 | 1203
+ 1204 | 1204
+ 1205 | 1205
+ 1601 | 1601
+ 1602 | 1602
+ 1603 | 1603
+ 1604 | 1604
+ 1605 | 1605
+(10 rows)
+
+-- Reset the batch size
+RESET paradedb.dynamic_filter_batch_size;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_join_custom_scan;

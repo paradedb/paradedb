@@ -369,6 +369,68 @@ DROP TABLE IF EXISTS dyn_filter_t1 CASCADE;
 DROP TABLE IF EXISTS dyn_filter_t2 CASCADE;
 DROP TABLE IF EXISTS null_val_t1 CASCADE;
 DROP TABLE IF EXISTS null_val_t2 CASCADE;
+DROP TABLE IF EXISTS sparse_t1 CASCADE;
+DROP TABLE IF EXISTS sparse_t2 CASCADE;
+
+-- =============================================================================
+-- TEST 11: Zig-zag SortMergeJoin dynamic filter pushdown
+-- Both tables have interleaved sparse and dense regions.
+-- DataFusion SMJ will jump ahead by large strides alternating between tables,
+-- forcing the scanner for both tables to dynamically seek and skip blocks.
+-- Note: The gaps are carefully aligned to multiples of the scanner's batch size
+-- (128 rows). DataFusion's SMJ operator publishes dynamic filter bounds at batch
+-- boundaries (`first_join_key` and `last_join_key`). If a batch "straddles" a gap, 
+-- it will publish a pre-gap key, and the opposing side will not be able to 
+-- skip the gap effectively.
+-- =============================================================================
+
+CREATE TABLE sparse_t1 (id INTEGER PRIMARY KEY, val TEXT);
+CREATE TABLE sparse_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+
+CREATE INDEX sparse_t1_idx ON sparse_t1 USING bm25 (id, val)
+WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}', mutable_segment_rows = 10000);
+
+CREATE INDEX sparse_t2_idx ON sparse_t2 USING bm25 (id, t1_id, val)
+WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}', mutable_segment_rows = 10000);
+
+-- Insert zig-zag pattern:
+-- Cycle of 400 rows.
+-- First 5 rows: both tables have data (Intersection)
+-- Next 195 rows: only t1 has data
+-- Next 200 rows: only t2 has data
+INSERT INTO sparse_t1 
+SELECT i, 'val ' || i 
+FROM generate_series(1, 2000) i 
+WHERE (i - 1) % 400 < 200;
+
+INSERT INTO sparse_t2 
+SELECT i, i, 'val ' || i 
+FROM generate_series(1, 2000) i 
+WHERE (i - 1) % 400 < 5 OR (i - 1) % 400 >= 200;
+
+ANALYZE sparse_t1;
+ANALYZE sparse_t2;
+
+-- We set batch size small to ensure thresholds are pushed and checked frequently
+SET paradedb.dynamic_filter_batch_size = 128;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.id, t2.id
+FROM sparse_t1 t1
+JOIN sparse_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ pdb.all()
+ORDER BY t1.id ASC
+OFFSET 15 LIMIT 10;
+
+SELECT t1.id, t2.id
+FROM sparse_t1 t1
+JOIN sparse_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ pdb.all()
+ORDER BY t1.id ASC
+OFFSET 15 LIMIT 10;
+
+-- Reset the batch size
+RESET paradedb.dynamic_filter_batch_size;
 
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;

@@ -1,6 +1,6 @@
 -- Join with scores/order-by/limit, small target list.
 
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET paradedb.enable_join_custom_scan TO off; EXPLAIN ANALYZE SELECT
   documents.id,
   files.id,
   pages.id,
@@ -12,7 +12,7 @@ WHERE
 ORDER BY score DESC
 LIMIT 1000;
 
-SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; EXPLAIN ANALYZE SELECT
   documents.id,
   files.id,
   pages.id,

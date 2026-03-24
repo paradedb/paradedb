@@ -20,64 +20,70 @@
 //! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
 //! how dynamic filters fit into the overall pruning pipeline.
 //!
-//! Dynamic filters allow parent operators (e.g. `SortExec(TopK)`) to push evolving
-//! thresholds into scan nodes so that rows failing the threshold are pruned *before*
-//! column materialization — at the term-ordinal level for strings and direct
-//! fast-field comparisons for numerics. This is critical for `ORDER BY … LIMIT`
-//! queries over joins: without it, the scan must materialize every row even though
-//! only the Top K are needed.
+//! Dynamic filters allow parent operators (e.g. `SortExec(TopK)`) to push
+//! evolving thresholds into scan nodes so that rows failing the threshold are
+//! pruned *before* column materialization — at the term-ordinal level for
+//! strings and direct fast-field comparisons for numerics. This is critical for
+//! `ORDER BY … LIMIT` queries over joins: without it, the scan must materialize
+//! every row even though only the top-K are needed.
 //!
 //! # Data Flow
 //!
-//! ```text
-//! SortExec(TopK)
-//!   creates DynamicFilterPhysicalExpr ("val < current_threshold")
-//!        │
-//!        │  FilterPushdown pass
-//!        ▼
-//! FilterPassthroughExec               ← routes filter to correct join side
-//!   (wraps SortMergeJoinExec)          using FilterDescription::from_children
-//!        │
-//!        ▼
-//! PgSearchScanPlan                   ← handle_child_pushdown_result stores
-//!   .dynamic_filters                   the DynamicFilterPhysicalExpr; when
-//!                                      paradedb.dynamic_filter_batch_size > 0,
-//!                                      caps the scanner batch size so Top K can
-//!                                      tighten its threshold between batches
-//!        │
-//!        │  at poll time
-//!        ▼
-//! ScanStream::collect_pre_filters    ← calls DynamicFilterPhysicalExpr::current()
-//!   → collect_filters()                to get the latest threshold, decomposes
-//!   → Vec<PreFilter>                   it into PreFilter(s)
-//!        │
-//!        ▼
-//! Scanner::next()                    ← applies PreFilters via apply_arrow()
-//!   prunes doc IDs in-place            before materializing Arrow columns
-//! ```
+//! ### Sources of Dynamic Filters
+//! We are currently aware of the following DataFusion operators that can
+//! generate dynamic filters:
+//! - **SortExec (TopK):** Pushes down a threshold boundary (`val <
+//!   current_threshold`) to prune rows that cannot make it into the top-K
+//!   results.
+//! - **SortMergeJoinExec:** Progressively publishes min/max bounds of the join
+//!   keys as it streams sorted inputs, allowing both sides to prune rows
+//!   incrementally.
+//! - **HashJoinExec:** Pushes down a dynamic filter (typically an `InList` or
+//!   `HashTableLookup` expression) representing the join-key bounds once the
+//!   build side is fully materialized.
+//!
+//! ### Sequence of Steps
+//! 1. A parent operator (e.g., `SortExec` or `SortMergeJoinExec`) creates a
+//!    `DynamicFilterPhysicalExpr` and initiates a FilterPushdown pass.
+//! 2. The filter is propagated down the physical plan natively by DataFusion.
+//! 3. `PgSearchScanPlan` receives the filter in its
+//!    `handle_child_pushdown_result` method, accepts it, and stores the
+//!    `DynamicFilterPhysicalExpr`.
+//!    - *Note:* If `paradedb.dynamic_filter_batch_size` is configured > 0, the
+//!      scan will cap its internal batch size so that operators like TopK can
+//!      tighten their thresholds between batches.
+//! 4. At execution (poll) time, the `Scanner` calls `collect_filters` to fetch
+//!    the current bounds from the `DynamicFilterPhysicalExpr`.
+//! 5. These filters are decomposed into one or more `PreFilter` structures.
+//! 6. Finally, `Scanner::next()` evaluates these `PreFilter`s via
+//!    `apply_arrow()`, allowing rows to be pruned by dictionary term ordinal or
+//!    direct numeric fast-field comparison **before** allocating memory for the
+//!    fully materialized Arrow columns.
 //!
 //! # SortMergeJoin Propagation
 //!
-//! DataFusion's `SortMergeJoinExec` blocks filter pushdown by default (its
-//! `gather_filters_for_pushdown` marks all parent filters as unsupported).
-//! `FilterPassthroughExec` (in `joinscan::planner`) wraps it and overrides the
-//! two filter-pushdown methods to route filters through.
+//! DataFusion's `SortMergeJoinExec` natively supports filter pushdown, allowing
+//! dynamic filters to flow through it to the scan nodes below.
 //!
-//! Because `SortMergeJoinEnforcer` runs as a physical optimizer rule *after* the
-//! initial `FilterPushdown` pass, it causes `with_new_children` on ancestors —
-//! which in `SortExec`'s case creates a *new* `DynamicFilterPhysicalExpr` that
-//! hasn't been connected yet. A second `FilterPushdown::new_post_optimization()`
-//! pass (registered in `joinscan::scan_state::create_session_context`) wires the
-//! new filter to the scan.
+//! Because `SortMergeJoinEnforcer` runs as a physical optimizer rule *after*
+//! the initial `FilterPushdown` pass, it causes `with_new_children` on
+//! ancestors — which in `SortExec`'s case creates a *new*
+//! `DynamicFilterPhysicalExpr` that hasn't been connected yet. A second
+//! `FilterPushdown::new_post_optimization()` pass (registered in
+//! `joinscan::scan_state::create_session_context`) wires the new filter to the
+//! scan.
 //!
 //! # Native DataFusion Evaluation
 //!
-//! `PreFilter`s do not execute custom matching logic. Instead, they leverage native DataFusion
-//! `PhysicalExpr` evaluation over a mock `RecordBatch` containing only the fetched fast-field columns.
-//! For string columns, to avoid expensive materialization, the `PreFilter` dynamically rewrites the
-//! expression per segment: translating string literals into local `UInt64` ordinal bounds and evaluating
-//! the bounds check directly against the fetched term ordinals. This allows complex expressions
-//! (e.g. `IS NULL OR col < 'abc'`) to be seamlessly evaluated by Arrow's highly optimized compute kernels.
+//! `PreFilter`s do not execute custom matching logic. Instead, they leverage
+//! native DataFusion `PhysicalExpr` evaluation over a mock `RecordBatch`
+//! containing only the fetched fast-field columns. For string columns, to avoid
+//! expensive materialization, the `PreFilter` dynamically rewrites the
+//! expression per segment: translating string literals into local `UInt64`
+//! ordinal bounds and evaluating the bounds check directly against the fetched
+//! term ordinals. This allows complex expressions (e.g. `IS NULL OR col <
+//! 'abc'`) to be seamlessly evaluated by Arrow's highly optimized compute
+//! kernels.
 //!
 //! # Observability
 //!
@@ -107,11 +113,212 @@ use datafusion::physical_plan::joins::HashTableLookupExpr;
 use tantivy::SegmentOrdinal;
 
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::postgres::options::{SortByDirection, SortByField};
+use std::sync::atomic::Ordering;
+
+fn extract_binary_search_range_bytes(
+    column: &tantivy::columnar::BytesColumn,
+    lit: &Literal,
+    op: &Operator,
+    is_descending: bool,
+) -> Option<std::ops::Range<u32>> {
+    let bytes = match lit.value() {
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::LargeUtf8(Some(s))
+        | ScalarValue::Utf8View(Some(s)) => s.as_bytes(),
+        ScalarValue::Binary(Some(b))
+        | ScalarValue::LargeBinary(Some(b))
+        | ScalarValue::BinaryView(Some(b)) => b.as_slice(),
+        _ => return None,
+    };
+
+    let (lower, upper) = match op {
+        Operator::Gt => (Bound::Excluded(bytes), Bound::Unbounded),
+        Operator::GtEq => (Bound::Included(bytes), Bound::Unbounded),
+        Operator::Lt => (Bound::Unbounded, Bound::Excluded(bytes)),
+        Operator::LtEq => (Bound::Unbounded, Bound::Included(bytes)),
+        Operator::Eq => (Bound::Included(bytes), Bound::Included(bytes)),
+        _ => return None,
+    };
+
+    column
+        .binary_search_range(None, lower, upper, is_descending)
+        .ok()
+}
+
+macro_rules! extract_numeric_range {
+    ($col:expr, $lit:expr, $op:expr, $is_descending:expr, $val_type:ident, $scalar_pat:path) => {{
+        let target_val_opt: Option<$val_type> = match $lit.value() {
+            $scalar_pat(Some(v)) => (*v).try_into().ok(),
+            _ => None,
+        };
+
+        if let Some(target_val) = target_val_opt {
+            let min_val = $col.min_value();
+            let max_val = $col.max_value();
+
+            let target_range_opt = match $op {
+                Operator::Gt => Some(target_val..=max_val), // Assuming equality is OK for Gt as we're just seeking forward
+                Operator::GtEq => Some(target_val..=max_val),
+                Operator::Lt => Some(min_val..=target_val),
+                Operator::LtEq => Some(min_val..=target_val),
+                Operator::Eq => Some(target_val..=target_val),
+                _ => None,
+            };
+
+            if let Some(target_range) = target_range_opt {
+                Some($col.binary_search_range(None, &target_range, $is_descending))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }};
+}
+
+/// Updates the dynamic threshold for a specific segment by checking dynamic filters on the segment's sorted field.
+pub fn update_seek_threshold(
+    filters: &[PreFilter],
+    schema: &SchemaRef,
+    ffhelper: &FFHelper,
+    segment_ord: SegmentOrdinal,
+    sort_order: Option<&SortByField>,
+    thresholds: &crate::query::seekable::Thresholds,
+) {
+    let sort_field = match sort_order {
+        Some(s) => s,
+        None => return,
+    };
+
+    let col_name = sort_field.field_name.as_ref();
+    let col_idx = match schema.index_of(col_name) {
+        Ok(idx) => idx,
+        Err(_) => return,
+    };
+
+    let is_descending = matches!(sort_field.direction, SortByDirection::Desc);
+    let mut min_doc = 0u32;
+    let mut max_doc = u32::MAX;
+
+    for filter in filters {
+        if !filter.required_columns.contains(&col_idx) {
+            continue;
+        }
+
+        // We only attempt to push bounds for binary expressions (e.g. col > val)
+        let binary_expr = match filter.expr.as_any().downcast_ref::<BinaryExpr>() {
+            Some(e) => e,
+            None => continue,
+        };
+
+        let (col, lit, op) = if binary_expr
+            .left()
+            .as_any()
+            .downcast_ref::<Column>()
+            .is_some()
+            && binary_expr
+                .right()
+                .as_any()
+                .downcast_ref::<Literal>()
+                .is_some()
+        {
+            (
+                binary_expr
+                    .left()
+                    .as_any()
+                    .downcast_ref::<Column>()
+                    .unwrap(),
+                binary_expr
+                    .right()
+                    .as_any()
+                    .downcast_ref::<Literal>()
+                    .unwrap(),
+                *binary_expr.op(),
+            )
+        } else if binary_expr
+            .left()
+            .as_any()
+            .downcast_ref::<Literal>()
+            .is_some()
+            && binary_expr
+                .right()
+                .as_any()
+                .downcast_ref::<Column>()
+                .is_some()
+        {
+            if let Some(flipped) = flip_operator(binary_expr.op()) {
+                (
+                    binary_expr
+                        .right()
+                        .as_any()
+                        .downcast_ref::<Column>()
+                        .unwrap(),
+                    binary_expr
+                        .left()
+                        .as_any()
+                        .downcast_ref::<Literal>()
+                        .unwrap(),
+                    flipped,
+                )
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        };
+
+        if col.name() != col_name {
+            continue;
+        }
+
+        let ff_type = ffhelper.column(segment_ord, col_idx);
+
+        let range_opt = match ff_type {
+            FFType::I64(c) => {
+                extract_numeric_range!(c, lit, &op, is_descending, i64, ScalarValue::Int64)
+            }
+            FFType::U64(c) => {
+                extract_numeric_range!(c, lit, &op, is_descending, u64, ScalarValue::UInt64)
+            }
+            FFType::F64(c) => {
+                extract_numeric_range!(c, lit, &op, is_descending, f64, ScalarValue::Float64)
+            }
+            FFType::Bool(c) => {
+                extract_numeric_range!(c, lit, &op, is_descending, bool, ScalarValue::Boolean)
+            }
+            FFType::Text(c) => extract_binary_search_range_bytes(c, lit, &op, is_descending),
+            FFType::Bytes(c) => extract_binary_search_range_bytes(c, lit, &op, is_descending),
+            _ => None,
+        };
+
+        if let Some(range) = range_opt {
+            min_doc = min_doc.max(range.start);
+            max_doc = max_doc.min(range.end);
+        }
+    }
+
+    if min_doc > 0 {
+        // Relaxed ordering is fine because this thread is the sole producer for this segment's scorer.
+        let current_min = thresholds.min_doc.load(Ordering::Relaxed);
+        if min_doc > current_min {
+            thresholds.min_doc.store(min_doc, Ordering::Relaxed);
+        }
+    }
+
+    if max_doc < u32::MAX {
+        let current_max = thresholds.max_doc.load(Ordering::Relaxed);
+        if max_doc < current_max {
+            thresholds.max_doc.store(max_doc, Ordering::Relaxed);
+        }
+    }
+}
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
 ///
 /// Wraps a DataFusion `PhysicalExpr` that has been validated to only contain
-/// operations we can evaluate early (e.g. before fetching expensive string dictionaries).
+/// operations we can evaluate early (e.g. before fetching expensive string
+/// dictionaries).
 pub struct PreFilter {
     /// The validated DataFusion physical expression.
     pub expr: Arc<dyn PhysicalExpr>,
@@ -221,8 +428,9 @@ impl PreFilter {
                 })?;
             }
             // Note: The schema of the array might differ from the global schema
-            // (e.g. UInt64 ordinals instead of Utf8). DataFusion `Column` exprs just extract by name/index,
-            // so we must build the batch schema to match the *actual* array types we pass in.
+            // (e.g. UInt64 ordinals instead of Utf8). DataFusion `Column` exprs just
+            // extract by name/index, so we must build the batch schema to match
+            // the *actual* array types we pass in.
             fields.push(Field::new(col_name, array.data_type().clone(), true));
             arrays.push(array);
         }
@@ -254,9 +462,9 @@ impl PreFilter {
 
 /// Recursively decomposes and validates a `PhysicalExpr` into `PreFilter`s.
 ///
-/// Top-level `AND` operations are split into separate `PreFilter`s to allow early
-/// short-circuiting in the scanner. Expressions containing unsupported nodes
-/// (e.g. non-comparison operators, functions) are safely skipped.
+/// Top-level `AND` operations are split into separate `PreFilter`s to allow
+/// early short-circuiting in the scanner. Expressions containing unsupported
+/// nodes (e.g. non-comparison operators, functions) are safely skipped.
 pub fn collect_filters(expr: &Arc<dyn PhysicalExpr>, schema: &SchemaRef, out: &mut Vec<PreFilter>) {
     // Split top-level ANDs to maximize early pruning
     if let Some(binary) = expr.as_any().downcast_ref::<BinaryExpr>() {
@@ -293,11 +501,13 @@ fn is_string_like_type(data_type: &DataType) -> bool {
             | DataType::Union(_, _)
     )
 }
-/// Validates that an expression only contains nodes we can evaluate during pre-filtering.
+
+/// Validates that an expression only contains nodes we can evaluate during
+/// pre-filtering.
 ///
-/// NOTE: When this function returns `TreeNodeRecursion::Stop`, it correctly halts *all*
-/// traversal across the entire expression tree. If an OR branch contains an unsupported
-/// child, the entire expression is rejected.
+/// NOTE: When this function returns `TreeNodeRecursion::Stop`, it correctly
+/// halts *all* traversal across the entire expression tree. If an OR branch
+/// contains an unsupported child, the entire expression is rejected.
 fn is_supported(
     expr: &Arc<dyn PhysicalExpr>,
     schema: &SchemaRef,
@@ -374,7 +584,8 @@ fn is_supported(
             // an internal DataFusion hashing node that isn't on our allowlist.
             return Ok(datafusion::common::tree_node::TreeNodeRecursion::Jump);
         } else {
-            // Any other node type (e.g. CAST, LIKE, UDFs) blocks the expression from pre-filtering
+            // Any other node type (e.g. CAST, LIKE, UDFs) blocks the expression from
+            // pre-filtering
             supported = false;
             return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
         }
@@ -384,8 +595,8 @@ fn is_supported(
     supported
 }
 
-/// Attempts to rewrite a binary expression involving a String/Bytes column and a Literal
-/// into an equivalent expression over segment-local ordinals.
+/// Attempts to rewrite a binary expression involving a String/Bytes column and
+/// a Literal into an equivalent expression over segment-local ordinals.
 fn try_rewrite_binary(
     binary: &BinaryExpr,
     ffhelper: &FFHelper,
@@ -498,7 +709,8 @@ fn try_rewrite_in_list(
     Ok(Some(Arc::new(new_in_list)))
 }
 
-/// Rewrites `Column op Literal` to `Column(UInt64) op Literal(UInt64)` if the column is a string type.
+/// Rewrites `Column op Literal` to `Column(UInt64) op Literal(UInt64)` if the
+/// column is a string type.
 fn rewrite_col_op_lit(
     col: &Column,
     op: &Operator,
@@ -530,7 +742,8 @@ fn rewrite_col_op_lit(
             datafusion::error::DataFusionError::Execution(format!("Tantivy dict error: {}", e))
         })?;
         // If the term does not exist, all non-null values match.
-        // We use NULL_TERM_ORDINAL to represent an ordinal that does not exist in the data.
+        // We use NULL_TERM_ORDINAL to represent an ordinal that does not exist in the
+        // data.
         let target_ord = ord_opt.unwrap_or(NULL_TERM_ORDINAL);
 
         let col_expr = Arc::new(col.clone()) as Arc<dyn PhysicalExpr>;
@@ -617,7 +830,8 @@ fn rewrite_col_op_lit(
     }
 }
 
-/// Flips a comparison operator so that `Literal op Column` becomes `Column flipped_op Literal`.
+/// Flips a comparison operator so that `Literal op Column` becomes `Column
+/// flipped_op Literal`.
 fn flip_operator(op: &Operator) -> Option<Operator> {
     match op {
         Operator::Lt => Some(Operator::Gt),

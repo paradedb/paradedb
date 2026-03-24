@@ -36,17 +36,17 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 | Feature                     | Elasticsearch | ParadeDB | Notes                                                                                                                                                                     |
 | --------------------------- | :-----------: | :------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full-text search (BM25)     |      ✅       |    ✅    | [`|||` and `&&&` operators](/documentation/full-text/overview)                                                                                                             |
+| Full-text search (BM25)     |      ✅       |    ✅    | [Match and phrase operators](/documentation/full-text/overview)                                                                                                           |
 | Fuzzy matching              |      ✅       |    ✅    | Max edit distance of 2 via [`pdb.fuzzy()`](/documentation/full-text/fuzzy)                                                                                                |
-| Phrase matching             |      ✅       |    ✅    | [`###` operator](/documentation/full-text/phrase)                                                                                                                          |
-| Phrase prefix               |      ✅       |    ✅    | [`pdb.phrase_prefix()`](/documentation/query-builder/phrase/phrase-prefix)                                                                                                 |
+| Phrase matching             |      ✅       |    ✅    | [`###` operator](/documentation/full-text/phrase)                                                                                                                         |
+| Phrase prefix               |      ✅       |    ✅    | [`pdb.phrase_prefix()`](/documentation/query-builder/phrase/phrase-prefix)                                                                                                |
 | Regular expressions         |      ✅       |    ✅    | [`pdb.regex()`](/documentation/query-builder/term/regex)                                                                                                                  |
 | Wildcard queries            |      ✅       |    ✅    | Via [regex](/documentation/query-builder/term/regex)                                                                                                                      |
 | Boolean queries             |      ✅       |    ✅    | Via SQL `AND`/`OR`/`NOT` or [`paradedb.boolean`](/documentation/query-builder/overview)                                                                                   |
 | Proximity search            |      ✅       |    ✅    | [`##` operator](/documentation/full-text/proximity)                                                                                                                       |
 | More Like This              |      ✅       |    ✅    | [`paradedb.more_like_this`](/documentation/query-builder/specialized/more-like-this)                                                                                      |
-| Nested queries              |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview)                                                                                                                           |
-| Parent-child queries        |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview)                                                                                                                           |
+| Nested queries              |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview)                                                                                                                          |
+| Parent-child queries        |      ✅       |    ✅    | Via SQL [`JOIN`s](/documentation/joins/overview)                                                                                                                          |
 | Geo queries                 |      ✅       |    ❌    | Use [PostGIS](https://postgis.net/)                                                                                                                                       |
 | Percolator (reverse search) |      ✅       |    ❌    |                                                                                                                                                                           |
 | Script-based scoring        |      ✅       |    ❌    |                                                                                                                                                                           |
@@ -54,17 +54,17 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 ## Text Analysis
 
-| Feature                        | Elasticsearch | ParadeDB | Notes                                                                                                                                                                                                                   |
-| ------------------------------ | :-----------: | :------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Custom tokenizers              |      ✅       |    ✅    | 12+ built-in [tokenizers](/documentation/tokenizers/overview)                                                                                                                                                           |
+| Feature                        | Elasticsearch | ParadeDB | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------ | :-----------: | :------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Custom tokenizers              |      ✅       |    ✅    | 12+ built-in [tokenizers](/documentation/tokenizers/overview)                                                                                                                                                                                                                                                                                                                                                                                  |
 | Token filters                  |      ✅       |    ✅    | 7 [filters](/documentation/token-filters/overview): [lowercase](/documentation/token-filters/lowercase), [stemmer](/documentation/token-filters/stemming), [stopwords](/documentation/token-filters/stopwords), [ascii_folding](/documentation/token-filters/ascii-folding), [alpha_num_only](/documentation/token-filters/alphanumeric), [trim](/documentation/token-filters/trim), [token_length](/documentation/token-filters/token-length) |
-| Character filters              |      ✅       |    ❌    |                                                                                                                                                                                                                         |
-| Synonyms                       |      ✅       |    ⚠️    | Coming soon                                                                                                                                                                                                             |
-| Different search-time analyzer |      ✅       |    ✅    | Via [search_tokenizer](/documentation/tokenizers/search-tokenizer) or [multiple tokenizers per field](/documentation/tokenizers/multiple-per-field)                                                                     |
-| Multi-language support         |      ✅       |    ✅    | Chinese ([Jieba](/documentation/tokenizers/available-tokenizers/jieba)), Japanese/Korean ([Lindera](/documentation/tokenizers/available-tokenizers/lindera)), [ICU](/documentation/tokenizers/available-tokenizers/icu) |
-| Stemming                       |      ✅       |    ✅    | [19 languages](/documentation/token-filters/stemming)                                                                                                                                                                   |
-| Stopwords                      |      ✅       |    ✅    | [29 languages](/documentation/token-filters/stopwords)                                                                                                                                                                  |
-| N-gram tokenization            |      ✅       |    ✅    | [Configurable](/documentation/tokenizers/available-tokenizers/ngrams) min/max gram size                                                                                                                                 |
+| Character filters              |      ✅       |    ❌    |                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Synonyms                       |      ✅       |    ⚠️    | Coming soon                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Different search-time analyzer |      ✅       |    ✅    | Via [search_tokenizer](/documentation/tokenizers/search-tokenizer) or [multiple tokenizers per field](/documentation/tokenizers/multiple-per-field)                                                                                                                                                                                                                                                                                            |
+| Multi-language support         |      ✅       |    ✅    | Chinese ([Jieba](/documentation/tokenizers/available-tokenizers/jieba)), Japanese/Korean ([Lindera](/documentation/tokenizers/available-tokenizers/lindera)), [ICU](/documentation/tokenizers/available-tokenizers/icu)                                                                                                                                                                                                                        |
+| Stemming                       |      ✅       |    ✅    | [19 languages](/documentation/token-filters/stemming)                                                                                                                                                                                                                                                                                                                                                                                          |
+| Stopwords                      |      ✅       |    ✅    | [29 languages](/documentation/token-filters/stopwords)                                                                                                                                                                                                                                                                                                                                                                                         |
+| N-gram tokenization            |      ✅       |    ✅    | [Configurable](/documentation/tokenizers/available-tokenizers/ngrams) min/max gram size                                                                                                                                                                                                                                                                                                                                                        |
 
 ## Aggregations
 
@@ -85,16 +85,16 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 ## Scoring and Relevance
 
-| Feature            | Elasticsearch | ParadeDB | Notes                                                   |
-| ------------------ | :-----------: | :------: | ------------------------------------------------------- |
-| BM25 scoring       |      ✅       |    ✅    | [`pdb.score()`](/documentation/sorting/score)           |
-| Custom boost       |      ✅       |    ✅    | [`pdb.boost()`](/documentation/sorting/boost) type cast |
-| Constant score     |      ✅       |    ✅    | [`pdb.const()`](/documentation/sorting/boost#constant-scoring)  |
-| Disjunction max    |      ✅       |    ✅    | `paradedb.disjunction_max()`                            |
+| Feature            | Elasticsearch | ParadeDB | Notes                                                                                                                      |
+| ------------------ | :-----------: | :------: | -------------------------------------------------------------------------------------------------------------------------- |
+| BM25 scoring       |      ✅       |    ✅    | [`pdb.score()`](/documentation/sorting/score)                                                                              |
+| Custom boost       |      ✅       |    ✅    | [`pdb.boost()`](/documentation/sorting/boost) type cast                                                                    |
+| Constant score     |      ✅       |    ✅    | [`pdb.const()`](/documentation/sorting/boost#constant-scoring)                                                             |
+| Disjunction max    |      ✅       |    ✅    | `paradedb.disjunction_max()`                                                                                               |
 | Function score     |      ✅       |    ❌    | Use [boost](/documentation/sorting/boost) / [const](/documentation/sorting/boost#constant-scoring) as partial alternatives |
-| Script scoring     |      ✅       |    ❌    |                                                         |
-| Decay functions    |      ✅       |    ❌    |                                                         |
-| Field value factor |      ✅       |    ❌    |                                                         |
+| Script scoring     |      ✅       |    ❌    |                                                                                                                            |
+| Decay functions    |      ✅       |    ❌    |                                                                                                                            |
+| Field value factor |      ✅       |    ❌    |                                                                                                                            |
 
 ## Highlighting
 
@@ -108,14 +108,14 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 ## Index Management
 
-| Feature           | Elasticsearch | ParadeDB | Notes                                                                 |
-| ----------------- | :-----------: | :------: | --------------------------------------------------------------------- |
-| Create index      |      ✅       |    ✅    | [`CREATE INDEX ... USING bm25`](/documentation/indexing/create-index) |
-| Drop index        |      ✅       |    ✅    | `DROP INDEX`                                                          |
-| Reindex           |      ✅       |    ✅    | [`REINDEX`](/documentation/indexing/reindexing)                       |
-| Index aliases     |      ✅       |    ✅    | Via Postgres views                                                    |
-| Index templates   |      ✅       |    ❌    |                                                                       |
-| Dynamic mapping   |      ✅       |    ❌    | Schema defined at index creation; requires `REINDEX` to change        |
+| Feature           | Elasticsearch | ParadeDB | Notes                                                                               |
+| ----------------- | :-----------: | :------: | ----------------------------------------------------------------------------------- |
+| Create index      |      ✅       |    ✅    | [`CREATE INDEX ... USING bm25`](/documentation/indexing/create-index)               |
+| Drop index        |      ✅       |    ✅    | `DROP INDEX`                                                                        |
+| Reindex           |      ✅       |    ✅    | [`REINDEX`](/documentation/indexing/reindexing)                                     |
+| Index aliases     |      ✅       |    ✅    | Via Postgres views                                                                  |
+| Index templates   |      ✅       |    ❌    |                                                                                     |
+| Dynamic mapping   |      ✅       |    ❌    | Schema defined at index creation; requires `REINDEX` to change                      |
 | Multi-field index |      ✅       |    ✅    | All columns included in [one index per table](/documentation/indexing/create-index) |
 
 ## Data Operations
@@ -131,16 +131,16 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 ## Deployment and Operations
 
-| Feature                    | Elasticsearch | ParadeDB | Notes                                                                                  |
-| -------------------------- | :-----------: | :------: | -------------------------------------------------------------------------------------- |
-| Horizontal sharding        |      ✅       |    ⚠️    | Via [Citus](/deploy/citus) for distributed workloads                                   |
-| Read replicas              |      ✅       |    ✅    | Postgres streaming replication                                                         |
-| Kubernetes                 |      ✅       |    ✅    | [CNPG / Helm charts](/deploy/self-hosted/kubernetes)                                   |
-| Docker                     |      ✅       |    ✅    | [Official Docker image](/documentation/getting-started/install)                         |
-| Logical replication ingest |      ❌       |    ✅    | [Sync from existing Postgres](/deploy/logical-replication/getting-started)              |
-| Cross-cluster search       |      ✅       |    ❌    |                                                                                        |
-| Snapshot / restore         |      ✅       |    ✅    | Via Postgres backup tools (pg_dump, WAL archiving)                                     |
-| Monitoring                 |      ✅       |    ✅    | pg_stat, pganalyze, standard Postgres tools                                            |
+| Feature                    | Elasticsearch | ParadeDB | Notes                                                                      |
+| -------------------------- | :-----------: | :------: | -------------------------------------------------------------------------- |
+| Horizontal sharding        |      ✅       |    ⚠️    | Via [Citus](/deploy/citus) for distributed workloads                       |
+| Read replicas              |      ✅       |    ✅    | Postgres streaming replication                                             |
+| Kubernetes                 |      ✅       |    ✅    | [CNPG / Helm charts](/deploy/self-hosted/kubernetes)                       |
+| Docker                     |      ✅       |    ✅    | [Official Docker image](/documentation/getting-started/install)            |
+| Logical replication ingest |      ❌       |    ✅    | [Sync from existing Postgres](/deploy/logical-replication/getting-started) |
+| Cross-cluster search       |      ✅       |    ❌    |                                                                            |
+| Snapshot / restore         |      ✅       |    ✅    | Via Postgres backup tools (pg_dump, WAL archiving)                         |
+| Monitoring                 |      ✅       |    ✅    | pg_stat, pganalyze, standard Postgres tools                                |
 
 ## Pagination
 

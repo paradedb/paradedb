@@ -62,6 +62,9 @@ use datafusion::logical_expr::{Extension, LogicalPlan, UserDefinedLogicalNode};
 use datafusion::optimizer::optimizer::ApplyOrder;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::filter_pushdown::{
+    ChildFilterDescription, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
+};
 use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
@@ -691,6 +694,51 @@ impl ExecutionPlan for VisibilityFilterExec {
             }
         }
         Ok(Arc::new(new_exec))
+    }
+
+    fn gather_filters_for_pushdown(
+        &self,
+        phase: FilterPushdownPhase,
+        parent_filters: Vec<Arc<dyn datafusion::physical_expr::PhysicalExpr>>,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterDescription> {
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterDescription::all_unsupported(
+                &parent_filters,
+                &self.children(),
+            ));
+        }
+        // VisibilityFilterExec is unary and preserves its child's schema.
+        // We block ctid_* columns (packed DocAddresses below this node) and
+        // allow all other columns through for filter pushdown.
+        let schema = self.input.schema();
+        let blocked_ctid_names: std::collections::HashSet<String> = self
+            .plan_pos_oids
+            .iter()
+            .map(|(plan_pos, _)| CtidColumn::new(*plan_pos).to_string())
+            .collect();
+        let allowed_indices: std::collections::HashSet<usize> = schema
+            .fields()
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !blocked_ctid_names.contains(f.name()))
+            .map(|(i, _)| i)
+            .collect();
+        let child_desc = ChildFilterDescription::from_child_with_allowed_indices(
+            &parent_filters,
+            allowed_indices,
+            &self.input,
+        )?;
+        Ok(FilterDescription::new().with_child(child_desc))
+    }
+
+    fn handle_child_pushdown_result(
+        &self,
+        _phase: FilterPushdownPhase,
+        child_pushdown_result: datafusion::physical_plan::filter_pushdown::ChildPushdownResult,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
     }
 
     fn execute(

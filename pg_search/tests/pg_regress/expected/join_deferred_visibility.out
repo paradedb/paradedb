@@ -81,8 +81,8 @@ JOIN tags t ON i.tag_id = t.id
 WHERE i.description @@@ 'wireless'
 ORDER BY i.id
 LIMIT 5;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, t.label
    ->  Custom Scan (ParadeDB Join Scan)
@@ -98,7 +98,7 @@ LIMIT 5;
            :       ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_0@3]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
@@ -137,8 +137,8 @@ LIMIT 5;
 WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
 WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
 WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
-                                                                                                  QUERY PLAN                                                                                                  
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -157,7 +157,7 @@ WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal par
            :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@2, item_id@0)]
            :           VisibilityFilterExec: plan_positions=[1]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR keyboard","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR keyboard","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"great","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
@@ -210,7 +210,7 @@ LIMIT 5;
            :     VisibilityFilterExec: plan_positions=[0, 1]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(tag_id@1, tag_id@1)], projection=[ctid_0@0, id@2, ctid_1@3, id@5]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
@@ -270,8 +270,8 @@ LIMIT 5;
 WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
 WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
 WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -290,7 +290,7 @@ WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal par
            :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, item_id@0)]
            :           VisibilityFilterExec: plan_positions=[1]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR mouse","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR mouse","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}
 (21 rows)

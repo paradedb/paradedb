@@ -486,19 +486,17 @@ LIMIT 50;
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_0@3 as ctid_0, ctid_1@5 as ctid_1, ctid_2@4 as ctid_2]
                  :   SortExec: TopK(fetch=50), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[id@1 as col_1, title@2 as col_2, parents@3 as col_3], aggr=[ctid_0, ctid_2, ctid_1]
-                 :       ProjectionExec: expr=[ctid_0@1 as ctid_0, id@2 as id, title@3 as title, parents@4 as parents, ctid_1@0 as ctid_1, ctid_2@5 as ctid_2]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@1, id@5)], projection=[ctid_1@0, ctid_0@2, id@3, title@4, parents@5, ctid_2@6]
-                 :           ProjectionExec: expr=[ctid@0 as ctid_1, fileId@1 as fileId]
+                 :       VisibilityFilterExec: plan_positions=[0, 1, 2]
+                 :         ProjectionExec: expr=[ctid_0@1 as ctid_0, id@2 as id, title@3 as title, parents@4 as parents, ctid_1@0 as ctid_1, ctid_2@5 as ctid_2]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@1, id@5)], projection=[ctid_1@0, ctid_0@2, id@3, title@4, parents@5, ctid_2@6]
                  :             CooperativeExec
                  :               PgSearchScan: segments=1, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null,"is_datetime":false}}
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_0@0, id@1, title@2, parents@3, ctid_2@4, id@6]
-                 :             ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, title@2 as title, parents@3 as parents]
+                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_0@0, id@1, title@2, parents@3, ctid_2@4, id@6]
                  :               CooperativeExec
                  :                 PgSearchScan: segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
-                 :             ProjectionExec: expr=[ctid@0 as ctid_2, documentId@1 as documentId, id@2 as id]
                  :               CooperativeExec
                  :                 PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(27 rows)
+(25 rows)
 
 SELECT DISTINCT
     d.id,

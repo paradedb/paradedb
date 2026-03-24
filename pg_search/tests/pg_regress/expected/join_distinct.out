@@ -124,14 +124,13 @@ ORDER BY p.name
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, name@2 as name]
+                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query="all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(20 rows)
 
 -- =============================================================================
 -- TEST 2: DISTINCT actually deduplicates rows
@@ -161,14 +160,13 @@ ORDER BY s.name
            : ProjectionExec: expr=[name@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   TantivyLookupExec: decode=[name]
            :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=20
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
-           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, name@2 as name]
+           :       VisibilityFilterExec: plan_positions=[0, 1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(16 rows)
 
 SELECT s.name AS supplier_name
 FROM dist_products p
@@ -251,8 +249,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, (paradedb.score(p.id))
    ->  Unique
@@ -267,13 +265,13 @@ ORDER BY paradedb.score(p.id) DESC, p.name
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_2@1 DESC, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[name@3 as col_1, score@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_0@0, score@2, ctid_1@3, name@5]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_0@0, score@2, ctid_1@3, name@5]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query="all"
-                 :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, name@3 as name]
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, name@3 as name]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 SELECT DISTINCT p.name, paradedb.score(p.id) AS score
@@ -342,19 +340,17 @@ ORDER BY p.name
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_0@3 as ctid_0, ctid_1@5 as ctid_1, ctid_2@4 as ctid_2]
                  :   SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[name@5 as col_1, name@1 as col_2, name@3 as col_3], aggr=[ctid_0, ctid_2, ctid_1]
-                 :       ProjectionExec: expr=[ctid_0@2 as ctid_0, name@3 as name, ctid_1@0 as ctid_1, name@1 as name, ctid_2@4 as ctid_2, name@5 as name]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_1@0, name@2, ctid_0@3, name@4, ctid_2@5, name@7]
-                 :           ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, name@2 as name]
+                 :       VisibilityFilterExec: plan_positions=[0, 1, 2]
+                 :         ProjectionExec: expr=[ctid_0@2 as ctid_0, name@3 as name, ctid_1@0 as ctid_1, name@1 as name, ctid_2@4 as ctid_2, name@5 as name]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_1@0, name@2, ctid_0@3, name@4, ctid_2@5, name@7]
                  :             CooperativeExec
                  :               PgSearchScan: segments=1, query="all"
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_2@3, category_id@5, name@6]
-                 :             ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, name@2 as name]
+                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_2@3, category_id@5, name@6]
                  :               CooperativeExec
                  :                 PgSearchScan: segments=1, query="all"
-                 :             ProjectionExec: expr=[ctid@0 as ctid_2, supplier_id@1 as supplier_id, category_id@2 as category_id, name@3 as name]
                  :               CooperativeExec
                  :                 PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(27 rows)
+(25 rows)
 
 SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p
@@ -447,14 +443,13 @@ ORDER BY s.name
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, name@2 as name]
+                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query="all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(20 rows)
 
 -- =============================================================================
 -- TEST 9: Non-DISTINCT queries still use SegmentedTopKExec
@@ -483,14 +478,13 @@ ORDER BY p.name
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[name]
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
-           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :       VisibilityFilterExec: plan_positions=[0, 1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query="all"
-           :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(18 rows)
 
 -- =============================================================================
 -- TEST 9b: WHERE clause anchoring for LateMaterializeNode
@@ -519,14 +513,13 @@ ORDER BY p.name
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[name]
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
-           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :       VisibilityFilterExec: plan_positions=[0, 1]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
-           :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(18 rows)
 
 -- =============================================================================
 -- TEST 10: Fallback — DISTINCT with non-fast-field column
@@ -750,13 +743,13 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[id@3 as col_1, name@4 as col_2, score@1 as col_3], aggr=[ctid_0, ctid_1]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, score@2, ctid_1@3, id@5, name@6]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, score@2, ctid_1@3, id@5, name@6]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}
-                 :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id, name@4 as name]
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id, name@4 as name]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (22 rows)
 
 SELECT DISTINCT
@@ -890,14 +883,13 @@ ORDER BY p.name
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, name@2 as name]
+                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query="all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, name@2 as name]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(21 rows)
 
 -- Expected: Offset: 2 appears in the Custom Scan (ParadeDB Join Scan) node
 -- =============================================================================

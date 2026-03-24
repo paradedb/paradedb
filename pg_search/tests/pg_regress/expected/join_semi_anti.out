@@ -74,12 +74,12 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
-           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
+           :       VisibilityFilterExec: plan_positions=[0]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
 (17 rows)
 
 -- =====================================================================
@@ -141,12 +141,12 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
-           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, a_id@0)]
+           :       VisibilityFilterExec: plan_positions=[0]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
 (17 rows)
 
 -- =====================================================================
@@ -181,15 +181,15 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
-           :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
-           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, a_id@0)]
+           :         VisibilityFilterExec: plan_positions=[0]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
 (20 rows)
 
 SELECT id, category
@@ -248,12 +248,12 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1), (category@1, category@2)]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
-           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, category@2 as category]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0), (category@2, category@1)]
+           :       VisibilityFilterExec: plan_positions=[0]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
 (17 rows)
 
 SELECT id, category
@@ -308,12 +308,12 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
            :   TantivyLookupExec: decode=[category]
            :     SegmentedTopKExec: expr=[category@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=10
-           :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
-           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, category@2 as category]
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
+           :         VisibilityFilterExec: plan_positions=[0]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
 (18 rows)
 
 SELECT *
@@ -370,7 +370,7 @@ WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal par
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
-           :       ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
+           :       VisibilityFilterExec: plan_positions=[0]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"id:1","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec

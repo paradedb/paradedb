@@ -36,19 +36,18 @@ LIMIT 10;
          Join Predicate: (orders:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"3","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}]}} OR users:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"3","lenient":null,"conjunction_mode":null}}}}]}})
          Limit: 10
          DataFusion Physical Plan: 
-           : ProjectionExec: expr=[name@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
-           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(color@3, color@1)], filter=pdb_search_predicate(ctid_2@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, name@1, ctid_1@2, ctid_2@4], fetch=10
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, name@1)], projection=[ctid_0@0, name@1, ctid_1@2, color@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_0, name@1 as name]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
-           :       ProjectionExec: expr=[ctid@0 as ctid_1, name@1 as name, color@2 as color]
+           : ProjectionExec: expr=[name@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+           :   GlobalLimitExec: skip=0, fetch=10
+           :     VisibilityFilterExec: plan_positions=[0, 1, 2]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(color@3, color@1)], filter=pdb_search_predicate(ctid_2@1) OR pdb_search_predicate(ctid_0@0)
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, name@1)], projection=[ctid_0@0, name@1, ctid_1@2, color@4]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :     ProjectionExec: expr=[ctid@0 as ctid_2, color@1 as color]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(19 rows)
+(18 rows)
 
 SELECT users.name, users.color, users.age
 FROM users JOIN products ON users.name = products.name JOIN orders ON products.color = orders.color

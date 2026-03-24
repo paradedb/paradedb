@@ -108,11 +108,28 @@ pub unsafe fn maybe_init_parallel_scan(
         return None;
     }
 
+    // Read indexRelation before mutable borrow of scan
+    let rel = (*scan).indexRelation;
+
     let state = get_bm25_scan_state(&mut scan)?;
 
     let _mutex = state.acquire_mutex();
 
     if !state.is_initialized() {
+        // If concurrent writes created more segments than the DSM can hold, fall back to serial
+        // scan to avoid a shared memory overflow.
+        let estimated_segments = crate::postgres::options::BM25IndexOptions::from_relation(rel)
+            .target_segment_count()
+        let actual_segments = searcher.segment_readers().len();
+        if actual_segments > estimated_segments {
+            state.mark_initialized_empty();
+            pgrx::warning!(
+                "Actual segment count ({}) exceeds estimated ({}), falling back to serial scan",
+                actual_segments,
+                estimated_segments
+            );
+            return None;
+        }
         state.populate(&[searcher.segment_readers()], 0, &[], false);
     }
     Some(unsafe { pg_sys::ParallelWorkerNumber })

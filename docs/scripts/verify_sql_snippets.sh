@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${1:-$DOCS_ROOT/verify}"
 SQL_DIR="$OUTPUT_DIR/sql"
+RAILS_DIR="$OUTPUT_DIR/rails"
 SQLALCHEMY_DIR="$OUTPUT_DIR/sqlalchemy"
 PARADEDB_CONTAINER_NAME="paradedb-docs-verify"
 PARADEDB_IMAGE="paradedb/paradedb:0.22.2-pg18"
@@ -14,15 +15,17 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:${PARADEDB_HOST_PORT}/pos
 export DATABASE_URL
 export PGPASSWORD="postgres"
 
-mkdir -p "$SQL_DIR" "$SQLALCHEMY_DIR"
+mkdir -p "$SQL_DIR" "$RAILS_DIR" "$SQLALCHEMY_DIR"
 
 PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-python.XXXXXX)"
 PYTHON_BIN="$PYTHON_ENV_DIR/bin/python"
+RUBY_GEM_HOME="$(mktemp -d -t paradedb-docs-ruby.XXXXXX)"
 bootstrap_sql=""
 
 cleanup() {
   [[ -n "$bootstrap_sql" ]] && rm -f "$bootstrap_sql"
   rm -rf "$PYTHON_ENV_DIR"
+  rm -rf "$RUBY_GEM_HOME"
 }
 
 trap cleanup EXIT
@@ -61,6 +64,12 @@ echo "Installing latest sqlalchemy-paradedb from PyPI..."
 PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
   "sqlalchemy-paradedb" \
   "psycopg[binary]"
+
+echo "Installing latest rails-paradedb from RubyGems..."
+GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
+  gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
+  "rails-paradedb" \
+  "pg"
 
 "$PYTHON_BIN" "${SCRIPT_DIR}/extract_code_snippets.py" "$DOCS_ROOT" "$OUTPUT_DIR" >/dev/null
 
@@ -117,6 +126,37 @@ while IFS= read -r snippet_file; do
   fi
 done < <(find "$SQL_DIR" -type f -name '*.sql' | LC_ALL=C sort)
 
+rails_pass_count=0
+rails_fail_count=0
+
+while IFS= read -r snippet_file; do
+  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
+
+  if {
+    cat <<RUBY
+require "rails_snippet_harness"
+
+snippet_result = begin
+# Source: $rel_snippet
+RUBY
+    cat "$snippet_file"
+    cat <<'RUBY'
+end
+
+RailsSnippetHarness.execute!(snippet_result)
+RUBY
+  } | RUBYLIB="$SCRIPT_DIR${RUBYLIB:+:$RUBYLIB}" \
+      GEM_HOME="$RUBY_GEM_HOME" \
+      GEM_PATH="$RUBY_GEM_HOME" \
+      ruby - >/dev/null; then
+    echo "[SUCCESS] $rel_snippet" >&2
+    rails_pass_count=$((rails_pass_count + 1))
+  else
+    echo "[FAIL] $rel_snippet" >&2
+    rails_fail_count=$((rails_fail_count + 1))
+  fi
+done < <(find "$RAILS_DIR" -type f -name '*.rb' | LC_ALL=C sort)
+
 sqlalchemy_pass_count=0
 sqlalchemy_fail_count=0
 
@@ -140,8 +180,9 @@ PY
 done < <(find "$SQLALCHEMY_DIR" -type f -name '*.py' | LC_ALL=C sort)
 
 echo "SQL passed: $sql_pass_count failed: $sql_fail_count"
+echo "Rails passed: $rails_pass_count failed: $rails_fail_count"
 echo "SQLAlchemy passed: $sqlalchemy_pass_count failed: $sqlalchemy_fail_count"
 
-if [[ $sql_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 ]]; then
+if [[ $sql_fail_count -gt 0 || $rails_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 ]]; then
   exit 1
 fi

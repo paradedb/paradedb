@@ -202,7 +202,9 @@ MockItem.objects.filter(
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("running shoes")
-        .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
+        .with_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
+        .order(:id)
+        .limit(1)
 ```
 
 </CodeGroup>

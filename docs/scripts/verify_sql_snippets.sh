@@ -3,73 +3,69 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PROJECT_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
-OUTPUT_DIR="${1:-$REPO_ROOT/extracted-code-snippets}"
-SQL_DIR="$OUTPUT_DIR/sql-snippets"
-SQLALCHEMY_DIR="$OUTPUT_DIR/sqlalchemy-snippets"
-SQL_RESULTS_DIR="$REPO_ROOT/verify/sql"
-SQL_RESULTS_FILE="$SQL_RESULTS_DIR/results.tsv"
-SQLALCHEMY_RESULTS_DIR="$REPO_ROOT/verify/sqlalchemy"
-SQLALCHEMY_RESULTS_FILE="$SQLALCHEMY_RESULTS_DIR/results.tsv"
-SQLALCHEMY_RUN_DIR="$SQLALCHEMY_RESULTS_DIR/runnables"
-SQLALCHEMY_ROOT="${SQLALCHEMY_PARADEDB_ROOT:-$(cd "$PROJECT_ROOT/.." && pwd)/sqlalchemy-paradedb}"
-SQLALCHEMY_PYTHON="${SQLALCHEMY_PYTHON:-$SQLALCHEMY_ROOT/.venv/bin/python}"
-SQLALCHEMY_HARNESS="$REPO_ROOT/scripts/sqlalchemy_snippet_harness.py"
+DOCS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+OUTPUT_DIR="${1:-$DOCS_ROOT/verify}"
+SQL_DIR="$OUTPUT_DIR/sql"
+SQLALCHEMY_DIR="$OUTPUT_DIR/sqlalchemy"
+PARADEDB_CONTAINER_NAME="paradedb-docs-verify"
+PARADEDB_IMAGE="paradedb/paradedb:0.22.2-pg18"
+PARADEDB_HOST_PORT="5422"
+DATABASE_URL="postgresql://postgres:postgres@localhost:${PARADEDB_HOST_PORT}/postgres"
+export DATABASE_URL
+export PGPASSWORD="postgres"
 
-mkdir -p "$SQL_RESULTS_DIR" "$SQLALCHEMY_RESULTS_DIR" "$SQLALCHEMY_RUN_DIR"
+mkdir -p "$SQL_DIR" "$SQLALCHEMY_DIR"
 
-source "${SCRIPT_DIR}/run_paradedb.sh"
+PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-python.XXXXXX)"
+PYTHON_BIN="$PYTHON_ENV_DIR/bin/python"
+bootstrap_sql=""
 
-if ! command -v psql >/dev/null 2>&1; then
-  echo "psql is required to verify SQL snippets." >&2
+cleanup() {
+  [[ -n "$bootstrap_sql" ]] && rm -f "$bootstrap_sql"
+  rm -rf "$PYTHON_ENV_DIR"
+}
+
+trap cleanup EXIT
+
+if docker ps --format '{{.Names}}' | grep -Fxq "$PARADEDB_CONTAINER_NAME"; then
+  echo "ParadeDB container ${PARADEDB_CONTAINER_NAME} is already running..."
+elif docker ps -a --format '{{.Names}}' | grep -Fxq "$PARADEDB_CONTAINER_NAME"; then
+  echo "Starting existing ParadeDB container ${PARADEDB_CONTAINER_NAME}..."
+  docker start "$PARADEDB_CONTAINER_NAME" >/dev/null
+else
+  echo "Starting ParadeDB container ${PARADEDB_CONTAINER_NAME} from ${PARADEDB_IMAGE}..."
+  docker run -d \
+    --name "$PARADEDB_CONTAINER_NAME" \
+    -e POSTGRES_PASSWORD=postgres \
+    -p "${PARADEDB_HOST_PORT}:5432" \
+    "$PARADEDB_IMAGE" >/dev/null
+fi
+
+echo "Waiting for ParadeDB to become ready..."
+for _ in {1..30}; do
+  if docker exec "$PARADEDB_CONTAINER_NAME" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+
+if ! docker exec "$PARADEDB_CONTAINER_NAME" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+  echo "ParadeDB did not become ready in time" >&2
   exit 1
 fi
 
-if [[ ! -d "$SQLALCHEMY_ROOT" ]]; then
-  echo "SQLAlchemy repo not found: $SQLALCHEMY_ROOT" >&2
-  echo "Set SQLALCHEMY_PARADEDB_ROOT to override the default sibling path." >&2
-  exit 1
-fi
+echo "Creating temporary Python environment for SQLAlchemy snippet verification..."
+python3 -m venv "$PYTHON_ENV_DIR"
 
-if [[ ! -x "$SQLALCHEMY_PYTHON" ]]; then
-  echo "SQLAlchemy Python interpreter not found: $SQLALCHEMY_PYTHON" >&2
-  echo "Set SQLALCHEMY_PYTHON to override the default .venv interpreter." >&2
-  exit 1
-fi
+echo "Installing latest sqlalchemy-paradedb from PyPI..."
+PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
+  "sqlalchemy-paradedb" \
+  "psycopg[binary]"
 
-if [[ ! -f "$SQLALCHEMY_HARNESS" ]]; then
-  echo "SQLAlchemy harness not found: $SQLALCHEMY_HARNESS" >&2
-  exit 1
-fi
+"$PYTHON_BIN" "${SCRIPT_DIR}/extract_code_snippets.py" "$DOCS_ROOT" "$OUTPUT_DIR" >/dev/null
 
-"${SCRIPT_DIR}/extract_code_snippets.sh" "$REPO_ROOT" "$OUTPUT_DIR" >/dev/null
-
-if [[ ! -d "$SQL_DIR" ]]; then
-  echo "SQL snippet directory not found: $SQL_DIR" >&2
-  exit 1
-fi
-
-if [[ ! -d "$SQLALCHEMY_DIR" ]]; then
-  echo "SQLAlchemy snippet directory not found: $SQLALCHEMY_DIR" >&2
-  exit 1
-fi
-
-sql_snippet_total="$(find "$SQL_DIR" -type f -name '*.sql' | wc -l | tr -d ' ')"
-sqlalchemy_snippet_total="$(find "$SQLALCHEMY_DIR" -type f -name '*.py' | wc -l | tr -d ' ')"
-
-if [[ "$sql_snippet_total" == "0" ]]; then
-  echo "No SQL snippets were extracted from the docs." >&2
-  exit 1
-fi
-
-if [[ "$sqlalchemy_snippet_total" == "0" ]]; then
-  echo "No SQLAlchemy snippets were extracted from the docs." >&2
-  exit 1
-fi
 
 bootstrap_sql="$(mktemp -t paradedb-docs-bootstrap)"
-trap 'rm -f "$bootstrap_sql"' EXIT
 
 cat >"$bootstrap_sql" <<'SQL'
 DROP TABLE IF EXISTS orders CASCADE;
@@ -106,78 +102,45 @@ SQL
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -X -f "$bootstrap_sql" >/dev/null
 
-printf "status\tsnippet\n" >"$SQL_RESULTS_FILE"
-printf "status\tsnippet\trunnable\n" >"$SQLALCHEMY_RESULTS_FILE"
-
 sql_pass_count=0
 sql_fail_count=0
 
 while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#$REPO_ROOT/}"
+  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
 
   if psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -X -f "$snippet_file" >/dev/null; then
-    printf "pass\t%s\n" "$rel_snippet" >>"$SQL_RESULTS_FILE"
-    echo "[PASS] $rel_snippet"
+    echo "[SUCCESS] $rel_snippet" >&2
     sql_pass_count=$((sql_pass_count + 1))
   else
-    printf "fail\t%s\n" "$rel_snippet" >>"$SQL_RESULTS_FILE"
     echo "[FAIL] $rel_snippet" >&2
     sql_fail_count=$((sql_fail_count + 1))
   fi
 done < <(find "$SQL_DIR" -type f -name '*.sql' | LC_ALL=C sort)
 
-find "$SQLALCHEMY_RUN_DIR" -type f -name '*.py' -delete
-
-while IFS= read -r snippet_file; do
-  runner_file="$SQLALCHEMY_RUN_DIR/$(basename "$snippet_file")"
-  rel_snippet="${snippet_file#$REPO_ROOT/}"
-
-  cat >"$runner_file" <<'PY'
-#!/usr/bin/env python3
-from pathlib import Path
-import sys
-
-DOCS_ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(DOCS_ROOT / "scripts"))
-
-from sqlalchemy_snippet_harness import MockItem, Order, engine  # noqa: F401
-PY
-
-  printf "\n# Source: %s\n" "$rel_snippet" >>"$runner_file"
-  cat "$snippet_file" >>"$runner_file"
-  chmod +x "$runner_file"
-done < <(find "$SQLALCHEMY_DIR" -type f -name '*.py' | LC_ALL=C sort)
-
 sqlalchemy_pass_count=0
 sqlalchemy_fail_count=0
 
-while IFS= read -r runner_file; do
-  rel_runner="${runner_file#$REPO_ROOT/}"
-  snippet_name="$(basename "$runner_file")"
-  rel_snippet="$(
-    find "$SQLALCHEMY_DIR" -type f -name "$snippet_name" -print | head -n 1
-  )"
-  rel_snippet="${rel_snippet#$REPO_ROOT/}"
+while IFS= read -r snippet_file; do
+  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
 
-  if PYTHONPATH="$SQLALCHEMY_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
-    DATABASE_URL="$DATABASE_URL" \
-    "$SQLALCHEMY_PYTHON" "$runner_file" >/dev/null; then
-    printf "pass\t%s\t%s\n" "$rel_snippet" "$rel_runner" >>"$SQLALCHEMY_RESULTS_FILE"
-    echo "[PASS] $rel_runner"
+  if {
+    cat <<PY
+from sqlalchemy_snippet_harness import MockItem, Order, engine
+
+# Source: $rel_snippet
+PY
+    cat "$snippet_file"
+  } | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - >/dev/null; then
+    echo "[SUCCESS] $rel_snippet" >&2
     sqlalchemy_pass_count=$((sqlalchemy_pass_count + 1))
   else
-    printf "fail\t%s\t%s\n" "$rel_snippet" "$rel_runner" >>"$SQLALCHEMY_RESULTS_FILE"
-    echo "[FAIL] $rel_runner" >&2
+    echo "[FAIL] $rel_snippet" >&2
     sqlalchemy_fail_count=$((sqlalchemy_fail_count + 1))
   fi
-done < <(find "$SQLALCHEMY_RUN_DIR" -type f -name '*.py' | LC_ALL=C sort)
+done < <(find "$SQLALCHEMY_DIR" -type f -name '*.py' | LC_ALL=C sort)
 
-echo "SQL passed: $sql_pass_count"
-echo "SQL failed: $sql_fail_count"
-echo "SQL results: $SQL_RESULTS_FILE"
-echo "SQLAlchemy passed: $sqlalchemy_pass_count"
-echo "SQLAlchemy failed: $sqlalchemy_fail_count"
-echo "SQLAlchemy results: $SQLALCHEMY_RESULTS_FILE"
+echo "SQL passed: $sql_pass_count failed: $sql_fail_count"
+echo "SQLAlchemy passed: $sqlalchemy_pass_count failed: $sqlalchemy_fail_count"
 
 if [[ $sql_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 ]]; then
   exit 1

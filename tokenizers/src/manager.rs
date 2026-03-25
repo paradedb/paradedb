@@ -565,15 +565,15 @@ impl SearchTokenizer {
             }
             SearchTokenizer::ChineseLinderaDeprecated(filters)
             | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Chinese, filters) => {
-                add_filters!(LinderaChineseTokenizer::default(), filters)
+                add_filters!(LinderaChineseTokenizer::new(true), filters)
             }
             SearchTokenizer::JapaneseLinderaDeprecated(filters)
             | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Japanese, filters) => {
-                add_filters!(LinderaJapaneseTokenizer::default(), filters)
+                add_filters!(LinderaJapaneseTokenizer::new(true), filters)
             }
             SearchTokenizer::KoreanLinderaDeprecated(filters)
             | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Korean, filters) => {
-                add_filters!(LinderaKoreanTokenizer::default(), filters)
+                add_filters!(LinderaKoreanTokenizer::new(true), filters)
             }
             SearchTokenizer::ICUTokenizer(filters) => {
                 add_filters!(ICUTokenizer, filters)

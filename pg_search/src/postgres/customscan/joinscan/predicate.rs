@@ -51,7 +51,7 @@ use pgrx::{pg_sys, PgList};
 ///
 /// Returns the updated JoinCSClause and a list of heap condition clause pointers
 /// (in the same order as multi_table_predicates in the clause) for adding to custom_exprs.
-pub(super) unsafe fn extract_join_level_conditions(
+pub unsafe fn extract_join_level_conditions(
     root: *mut pg_sys::PlannerInfo,
     extra: *mut pg_sys::JoinPathExtraData,
     sources: &[&JoinSource],
@@ -153,7 +153,7 @@ pub(super) unsafe fn extract_join_level_conditions(
 /// Also collects heap condition clause pointers into `multi_table_predicate_clauses` for adding
 /// to custom_exprs during plan_custom_path.
 #[allow(clippy::too_many_arguments)]
-pub(super) unsafe fn transform_to_search_expr(
+pub unsafe fn transform_to_search_expr(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
     sources: &[&JoinSource],
@@ -267,7 +267,7 @@ pub(super) unsafe fn transform_to_search_expr(
     }
 }
 
-pub(super) unsafe fn find_base_info_recursive(
+pub unsafe fn find_base_info_recursive(
     source: &JoinSource,
     rti: pg_sys::Index,
 ) -> Option<ScanInfo> {
@@ -280,7 +280,7 @@ pub(super) unsafe fn find_base_info_recursive(
 
 /// Extract a single-table predicate and add it to the join clause.
 /// Returns the index of the predicate in join_level_predicates, or None if extraction fails.
-pub(super) unsafe fn extract_single_table_predicate(
+pub unsafe fn extract_single_table_predicate(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     side: &ScanInfo,

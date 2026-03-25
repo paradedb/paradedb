@@ -111,12 +111,6 @@ SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'keep_whitespace=false', 'lo
  {Running,Shoes,.,olé}
 (1 row)
 
-SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
-       text       
-------------------
- {Run,Shoe,.,ole}
-(1 row)
-
 SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'lowercase=false')::text[];
          text          
 -----------------------

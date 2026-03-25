@@ -24,7 +24,6 @@ SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'keep_whitespace=true', 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'keep_whitespace=false', 'lowercase=false')::text[];
-SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'keep_whitespace=true', 'lowercase=false')::text[];

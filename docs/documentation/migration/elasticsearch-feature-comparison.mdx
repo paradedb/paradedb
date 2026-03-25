@@ -142,9 +142,9 @@ all live inside Postgres — no ETL pipelines, no separate cluster to manage.
 
 ## Pagination
 
-| Feature           | Elasticsearch | ParadeDB | Notes                                                            |
-| ----------------- | :-----------: | :------: | ---------------------------------------------------------------- |
-| `from` / `size`   |      ✅       |    ✅    | SQL `LIMIT` / `OFFSET`                                           |
-| `scroll` API      |      ✅       |    ❌    | Use SQL cursors (`DECLARE` / `FETCH`) instead                    |
-| `search_after`    |      ✅       |    ❌    | Use keyset pagination (`WHERE id > last_id ORDER BY id`) instead |
-| TopN optimization |      ✅       |    ✅    | [`paradedb.limit_fetch_multiplier`](/documentation/sorting/topk) |
+| Feature            | Elasticsearch | ParadeDB | Notes                                                            |
+| ------------------ | :-----------: | :------: | ---------------------------------------------------------------- |
+| `from` / `size`    |      ✅       |    ✅    | SQL `LIMIT` / `OFFSET`                                           |
+| `scroll` API       |      ✅       |    ❌    | Use SQL cursors (`DECLARE` / `FETCH`) instead                    |
+| `search_after`     |      ✅       |    ❌    | Use keyset pagination (`WHERE id > last_id ORDER BY id`) instead |
+| Top K optimization |      ✅       |    ✅    | [`paradedb.limit_fetch_multiplier`](/documentation/sorting/topk) |

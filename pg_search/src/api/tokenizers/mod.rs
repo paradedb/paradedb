@@ -84,10 +84,11 @@ pub fn try_get_alias(oid: pg_sys::Oid, typmod: Typmod) -> Option<String> {
 fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
     Some(match name {
         "simple" => SearchTokenizer::Simple(SearchTokenizerFilters::default()),
-        "lindera" => SearchTokenizer::LinderaDeprecated(
-            LinderaLanguage::default(),
-            SearchTokenizerFilters::default(),
-        ),
+        "lindera" => SearchTokenizer::Lindera {
+            language: LinderaLanguage::default(),
+            filters: SearchTokenizerFilters::default(),
+            keep_whitespace: false,
+        },
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         "jieba" => SearchTokenizer::Jieba {
             chinese_convert: None,
@@ -179,7 +180,11 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             }
             *filters = SearchTokenizerFilters::from(parsed);
         }
-        SearchTokenizer::LinderaDeprecated(language, filters) => {
+        SearchTokenizer::Lindera {
+            language,
+            filters,
+            keep_whitespace,
+        } => {
             if let Some(s) = parsed.try_get("language", 0).and_then(|p| p.as_str()) {
                 let lcase = s.to_lowercase();
                 *language = match lcase.as_str() {
@@ -190,6 +195,9 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
                 };
             }
             *filters = SearchTokenizerFilters::from(parsed);
+            if let Some(v) = parsed.get("keep_whitespace").and_then(|p| p.as_bool()) {
+                *keep_whitespace = v;
+            }
         }
         SearchTokenizer::Jieba {
             chinese_convert,
@@ -238,8 +246,12 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
         SearchTokenizer::KeywordDeprecated
         | SearchTokenizer::Raw(_)
         | SearchTokenizer::ChineseLinderaDeprecated(_)
+        | SearchTokenizer::ChineseLindera { .. }
         | SearchTokenizer::JapaneseLinderaDeprecated(_)
-        | SearchTokenizer::KoreanLinderaDeprecated(_) => {}
+        | SearchTokenizer::JapaneseLindera { .. }
+        | SearchTokenizer::KoreanLinderaDeprecated(_)
+        | SearchTokenizer::KoreanLindera { .. }
+        | SearchTokenizer::LinderaDeprecated { .. } => {}
     }
 }
 
@@ -354,6 +366,35 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
                 panic!("{}", e);
             });
             *style = lindera_typmod.language;
+            *filters = lindera_typmod.filters;
+        }
+        SearchTokenizer::Lindera {
+            language,
+            filters,
+            keep_whitespace: _,
+        } => {
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *language = lindera_typmod.language;
+            *filters = lindera_typmod.filters;
+        }
+
+        SearchTokenizer::ChineseLindera {
+            filters,
+            keep_whitespace: _,
+        }
+        | SearchTokenizer::JapaneseLindera {
+            filters,
+            keep_whitespace: _,
+        }
+        | SearchTokenizer::KoreanLindera {
+            filters,
+            keep_whitespace: _,
+        } => {
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
             *filters = lindera_typmod.filters;
         }
 

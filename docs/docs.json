@@ -37,6 +37,7 @@
                   {
                     "group": "Getting Started",
                     "pages": [
+                      "welcome/ai-agents",
                       "documentation/getting-started/install",
                       "documentation/getting-started/quickstart",
                       "documentation/getting-started/load"
@@ -186,7 +187,6 @@
                       }
                     ]
                   },
-                  "welcome/ai-agents",
                   "welcome/support"
                 ]
               }

@@ -7,7 +7,7 @@ canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenize
 The Lindera tokenizer is a more advanced CJK tokenizer that uses prebuilt Chinese, Japanese, or Korean dictionaries to break text into meaningful tokens (words or phrases) rather than on individual characters.
 Chinese Lindera uses the CC-CEDICT dictionary, Korean Lindera uses the KoDic dictionary, and Japanese Lindera uses the IPADIC dictionary.
 
-By default, non-CJK text is lowercased, but punctuation and whitespace are not ignored.
+By default, non-CJK text is lowercased, whitespace is ignored, and punctuation is not ignored.
 
 <CodeGroup>
 ```sql Chinese Lindera
@@ -34,6 +34,21 @@ To get a feel for this tokenizer, run the following command and replace the text
 
 ```sql
 SELECT 'Hello world! 你好!'::pdb.lindera(chinese)::text[];
+```
+
+```ini Expected Response
+              text
+------------------------
+ {hello,world,!,你好,!}
+(1 row)
+```
+
+## Keep whitespace
+
+By default, whitespace is not tokenized. To include it, set `keep_whitespace` to `true`.
+
+```sql
+SELECT 'Hello world! 你好!'::pdb.lindera(chinese, 'keep_whitespace=true')::text[];
 ```
 
 ```ini Expected Response

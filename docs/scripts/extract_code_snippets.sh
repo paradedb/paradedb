@@ -12,20 +12,24 @@ mkdir -p "$OUTPUT_DIR"
 SQL_OUT="$OUTPUT_DIR/sql.txt"
 DJANGO_OUT="$OUTPUT_DIR/django.txt"
 RAILS_OUT="$OUTPUT_DIR/rails.txt"
+SQLALCHEMY_OUT="$OUTPUT_DIR/sqlalchemy.txt"
 SQL_DIR="$OUTPUT_DIR/sql-snippets"
 DJANGO_DIR="$OUTPUT_DIR/django-snippets"
 RAILS_DIR="$OUTPUT_DIR/rails-snippets"
+SQLALCHEMY_DIR="$OUTPUT_DIR/sqlalchemy-snippets"
 MANIFEST_OUT="$OUTPUT_DIR/manifest.tsv"
 
-rm -rf "$OUTPUT_DIR/sql" "$OUTPUT_DIR/django" "$OUTPUT_DIR/rails"
-mkdir -p "$SQL_DIR" "$DJANGO_DIR" "$RAILS_DIR"
+rm -rf "$OUTPUT_DIR/sql" "$OUTPUT_DIR/django" "$OUTPUT_DIR/rails" "$OUTPUT_DIR/sqlalchemy"
+mkdir -p "$SQL_DIR" "$DJANGO_DIR" "$RAILS_DIR" "$SQLALCHEMY_DIR"
 find "$SQL_DIR" -type f -delete
 find "$DJANGO_DIR" -type f -delete
 find "$RAILS_DIR" -type f -delete
+find "$SQLALCHEMY_DIR" -type f -delete
 
 : >"$SQL_OUT"
 : >"$DJANGO_OUT"
 : >"$RAILS_OUT"
+: >"$SQLALCHEMY_OUT"
 : >"$MANIFEST_OUT"
 
 doc_count=0
@@ -39,9 +43,11 @@ while IFS= read -r rel_path; do
     -v sql_out="$SQL_OUT" \
     -v django_out="$DJANGO_OUT" \
     -v rails_out="$RAILS_OUT" \
+    -v sqlalchemy_out="$SQLALCHEMY_OUT" \
     -v sql_dir="$SQL_DIR" \
     -v django_dir="$DJANGO_DIR" \
     -v rails_dir="$RAILS_DIR" \
+    -v sqlalchemy_dir="$SQLALCHEMY_DIR" \
     -v manifest_out="$MANIFEST_OUT" '
     function classify(info, lower, parts, lang) {
       lower = tolower(info)
@@ -56,6 +62,9 @@ while IFS= read -r rel_path; do
       }
       if (lang == "ruby" && lower ~ /(^|[[:space:]])rails([[:space:]]|$)/) {
         return "rails"
+      }
+      if (lang == "python" && lower ~ /(^|[[:space:]])sqlalchemy([[:space:]]|$)/) {
+        return "sqlalchemy"
       }
 
       return ""
@@ -128,6 +137,10 @@ while IFS= read -r rel_path; do
           output_file = rails_out
           output_dir = rails_dir
           extension = "rb"
+        } else if (group_targets[idx] == "sqlalchemy") {
+          output_file = sqlalchemy_out
+          output_dir = sqlalchemy_dir
+          extension = "py"
         } else {
           continue
         }
@@ -210,8 +223,10 @@ fi
 sql_count="$(grep -c '^===== ' "$SQL_OUT" || true)"
 django_count="$(grep -c '^===== ' "$DJANGO_OUT" || true)"
 rails_count="$(grep -c '^===== ' "$RAILS_OUT" || true)"
+sqlalchemy_count="$(grep -c '^===== ' "$SQLALCHEMY_OUT" || true)"
 
 echo "Wrote $sql_count SQL snippets to $SQL_OUT"
 echo "Wrote $django_count Django snippets to $DJANGO_OUT"
 echo "Wrote $rails_count Rails snippets to $RAILS_OUT"
+echo "Wrote $sqlalchemy_count SQLAlchemy snippets to $SQLALCHEMY_OUT"
 echo "Wrote snippet manifest to $MANIFEST_OUT"

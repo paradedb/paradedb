@@ -57,3 +57,5 @@ CLAUDE.md
 CLAUDE.local.md
 
 docs/extracted-code-snippets/
+__pycache__
+docs/verify/sqlalchemy

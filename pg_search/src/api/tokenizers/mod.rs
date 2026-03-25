@@ -371,31 +371,33 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         SearchTokenizer::Lindera {
             language,
             filters,
-            keep_whitespace: _,
+            keep_whitespace,
         } => {
             let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
             *language = lindera_typmod.language;
             *filters = lindera_typmod.filters;
+            *keep_whitespace = lindera_typmod.keep_whitespace;
         }
 
         SearchTokenizer::ChineseLindera {
             filters,
-            keep_whitespace: _,
+            keep_whitespace,
         }
         | SearchTokenizer::JapaneseLindera {
             filters,
-            keep_whitespace: _,
+            keep_whitespace,
         }
         | SearchTokenizer::KoreanLindera {
             filters,
-            keep_whitespace: _,
+            keep_whitespace,
         } => {
             let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
             *filters = lindera_typmod.filters;
+            *keep_whitespace = lindera_typmod.keep_whitespace;
         }
 
         #[allow(deprecated)]

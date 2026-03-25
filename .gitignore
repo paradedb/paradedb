@@ -56,6 +56,5 @@ result*
 CLAUDE.md
 CLAUDE.local.md
 
-docs/extracted-code-snippets/
+docs/verify
 __pycache__
-docs/verify/sqlalchemy

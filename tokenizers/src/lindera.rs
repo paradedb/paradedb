@@ -271,14 +271,18 @@ mod tests {
     }
 
     #[rstest]
-    fn test_lindera_chinese_tokenizer() {
-        let mut tokenizer = LinderaChineseTokenizer::default();
+    #[case(LinderaChineseTokenizer::new(true), 19)]
+    #[case(LinderaChineseTokenizer::new(false), 18)]
+    fn test_lindera_chinese_tokenizer(
+        #[case] mut tokenizer: LinderaChineseTokenizer,
+        #[case] expected_token_count: usize,
+    ) {
         let tokens = test_helper(
             &mut tokenizer,
             "地址1，包含無效的字元 (包括符號與不標準的asci阿爾發字元",
         );
         // With keep_whitespace=true (backward compatible behavior), whitespace is included as a token
-        assert_eq!(tokens.len(), 19);
+        assert_eq!(tokens.len(), expected_token_count);
         {
             let token = &tokens[0];
             assert_eq!(token.text, "地址");
@@ -290,37 +294,41 @@ mod tests {
     }
 
     #[rstest]
-    fn test_japanese_tokenizer() {
-        let mut tokenizer = LinderaJapaneseTokenizer::default();
+    #[case(LinderaJapaneseTokenizer::new(true), 8)]
+    #[case(LinderaJapaneseTokenizer::new(false), 7)]
+    fn test_lindera_japanese_tokenizer(
+        #[case] mut tokenizer: LinderaJapaneseTokenizer,
+        #[case] expected_token_count: usize,
+    ) {
+        let tokens = test_helper(&mut tokenizer, "すもも もももももものうち");
+        assert_eq!(tokens.len(), expected_token_count);
         {
-            let tokens = test_helper(&mut tokenizer, "すもももももももものうち");
-            assert_eq!(tokens.len(), 7);
-            {
-                let token = &tokens[0];
-                assert_eq!(token.text, "すもも");
-                assert_eq!(token.offset_from, 0);
-                assert_eq!(token.offset_to, 9);
-                assert_eq!(token.position, 0);
-                assert_eq!(token.position_length, 1);
-            }
+            let token = &tokens[0];
+            assert_eq!(token.text, "すもも");
+            assert_eq!(token.offset_from, 0);
+            assert_eq!(token.offset_to, 9);
+            assert_eq!(token.position, 0);
+            assert_eq!(token.position_length, 1);
         }
     }
 
     #[rstest]
-    fn test_korean_tokenizer() {
-        let mut tokenizer = LinderaKoreanTokenizer::default();
+    #[case(LinderaKoreanTokenizer::new(true), 11)]
+    #[case(LinderaKoreanTokenizer::new(false), 8)]
+    fn test_lindera_korean_tokenizer(
+        #[case] mut tokenizer: LinderaKoreanTokenizer,
+        #[case] expected_token_count: usize,
+    ) {
+        // With keep_whitespace=true (backward compatible behavior), whitespace is included as tokens
+        let tokens = test_helper(&mut tokenizer, "일본입니다. 매우 멋진 단어입니다.");
+        assert_eq!(tokens.len(), expected_token_count);
         {
-            // With keep_whitespace=true (backward compatible behavior), whitespace is included as tokens
-            let tokens = test_helper(&mut tokenizer, "일본입니다. 매우 멋진 단어입니다.");
-            assert_eq!(tokens.len(), 11);
-            {
-                let token = &tokens[0];
-                assert_eq!(token.text, "일본");
-                assert_eq!(token.offset_from, 0);
-                assert_eq!(token.offset_to, 6);
-                assert_eq!(token.position, 0);
-                assert_eq!(token.position_length, 1);
-            }
+            let token = &tokens[0];
+            assert_eq!(token.text, "일본");
+            assert_eq!(token.offset_from, 0);
+            assert_eq!(token.offset_to, 6);
+            assert_eq!(token.position, 0);
+            assert_eq!(token.position_length, 1);
         }
     }
 

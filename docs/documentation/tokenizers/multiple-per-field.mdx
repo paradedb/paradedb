@@ -63,6 +63,28 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+# Query against `description_simple`
+stmt_alias = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(pdb.alias(MockItem.description, "description_simple"), "Sleek running shoes"))
+)
+
+# Query against `description`
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "Sleek running shoes"))
+)
+
+with Session(engine) as session:
+    rows_alias = session.execute(stmt_alias).all()
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 <Note>

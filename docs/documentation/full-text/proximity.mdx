@@ -36,9 +36,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import search
 
-stmt = (
-    select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.proximity(MockItem.description, "sleek").within(1, "shoes"))
+stmt = select(MockItem.description, MockItem.rating, MockItem.category).where(
+    search.proximity(MockItem.description, search.prox_str("sleek").within(1, "shoes"))
 )
 
 with Session(engine) as session:
@@ -83,7 +82,7 @@ from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.proximity(MockItem.description, "sleek").within(1, "shoes", ordered=True))
+    .where(search.proximity(MockItem.description, search.prox_str("sleek").within(1, "shoes", ordered=True)))
 )
 
 with Session(engine) as session:
@@ -168,7 +167,7 @@ from paradedb.sqlalchemy import search
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.proximity(MockItem.description, search.prox_regex("sl.*", 100).near(1, "shoes")))
+    .where(search.proximity(MockItem.description, search.prox_regex("sl.*", 100).within(1, "shoes")))
 )
 
 with Session(engine) as session:

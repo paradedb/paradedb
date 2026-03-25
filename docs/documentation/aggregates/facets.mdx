@@ -50,8 +50,9 @@ aggregates = relation.aggregates
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import func, literal_column, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, search
 
 base = (
     select(MockItem.id, MockItem.description, MockItem.rating)
@@ -64,7 +65,6 @@ base = (
 )
 
 stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=MockItem.id)
-)
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()

@@ -205,6 +205,20 @@ MockItem.search(:description)
         .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.value_count(field="id"), approximate=True).label("agg"))
+    .where(search.match_any(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 Disabling this check can improve query times by 2-4x in some cases (at the expense of correctness).

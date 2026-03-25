@@ -84,7 +84,7 @@ pub fn try_get_alias(oid: pg_sys::Oid, typmod: Typmod) -> Option<String> {
 fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
     Some(match name {
         "simple" => SearchTokenizer::Simple(SearchTokenizerFilters::default()),
-        "lindera" => SearchTokenizer::Lindera(
+        "lindera" => SearchTokenizer::LinderaDeprecated(
             LinderaLanguage::default(),
             SearchTokenizerFilters::default(),
         ),
@@ -179,7 +179,7 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             }
             *filters = SearchTokenizerFilters::from(parsed);
         }
-        SearchTokenizer::Lindera(language, filters) => {
+        SearchTokenizer::LinderaDeprecated(language, filters) => {
             if let Some(s) = parsed.try_get("language", 0).and_then(|p| p.as_str()) {
                 let lcase = s.to_lowercase();
                 *language = match lcase.as_str() {
@@ -237,9 +237,9 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
         #[allow(deprecated)]
         SearchTokenizer::KeywordDeprecated
         | SearchTokenizer::Raw(_)
-        | SearchTokenizer::ChineseLindera(_)
-        | SearchTokenizer::JapaneseLindera(_)
-        | SearchTokenizer::KoreanLindera(_) => {}
+        | SearchTokenizer::ChineseLinderaDeprecated(_)
+        | SearchTokenizer::JapaneseLinderaDeprecated(_)
+        | SearchTokenizer::KoreanLinderaDeprecated(_) => {}
     }
 }
 
@@ -349,7 +349,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *filters = regex_typmod.filters;
         }
 
-        SearchTokenizer::Lindera(style, filters) => {
+        SearchTokenizer::LinderaDeprecated(style, filters) => {
             let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
@@ -364,9 +364,9 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         | SearchTokenizer::SourceCode(filters)
         | SearchTokenizer::WhiteSpace(filters)
         | SearchTokenizer::ChineseCompatible(filters)
-        | SearchTokenizer::ChineseLindera(filters)
-        | SearchTokenizer::JapaneseLindera(filters)
-        | SearchTokenizer::KoreanLindera(filters) => {
+        | SearchTokenizer::ChineseLinderaDeprecated(filters)
+        | SearchTokenizer::JapaneseLinderaDeprecated(filters)
+        | SearchTokenizer::KoreanLinderaDeprecated(filters) => {
             // | SearchTokenizer::Jieba(filters) =>  {
             let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);

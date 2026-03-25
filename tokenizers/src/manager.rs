@@ -379,16 +379,16 @@ pub enum SearchTokenizer {
         positions: bool,
         filters: SearchTokenizerFilters,
     },
-    ChineseLindera(SearchTokenizerFilters),
-    JapaneseLindera(SearchTokenizerFilters),
-    KoreanLindera(SearchTokenizerFilters),
+    ChineseLinderaDeprecated(SearchTokenizerFilters),
+    JapaneseLinderaDeprecated(SearchTokenizerFilters),
+    KoreanLinderaDeprecated(SearchTokenizerFilters),
     #[strum(serialize = "icu")]
     ICUTokenizer(SearchTokenizerFilters),
     Jieba {
         chinese_convert: Option<ConvertMode>,
         filters: SearchTokenizerFilters,
     },
-    Lindera(LinderaLanguage, SearchTokenizerFilters),
+    LinderaDeprecated(LinderaLanguage, SearchTokenizerFilters),
     UnicodeWordsDeprecated {
         remove_emojis: bool,
         filters: SearchTokenizerFilters,
@@ -470,9 +470,9 @@ impl SearchTokenizer {
                     filters,
                 })
             }
-            "chinese_lindera" => Ok(SearchTokenizer::ChineseLindera(filters)),
-            "japanese_lindera" => Ok(SearchTokenizer::JapaneseLindera(filters)),
-            "korean_lindera" => Ok(SearchTokenizer::KoreanLindera(filters)),
+            "chinese_lindera" => Ok(SearchTokenizer::ChineseLinderaDeprecated(filters)),
+            "japanese_lindera" => Ok(SearchTokenizer::JapaneseLinderaDeprecated(filters)),
+            "korean_lindera" => Ok(SearchTokenizer::KoreanLinderaDeprecated(filters)),
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
             "jieba" => {
                 let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
@@ -563,16 +563,16 @@ impl SearchTokenizer {
                     add_filters!(CodeTokenizer::default(), filters)
                 }
             }
-            SearchTokenizer::ChineseLindera(filters)
-            | SearchTokenizer::Lindera(LinderaLanguage::Chinese, filters) => {
+            SearchTokenizer::ChineseLinderaDeprecated(filters)
+            | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Chinese, filters) => {
                 add_filters!(LinderaChineseTokenizer::default(), filters)
             }
-            SearchTokenizer::JapaneseLindera(filters)
-            | SearchTokenizer::Lindera(LinderaLanguage::Japanese, filters) => {
+            SearchTokenizer::JapaneseLinderaDeprecated(filters)
+            | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Japanese, filters) => {
                 add_filters!(LinderaJapaneseTokenizer::default(), filters)
             }
-            SearchTokenizer::KoreanLindera(filters)
-            | SearchTokenizer::Lindera(LinderaLanguage::Korean, filters) => {
+            SearchTokenizer::KoreanLinderaDeprecated(filters)
+            | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Korean, filters) => {
                 add_filters!(LinderaKoreanTokenizer::default(), filters)
             }
             SearchTokenizer::ICUTokenizer(filters) => {
@@ -596,7 +596,7 @@ impl SearchTokenizer {
                     )
                 }
             }
-            SearchTokenizer::Lindera(LinderaLanguage::Unspecified, _) => {
+            SearchTokenizer::LinderaDeprecated(LinderaLanguage::Unspecified, _) => {
                 panic!("LinderaStyle::Unspecified is not supported")
             }
             SearchTokenizer::UnicodeWords {
@@ -628,10 +628,10 @@ impl SearchTokenizer {
             SearchTokenizer::ChineseCompatible(filters) => filters,
             SearchTokenizer::SourceCode(filters) => filters,
             SearchTokenizer::Ngram { filters, .. } => filters,
-            SearchTokenizer::ChineseLindera(filters) => filters,
-            SearchTokenizer::JapaneseLindera(filters) => filters,
-            SearchTokenizer::KoreanLindera(filters) => filters,
-            SearchTokenizer::Lindera(_, filters) => filters,
+            SearchTokenizer::ChineseLinderaDeprecated(filters) => filters,
+            SearchTokenizer::JapaneseLinderaDeprecated(filters) => filters,
+            SearchTokenizer::KoreanLinderaDeprecated(filters) => filters,
+            SearchTokenizer::LinderaDeprecated(_, filters) => filters,
             SearchTokenizer::ICUTokenizer(filters) => filters,
             SearchTokenizer::Jieba { filters, .. } => filters,
             SearchTokenizer::UnicodeWordsDeprecated { filters, .. } => filters,
@@ -700,12 +700,16 @@ impl SearchTokenizer {
                     "ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{positions_suffix}{filters_suffix}"
                 )
             }
-            SearchTokenizer::ChineseLindera(_filters) => format!("chinese_lindera{filters_suffix}"),
-            SearchTokenizer::JapaneseLindera(_filters) => {
+            SearchTokenizer::ChineseLinderaDeprecated(_filters) => {
+                format!("chinese_lindera{filters_suffix}")
+            }
+            SearchTokenizer::JapaneseLinderaDeprecated(_filters) => {
                 format!("japanese_lindera{filters_suffix}")
             }
-            SearchTokenizer::KoreanLindera(_filters) => format!("korean_lindera{filters_suffix}"),
-            SearchTokenizer::Lindera(style, _filters) => match style {
+            SearchTokenizer::KoreanLinderaDeprecated(_filters) => {
+                format!("korean_lindera{filters_suffix}")
+            }
+            SearchTokenizer::LinderaDeprecated(style, _filters) => match style {
                 LinderaLanguage::Unspecified => {
                     panic!("LinderaStyle::Unspecified is not supported")
                 }
@@ -1029,7 +1033,7 @@ mod tests {
 
         assert_eq!(
             tokenizer,
-            SearchTokenizer::KoreanLindera(SearchTokenizerFilters {
+            SearchTokenizer::KoreanLinderaDeprecated(SearchTokenizerFilters {
                 remove_short: None,
                 remove_long: None,
                 lowercase: None,

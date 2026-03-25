@@ -396,26 +396,22 @@ facets = relation.aggregates
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import func, literal_column, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, search
 
-stmt = (
-    select(
-        MockItem.description,
-        MockItem.rating,
-        MockItem.category,
-        func.pdb.agg(literal_column('\'{"value_count": {"field": "id"}}\'')).over().label("agg"),
-    )
-    .where(
-        MockItem.id.op("@@@")(func.pdb.all()),
-        MockItem.description.op("|||")(literal_column("'running shoes'")),
-    )
+base = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
     .order_by(MockItem.rating)
     .limit(5)
 )
 
+stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=MockItem.id)
+
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+    aggregates = facets.extract(rows)
 ```
 
 </CodeGroup>

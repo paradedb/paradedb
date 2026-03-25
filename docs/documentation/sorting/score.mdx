@@ -39,14 +39,14 @@ MockItem.search(:description)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import pdb, search
 
 stmt = (
     select(MockItem.id, pdb.score(MockItem.id).label("score"))
     .where(search.match_any(MockItem.description, "shoes"))
-    .order_by(pdb.score(MockItem.id))
+    .order_by(desc("score"))
     .limit(5)
 )
 
@@ -90,14 +90,14 @@ MockItem.search(:description)
 ```
 
 ```python SQLAlchemy
-from sqlalchemy import or_, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import pdb, search
 
 stmt = (
     select(MockItem.id, pdb.score(MockItem.id).label("score"))
     .where(or_(search.match_any(MockItem.description, "keyboard"), MockItem.rating < 2))
-    .order_by(pdb.score(MockItem.id))
+    .order_by(desc("score"))
     .limit(5)
 )
 

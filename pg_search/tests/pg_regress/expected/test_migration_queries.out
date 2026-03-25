@@ -38,7 +38,7 @@ SELECT * FROM products WHERE description ||| 'running shoes' ORDER BY id;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -61,7 +61,7 @@ SELECT * FROM products WHERE description &&& 'running shoes' ORDER BY id;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -83,7 +83,7 @@ SELECT * FROM products WHERE description ||| 'runing shose'::pdb.fuzzy(2) ORDER 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -106,7 +106,7 @@ SELECT * FROM products WHERE description ### 'running shoes' ORDER BY id;
 -----------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -128,7 +128,7 @@ SELECT * FROM products WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 
 --------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -151,7 +151,7 @@ SELECT * FROM products WHERE description ||| 'running shoes' OR category ||| 'ru
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -181,7 +181,7 @@ WHERE id @@@ paradedb.disjunction_max(
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -211,7 +211,7 @@ SELECT * FROM products WHERE description @@@ pdb.parse('running AND shoes') ORDE
 ---------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -236,7 +236,7 @@ SELECT * FROM products WHERE category === 'electronics' ORDER BY id;
 -------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -259,7 +259,7 @@ SELECT * FROM products WHERE category === 'electronics' OR category === 'footwea
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -308,7 +308,7 @@ SELECT * FROM products WHERE rating @@@ pdb.exists() ORDER BY id;
 -------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -338,7 +338,7 @@ SELECT * FROM products WHERE description === 'shose'::pdb.fuzzy(2) ORDER BY id;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -360,7 +360,7 @@ SELECT * FROM products WHERE description === 'runn'::pdb.fuzzy(0, t) ORDER BY id
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -383,7 +383,7 @@ SELECT * FROM products WHERE description @@@ pdb.regex('run.*ing') ORDER BY id;
 --------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -406,7 +406,7 @@ SELECT * FROM products WHERE description @@@ pdb.regex('run.*') ORDER BY id;
 -----------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -456,7 +456,7 @@ ORDER BY id;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -489,7 +489,7 @@ ORDER BY id;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -521,7 +521,7 @@ WHERE id @@@ paradedb.boolean(
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -551,7 +551,7 @@ WHERE id @@@ paradedb.const_score(
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -585,7 +585,7 @@ WHERE id @@@ paradedb.disjunction_max(
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -620,7 +620,7 @@ ORDER BY id;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -645,7 +645,7 @@ SELECT * FROM products WHERE description @@@ ('running' ##3## 'shoes') ORDER BY 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -667,7 +667,7 @@ SELECT * FROM products WHERE description @@@ ('running' ##> 3 ##> 'shoes') ORDER
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -689,7 +689,7 @@ SELECT * FROM products WHERE id @@@ pdb.all() ORDER BY id;
 ------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -719,7 +719,7 @@ SELECT * FROM products WHERE id @@@ pdb.empty() ORDER BY id;
 --------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -744,7 +744,7 @@ ORDER BY pdb.score(id) DESC;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -770,7 +770,7 @@ ORDER BY pdb.score(id) DESC;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -799,7 +799,7 @@ ORDER BY id;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -825,7 +825,7 @@ ORDER BY id;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState
@@ -852,7 +852,7 @@ ORDER BY id;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: search_idx
          Exec Method: NormalScanExecState

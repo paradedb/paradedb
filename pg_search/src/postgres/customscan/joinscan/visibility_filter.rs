@@ -534,6 +534,9 @@ fn is_barrier(plan: &LogicalPlan) -> bool {
             | LogicalPlan::Window(_)
     ) || match plan {
         LogicalPlan::Sort(sort) => sort.fetch.is_some(),
+        // TODO: For Left/Right/Full joins, the preserved side(s) could remain
+        // deferred past the barrier. Currently all non-inner joins are treated
+        // as full barriers forcing both sides to be resolved.
         LogicalPlan::Join(join) => !matches!(join.join_type, datafusion::common::JoinType::Inner),
         _ => false,
     }

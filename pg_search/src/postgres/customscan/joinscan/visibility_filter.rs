@@ -391,7 +391,6 @@ fn analyze_and_inject(
     plan_pos_to_heap_oid: &BTreeMap<usize, pg_sys::Oid>,
     plan_pos_names: &[Option<String>],
 ) -> Result<(Transformed<LogicalPlan>, RelationStates)> {
-    // 1) Recurse into children and collect per-child relation states.
     let children: Vec<LogicalPlan> = plan.inputs().into_iter().cloned().collect();
     let mut new_children = Vec::with_capacity(children.len());
     let mut child_states = Vec::with_capacity(children.len());
@@ -404,7 +403,6 @@ fn analyze_and_inject(
         child_states.push(state);
     }
 
-    // 2) Leaf: infer plan_positions from ctid lineage and mark unverified.
     if new_children.is_empty() {
         let mut leaf_state = RelationStates::new();
         for plan_pos in extract_ctid_lineage(plan.schema()) {
@@ -415,8 +413,7 @@ fn analyze_and_inject(
         return Ok((Transformed::new_transformed(plan, any_modified), leaf_state));
     }
 
-    // 3) Merge child states. Plan_positions are unique per source, so children
-    // never overlap — this is a simple union of disjoint maps.
+    // Plan positions are unique per source, so child states never overlap.
     let mut merged = RelationStates::new();
     for child_state in &child_states {
         for (&plan_pos, &status) in child_state {
@@ -427,7 +424,7 @@ fn analyze_and_inject(
         }
     }
 
-    // 3b) Recognize existing VisibilityFilter nodes so repeated optimizer
+    // Treat existing visibility nodes as already verified so repeated optimizer
     // passes do not keep re-wrapping.
     if let LogicalPlan::Extension(ext) = &plan {
         if let Some(vf) = ext.node.as_any().downcast_ref::<VisibilityFilterNode>() {
@@ -437,28 +434,19 @@ fn analyze_and_inject(
         }
     }
 
-    // 4) Determine ctid lineage at this node output.
     let parent_lineage: BTreeSet<usize> = extract_ctid_lineage(plan.schema())
         .into_iter()
         .filter(|plan_pos| plan_pos_to_heap_oid.contains_key(plan_pos))
         .collect();
 
-    // If lineage appears first at this node (e.g. projection alias), mark it unverified.
+    // If lineage appears first at this node, mark it unverified.
     for &plan_pos in &parent_lineage {
         merged
             .entry(plan_pos)
             .or_insert(VisibilityStatus::Unverified);
     }
 
-    // 5) Decide which plan_positions must be checked at this boundary.
-    //
-    // Two triggers force visibility injection:
-    //   a) Barrier nodes (Limit, Aggregate, non-inner Join, etc.) — all unverified
-    //      plan_positions must be checked before the barrier consumes rows.
-    //   b) Lineage drop — if an unverified plan_position's ctid column disappears from the
-    //      output schema at this node (e.g., a projection drops it), this is our
-    //      last chance to check it. Without injection here, no ancestor could
-    //      resolve the packed DocAddress because the column no longer exists.
+    // Barrier nodes and lineage drops both force visibility injection here.
     let needs_barrier = is_barrier(&plan);
     let lineage_dropped: BTreeSet<usize> = merged
         .iter()
@@ -478,7 +466,7 @@ fn analyze_and_inject(
     };
 
     if !force_positions.is_empty() {
-        // Insert per-child visibility wrappers only for the plan_positions that flow through that child.
+        // Only wrap children that still carry one of the forced plan positions.
         let wrapped_children: Vec<Transformed<LogicalPlan>> = new_children
             .into_iter()
             .enumerate()
@@ -521,7 +509,6 @@ fn analyze_and_inject(
         return Ok((Transformed::no(plan), merged));
     }
 
-    // 6) No insertion here; just propagate child rewrites.
     if any_modified {
         let new_plan = plan.with_new_exprs(plan.expressions(), new_children)?;
         Ok((Transformed::yes(new_plan), merged))
@@ -805,6 +792,10 @@ impl ExecutionPlan for VisibilityFilterExec {
             .filter(|(_, f)| !blocked_ctid_names.contains(f.name()))
             .map(|(i, _)| i)
             .collect();
+        // TODO: DataFusion remaps pushed columns by `child_schema.index_of(name)`,
+        // which is not safe for duplicate-name join schemas (for example self-joins
+        // with two `id` columns). This node should eventually use an index-preserving
+        // remapper or restore a duplicate-name bailout before forwarding filters.
         let child_desc = ChildFilterDescription::from_child_with_allowed_indices(
             &parent_filters,
             allowed_indices,
@@ -959,7 +950,6 @@ fn materialize_deferred_ctid(
     Ok(uint64_array_from_options(&state.resolved_ctids))
 }
 
-/// Builds a UInt64Array from a slice of Option<u64> values.
 fn uint64_array_from_options(values: &[Option<u64>]) -> ArrayRef {
     Arc::new(UInt64Array::from_iter(values.iter().copied())) as ArrayRef
 }
@@ -1019,9 +1009,7 @@ impl VisibilityFilterStream {
 
         let num_rows = batch.num_rows();
 
-        // Phase 1: Resolve packed DocAddresses to real ctids.
-        // Replace ctid columns in-place in the columns vec — no intermediate
-        // RecordBatch needed between phases.
+        // Resolve packed DocAddresses to real ctids in place.
         let mut columns: Vec<ArrayRef> = batch.columns().to_vec();
         for entry in &mut self.checkers {
             let col = &columns[entry.col_idx];
@@ -1040,7 +1028,6 @@ impl VisibilityFilterStream {
             columns[entry.col_idx] = resolved;
         }
 
-        // Phase 2: Visibility checking on the (now real) ctids.
         let mut visible_mask = None;
         for entry in &mut self.checkers {
             let ctid_array = columns[entry.col_idx]

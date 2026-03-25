@@ -270,7 +270,10 @@ impl ExecutionPlan for TantivyLookupExec {
                 &self.children(),
             ));
         }
-        // ChildFilterDescription::from_child automatically reassigns indices if names match
+        // TODO: `from_child` remaps by column name, so duplicate-name join schemas
+        // (for example self-joins with two `id` columns) can silently retarget a
+        // pushed filter to the wrong child column. This should use the same eventual
+        // index-preserving remapper as VisibilityFilterExec.
         let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?;
         Ok(FilterDescription::new().with_child(child_desc))
     }

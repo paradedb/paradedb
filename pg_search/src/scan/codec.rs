@@ -186,14 +186,18 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             let payload = buf.get(5..5 + payload_len).ok_or_else(|| {
                 DataFusionError::Internal("truncated buffer: incomplete visibility payload".into())
             })?;
-            let plan_pos_oids: Vec<(usize, pgrx::pg_sys::Oid)> = serde_json::from_slice(payload)
-                .map_err(|e| {
+            let (plan_pos_oids, table_names): (Vec<(usize, pgrx::pg_sys::Oid)>, Vec<String>) =
+                serde_json::from_slice(payload).map_err(|e| {
                     DataFusionError::Internal(format!(
                         "Failed to deserialize visibility payload: {e}"
                     ))
                 })?;
             return Ok(Extension {
-                node: Arc::new(VisibilityFilterNode::new(input_plan, plan_pos_oids)),
+                node: Arc::new(VisibilityFilterNode::new(
+                    input_plan,
+                    plan_pos_oids,
+                    table_names,
+                )),
             });
         }
 
@@ -229,7 +233,9 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         }
 
         if let Some(vis_node) = node.node.as_any().downcast_ref::<VisibilityFilterNode>() {
-            let bytes = serde_json::to_vec(&vis_node.plan_pos_oids).map_err(|e| {
+            let payload: (&[(usize, pgrx::pg_sys::Oid)], &[String]) =
+                (&vis_node.plan_pos_oids, &vis_node.table_names);
+            let bytes = serde_json::to_vec(&payload).map_err(|e| {
                 DataFusionError::Internal(format!(
                     "Failed to serialize visibility plan positions: {e}"
                 ))

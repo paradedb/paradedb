@@ -72,11 +72,6 @@ fn compact_with_mask(
     }
 }
 
-/// Ensure `memoized_columns[ff_index]` is populated, fetching from the fast field helper if needed.
-///
-/// Skips synthetic fields (Ctid, DeferredCtid, Score, TableOid, Junk) which don't have
-/// real fast-field backends. Pre-filters should never reference these indices, but this
-/// guard prevents silent corruption if they do.
 fn ensure_column_fetched(
     memoized_columns: &mut [Option<ArrayRef>],
     which_fast_fields: &[WhichFastField],

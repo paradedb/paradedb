@@ -124,7 +124,7 @@ ORDER BY p.name
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query="all"
@@ -160,7 +160,7 @@ ORDER BY s.name
            : ProjectionExec: expr=[name@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   TantivyLookupExec: decode=[name]
            :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=20
-           :       VisibilityFilterExec: plan_positions=[0, 1]
+           :       VisibilityFilterExec: tables=[s, p]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
@@ -265,7 +265,7 @@ ORDER BY paradedb.score(p.id) DESC, p.name
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_2@1 DESC, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[name@3 as col_1, score@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_0@0, score@2, ctid_1@3, name@5]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query="all"
@@ -340,7 +340,7 @@ ORDER BY p.name
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_0@3 as ctid_0, ctid_1@5 as ctid_1, ctid_2@4 as ctid_2]
                  :   SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[name@5 as col_1, name@1 as col_2, name@3 as col_3], aggr=[ctid_0, ctid_2, ctid_1]
-                 :       VisibilityFilterExec: plan_positions=[0, 1, 2]
+                 :       VisibilityFilterExec: tables=[s, c, p]
                  :         ProjectionExec: expr=[ctid_0@2 as ctid_0, name@3 as name, ctid_1@0 as ctid_1, name@1 as name, ctid_2@4 as ctid_2, name@5 as name]
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_1@0, name@2, ctid_0@3, name@4, ctid_2@5, name@7]
                  :             CooperativeExec
@@ -443,7 +443,7 @@ ORDER BY s.name
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query="all"
@@ -478,7 +478,7 @@ ORDER BY p.name
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[name]
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
-           :       VisibilityFilterExec: plan_positions=[0, 1]
+           :       VisibilityFilterExec: tables=[s, p]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query="all"
@@ -513,7 +513,7 @@ ORDER BY p.name
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[name]
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
-           :       VisibilityFilterExec: plan_positions=[0, 1]
+           :       VisibilityFilterExec: tables=[s, p]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
@@ -743,7 +743,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[id@3 as col_1, name@4 as col_2, score@1 as col_3], aggr=[ctid_0, ctid_1]
-                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, score@2, ctid_1@3, id@5, name@6]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}
@@ -883,7 +883,7 @@ ORDER BY p.name
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :     VisibilityFilterExec: tables=[s, p]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, query="all"

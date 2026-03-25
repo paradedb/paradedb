@@ -53,6 +53,7 @@ use std::task::{Context, Poll};
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
+use datafusion::arrow::compute::kernels::boolean::{and, is_not_null};
 use datafusion::common::tree_node::Transformed;
 use datafusion::common::{DFSchemaRef, DataFusionError, Result};
 use datafusion::execution::{
@@ -78,6 +79,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
+use arrow_select::filter::filter_record_batch;
 
 // ---------------------------------------------------------------------------
 // Logical Node
@@ -90,15 +92,22 @@ pub struct VisibilityFilterNode {
     pub input: LogicalPlan,
     /// (plan_position, heap_oid) pairs whose `ctid_{plan_position}` columns need visibility checking.
     pub plan_pos_oids: Vec<(usize, pg_sys::Oid)>,
+    /// Table names for EXPLAIN display, parallel to plan_pos_oids.
+    pub table_names: Vec<String>,
     schema: DFSchemaRef,
 }
 
 impl VisibilityFilterNode {
-    pub fn new(input: LogicalPlan, plan_pos_oids: Vec<(usize, pg_sys::Oid)>) -> Self {
+    pub fn new(
+        input: LogicalPlan,
+        plan_pos_oids: Vec<(usize, pg_sys::Oid)>,
+        table_names: Vec<String>,
+    ) -> Self {
         let schema = input.schema().clone();
         Self {
             input,
             plan_pos_oids,
+            table_names,
             schema,
         }
     }
@@ -152,17 +161,11 @@ impl datafusion::logical_expr::UserDefinedLogicalNodeCore for VisibilityFilterNo
             .collect()
     }
 
-    // TODO: Display table names instead of position integers for debuggability.
-    // Requires storing table names in plan_pos_oids or resolving from heap_oid.
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "VisibilityFilter: plan_positions=[{}]",
-            self.plan_pos_oids
-                .iter()
-                .map(|(p, _)| p.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+            "VisibilityFilter: tables=[{}]",
+            self.table_names.join(", ")
         )
     }
 
@@ -174,7 +177,11 @@ impl datafusion::logical_expr::UserDefinedLogicalNodeCore for VisibilityFilterNo
         let input = inputs.pop().ok_or_else(|| {
             DataFusionError::Internal("VisibilityFilterNode requires exactly one input".into())
         })?;
-        Ok(Self::new(input, self.plan_pos_oids.clone()))
+        Ok(Self::new(
+            input,
+            self.plan_pos_oids.clone(),
+            self.table_names.clone(),
+        ))
     }
 
     fn supports_limit_pushdown(&self) -> bool {
@@ -215,15 +222,21 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
         let mut plan_pos_to_heap_oid = BTreeMap::<usize, pg_sys::Oid>::new();
-        for source in self.join_clause.plan.sources() {
+        let sources: Vec<_> = self.join_clause.plan.sources();
+        let mut plan_pos_names: Vec<Option<String>> = vec![None; sources.len()];
+        for source in &sources {
             plan_pos_to_heap_oid.insert(source.plan_position, source.scan_info.heaprelid);
+            if source.plan_position < plan_pos_names.len() {
+                plan_pos_names[source.plan_position] = source.scan_info.alias.clone();
+            }
         }
 
         if plan_pos_to_heap_oid.is_empty() {
             return Ok(Transformed::no(plan));
         }
 
-        let (result, final_state) = analyze_and_inject(plan, &plan_pos_to_heap_oid)?;
+        let (result, final_state) =
+            analyze_and_inject(plan, &plan_pos_to_heap_oid, &plan_pos_names)?;
 
         // Root boundary fallback: any plan_position still unverified must be checked here.
         let unverified: BTreeSet<usize> = final_state
@@ -236,8 +249,12 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
             return Ok(result);
         }
 
-        let wrapped =
-            wrap_with_visibility_if_needed(result.data, &unverified, &plan_pos_to_heap_oid)?;
+        let wrapped = wrap_with_visibility_if_needed(
+            result.data,
+            &unverified,
+            &plan_pos_to_heap_oid,
+            &plan_pos_names,
+        )?;
         Ok(Transformed::new_transformed(
             wrapped.data,
             wrapped.transformed || result.transformed,
@@ -291,8 +308,10 @@ fn wrap_with_visibility(
     input: LogicalPlan,
     plan_positions: &BTreeSet<usize>,
     plan_pos_to_heap_oid: &BTreeMap<usize, pg_sys::Oid>,
+    plan_pos_names: &[Option<String>],
 ) -> Result<LogicalPlan> {
     let mut plan_pos_oids = Vec::with_capacity(plan_positions.len());
+    let mut table_names = Vec::with_capacity(plan_positions.len());
     for &plan_pos in plan_positions {
         let heap_oid = plan_pos_to_heap_oid.get(&plan_pos).ok_or_else(|| {
             DataFusionError::Internal(format!(
@@ -301,10 +320,16 @@ fn wrap_with_visibility(
             ))
         })?;
         plan_pos_oids.push((plan_pos, *heap_oid));
+        table_names.push(
+            plan_pos_names
+                .get(plan_pos)
+                .and_then(|n| n.clone())
+                .unwrap_or_else(|| plan_pos.to_string()),
+        );
     }
 
     Ok(LogicalPlan::Extension(Extension {
-        node: Arc::new(VisibilityFilterNode::new(input, plan_pos_oids)),
+        node: Arc::new(VisibilityFilterNode::new(input, plan_pos_oids, table_names)),
     }))
 }
 
@@ -312,6 +337,7 @@ fn wrap_with_visibility_if_needed(
     input: LogicalPlan,
     plan_positions: &BTreeSet<usize>,
     plan_pos_to_heap_oid: &BTreeMap<usize, pg_sys::Oid>,
+    plan_pos_names: &[Option<String>],
 ) -> Result<Transformed<LogicalPlan>> {
     if plan_positions.is_empty() {
         return Ok(Transformed::no(input));
@@ -322,17 +348,19 @@ fn wrap_with_visibility_if_needed(
         if missing.is_empty() {
             return Ok(Transformed::no(input));
         }
-        let wrapped = wrap_with_visibility(input, &missing, plan_pos_to_heap_oid)?;
+        let wrapped = wrap_with_visibility(input, &missing, plan_pos_to_heap_oid, plan_pos_names)?;
         return Ok(Transformed::yes(wrapped));
     }
 
-    let wrapped = wrap_with_visibility(input, plan_positions, plan_pos_to_heap_oid)?;
+    let wrapped =
+        wrap_with_visibility(input, plan_positions, plan_pos_to_heap_oid, plan_pos_names)?;
     Ok(Transformed::yes(wrapped))
 }
 
 fn analyze_and_inject(
     plan: LogicalPlan,
     plan_pos_to_heap_oid: &BTreeMap<usize, pg_sys::Oid>,
+    plan_pos_names: &[Option<String>],
 ) -> Result<(Transformed<LogicalPlan>, RelationStates)> {
     // 1) Recurse into children and collect per-child relation states.
     let children: Vec<LogicalPlan> = plan.inputs().into_iter().cloned().collect();
@@ -341,7 +369,7 @@ fn analyze_and_inject(
     let mut any_modified = false;
 
     for child in children {
-        let (result, state) = analyze_and_inject(child, plan_pos_to_heap_oid)?;
+        let (result, state) = analyze_and_inject(child, plan_pos_to_heap_oid, plan_pos_names)?;
         any_modified |= result.transformed;
         new_children.push(result.data);
         child_states.push(state);
@@ -438,7 +466,12 @@ fn analyze_and_inject(
                 if to_check.is_empty() {
                     Ok(Transformed::no(child))
                 } else {
-                    wrap_with_visibility_if_needed(child, &to_check, plan_pos_to_heap_oid)
+                    wrap_with_visibility_if_needed(
+                        child,
+                        &to_check,
+                        plan_pos_to_heap_oid,
+                        plan_pos_names,
+                    )
                 }
             })
             .collect::<Result<Vec<_>>>()?;
@@ -495,20 +528,11 @@ fn is_barrier(plan: &LogicalPlan) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Converts `VisibilityFilterNode` into `VisibilityFilterExec`.
-pub struct VisibilityExtensionPlanner {
-    snapshot: pg_sys::Snapshot,
-}
-
-// SAFETY: VisibilityExtensionPlanner holds a raw pg_sys::Snapshot pointer.
-// This is safe because the snapshot is valid for the entire transaction lifetime
-// and pg_search runs DataFusion on a single-threaded Tokio runtime within the
-// Postgres backend process — the pointer never crosses thread boundaries.
-unsafe impl Send for VisibilityExtensionPlanner {}
-unsafe impl Sync for VisibilityExtensionPlanner {}
+pub struct VisibilityExtensionPlanner {}
 
 impl VisibilityExtensionPlanner {
-    pub fn new(snapshot: pg_sys::Snapshot) -> Self {
-        Self { snapshot }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -538,7 +562,7 @@ impl ExtensionPlanner for VisibilityExtensionPlanner {
         let exec = VisibilityFilterExec::new(
             input.clone(),
             vis_node.plan_pos_oids.clone(),
-            self.snapshot,
+            vis_node.table_names.clone(),
         )?;
         Ok(Some(Arc::new(exec)))
     }
@@ -561,7 +585,8 @@ pub struct VisibilityFilterExec {
     input: Arc<dyn ExecutionPlan>,
     /// (plan_position, heap_oid) pairs for visibility checking.
     plan_pos_oids: Vec<(usize, pg_sys::Oid)>,
-    snapshot: pg_sys::Snapshot,
+    /// Table names for EXPLAIN display, parallel to plan_pos_oids.
+    table_names: Vec<String>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
     /// Per-plan_position FFHelper for resolving packed DocAddresses to real ctids.
@@ -569,14 +594,6 @@ pub struct VisibilityFilterExec {
     /// Indexed by plan_position (0, 1, 2...).
     ctid_resolvers: Mutex<Vec<Option<Arc<FFHelper>>>>,
 }
-
-// SAFETY: VisibilityFilterExec holds a raw pg_sys::Snapshot pointer and
-// (plan_position, Oid) pairs. This is safe because the snapshot is valid for the entire
-// transaction lifetime and pg_search runs DataFusion on a single-threaded
-// Tokio runtime within the Postgres backend process — the pointer never
-// crosses real thread boundaries.
-unsafe impl Send for VisibilityFilterExec {}
-unsafe impl Sync for VisibilityFilterExec {}
 
 impl fmt::Debug for VisibilityFilterExec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -597,7 +614,7 @@ impl VisibilityFilterExec {
     pub fn new(
         input: Arc<dyn ExecutionPlan>,
         plan_pos_oids: Vec<(usize, pg_sys::Oid)>,
-        snapshot: pg_sys::Snapshot,
+        table_names: Vec<String>,
     ) -> Result<Self> {
         // Visibility filtering only removes rows — it never reorders them.
         // Forward the input's equivalence properties so DataFusion knows
@@ -616,7 +633,7 @@ impl VisibilityFilterExec {
         Ok(Self {
             input,
             plan_pos_oids,
-            snapshot,
+            table_names,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
             ctid_resolvers: Mutex::new(vec![None; resolver_len]),
@@ -644,12 +661,8 @@ impl DisplayAs for VisibilityFilterExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "VisibilityFilterExec: plan_positions=[{}]",
-            self.plan_pos_oids
-                .iter()
-                .map(|(p, _)| p.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+            "VisibilityFilterExec: tables=[{}]",
+            self.table_names.join(", ")
         )
     }
 }
@@ -688,7 +701,7 @@ impl ExecutionPlan for VisibilityFilterExec {
         let new_exec = VisibilityFilterExec::new(
             children.remove(0),
             self.plan_pos_oids.clone(),
-            self.snapshot,
+            self.table_names.clone(),
         )?;
         // with_new_children constructs a fresh exec node, so preserve any
         // resolver wiring already attached to this instance.
@@ -764,6 +777,10 @@ impl ExecutionPlan for VisibilityFilterExec {
             .lock()
             .expect("ctid_resolvers lock poisoned")
             .clone();
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        if snapshot.is_null() {
+            panic!("VisibilityFilterExec requires an active Postgres snapshot");
+        }
 
         let mut checkers: Vec<CtidCheckerEntry> = Vec::with_capacity(self.plan_pos_oids.len());
         for &(plan_pos, heap_oid) in &self.plan_pos_oids {
@@ -775,7 +792,7 @@ impl ExecutionPlan for VisibilityFilterExec {
                 ))
             })?;
             let heaprel = PgSearchRelation::open(heap_oid);
-            let visibility = VisibilityChecker::with_rel_and_snap(&heaprel, self.snapshot);
+            let visibility = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
             let resolver = resolvers
                 .get(plan_pos)
                 .and_then(|r| r.clone())
@@ -789,6 +806,9 @@ impl ExecutionPlan for VisibilityFilterExec {
                 col_idx,
                 checker: visibility,
                 resolver,
+                deferred_ctid_state: DeferredCtidMaterializationState::default(),
+                ctid_input: Vec::new(),
+                visibility_results: Vec::new(),
             });
         }
 
@@ -815,38 +835,70 @@ impl ExecutionPlan for VisibilityFilterExec {
 // Deferred ctid materialization
 // ---------------------------------------------------------------------------
 
+#[derive(Default)]
+struct DeferredCtidMaterializationState {
+    requests: Vec<(u32, usize, u32)>,
+    segment_doc_ids: Vec<u32>,
+    segment_ctids: Vec<Option<u64>>,
+    resolved_ctids: Vec<Option<u64>>,
+}
+
 /// Resolves packed DocAddresses (UInt64) to real ctids via FFHelper.
 ///
 /// Each packed value encodes (segment_ord, doc_id). The FFHelper's ctid()
 /// column is used to look up the real ctid for each document.
 ///
-/// TODO: This segment-grouping pattern is duplicated in `materialize_deferred_column`
+/// TODO: This request-partitioning pattern is duplicated in `materialize_deferred_column`
 /// in `tantivy_lookup_exec.rs`. Both should be unified and optimized with Arrow
-/// kernels and batch fast-field lookups (`as_u64s`) instead of per-row access.
-pub fn materialize_deferred_ctid(
+/// kernels where possible.
+fn materialize_deferred_ctid(
     ffhelper: &FFHelper,
     doc_addr_array: &UInt64Array,
-    num_rows: usize,
+    state: &mut DeferredCtidMaterializationState,
 ) -> Result<ArrayRef> {
-    // Group rows by segment_ord for sequential fast-field access within each
-    // segment, which is significantly faster than random lookups across segments.
-    let mut seg_groups: BTreeMap<u32, Vec<(usize, u32)>> = BTreeMap::new();
+    let num_rows = doc_addr_array.len();
+    state.requests.clear();
+    state.resolved_ctids.clear();
+    state.resolved_ctids.resize(num_rows, None);
+
+    // Sort by segment so each fast-field column can be batch-read with a single
+    // `as_u64s` call per segment.
     for i in 0..num_rows {
         if !doc_addr_array.is_null(i) {
             let (seg_ord, doc_id) = unpack_doc_address(doc_addr_array.value(i));
-            seg_groups.entry(seg_ord).or_default().push((i, doc_id));
+            state.requests.push((seg_ord, i, doc_id));
         }
     }
+    state.requests.sort_unstable_by_key(|request| request.0);
 
-    let mut result: Vec<Option<u64>> = vec![None; num_rows];
-    for (seg_ord, rows) in &seg_groups {
-        let ctid_col = ffhelper.ctid(*seg_ord);
-        for &(row_idx, doc_id) in rows {
-            result[row_idx] = ctid_col.as_u64(doc_id);
+    let mut offset = 0;
+    while offset < state.requests.len() {
+        let seg_ord = state.requests[offset].0;
+        let mut end = offset + 1;
+        while end < state.requests.len() && state.requests[end].0 == seg_ord {
+            end += 1;
         }
+
+        let rows = &state.requests[offset..end];
+        state.segment_doc_ids.clear();
+        state
+            .segment_doc_ids
+            .extend(rows.iter().map(|(_, _, doc_id)| *doc_id));
+        if state.segment_ctids.len() < rows.len() {
+            state.segment_ctids.resize(rows.len(), None);
+        }
+        let segment_ctids = &mut state.segment_ctids[..rows.len()];
+        segment_ctids.fill(None);
+        let ctid_col = ffhelper.ctid(seg_ord);
+        ctid_col.as_u64s(&state.segment_doc_ids, segment_ctids);
+
+        for ((_, row_idx, _), maybe_ctid) in rows.iter().zip(segment_ctids.iter()) {
+            state.resolved_ctids[*row_idx] = *maybe_ctid;
+        }
+        offset = end;
     }
 
-    Ok(uint64_array_from_options(&result))
+    Ok(uint64_array_from_options(&state.resolved_ctids))
 }
 
 /// Builds a UInt64Array from a slice of Option<u64> values.
@@ -868,6 +920,9 @@ struct CtidCheckerEntry {
     /// Always present: `VisibilityCtidResolverRule` guarantees wiring, and
     /// `execute()` validates at runtime.
     resolver: Arc<FFHelper>,
+    deferred_ctid_state: DeferredCtidMaterializationState,
+    ctid_input: Vec<Option<u64>>,
+    visibility_results: Vec<Option<u64>>,
 }
 
 struct VisibilityFilterStream {
@@ -880,22 +935,23 @@ struct VisibilityFilterStream {
 impl VisibilityFilterStream {
     /// Runs visibility check for a single relation's ctid column.
     /// Returns HOT-resolved ctids (None for invisible rows).
-    fn check_column_visibility(
-        checker: &mut VisibilityChecker,
-        ctid_array: &UInt64Array,
-        num_rows: usize,
-    ) -> Vec<Option<u64>> {
+    fn check_column_visibility(entry: &mut CtidCheckerEntry, ctid_array: &UInt64Array) -> ArrayRef {
         if ctid_array.null_count() != 0 {
             panic!(
                 "ctid column contains {} nulls — null ctids indicate a planning or storage bug",
                 ctid_array.null_count()
             );
         }
-        let mut results = vec![None; num_rows];
-        let mut ctids = Vec::with_capacity(num_rows);
-        ctids.extend(ctid_array.values().iter().copied().map(Some));
-        checker.check_batch(&ctids, &mut results);
-        results
+        entry.ctid_input.clear();
+        entry
+            .ctid_input
+            .extend(ctid_array.values().iter().copied().map(Some));
+        entry.visibility_results.clear();
+        entry.visibility_results.resize(ctid_array.len(), None);
+        entry
+            .checker
+            .check_batch(&entry.ctid_input, &mut entry.visibility_results);
+        uint64_array_from_options(&entry.visibility_results)
     }
 
     fn filter_batch(&mut self, batch: RecordBatch) -> Result<RecordBatch> {
@@ -909,7 +965,7 @@ impl VisibilityFilterStream {
         // Replace ctid columns in-place in the columns vec — no intermediate
         // RecordBatch needed between phases.
         let mut columns: Vec<ArrayRef> = batch.columns().to_vec();
-        for entry in &self.checkers {
+        for entry in &mut self.checkers {
             let col = &columns[entry.col_idx];
             let doc_addr_array = col.as_any().downcast_ref::<UInt64Array>().ok_or_else(|| {
                 DataFusionError::Execution(format!(
@@ -918,16 +974,16 @@ impl VisibilityFilterStream {
                     entry.col_idx
                 ))
             })?;
-            let resolved = materialize_deferred_ctid(&entry.resolver, doc_addr_array, num_rows)?;
+            let resolved = materialize_deferred_ctid(
+                &entry.resolver,
+                doc_addr_array,
+                &mut entry.deferred_ctid_state,
+            )?;
             columns[entry.col_idx] = resolved;
         }
 
         // Phase 2: Visibility checking on the (now real) ctids.
-        let mut visible_mask = vec![true; num_rows];
-
-        // For each plan_position, check visibility and collect HOT-resolved ctids.
-        let mut resolved_ctids: Vec<Option<Vec<Option<u64>>>> = vec![None; columns.len()];
-
+        let mut visible_mask = None;
         for entry in &mut self.checkers {
             let ctid_array = columns[entry.col_idx]
                 .as_any()
@@ -940,72 +996,29 @@ impl VisibilityFilterStream {
                     ))
                 })?;
 
-            let results = Self::check_column_visibility(&mut entry.checker, ctid_array, num_rows);
-
-            for (i, result) in results.iter().enumerate() {
-                if result.is_none() {
-                    visible_mask[i] = false;
-                }
-            }
-
-            resolved_ctids[entry.col_idx] = Some(results);
+            let resolved = Self::check_column_visibility(entry, ctid_array);
+            let current_mask = is_not_null(resolved.as_ref())
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+            visible_mask = Some(match visible_mask.take() {
+                None => current_mask,
+                Some(mask) => and(&mask, &current_mask)
+                    .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?,
+            });
+            columns[entry.col_idx] = resolved;
         }
 
-        let visible_count = visible_mask.iter().filter(|&&v| v).count();
-        if visible_count == 0 {
-            let empty_cols: Vec<ArrayRef> = self
-                .schema
-                .fields()
-                .iter()
-                .map(|f| arrow_array::new_null_array(f.data_type(), 0))
-                .collect();
-            return RecordBatch::try_new(self.schema.clone(), empty_cols)
-                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None));
-        }
-
-        if visible_count == num_rows {
-            for (col_idx, resolved) in resolved_ctids.iter().enumerate() {
-                let Some(resolved) = resolved else { continue };
-                columns[col_idx] = uint64_array_from_options(resolved);
-            }
-            return RecordBatch::try_new(self.schema.clone(), columns)
-                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None));
-        }
-
-        let visible_indices: Vec<usize> = visible_mask
+        let visible_mask =
+            visible_mask.unwrap_or_else(|| arrow_array::BooleanArray::from(vec![true; num_rows]));
+        let visible_count = visible_mask
             .iter()
-            .enumerate()
-            .filter(|(_, &v)| v)
-            .map(|(i, _)| i)
-            .collect();
-
-        let mut new_columns: Vec<ArrayRef> = Vec::with_capacity(columns.len());
-        let indices_array = arrow_array::UInt32Array::from(
-            visible_indices
-                .iter()
-                .map(|&i| i as u32)
-                .collect::<Vec<_>>(),
-        );
-
-        for (col_idx, col) in columns.iter().enumerate() {
-            // Check if this is a ctid column that needs HOT resolution.
-            if let Some(resolved) = &resolved_ctids[col_idx] {
-                let mut builder = arrow_array::builder::UInt64Builder::with_capacity(visible_count);
-                for &row_idx in &visible_indices {
-                    match resolved[row_idx] {
-                        Some(ctid) => builder.append_value(ctid),
-                        None => builder.append_null(),
-                    }
-                }
-                new_columns.push(Arc::new(builder.finish()) as ArrayRef);
-            } else {
-                let filtered = arrow_select::take::take(col.as_ref(), &indices_array, None)
-                    .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-                new_columns.push(filtered);
-            }
+            .filter(|visible| matches!(visible, Some(true)))
+            .count();
+        let resolved_batch = RecordBatch::try_new(self.schema.clone(), columns)
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        if visible_count == num_rows {
+            return Ok(resolved_batch);
         }
-
-        RecordBatch::try_new(self.schema.clone(), new_columns)
+        filter_record_batch(&resolved_batch, &visible_mask)
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
     }
 }
@@ -1036,6 +1049,7 @@ impl RecordBatchStream for VisibilityFilterStream {
 #[pgrx::pg_schema]
 mod tests {
     use std::collections::BTreeSet;
+    use std::sync::Arc;
 
     use datafusion::common::Result;
     use datafusion::logical_expr::{col, lit, LogicalPlan, LogicalPlanBuilder};
@@ -1384,6 +1398,106 @@ mod tests {
     }
 
     #[pg_test]
+    fn left_join_only_wraps_unverified_side() -> Result<()> {
+        let config = OptimizerContext::new();
+
+        const POS_A: usize = 0;
+        const POS_B: usize = 1;
+        let oid_a = pg_sys::Oid::from(42);
+        let oid_b = pg_sys::Oid::from(43);
+
+        let source_a = JoinSource {
+            plan_position: POS_A,
+            root_id: None,
+            scan_info: ScanInfo {
+                heap_rti: 1,
+                heaprelid: oid_a,
+                ..Default::default()
+            },
+        };
+        let source_b = JoinSource {
+            plan_position: POS_B,
+            root_id: None,
+            scan_info: ScanInfo {
+                heap_rti: 2,
+                heaprelid: oid_b,
+                ..Default::default()
+            },
+        };
+
+        let plan_node = RelNode::Join(Box::new(
+            crate::postgres::customscan::joinscan::build::JoinNode {
+                join_type: crate::postgres::customscan::joinscan::build::JoinType::Inner,
+                left: RelNode::Scan(Box::new(source_a)),
+                right: RelNode::Scan(Box::new(source_b)),
+                equi_keys: Vec::new(),
+                filter: None,
+            },
+        ));
+
+        let rule = VisibilityFilterOptimizerRule::new(JoinCSClause::new(plan_node));
+
+        let left_leaf = LogicalPlanBuilder::values(vec![vec![lit(1_u64)]])?
+            .project(vec![
+                col("column1").alias(CtidColumn::new(POS_A).to_string())
+            ])?
+            .build()?;
+        let left = LogicalPlan::Extension(datafusion::logical_expr::Extension {
+            node: Arc::new(VisibilityFilterNode::new(
+                left_leaf,
+                vec![(POS_A, oid_a)],
+                vec![],
+            )),
+        });
+        let right = LogicalPlanBuilder::values(vec![vec![lit(2_u64)]])?
+            .project(vec![
+                col("column1").alias(CtidColumn::new(POS_B).to_string())
+            ])?
+            .build()?;
+
+        let plan = LogicalPlanBuilder::from(left)
+            .join_on(
+                right,
+                datafusion::common::JoinType::Left,
+                vec![col(CtidColumn::new(POS_A).to_string())
+                    .eq(col(CtidColumn::new(POS_B).to_string()))],
+            )?
+            .build()?;
+
+        let first = rule.rewrite(plan, &config)?;
+        assert!(first.transformed);
+        assert_eq!(count_visibility_nodes(&first.data), 2);
+
+        let LogicalPlan::Join(join) = &first.data else {
+            panic!("expected root to remain Join");
+        };
+        let LogicalPlan::Extension(left_ext) = join.left.as_ref() else {
+            panic!("expected left child to remain VisibilityFilterNode");
+        };
+        let left_vf = left_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("left child should be VisibilityFilterNode");
+        assert_eq!(left_vf.plan_pos_oids, vec![(POS_A, oid_a)]);
+
+        let LogicalPlan::Extension(right_ext) = join.right.as_ref() else {
+            panic!("expected right child to be wrapped with VisibilityFilterNode");
+        };
+        let right_vf = right_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("right child should be VisibilityFilterNode");
+        assert_eq!(right_vf.plan_pos_oids, vec![(POS_B, oid_b)]);
+
+        let second = rule.rewrite(first.data.clone(), &config)?;
+        assert!(!second.transformed);
+        assert_eq!(count_visibility_nodes(&second.data), 2);
+        Ok(())
+    }
+
+    #[pg_test]
     fn visibility_node_codec_roundtrip() -> Result<()> {
         use crate::scan::codec::{deserialize_logical_plan, serialize_logical_plan};
         use datafusion::execution::TaskContext;
@@ -1393,6 +1507,7 @@ mod tests {
             node: std::sync::Arc::new(VisibilityFilterNode::new(
                 plan,
                 vec![(TEST_PLAN_POS, pg_sys::Oid::from(42))],
+                vec!["test_table".to_string()],
             )),
         });
 
@@ -1414,6 +1529,7 @@ mod tests {
             vis.plan_pos_oids,
             vec![(TEST_PLAN_POS, pg_sys::Oid::from(42))]
         );
+        assert_eq!(vis.table_names, vec!["test_table".to_string()]);
         Ok(())
     }
 }

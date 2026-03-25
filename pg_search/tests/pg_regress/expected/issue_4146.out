@@ -486,7 +486,7 @@ LIMIT 50;
                  : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_0@3 as ctid_0, ctid_1@5 as ctid_1, ctid_2@4 as ctid_2]
                  :   SortExec: TopK(fetch=50), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
                  :     AggregateExec: mode=Single, gby=[id@1 as col_1, title@2 as col_2, parents@3 as col_3], aggr=[ctid_0, ctid_2, ctid_1]
-                 :       VisibilityFilterExec: plan_positions=[0, 1, 2]
+                 :       VisibilityFilterExec: tables=[d, p, f]
                  :         ProjectionExec: expr=[ctid_0@1 as ctid_0, id@2 as id, title@3 as title, parents@4 as parents, ctid_1@0 as ctid_1, ctid_2@5 as ctid_2]
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@1, id@5)], projection=[ctid_1@0, ctid_0@2, id@3, title@4, parents@5, ctid_2@6]
                  :             CooperativeExec

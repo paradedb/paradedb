@@ -38,7 +38,7 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
            :   GlobalLimitExec: skip=0, fetch=10
-           :     VisibilityFilterExec: plan_positions=[0, 1, 2]
+           :     VisibilityFilterExec: tables=[users, products, orders]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(color@3, color@1)], filter=pdb_search_predicate(ctid_2@1) OR pdb_search_predicate(ctid_0@0)
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, name@1)], projection=[ctid_0@0, name@1, ctid_1@2, color@4]
            :           CooperativeExec

@@ -75,7 +75,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
-           :       VisibilityFilterExec: plan_positions=[0]
+           :       VisibilityFilterExec: tables=[table_a]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
@@ -142,7 +142,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, a_id@0)]
-           :       VisibilityFilterExec: plan_positions=[0]
+           :       VisibilityFilterExec: tables=[table_a]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec
@@ -183,7 +183,7 @@ LIMIT 10;
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
            :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, a_id@0)]
-           :         VisibilityFilterExec: plan_positions=[0]
+           :         VisibilityFilterExec: tables=[table_a]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
@@ -249,7 +249,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, category@2 as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0), (category@2, category@1)]
-           :       VisibilityFilterExec: plan_positions=[0]
+           :       VisibilityFilterExec: tables=[table_a]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
            :       CooperativeExec
@@ -309,7 +309,7 @@ LIMIT 10;
            :   TantivyLookupExec: decode=[category]
            :     SegmentedTopKExec: expr=[category@2 ASC NULLS LAST, id@1 ASC NULLS LAST], k=10
            :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
-           :         VisibilityFilterExec: plan_positions=[0]
+           :         VisibilityFilterExec: tables=[table_a]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
@@ -370,7 +370,7 @@ WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal par
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
-           :       VisibilityFilterExec: plan_positions=[0]
+           :       VisibilityFilterExec: tables=[table_a]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"id:1","lenient":null,"conjunction_mode":null}}}}
            :       CooperativeExec

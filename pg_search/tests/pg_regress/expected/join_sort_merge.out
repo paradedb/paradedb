@@ -49,7 +49,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   GlobalLimitExec: skip=0, fetch=10
-                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :     VisibilityFilterExec: tables=[t2, t1]
                  :       ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
                  :         SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
                  :           CooperativeExec
@@ -107,7 +107,7 @@ OFFSET 5 LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   GlobalLimitExec: skip=0, fetch=15
-                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :     VisibilityFilterExec: tables=[t2, t1]
                  :       ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
                  :         SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
                  :           CooperativeExec
@@ -177,7 +177,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   SortPreservingMergeExec: [id@2 ASC], fetch=10
-                 :     VisibilityFilterExec: plan_positions=[0, 1]
+                 :     VisibilityFilterExec: tables=[t2, t1]
                  :       ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, id@3 as id]
                  :         SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
                  :           SortPreservingMergeExec: [t1_id@1 ASC]
@@ -257,7 +257,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@1 as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@3 as ctid_2]
                  :   GlobalLimitExec: skip=0, fetch=10
-                 :     VisibilityFilterExec: plan_positions=[0, 1, 2]
+                 :     VisibilityFilterExec: tables=[t1, t2, t3]
                  :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
                  :         SortMergeJoinExec: join_type=Inner, on=[(t1_id@3, t1_id@1)]
                  :           SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
@@ -334,7 +334,7 @@ LIMIT 10;
            :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10
            :     TantivyLookupExec: decode=[val]
            :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10
-           :         VisibilityFilterExec: plan_positions=[0, 1]
+           :         VisibilityFilterExec: tables=[t2, t1]
            :           ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val]
            :             SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
            :               SortPreservingMergeExec: [t1_id@1 ASC]
@@ -366,7 +366,7 @@ LIMIT 10;
            :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10, metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :     TantivyLookupExec: decode=[val], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, metrics=[rows_input=20.00 K, rows_output=10, segments_seen=2]
-           :         VisibilityFilterExec: plan_positions=[0, 1], metrics=[output_rows=20.00 K, output_bytes=1113.3 KB, output_batches=3]
+           :         VisibilityFilterExec: tables=[t2, t1], metrics=[output_rows=20.00 K, output_bytes=1113.3 KB, output_batches=3]
            :           ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val], metrics=[output_rows=20.00 K, output_bytes=1184.8 KB, output_batches=3]
            :             SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=20.00 K, output_bytes=1568.8 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=40.00 K, peak_mem_used=1.20 M]
            :               SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
@@ -455,7 +455,7 @@ LIMIT 25;
            :   SortPreservingMergeExec: [val@3 DESC, id@2 ASC NULLS LAST], fetch=25
            :     TantivyLookupExec: decode=[val]
            :       SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25
-           :         VisibilityFilterExec: plan_positions=[0, 1]
+           :         VisibilityFilterExec: tables=[t2, t1]
            :           ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
            :             ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0]
            :               SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
@@ -485,7 +485,7 @@ LIMIT 25;
            :   SortPreservingMergeExec: [val@3 DESC, id@2 ASC NULLS LAST], fetch=25, metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :     TantivyLookupExec: decode=[val], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :       SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, metrics=[rows_input=16.62 K, rows_output=25, segments_seen=2]
-           :         VisibilityFilterExec: plan_positions=[0, 1], metrics=[output_rows=16.62 K, output_bytes=1181.0 KB, output_batches=3]
+           :         VisibilityFilterExec: tables=[t2, t1], metrics=[output_rows=16.62 K, output_bytes=1181.0 KB, output_batches=3]
            :           ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=16.62 K, output_bytes=1292.9 KB, output_batches=3]
            :             ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0], metrics=[output_rows=16.62 K, output_bytes=1292.9 KB, output_batches=3]
            :               SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], metrics=[output_rows=16.62 K, output_bytes=1472.6 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=36.62 K, peak_mem_used=524.9 K]
@@ -558,7 +558,7 @@ LIMIT 10;
            :   SortPreservingMergeExec: [val@3 ASC NULLS LAST], fetch=10
            :     TantivyLookupExec: decode=[val]
            :       SegmentedTopKExec: expr=[val@3 ASC NULLS LAST], k=10
-           :         VisibilityFilterExec: plan_positions=[0, 1]
+           :         VisibilityFilterExec: tables=[t2, t1]
            :           ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
            :             ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0]
            :               SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
@@ -663,7 +663,7 @@ LIMIT 15;
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [id@2 DESC], fetch=15
            :     SortExec: TopK(fetch=15), expr=[id@2 DESC], preserve_partitioning=[true]
-           :       VisibilityFilterExec: plan_positions=[0, 1]
+           :       VisibilityFilterExec: tables=[t2, t1]
            :         ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
            :           ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, ctid_0@2 as ctid_0]
            :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]

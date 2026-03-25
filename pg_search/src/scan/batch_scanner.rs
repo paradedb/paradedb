@@ -88,8 +88,6 @@ fn ensure_column_fetched(
     if memoized_columns[ff_index].is_some() {
         return;
     }
-    // Only fetch real named/deferred columns — synthetic fields (Ctid, DeferredCtid,
-    // Score, TableOid, Junk) map to FFType::Junk in FFHelper and have no backing data.
     match &which_fast_fields[ff_index] {
         WhichFastField::Named(_, _) | WhichFastField::Deferred(_, _) => {
             memoized_columns[ff_index] = Some(
@@ -99,10 +97,15 @@ fn ensure_column_fetched(
             );
         }
         WhichFastField::Ctid
-        | WhichFastField::DeferredCtid(_)
         | WhichFastField::Score
         | WhichFastField::TableOid
         | WhichFastField::Junk(_) => {}
+        WhichFastField::DeferredCtid(alias) => {
+            panic!(
+                "pre-filter referenced DeferredCtid column '{alias}' at index {ff_index} \
+                 — this indicates a planning bug"
+            );
+        }
     }
 }
 
@@ -329,11 +332,10 @@ impl Scanner {
         // When defer_visibility is true, we skip visibility checking entirely —
         // VisibilityFilterExec will handle it in batch after the join.
         let ctids: Vec<u64> = if self.defer_visibility {
-            // Placeholder zeros — not used downstream. Real ctid values are
-            // emitted as packed DocAddresses via the DeferredCtid column.
-            // These only appear in Batch.ids which is consumed by
-            // SearchIndexScore (for LIMIT tracking), where the ctid value
-            // is irrelevant because VisibilityFilterExec handles it later.
+            // TODO: Remove ctid from SearchIndexScore entirely and use batch
+            // lookups (similar to materialize_deferred_ctid) in consumers.
+            // These placeholder zeros only appear in Batch.ids for LIMIT
+            // tracking via SearchIndexScore, where the ctid value is irrelevant.
             vec![0u64; ids.len()]
         } else {
             self.maybe_ctids.resize(ids.len(), None);

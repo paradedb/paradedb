@@ -264,7 +264,6 @@ fn create_planning_session_context(join_clause: &JoinCSClause) -> SessionContext
 /// (injected at planning time). This context binds runtime extension planners
 /// and applies physical optimizer rules.
 pub fn create_execution_session_context() -> SessionContext {
-    use crate::scan::reorder_lookup_above_visibility_rule::ReorderLookupAboveVisibilityRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
     let mut builder = SessionStateBuilder::new().with_config(base_session_config());
@@ -277,11 +276,10 @@ pub fn create_execution_session_context() -> SessionContext {
         enable_visibility_planner: true,
     }));
 
-    // Reorder lookup nodes before wiring ctid resolvers, then finish resolver
-    // wiring before later post-optimization FilterPushdown passes can run.
-    builder = builder
-        .with_physical_optimizer_rule(Arc::new(ReorderLookupAboveVisibilityRule))
-        .with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
+    // VisibilityExtensionPlanner already places visibility below any immediate
+    // TantivyLookupExec chain, so only resolver wiring remains here before
+    // later post-optimization FilterPushdown passes can run.
+    builder = builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
     if crate::gucs::is_columnar_sort_enabled() {
         builder =
             builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
@@ -487,7 +485,8 @@ fn build_relnode_df<'a>(
                 // trigger per-child visibility barriers that resolve ctids to real
                 // heap TIDs. In mixed trees like (A INNER B) INNER (C SEMI D),
                 // ctid_A and ctid_B are still packed while ctid_C is resolved.
-                let deferred_positions = filter.input.deferred_plan_positions();
+                let deferred_positions =
+                    super::visibility_filter::deferred_plan_positions(&filter.input);
                 let filter_expr = unsafe {
                     crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,

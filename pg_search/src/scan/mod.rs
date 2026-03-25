@@ -24,7 +24,6 @@ pub mod filter_pushdown;
 pub mod info;
 pub mod late_materialization;
 pub mod pre_filter;
-pub mod reorder_lookup_above_visibility_rule;
 pub mod search_predicate_udf;
 pub mod segmented_topk_exec;
 pub mod segmented_topk_rule;

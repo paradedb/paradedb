@@ -112,21 +112,13 @@ pub struct PgSearchScanPlan {
     /// Metrics for EXPLAIN ANALYZE.
     metrics: ExecutionPlanMetricsSet,
     deferred_fields: Vec<DeferredField>,
-    /// FFHelper for late materialization (text/bytes dictionary lookup).
-    /// Used by LateMaterializePlanner::extract_ff_helper(), keyed by indexrelid.
-    /// Only set when deferred text/bytes fields exist.
+    /// Shared FFHelper for deferred lookup and deferred visibility.
     ///
-    /// This must stay separate from `ffhelper_for_visibility`: in a self-join, one
-    /// scan may be ctid-only for deferred visibility while a sibling scan on the same
-    /// index still owns the text/bytes lookup helper.
-    ffhelper_for_lookup: Option<Arc<FFHelper>>,
-    /// FFHelper for deferred visibility (ctid resolution).
-    /// Used by VisibilityCtidResolverRule, matched by deferred_ctid_alias.
-    /// Set when DeferredCtid is present, even without deferred text/bytes fields.
-    ///
-    /// Keeping this separate avoids letting a ctid-only scan overwrite a sibling's
-    /// late-materialization helper when both scans share the same indexrelid.
-    ffhelper_for_visibility: Option<Arc<FFHelper>>,
+    /// A scan may participate in late materialization, deferred visibility, or both.
+    /// The role-specific accessors below decide whether this helper is exposed to
+    /// `LateMaterializePlanner` (by deferred text/bytes presence) or
+    /// `VisibilityCtidResolverRule` (by deferred_ctid_alias presence).
+    ffhelper: Option<Arc<FFHelper>>,
     pub indexrelid: u32,
     /// The ctid column alias when visibility is deferred (e.g. "ctid_0").
     deferred_ctid_alias: Option<String>,
@@ -156,10 +148,9 @@ impl PgSearchScanPlan {
         query_for_display: SearchQueryInput,
         sort_order: Option<&SortByField>,
         deferred_fields: Vec<DeferredField>,
-        ffhelper_for_lookup: Option<Arc<FFHelper>>,
+        ffhelper: Option<Arc<FFHelper>>,
         indexrelid: u32,
         deferred_ctid_alias: Option<String>,
-        ffhelper_for_visibility: Option<Arc<FFHelper>>,
     ) -> Self {
         // Ensure we always return at least one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
@@ -196,8 +187,7 @@ impl PgSearchScanPlan {
             dynamic_filters: Vec::new(),
             metrics: ExecutionPlanMetricsSet::new(),
             deferred_fields,
-            ffhelper_for_lookup,
-            ffhelper_for_visibility,
+            ffhelper,
             indexrelid,
             deferred_ctid_alias,
         }
@@ -206,13 +196,21 @@ impl PgSearchScanPlan {
     /// FFHelper for late materialization (text/bytes dictionary lookup).
     /// Used by LateMaterializePlanner.
     pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {
-        self.ffhelper_for_lookup.as_ref()
+        if self.deferred_fields.is_empty() {
+            None
+        } else {
+            self.ffhelper.as_ref()
+        }
     }
 
     /// FFHelper for deferred visibility (ctid resolution).
     /// Used by VisibilityCtidResolverRule.
     pub fn ffhelper_for_visibility(&self) -> Option<&Arc<FFHelper>> {
-        self.ffhelper_for_visibility.as_ref()
+        if self.deferred_ctid_alias.is_some() {
+            self.ffhelper.as_ref()
+        } else {
+            None
+        }
     }
 
     /// Returns the deferred ctid column alias, if visibility is deferred.
@@ -474,8 +472,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filters,
                 metrics: self.metrics.clone(),
                 deferred_fields: self.deferred_fields.clone(),
-                ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
-                ffhelper_for_visibility: self.ffhelper_for_visibility.clone(),
+                ffhelper: self.ffhelper.clone(),
                 indexrelid: self.indexrelid,
                 deferred_ctid_alias: self.deferred_ctid_alias.clone(),
             });
@@ -583,7 +580,6 @@ pub fn create_sorted_scan(
         Vec::new(),
         None,
         0,
-        None,
         None,
     ));
 

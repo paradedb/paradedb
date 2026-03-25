@@ -401,22 +401,13 @@ impl PgSearchTableProvider {
         let deferred = self.deferred_fields();
         let deferred_ctid_alias = self.deferred_ctid_alias().map(|s| s.to_string());
 
-        // FFHelper for late materialization: only when deferred text/bytes fields exist.
-        // Keyed by indexrelid in LateMaterializePlanner — must NOT be set for ctid-only
-        // scans to avoid overwriting the helper for a sibling scan (self-join) that has
-        // actual deferred text/bytes columns.
-        let ffhelper_for_lookup = if deferred.is_empty() {
+        // Expose one shared FFHelper when this scan participates in either
+        // late materialization or deferred visibility. Role-specific accessors
+        // on PgSearchScanPlan decide whether lookup/visibility planners may use it.
+        let ffhelper = if deferred.is_empty() && deferred_ctid_alias.is_none() {
             None
         } else {
             Some(ffhelper.clone())
-        };
-
-        // FFHelper for visibility: only when DeferredCtid is present.
-        // Matched by deferred_ctid_alias in VisibilityCtidResolverRule.
-        let ffhelper_for_visibility = if deferred_ctid_alias.is_some() {
-            Some(ffhelper.clone())
-        } else {
-            None
         };
 
         Ok(Arc::new(PgSearchScanPlan::new(
@@ -425,10 +416,9 @@ impl PgSearchTableProvider {
             query_for_display,
             actual_sort_order,
             deferred,
-            ffhelper_for_lookup,
+            ffhelper,
             self.scan_info.indexrelid.to_u32(),
             deferred_ctid_alias,
-            ffhelper_for_visibility,
         )))
     }
 

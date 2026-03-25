@@ -34,7 +34,8 @@
 //! 1. `VisibilityFilterOptimizerRule` (logical optimizer) — walks the logical plan
 //!    bottom-up and inserts `VisibilityFilterNode` at barrier points (or the plan root).
 //! 2. `VisibilityExtensionPlanner` (extension physical planner) — converts
-//!    `VisibilityFilterNode` → `VisibilityFilterExec`.
+//!    `VisibilityFilterNode` → `VisibilityFilterExec`, rebuilding any immediate
+//!    `TantivyLookupExec` chain above it so visibility runs before lookup work.
 //! 3. `VisibilityCtidResolverRule` (physical optimizer) — wires FFHelper from
 //!    `PgSearchScanPlan` into `VisibilityFilterExec` so it can resolve packed
 //!    DocAddresses to real ctids. `TantivyLookupExec` only handles text/bytes.
@@ -73,12 +74,13 @@ use futures::Stream;
 use pgrx::pg_sys;
 
 use crate::index::fast_fields_helper::FFHelper;
-use crate::postgres::customscan::joinscan::build::JoinCSClause;
+use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinType, RelNode};
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
+use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 use arrow_select::filter::filter_record_batch;
 
 // ---------------------------------------------------------------------------
@@ -260,6 +262,33 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
             wrapped.transformed || result.transformed,
         ))
     }
+}
+
+/// Returns the plan_positions whose ctid columns are still packed DocAddresses
+/// at the output of this join subtree.
+///
+/// This shared barrier analysis is used while translating join-level search
+/// predicates so each `SearchPredicateUDF` knows whether to emit packed or real
+/// ctids at the point where it is attached.
+pub fn deferred_plan_positions(node: &RelNode) -> crate::api::HashSet<usize> {
+    fn collect(node: &RelNode, acc: &mut crate::api::HashSet<usize>) {
+        match node {
+            RelNode::Scan(source) => {
+                acc.insert(source.plan_position);
+            }
+            RelNode::Join(join) => {
+                if matches!(join.join_type, JoinType::Inner) {
+                    collect(&join.left, acc);
+                    collect(&join.right, acc);
+                }
+            }
+            RelNode::Filter(filter) => collect(&filter.input, acc),
+        }
+    }
+
+    let mut deferred = crate::api::HashSet::default();
+    collect(node, &mut deferred);
+    deferred
 }
 
 // ---------------------------------------------------------------------------
@@ -536,6 +565,35 @@ impl VisibilityExtensionPlanner {
     }
 }
 
+fn wrap_visibility_below_lookup_chain(
+    input: Arc<dyn ExecutionPlan>,
+    plan_pos_oids: Vec<(usize, pg_sys::Oid)>,
+    table_names: Vec<String>,
+) -> Result<Arc<dyn ExecutionPlan>> {
+    let mut lookups = Vec::new();
+    let mut current = input;
+
+    while current
+        .as_any()
+        .downcast_ref::<TantivyLookupExec>()
+        .is_some()
+    {
+        let child = Arc::clone(current.children()[0]);
+        lookups.push(current);
+        current = child;
+    }
+
+    let mut result = Arc::new(VisibilityFilterExec::new(
+        current,
+        plan_pos_oids,
+        table_names,
+    )?) as Arc<dyn ExecutionPlan>;
+    for lookup in lookups.into_iter().rev() {
+        result = lookup.with_new_children(vec![result])?;
+    }
+    Ok(result)
+}
+
 impl fmt::Debug for VisibilityExtensionPlanner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VisibilityExtensionPlanner").finish()
@@ -559,12 +617,12 @@ impl ExtensionPlanner for VisibilityExtensionPlanner {
         let input = physical_inputs.first().ok_or_else(|| {
             DataFusionError::Internal("VisibilityFilterExec requires exactly one input".into())
         })?;
-        let exec = VisibilityFilterExec::new(
+        let exec = wrap_visibility_below_lookup_chain(
             input.clone(),
             vis_node.plan_pos_oids.clone(),
             vis_node.table_names.clone(),
         )?;
-        Ok(Some(Arc::new(exec)))
+        Ok(Some(exec))
     }
 }
 

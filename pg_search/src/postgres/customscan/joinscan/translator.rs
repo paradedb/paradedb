@@ -27,13 +27,13 @@ use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::scan::SearchPredicateUDF;
 
-pub(super) trait ColumnMapper {
+pub trait ColumnMapper {
     /// Map a PostgreSQL variable to a DataFusion Column expression
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr>;
 }
 
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
-pub(super) struct PredicateTranslator<'a> {
+pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
     mapper: Option<Box<dyn ColumnMapper + 'a>>,
 }
@@ -300,7 +300,7 @@ impl<'a> PredicateTranslator<'a> {
 
 /// Creates a DataFusion column expression with a bare table reference.
 /// This is preferred over `datafusion::logical_expr::col()` because `col()` parses the input string,
-pub(super) fn make_col(relation: &str, name: &str) -> Expr {
+pub fn make_col(relation: &str, name: &str) -> Expr {
     Expr::Column(Column::new(
         Some(TableReference::Bare {
             table: relation.into(),
@@ -309,7 +309,7 @@ pub(super) fn make_col(relation: &str, name: &str) -> Expr {
     ))
 }
 
-pub(super) struct CombinedMapper<'a> {
+pub struct CombinedMapper<'a> {
     pub sources: &'a [&'a JoinSource],
     pub output_columns: &'a [OutputColumnInfo],
 }

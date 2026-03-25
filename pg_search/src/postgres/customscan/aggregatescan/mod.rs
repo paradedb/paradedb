@@ -20,6 +20,7 @@ pub mod build;
 pub mod exec;
 pub mod filterquery;
 pub mod groupby;
+pub mod joinscan_reexports;
 pub mod limit_offset;
 pub mod orderby;
 pub mod privdat;

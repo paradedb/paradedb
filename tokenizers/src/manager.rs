@@ -435,6 +435,7 @@ impl Default for SearchTokenizer {
 }
 
 impl SearchTokenizer {
+    // This is only used by the v1 api (prior to v0.20.0)
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         // We use the `type` field of a JSON object to distinguish the tokenizer variant.
         // Deserialized in this "tagged enum" fashion is not supported by bincode, which
@@ -487,51 +488,9 @@ impl SearchTokenizer {
                     filters,
                 })
             }
-            "chinese_lindera" => {
-                let keep_whitespace: Option<bool> =
-                    serde_json::from_value(value["keep_whitespace"].clone()).map_err(|_| {
-                        anyhow::anyhow!(
-                            "chinese lindera tokenizer requires a boolean 'keep_whitespace' field"
-                        )
-                    })?;
-                match keep_whitespace {
-                    None => Ok(SearchTokenizer::ChineseLinderaDeprecated(filters)),
-                    Some(kw) => Ok(SearchTokenizer::ChineseLindera {
-                        filters,
-                        keep_whitespace: kw,
-                    }),
-                }
-            }
-            "japanese_lindera" => {
-                let keep_whitespace: Option<bool> =
-                    serde_json::from_value(value["keep_whitespace"].clone()).map_err(|_| {
-                        anyhow::anyhow!(
-                            "japanese lindera tokenizer requires a boolean 'keep_whitespace' field"
-                        )
-                    })?;
-                match keep_whitespace {
-                    None => Ok(SearchTokenizer::JapaneseLinderaDeprecated(filters)),
-                    Some(kw) => Ok(SearchTokenizer::JapaneseLindera {
-                        filters,
-                        keep_whitespace: kw,
-                    }),
-                }
-            }
-            "korean_lindera" => {
-                let keep_whitespace: Option<bool> =
-                    serde_json::from_value(value["keep_whitespace"].clone()).map_err(|_| {
-                        anyhow::anyhow!(
-                            "korean lindera tokenizer requires a boolean 'keep_whitespace' field"
-                        )
-                    })?;
-                match keep_whitespace {
-                    None => Ok(SearchTokenizer::KoreanLinderaDeprecated(filters)),
-                    Some(kw) => Ok(SearchTokenizer::KoreanLindera {
-                        filters,
-                        keep_whitespace: kw,
-                    }),
-                }
-            }
+            "chinese_lindera" => Ok(SearchTokenizer::ChineseLinderaDeprecated(filters)),
+            "japanese_lindera" => Ok(SearchTokenizer::JapaneseLinderaDeprecated(filters)),
+            "korean_lindera" => Ok(SearchTokenizer::KoreanLinderaDeprecated(filters)),
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
             "jieba" => {
                 let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
@@ -1242,84 +1201,14 @@ mod tests {
     }
 
     #[rstest]
-    fn test_chinese_lindera_tokenizer_follows_whitespace_config() {
-        use tantivy::tokenizer::TokenStream;
-
-        // Test 1: Chinese Lindera tokenizer keeps whitespace if configured to
-        let json = r#"{
-            "type": "chinese_lindera",
-            "keep_whitespace": true
-        }"#;
-
-        let tokenizer =
-            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
-
-        // Test that the tokenizer is created successfully
-        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
-
-        // Test tokenizing text with spaces
-        let text = "this is a test";
-        let mut token_stream = analyzer.token_stream(text);
-
-        let mut tokens = Vec::new();
-        while token_stream.advance() {
-            let token = token_stream.token();
-            tokens.push(token.text.clone());
-        }
-
-        // Verify that space tokens are preserved
-        assert!(tokens.contains(&" ".to_string()));
-
-        // Verify that words are still present
-        assert!(tokens.contains(&"this".to_string()));
-        assert!(tokens.contains(&"is".to_string()));
-        assert!(tokens.contains(&"a".to_string()));
-        assert!(tokens.contains(&"test".to_string()));
-
-        // Test 2: Chinese Lindera tokenizer removes whitespace if explicitly configured to
-        let json = r#"{
-            "type": "chinese_lindera",
-            "keep_whitespace": false 
-        }"#;
-
-        let tokenizer =
-            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
-
-        // Test that the tokenizer is created successfully
-        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
-
-        // Test tokenizing text with spaces
-        let text = "this is a test";
-        let mut token_stream = analyzer.token_stream(text);
-
-        let mut tokens = Vec::new();
-        while token_stream.advance() {
-            let token = token_stream.token();
-            tokens.push(token.text.clone());
-        }
-
-        // Verify that space tokens are removed
-        assert!(!tokens.contains(&" ".to_string()));
-
-        // Verify that words are still present
-        assert!(tokens.contains(&"this".to_string()));
-        assert!(tokens.contains(&"is".to_string()));
-        assert!(tokens.contains(&"a".to_string()));
-        assert!(tokens.contains(&"test".to_string()));
-    }
-
-    #[rstest]
     fn test_trim_filter_with_multiple_tokenizers() {
         use tantivy::tokenizer::TokenStream;
 
         // Test that trim filter works across different tokenizers
 
         // Test 1: Chinese Lindera tokenizer with trim filter
-        // keep_whitespace is set to true to ensure that whitespace removal is caused by the trim
-        // filter
         let json_lindera = r#"{
             "type": "chinese_lindera",
-            "keep_whitespace": true,
             "trim": true
         }"#;
 

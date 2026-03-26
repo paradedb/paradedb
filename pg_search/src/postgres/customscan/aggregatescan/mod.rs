@@ -21,6 +21,7 @@ pub mod datafusion_build;
 pub mod exec;
 pub mod filterquery;
 pub mod groupby;
+pub mod join_targetlist;
 pub mod joinscan_reexports;
 pub mod limit_offset;
 pub mod orderby;

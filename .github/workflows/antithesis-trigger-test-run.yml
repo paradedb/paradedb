@@ -127,6 +127,8 @@ jobs:
           labels: ${{ steps.extract-stressgres-metadata.outputs.labels }}
 
       # antithesis.duration is in minutes, 480 minutes = 8 hours
+      # antithesis.is_ephemeral ensures runs triggered from PRs don't impact the history
+      # antithesis.source ensures Community and Enteprise have separate histories
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@v0.10
         with:
@@ -141,5 +143,5 @@ jobs:
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
             antithesis.duration=${{ github.event.inputs.duration || '480' }}
-            antithesis.source=paradedb
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
+            antithesis.source=paradedb

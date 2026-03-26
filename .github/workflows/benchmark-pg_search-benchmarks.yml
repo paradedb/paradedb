@@ -254,10 +254,11 @@ jobs:
         if: >-
           github.event_name != 'pull_request' ||
           contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow"]'), github.event.label.name)
-        run: |
-          aws configure set aws_access_key_id ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
-          aws configure set aws_secret_access_key ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
-          aws configure set default.region us-east-1
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_CI_SUBACCOUNT_GITHUB_ACTIONS_USER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
       # Benchmark "logs" dataset at multiple scales (10K, 100K, 1M, 10M, 100M)
       - name: Benchmark "logs" Dataset (10K rows)
@@ -351,6 +352,7 @@ jobs:
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
       # Benchmark "stackoverflow" dataset (data loaded from S3, rows parameter is unused)
+      # TODO: Once we are comfortable with this dataset, we can remove the other datasets and the rows parameter.
       - name: Benchmark "stackoverflow" Dataset
         if: >-
           github.event_name != 'pull_request' ||

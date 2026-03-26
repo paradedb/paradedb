@@ -27,6 +27,21 @@ MockItem.search(:id)
         .facets_agg(agg: ParadeDB::Aggregations.percentiles(:rating, percents: [50, 95]))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.percentiles(field="rating", percents=[50, 95])))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response

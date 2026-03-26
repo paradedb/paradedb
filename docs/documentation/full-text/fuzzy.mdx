@@ -81,6 +81,35 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+fuzzy_or_stmt = (
+    select(MockItem.id, MockItem.description)
+    .where(search.match_any(MockItem.description, "runing shose", distance=2))
+    .limit(5)
+)
+
+fuzzy_and_stmt = (
+    select(MockItem.id, MockItem.description)
+    .where(search.match_all(MockItem.description, "runing shose", distance=2))
+    .limit(5)
+)
+
+fuzzy_term_stmt = (
+    select(MockItem.id, MockItem.description)
+    .where(search.term(MockItem.description, "shose", distance=2))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    or_rows = session.execute(fuzzy_or_stmt).all()
+    and_rows = session.execute(fuzzy_and_stmt).all()
+    term_rows = session.execute(fuzzy_term_stmt).all()
+```
+
 </CodeGroup>
 
 ## How It Works
@@ -128,6 +157,21 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description)
+    .where(search.term(MockItem.description, "rann", distance=1, prefix=True))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 <Note>
@@ -160,6 +204,21 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description)
+    .where(search.match_all(MockItem.description, "slee rann", distance=1, prefix=True))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ## Transposition Cost
@@ -188,6 +247,21 @@ MockItem.search(:description)
         .term("shose", distance: 1, transposition_cost_one: true)
         .select(:id, :description)
         .limit(5)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.id, MockItem.description)
+    .where(search.term(MockItem.description, "shose", distance=1, transpose_cost_one=True))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

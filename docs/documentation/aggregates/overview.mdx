@@ -30,6 +30,21 @@ MockItem.search(:category)
         .facets_agg(agg: ParadeDB::Aggregations.value_count(:id))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.value_count(field="id")))
+    .select_from(MockItem)
+    .where(search.term(MockItem.category, "electronics"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -70,6 +85,23 @@ MockItem.search(:category)
         )
         .order(:rating)
         .limit(5)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(MockItem.rating, pdb.agg(facets.value_count(field="id")).label("agg"))
+    .where(search.term(MockItem.category, "electronics"))
+    .group_by(MockItem.rating)
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -116,6 +148,24 @@ MockItem.search(:category)
         )
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(facets.avg(field="rating")).label("avg_rating"),
+        pdb.agg(facets.value_count(field="id")).label("count"),
+    )
+    .select_from(MockItem)
+    .where(search.term(MockItem.category, "electronics"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -155,6 +205,20 @@ MockItem.search(:description)
         .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.value_count(field="id"), approximate=True).label("agg"))
+    .where(search.match_any(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 Disabling this check can improve query times by 2-4x in some cases (at the expense of correctness).
@@ -186,6 +250,21 @@ MockItem.objects.filter(
 MockItem.search(:id)
         .match_all
         .facets_agg(agg: ParadeDB::Aggregations.terms("metadata.color"))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.terms(field="metadata.color")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

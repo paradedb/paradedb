@@ -26,6 +26,21 @@ MockItem.search(:id)
         .facets_agg(agg: { cardinality: { field: "rating" } })
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(pdb.agg({"cardinality": {"field": "rating"}}))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response

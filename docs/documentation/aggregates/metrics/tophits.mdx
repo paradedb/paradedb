@@ -41,6 +41,30 @@ MockItem.search(:id)
         )
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.top_hits(
+                size=3,
+                sort=[{"created_at": "desc"}],
+                docvalue_fields=["id", "created_at"],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -94,6 +118,31 @@ MockItem.search(:id)
         )
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.top_hits(
+                size=3,
+                from_=1,
+                sort=[{"created_at": "desc"}],
+                docvalue_fields=["id", "created_at"],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 If multiple fields are passed into `sort`, the additional fields are used as tiebreakers:
@@ -127,6 +176,30 @@ MockItem.search(:id)
             docvalue_fields: %w[id created_at]
           )
         )
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.top_hits(
+                size=3,
+                sort=[{"created_at": "desc"}, {"id": "asc"}],
+                docvalue_fields=["id", "created_at"],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

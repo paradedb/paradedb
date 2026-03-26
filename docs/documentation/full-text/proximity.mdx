@@ -31,6 +31,19 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = select(MockItem.description, MockItem.rating, MockItem.category).where(
+    search.proximity(MockItem.description, search.prox_str("sleek").within(1, "shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 <Note>
@@ -60,6 +73,20 @@ MockItem.objects.filter(
 MockItem.search(:description)
         .near(ParadeDB.proximity("sleek").within(1, "shoes", ordered: true))
         .select(:description, :rating, :category)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_str("sleek").within(1, "shoes", ordered=True)))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -92,6 +119,20 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_regex("sl.*").within(1, "shoes")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overridden
@@ -117,6 +158,20 @@ MockItem.objects.filter(
 MockItem.search(:description)
         .near(ParadeDB.proximity(ParadeDB.regex_term("sl.*", max_expansions: 100)).within(1, "shoes"))
         .select(:description, :rating, :category)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_regex("sl.*", 100).within(1, "shoes")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -147,6 +202,20 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_array("sleek", "white").within(1, "shoes")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 `pdb.prox_array` can also take regex:
@@ -170,6 +239,20 @@ MockItem.objects.filter(
 MockItem.search(:description)
         .near(ParadeDB.proximity(ParadeDB.regex_term("sl.*"), "white").within(1, "shoes"))
         .select(:description, :rating, :category)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_array(search.prox_regex("sl.*"), "white").within(1, "shoes")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -197,6 +280,20 @@ MockItem.objects.filter(
 MockItem.search(:description)
         .near(ParadeDB.proximity("sleek").within(1, "running").within(2, ['sneakers', ParadeDB.regex_term('sho.*')]))
         .select(:description, :rating, :category)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_str("sleek").within(1, "running").within(2, search.prox_array('sneakers', search.prox_regex('sho.*')))))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

@@ -27,6 +27,20 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.regex(MockItem.description, "key.*"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ParadeDB supports all regex constructs of the Rust [regex](https://docs.rs/regex/latest/regex/) crate, with the following exceptions:

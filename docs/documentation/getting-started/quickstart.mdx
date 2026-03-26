@@ -85,6 +85,22 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -127,6 +143,22 @@ MockItem.search(:description)
         .order(:rating)
         .limit(5)
 ```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_all(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
 </CodeGroup>
 
 ```ini Expected Response
@@ -168,6 +200,22 @@ MockItem.search(:description)
         .select(:description)
         .order(search_score: :desc)
         .limit(5)
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.description, pdb.score(MockItem.id).label("score"))
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -218,6 +266,26 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.description,
+        pdb.snippet(MockItem.description).label("snippet"),
+        pdb.score(MockItem.id).label("score"),
+    )
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -256,6 +324,22 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
         .order(:rating)
         .limit(5)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>
@@ -309,6 +393,25 @@ relation = MockItem.search(:description)
 
 rows = relation.to_a
 facets = relation.aggregates
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, search
+
+base = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=MockItem.id)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+    aggregates = facets.extract(rows)
 ```
 
 </CodeGroup>

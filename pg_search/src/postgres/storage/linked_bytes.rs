@@ -430,7 +430,6 @@ mod tests {
     use super::*;
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::BM25PageSpecialData;
-    use crate::postgres::storage::utils::RelationBufferAccess;
     use pgrx::prelude::*;
 
     #[pg_test]

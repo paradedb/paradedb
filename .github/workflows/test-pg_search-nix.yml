@@ -39,7 +39,8 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           token: ${{ secrets.GHA_CREATE_PR_PAT || github.token }}
 
       - name: Install Determinate Nix

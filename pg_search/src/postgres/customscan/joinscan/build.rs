@@ -460,7 +460,7 @@ impl JoinSource {
     }
 
     /// Resolve an attribute number to its DataFusion column name.
-    pub(super) fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
+    pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
         self.scan_info
             .fields
             .iter()

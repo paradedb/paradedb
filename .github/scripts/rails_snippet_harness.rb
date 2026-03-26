@@ -47,19 +47,6 @@ module RailsSnippetHarness
 
     url
   end
-
-  def execute!(value)
-    case value
-    when ActiveRecord::Relation
-      value.load
-    when Array
-      value.each { |item| execute!(item) }
-    when Hash
-      value.each_value { |item| execute!(item) }
-    end
-
-    value
-  end
 end
 
 RailsSnippetHarness.establish_connection!

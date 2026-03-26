@@ -23,12 +23,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .parse("description:(sleek shoes) AND rating:>3")
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -41,6 +35,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .parse("description:(sleek shoes) AND rating:>3")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -67,12 +67,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .parse("description:(sleek shoes) AND rating:>3", lenient: true)
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -85,6 +79,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .parse("description:(sleek shoes) AND rating:>3", lenient: true)
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -108,12 +108,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .parse("description:(sleek shoes)", conjunction_mode: true)
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -126,6 +120,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .parse("description:(sleek shoes)", conjunction_mode: true)
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

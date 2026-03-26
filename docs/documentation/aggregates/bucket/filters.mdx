@@ -34,21 +34,6 @@ result = MockItem.objects.aggregate(
 )
 ```
 
-```ruby Rails
-result = MockItem.facets_agg(
-  electronics_count: ParadeDB::Aggregations.filtered(
-    ParadeDB::Aggregations.value_count(:id),
-    field: :category,
-    term: "electronics"
-  ),
-  footwear_count: ParadeDB::Aggregations.filtered(
-    ParadeDB::Aggregations.value_count(:id),
-    field: :category,
-    term: "footwear"
-  )
-)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -65,6 +50,21 @@ stmt = select(
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+result = MockItem.facets_agg(
+  electronics_count: ParadeDB::Aggregations.filtered(
+    ParadeDB::Aggregations.value_count(:id),
+    field: :category,
+    term: "electronics"
+  ),
+  footwear_count: ParadeDB::Aggregations.filtered(
+    ParadeDB::Aggregations.value_count(:id),
+    field: :category,
+    term: "footwear"
+  )
+)
 ```
 
 </CodeGroup>

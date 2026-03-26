@@ -23,14 +23,6 @@ MockItem.objects.filter(
 ).order_by('rating').values('description', 'rating', 'category')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("running shoes")
-        .order(:rating)
-        .select(:description, :rating, :category)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -45,6 +37,14 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .order(:rating)
+        .select(:description, :rating, :category)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -107,14 +107,6 @@ MockItem.objects.filter(
 ).order_by('rating', 'id').values('description', 'rating', 'category')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("running shoes")
-        .order(:rating, :id)
-        .select(:description, :rating, :category)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -129,6 +121,14 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .order(:rating, :id)
+        .select(:description, :rating, :category)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -172,17 +172,6 @@ MockItem.objects.filter(
 ).order_by(Lower('description')).values('description', 'rating', 'category')[:5]
 ```
 
-```ruby Rails
-description = MockItem.arel_table[:description]
-lower_description = Arel::Nodes::NamedFunction.new("LOWER", [description])
-
-MockItem.search(:description)
-        .matching_any("sleek running shoes")
-        .order(Arel::Nodes::Ascending.new(lower_description))
-        .select(:description, :rating, :category)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -197,6 +186,17 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+description = MockItem.arel_table[:description]
+lower_description = Arel::Nodes::NamedFunction.new("LOWER", [description])
+
+MockItem.search(:description)
+        .matching_any("sleek running shoes")
+        .order(Arel::Nodes::Ascending.new(lower_description))
+        .select(:description, :rating, :category)
+        .limit(5)
 ```
 
 </CodeGroup>

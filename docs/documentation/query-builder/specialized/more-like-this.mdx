@@ -26,12 +26,6 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
-```ruby Rails
-MockItem.more_like_this(3)
-        .select(:id, :description, :rating, :category)
-        .order(:id)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -45,6 +39,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>
@@ -87,12 +87,6 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
-```ruby Rails
-MockItem.more_like_this(3, fields: [:description])
-        .select(:id, :description, :rating, :category)
-        .order(:id)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -106,6 +100,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, fields: [:description])
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>
@@ -155,12 +155,6 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
-```ruby Rails
-MockItem.more_like_this({ description: "Sleek running shoes", category: "footwear" }.to_json)
-        .select(:id, :description, :rating, :category)
-        .order(:id)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -179,6 +173,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this({ description: "Sleek running shoes", category: "footwear" }.to_json)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>
@@ -209,12 +209,6 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
-```ruby Rails
-MockItem.more_like_this(3, min_term_freq: 2)
-        .select(:id, :description, :rating, :category)
-        .order(:id)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -228,6 +222,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, min_term_freq: 2)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>
@@ -254,12 +254,6 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
-```ruby Rails
-MockItem.more_like_this(3, min_doc_freq: 3)
-        .select(:id, :description, :rating, :category)
-        .order(:id)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -273,6 +267,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, min_doc_freq: 3)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>
@@ -301,12 +301,6 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
-```ruby Rails
-MockItem.more_like_this(3, max_query_terms: 10)
-        .select(:id, :description, :rating, :category)
-        .order(:id)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -320,6 +314,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, max_query_terms: 10)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>
@@ -345,12 +345,6 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
-```ruby Rails
-MockItem.more_like_this(3, min_word_length: 5)
-        .select(:id, :description, :rating, :category)
-        .order(:id)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -364,6 +358,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, min_word_length: 5)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>
@@ -388,12 +388,6 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
-```ruby Rails
-MockItem.more_like_this(3, stopwords: %w[the a])
-        .select(:id, :description, :rating, :category)
-        .order(:id)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -407,6 +401,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.more_like_this(3, stopwords: %w[the a])
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>

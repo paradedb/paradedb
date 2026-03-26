@@ -28,19 +28,6 @@ MockItem.objects.filter(
 ).values('agg')
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .aggregate_by(
-          :rating,
-          agg: ParadeDB::Aggregations.top_hits(
-            size: 3,
-            sort: [{ created_at: "desc" }],
-            docvalue_fields: %w[id created_at]
-          )
-        )
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -63,6 +50,19 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.top_hits(
+            size: 3,
+            sort: [{ created_at: "desc" }],
+            docvalue_fields: %w[id created_at]
+          )
+        )
 ```
 
 </CodeGroup>
@@ -104,20 +104,6 @@ MockItem.objects.filter(
 ).values('agg')
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .aggregate_by(
-          :rating,
-          agg: ParadeDB::Aggregations.top_hits(
-            size: 3,
-            from: 1,
-            sort: [{ created_at: "desc" }],
-            docvalue_fields: %w[id created_at]
-          )
-        )
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -143,6 +129,20 @@ with Session(engine) as session:
     rows = session.execute(stmt).all()
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.top_hits(
+            size: 3,
+            from: 1,
+            sort: [{ created_at: "desc" }],
+            docvalue_fields: %w[id created_at]
+          )
+        )
+```
+
 </CodeGroup>
 
 If multiple fields are passed into `sort`, the additional fields are used as tiebreakers:
@@ -163,19 +163,6 @@ MockItem.objects.filter(
 ).values('rating').annotate(
     agg=Agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}')
 ).values('agg')
-```
-
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .aggregate_by(
-          :rating,
-          agg: ParadeDB::Aggregations.top_hits(
-            size: 3,
-            sort: [{ created_at: "desc" }, { id: "asc" }],
-            docvalue_fields: %w[id created_at]
-          )
-        )
 ```
 
 ```python SQLAlchemy
@@ -200,6 +187,19 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.top_hits(
+            size: 3,
+            sort: [{ created_at: "desc" }, { id: "asc" }],
+            docvalue_fields: %w[id created_at]
+          )
+        )
 ```
 
 </CodeGroup>

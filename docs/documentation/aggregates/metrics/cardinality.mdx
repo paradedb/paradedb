@@ -20,12 +20,6 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"cardinality": {"field": "rating"}}'))
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .facets_agg(agg: { cardinality: { field: "rating" } })
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -39,6 +33,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: { cardinality: { field: "rating" } })
 ```
 
 </CodeGroup>

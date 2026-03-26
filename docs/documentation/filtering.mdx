@@ -23,13 +23,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("running shoes")
-        .where(rating: 3..)
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -42,6 +35,13 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where(rating: 3..)
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -136,13 +136,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .term("shoes")
-        .where(category: "Footwear")
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -155,6 +148,13 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .term("shoes")
+        .where(category: "Footwear")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -185,13 +185,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .term("shoes")
-        .where(category: ["Footwear", "Apparel"])
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -204,6 +197,13 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .term("shoes")
+        .where(category: ["Footwear", "Apparel"])
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

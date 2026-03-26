@@ -32,16 +32,6 @@ MockItem.objects.filter(
 ).values('id', 'score', 'description', 'category').order_by('-score')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("shoes", boost: 2)
-        .or(MockItem.search(:category).matching_any("footwear"))
-        .with_score
-        .select(:id, :description, :category)
-        .order(search_score: :desc)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
@@ -66,6 +56,16 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("shoes", boost: 2)
+        .or(MockItem.search(:category).matching_any("footwear"))
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -93,15 +93,6 @@ MockItem.objects.filter(
 ).values('id', 'description', 'category', 'score').order_by('-score')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .regex("key.*", boost: 2)
-        .with_score
-        .select(:id, :description, :category)
-        .order(search_score: :desc)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -121,6 +112,15 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .regex("key.*", boost: 2)
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -146,15 +146,6 @@ MockItem.objects.filter(
 ).values('id', 'description', 'category', 'score').order_by('-score')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("shose", distance: 2, boost: 2)
-        .with_score
-        .select(:id, :description, :category)
-        .order(search_score: :desc)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -174,6 +165,15 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("shose", distance: 2, boost: 2)
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -204,15 +204,6 @@ MockItem.objects.filter(
 ).values('id', 'score', 'description', 'category').order_by('-score')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("shoes", constant_score: 1)
-        .with_score
-        .select(:id, :description, :category)
-        .order(search_score: :desc)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -232,6 +223,15 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("shoes", constant_score: 1)
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>

@@ -34,12 +34,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .phrase("running shoes")
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -52,6 +46,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .phrase("running shoes")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -116,12 +116,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .phrase("shoes running", slop: 2)
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -134,6 +128,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .phrase("shoes running", slop: 2)
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -157,12 +157,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .phrase("running shoes", tokenizer: "whitespace")
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -175,6 +169,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .phrase("running shoes", tokenizer: "whitespace")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -199,12 +199,6 @@ MockItem.objects.extra(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .phrase(%w[running shoes])
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -217,6 +211,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .phrase(%w[running shoes])
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -236,12 +236,6 @@ MockItem.objects.extra(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .phrase(%w[shoes running], slop: 2)
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -254,6 +248,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .phrase(%w[shoes running], slop: 2)
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

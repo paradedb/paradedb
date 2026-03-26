@@ -20,12 +20,6 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"avg": {"field": "rating"}}'))
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .facets_agg(agg: ParadeDB::Aggregations.avg(:rating))
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -39,6 +33,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.avg(:rating))
 ```
 
 </CodeGroup>
@@ -77,10 +77,6 @@ MockItem.objects.filter(
 ).aggregate(avg_rating=Avg('rating'))
 ```
 
-```ruby Rails
-MockItem.search(:id).match_all.average(:rating)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -94,6 +90,10 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id).match_all.average(:rating)
 ```
 
 </CodeGroup>
@@ -116,13 +116,6 @@ MockItem.objects.filter(
 ).aggregate(avg_rating=Avg(Coalesce('rating', Value(0))))
 ```
 
-```ruby Rails
-rating = MockItem.arel_table[:rating]
-coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
-
-MockItem.search(:id).match_all.average(coalesced_rating)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -136,6 +129,13 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+rating = MockItem.arel_table[:rating]
+coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
+
+MockItem.search(:id).match_all.average(coalesced_rating)
 ```
 
 </CodeGroup>

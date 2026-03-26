@@ -61,26 +61,6 @@ MockItem.objects.filter(
 ).values('id', 'description')[:5]
 ```
 
-```ruby Rails
-# Fuzzy match disjunction
-MockItem.search(:description)
-        .matching_any('runing shose', distance: 2)
-        .select(:id, :description)
-        .limit(5)
-
-# Fuzzy match conjunction
-MockItem.search(:description)
-        .matching_all('runing shose', distance: 2)
-        .select(:id, :description)
-        .limit(5)
-
-# Fuzzy term
-MockItem.search(:description)
-        .term("shose", distance: 2)
-        .select(:id, :description)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -108,6 +88,26 @@ with Session(engine) as session:
     or_rows = session.execute(fuzzy_or_stmt).all()
     and_rows = session.execute(fuzzy_and_stmt).all()
     term_rows = session.execute(fuzzy_term_stmt).all()
+```
+
+```ruby Rails
+# Fuzzy match disjunction
+MockItem.search(:description)
+        .matching_any('runing shose', distance: 2)
+        .select(:id, :description)
+        .limit(5)
+
+# Fuzzy match conjunction
+MockItem.search(:description)
+        .matching_all('runing shose', distance: 2)
+        .select(:id, :description)
+        .limit(5)
+
+# Fuzzy term
+MockItem.search(:description)
+        .term("shose", distance: 2)
+        .select(:id, :description)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -150,13 +150,6 @@ MockItem.objects.filter(
 ).values('id', 'description')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .term("rann", distance: 1, prefix: true)
-        .select(:id, :description)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -170,6 +163,13 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .term("rann", distance: 1, prefix: true)
+        .select(:id, :description)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -197,13 +197,6 @@ MockItem.objects.filter(
 ).values('id', 'description')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_all("slee rann", distance: 1, prefix: true)
-        .select(:id, :description)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -217,6 +210,13 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("slee rann", distance: 1, prefix: true)
+        .select(:id, :description)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -242,13 +242,6 @@ MockItem.objects.filter(
 ).values('id', 'description')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .term("shose", distance: 1, transposition_cost_one: true)
-        .select(:id, :description)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -262,6 +255,13 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .term("shose", distance: 1, transposition_cost_one: true)
+        .select(:id, :description)
+        .limit(5)
 ```
 
 </CodeGroup>

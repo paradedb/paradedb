@@ -145,20 +145,14 @@ django_fail_count=0
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-  if SNIPPET_FILE="$snippet_file" \
-      SNIPPET_NAME="$rel_snippet" \
-      PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" \
-      "$DJANGO_PYTHON_BIN" - >/dev/null <<'PY'
-from pathlib import Path
-import os
+  if {
+    cat "${SCRIPT_DIR}/django_snippet_harness.py"
+    cat <<PY
 
-from django_snippet_harness import execute_snippet
-
-execute_snippet(
-    Path(os.environ["SNIPPET_FILE"]).read_text(),
-    filename=os.environ["SNIPPET_NAME"],
-)
+# Source: $rel_snippet
 PY
+    cat "$snippet_file"
+  } | "$DJANGO_PYTHON_BIN" - >/dev/null
   then
     echo "[SUCCESS] $rel_snippet" >&2
     django_pass_count=$((django_pass_count + 1))

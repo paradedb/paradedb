@@ -23,6 +23,10 @@ IGNORED_CODEGROUPS = {
     # we should unignore this snippet.
     "documentation__aggregates__overview__group-004",
 }
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent.parent
+DOCS_ROOT = REPO_ROOT / "docs"
+OUTPUT_ROOT = SCRIPT_DIR / "verify"
 
 
 def classify(info: str) -> str:
@@ -60,23 +64,18 @@ def extract_snippets(codegroup: str) -> dict[str, str]:
     return snippets
 
 
-def build_output_dirs(output_root: Path) -> dict[str, Path]:
+def build_output_dirs() -> dict[str, Path]:
     """Create and reset output directories for each supported target."""
-    output_dirs = {target: output_root / target for target in TARGET_SUFFIXES}
+    output_dirs = {target: OUTPUT_ROOT / target for target in TARGET_SUFFIXES}
     for path in output_dirs.values():
         shutil.rmtree(path, ignore_errors=True)
         path.mkdir(parents=True, exist_ok=True)
     return output_dirs
 
 
-def process_doc(
-    doc: Path,
-    docs_root: Path,
-    output_dirs: dict[str, Path],
-    counts: dict[str, int],
-) -> None:
+def process_doc(doc: Path, output_dirs: dict[str, Path]) -> None:
     """Extract supported snippets from one doc and write them to disk."""
-    rel_path = doc.relative_to(docs_root)
+    rel_path = doc.relative_to(DOCS_ROOT)
     text = doc.read_text()
 
     for group_index, codegroup in enumerate(CODEGROUP_PATTERN.findall(text), start=1):
@@ -90,43 +89,22 @@ def process_doc(
                 continue
             snippet_path = output_dirs[target] / f"{group_name}.{suffix}"
             snippet_path.write_text(snippets[target])
-            counts[target] += 1
-
-
-def print_summary(counts: dict[str, int], output_dirs: dict[str, Path]) -> None:
-    """Print a per-target summary of extracted snippets."""
-    print(f"Wrote {counts['sql']} SQL snippets to {output_dirs['sql']}")
-    print(f"Wrote {counts['django']} Django snippets to {output_dirs['django']}")
-    print(f"Wrote {counts['rails']} Rails snippets to {output_dirs['rails']}")
-    print(
-        f"Wrote {counts['sqlalchemy']} SQLAlchemy snippets "
-        f"to {output_dirs['sqlalchemy']}"
-    )
 
 
 def main() -> int:
     """Extract all supported verification snippets from the docs tree."""
-    script_dir = Path(__file__).resolve().parent
-    repo_root = script_dir.parent.parent
-    docs_root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else repo_root / "docs"
-    output_root = (
-        Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else script_dir / "verify"
-    )
-    output_dirs = build_output_dirs(output_root)
+    output_dirs = build_output_dirs()
 
     docs = sorted(
-        path for path in docs_root.rglob("*.mdx") if "legacy" not in path.parts
+        path for path in DOCS_ROOT.rglob("*.mdx") if "legacy" not in path.parts
     )
     if not docs:
-        print(f"No .mdx files found under {docs_root}", file=sys.stderr)
+        print(f"No .mdx files found under {DOCS_ROOT}", file=sys.stderr)
         return 1
 
-    counts = {target: 0 for target in TARGET_SUFFIXES}
-
     for doc in docs:
-        process_doc(doc, docs_root, output_dirs, counts)
+        process_doc(doc, output_dirs)
 
-    print_summary(counts, output_dirs)
     return 0
 
 

@@ -5,6 +5,8 @@ ParadeDB::Arel::Visitor.install!
 ParadeDB::Arel::Predications.install!
 
 module RailsSnippetHarness
+  DATABASE_URL = "postgresql://postgres:postgres@localhost:5422/postgres"
+
   class ApplicationRecord < ActiveRecord::Base
     self.abstract_class = true
   end
@@ -35,17 +37,7 @@ module RailsSnippetHarness
   module_function
 
   def establish_connection!
-    ActiveRecord::Base.establish_connection(normalize_database_url(database_url))
-  end
-
-  def database_url
-    ENV.fetch("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
-  end
-
-  def normalize_database_url(url)
-    return "postgresql://#{url.delete_prefix('postgres://')}" if url.start_with?("postgres://")
-
-    url
+    ActiveRecord::Base.establish_connection(DATABASE_URL)
   end
 end
 

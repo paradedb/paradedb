@@ -18,6 +18,7 @@
 pub mod aggregate_type;
 pub mod build;
 pub mod datafusion_build;
+pub mod datafusion_exec;
 pub mod exec;
 pub mod filterquery;
 pub mod groupby;

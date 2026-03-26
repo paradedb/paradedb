@@ -29,15 +29,6 @@ MockItem.objects.filter(
 ).values('id', 'score').order_by('-score')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("shoes")
-        .with_score
-        .select(:id)
-        .order(search_score: :desc)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -52,6 +43,15 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("shoes")
+        .with_score
+        .select(:id)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -79,16 +79,6 @@ MockItem.objects.filter(
 ).values('id', 'score').order_by('-score')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("keyboard")
-        .or(MockItem.where(rating: ...2))
-        .with_score
-        .select(:id)
-        .order(search_score: :desc)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
@@ -103,6 +93,16 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("keyboard")
+        .or(MockItem.where(rating: ...2))
+        .with_score
+        .select(:id)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -162,6 +162,32 @@ Order.objects.filter(
 ).order_by('-score', 'order_id')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        Order.order_id,
+        Order.customer_name,
+        MockItem.description,
+        (pdb.score(Order.order_id) + pdb.score(MockItem.id)).label("score"),
+    )
+    .select_from(Order)
+    .join(MockItem, Order.product_id == MockItem.id)
+    .where(
+        search.match_any(Order.customer_name, "Johnson"),
+        search.match_any(MockItem.description, "running shoes"),
+    )
+    .order_by(desc("score"), Order.order_id)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 orders = Order.arel_table
 mock_items = MockItem.arel_table
@@ -187,32 +213,6 @@ Order.joins(join)
        Arel::Nodes::Ascending.new(orders[:order_id])
      )
      .limit(5)
-```
-
-```python SQLAlchemy
-from sqlalchemy import desc, select
-from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import pdb, search
-
-stmt = (
-    select(
-        Order.order_id,
-        Order.customer_name,
-        MockItem.description,
-        (pdb.score(Order.order_id) + pdb.score(MockItem.id)).label("score"),
-    )
-    .select_from(Order)
-    .join(MockItem, Order.product_id == MockItem.id)
-    .where(
-        search.match_any(Order.customer_name, "Johnson"),
-        search.match_any(MockItem.description, "running shoes"),
-    )
-    .order_by(desc("score"), Order.order_id)
-    .limit(5)
-)
-
-with Session(engine) as session:
-    rows = session.execute(stmt).all()
 ```
 
 </CodeGroup>

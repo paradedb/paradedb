@@ -76,15 +76,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("running shoes")
-        .where(rating: 3..)
-        .select(:description, :rating, :category)
-        .order(:rating)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -99,6 +90,15 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where(rating: 3..)
+        .select(:description, :rating, :category)
+        .order(:rating)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -135,15 +135,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_all("running shoes")
-        .where(rating: 3..)
-        .select(:description, :rating, :category)
-        .order(:rating)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -158,6 +149,15 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("running shoes")
+        .where(rating: 3..)
+        .select(:description, :rating, :category)
+        .order(:rating)
+        .limit(5)
 ```
 </CodeGroup>
 
@@ -192,16 +192,6 @@ MockItem.objects.filter(
 ).values('description', 'score').order_by('-score')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("running shoes")
-        .where(rating: 3..)
-        .with_score
-        .select(:description)
-        .order(search_score: :desc)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -216,6 +206,16 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where(rating: 3..)
+        .with_score
+        .select(:description)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -255,17 +255,6 @@ MockItem.objects.filter(
 ).values('description', 'snippet', 'score').order_by('-score')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("running shoes")
-        .where(rating: 3..)
-        .with_snippet(:description)
-        .with_score
-        .select(:description)
-        .order(search_score: :desc)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -284,6 +273,17 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where(rating: 3..)
+        .with_snippet(:description)
+        .with_score
+        .select(:description)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -318,14 +318,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("running shoes")
-        .select(:description, :rating, :category)
-        .order(:rating)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -340,6 +332,14 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .select(:description, :rating, :category)
+        .order(:rating)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -383,18 +383,6 @@ rows, facets = (
 )
 ```
 
-```ruby Rails
-relation = MockItem.search(:description)
-                   .matching_any("running shoes")
-                   .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
-                   .order(:rating)
-                   .select(:description, :rating, :category)
-                   .limit(5)
-
-rows = relation.to_a
-facets = relation.aggregates
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -412,6 +400,18 @@ stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=Mock
 with Session(engine) as session:
     rows = session.execute(stmt).all()
     aggregates = facets.extract(rows)
+```
+
+```ruby Rails
+relation = MockItem.search(:description)
+                   .matching_any("running shoes")
+                   .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
+                   .order(:rating)
+                   .select(:description, :rating, :category)
+                   .limit(5)
+
+rows = relation.to_a
+facets = relation.aggregates
 ```
 
 </CodeGroup>

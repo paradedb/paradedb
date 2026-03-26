@@ -44,18 +44,6 @@ MockItem.objects.filter(
 ).order_by('rating')[:5]
 ```
 
-```ruby Rails
-# Top N executed by standard Postgres
-MockItem.where.not(rating: nil).order(:rating).limit(5)
-
-# Top N executed by ParadeDB
-MockItem.search(:id)
-        .match_all
-        .where.not(rating: nil)
-        .order(:rating)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -78,6 +66,18 @@ paradedb_topn_stmt = (
 with Session(engine) as session:
     standard_rows = session.execute(standard_topn_stmt).all()
     paradedb_rows = session.execute(paradedb_topn_stmt).all()
+```
+
+```ruby Rails
+# Top N executed by standard Postgres
+MockItem.where.not(rating: nil).order(:rating).limit(5)
+
+# Top N executed by ParadeDB
+MockItem.search(:id)
+        .match_all
+        .where.not(rating: nil)
+        .order(:rating)
+        .limit(5)
 ```
 
 </CodeGroup>

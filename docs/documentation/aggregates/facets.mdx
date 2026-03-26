@@ -37,18 +37,6 @@ MockItem.objects.filter(
 ).order_by('-rating')[:3]
 ```
 
-```ruby Rails
-relation = MockItem.search(:category)
-                   .term("electronics")
-                   .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
-                   .select(:id, :description, :rating)
-                   .order(rating: :desc)
-                   .limit(3)
-
-rows = relation.to_a
-aggregates = relation.aggregates
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -70,6 +58,18 @@ with Session(engine) as session:
     rows = session.execute(stmt).all()
     facets = facets.extract(rows)
 
+```
+
+```ruby Rails
+relation = MockItem.search(:category)
+                   .term("electronics")
+                   .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
+                   .select(:id, :description, :rating)
+                   .order(rating: :desc)
+                   .limit(3)
+
+rows = relation.to_a
+aggregates = relation.aggregates
 ```
 
 </CodeGroup>

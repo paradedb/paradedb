@@ -31,16 +31,6 @@ MockItem.objects.filter(
 )[:10]
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .aggregate_by(
-          :rating,
-          agg: ParadeDB::Aggregations.value_count(:id)
-        )
-        .limit(10)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -55,6 +45,16 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.value_count(:id)
+        )
+        .limit(10)
 ```
 
 </CodeGroup>
@@ -91,17 +91,6 @@ MockItem.objects.filter(
 ).order_by('rating')[:10]
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .aggregate_by(
-          :rating,
-          agg: ParadeDB::Aggregations.value_count(:id)
-        )
-        .order(:rating)
-        .limit(10)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -117,6 +106,17 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.value_count(:id)
+        )
+        .order(:rating)
+        .limit(10)
 ```
 
 </CodeGroup>

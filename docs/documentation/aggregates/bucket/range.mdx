@@ -21,17 +21,6 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"range": {"field": "rating", "ranges": [{"to": 3.0}, {"from": 3.0, "to": 6.0}]}}'))
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .facets_agg(
-          agg: ParadeDB::Aggregations.range(
-            :rating,
-            ranges: [{ to: 3.0 }, { from: 3.0, to: 6.0 }]
-          )
-        )
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -52,6 +41,17 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(
+          agg: ParadeDB::Aggregations.range(
+            :rating,
+            ranges: [{ to: 3.0 }, { from: 3.0, to: 6.0 }]
+          )
+        )
 ```
 
 </CodeGroup>

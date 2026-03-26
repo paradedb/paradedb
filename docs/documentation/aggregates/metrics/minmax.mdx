@@ -30,12 +30,6 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"min": {"field": "rating"}}'))
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .facets_agg(agg: ParadeDB::Aggregations.min(:rating))
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -49,6 +43,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.min(:rating))
 ```
 
 </CodeGroup>
@@ -81,10 +81,6 @@ MockItem.objects.filter(
 ).aggregate(min_rating=Min('rating'))
 ```
 
-```ruby Rails
-MockItem.search(:id).match_all.minimum(:rating)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -98,6 +94,10 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id).match_all.minimum(:rating)
 ```
 
 </CodeGroup>
@@ -120,13 +120,6 @@ MockItem.objects.filter(
 ).aggregate(min_rating=Min(Coalesce('rating', Value(0))))
 ```
 
-```ruby Rails
-rating = MockItem.arel_table[:rating]
-coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
-
-MockItem.search(:id).match_all.minimum(coalesced_rating)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -140,6 +133,13 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+rating = MockItem.arel_table[:rating]
+coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
+
+MockItem.search(:id).match_all.minimum(coalesced_rating)
 ```
 
 </CodeGroup>
@@ -162,12 +162,6 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"max": {"field": "rating"}}'))
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .facets_agg(agg: ParadeDB::Aggregations.max(:rating))
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -181,6 +175,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.max(:rating))
 ```
 
 </CodeGroup>
@@ -211,10 +211,6 @@ MockItem.objects.filter(
 ).aggregate(max_rating=Max('rating'))
 ```
 
-```ruby Rails
-MockItem.search(:id).match_all.maximum(:rating)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -228,6 +224,10 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id).match_all.maximum(:rating)
 ```
 
 </CodeGroup>
@@ -250,13 +250,6 @@ MockItem.objects.filter(
 ).aggregate(max_rating=Max(Coalesce('rating', Value(0))))
 ```
 
-```ruby Rails
-rating = MockItem.arel_table[:rating]
-coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
-
-MockItem.search(:id).match_all.maximum(coalesced_rating)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -270,6 +263,13 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+rating = MockItem.arel_table[:rating]
+coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
+
+MockItem.search(:id).match_all.maximum(coalesced_rating)
 ```
 
 </CodeGroup>

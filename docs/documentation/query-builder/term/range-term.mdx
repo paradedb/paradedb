@@ -26,12 +26,6 @@ MockItem.objects.filter(
 ).values('id', 'weight_range')
 ```
 
-```ruby Rails
-MockItem.search(:weight_range)
-        .range_term(1)
-        .select(:id, :weight_range)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -44,6 +38,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:weight_range)
+        .range_term(1)
+        .select(:id, :weight_range)
 ```
 
 </CodeGroup>
@@ -67,12 +67,6 @@ MockItem.objects.filter(
 ).values('id', 'weight_range')
 ```
 
-```ruby Rails
-MockItem.search(:weight_range)
-        .range_term("(10, 12]", relation: "Intersects", range_type: "int4range")
-        .select(:id, :weight_range)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -94,6 +88,12 @@ with Session(engine) as session:
     rows = session.execute(stmt).all()
 ```
 
+```ruby Rails
+MockItem.search(:weight_range)
+        .range_term("(10, 12]", relation: "Intersects", range_type: "int4range")
+        .select(:id, :weight_range)
+```
+
 </CodeGroup>
 
 ## Range Contains
@@ -112,12 +112,6 @@ from paradedb import ParadeDB, RangeTerm
 MockItem.objects.filter(
     weight_range=ParadeDB(RangeTerm('(3, 9]', relation='Contains', range_type='int4range'))
 ).values('id', 'weight_range')
-```
-
-```ruby Rails
-MockItem.search(:weight_range)
-        .range_term("(3, 9]", relation: "Contains", range_type: "int4range")
-        .select(:id, :weight_range)
 ```
 
 ```python SQLAlchemy
@@ -141,6 +135,12 @@ with Session(engine) as session:
     rows = session.execute(stmt).all()
 ```
 
+```ruby Rails
+MockItem.search(:weight_range)
+        .range_term("(3, 9]", relation: "Contains", range_type: "int4range")
+        .select(:id, :weight_range)
+```
+
 </CodeGroup>
 
 ## Range Within
@@ -159,12 +159,6 @@ from paradedb import ParadeDB, RangeTerm
 MockItem.objects.filter(
     weight_range=ParadeDB(RangeTerm('(2, 11]', relation='Within', range_type='int4range'))
 ).values('id', 'weight_range')
-```
-
-```ruby Rails
-MockItem.search(:weight_range)
-        .range_term("(2, 11]", relation: "Within", range_type: "int4range")
-        .select(:id, :weight_range)
 ```
 
 ```python SQLAlchemy
@@ -186,6 +180,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:weight_range)
+        .range_term("(2, 11]", relation: "Within", range_type: "int4range")
+        .select(:id, :weight_range)
 ```
 
 </CodeGroup>

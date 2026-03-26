@@ -24,12 +24,6 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .regex_phrase("ru.*", "shoes")
-        .select(:description, :rating, :category)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -42,6 +36,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .regex_phrase("ru.*", "shoes")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

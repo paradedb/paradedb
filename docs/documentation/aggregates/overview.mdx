@@ -24,12 +24,6 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"value_count": {"field": "id"}}'))
 ```
 
-```ruby Rails
-MockItem.search(:category)
-        .term("electronics")
-        .facets_agg(agg: ParadeDB::Aggregations.value_count(:id))
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -43,6 +37,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .facets_agg(agg: ParadeDB::Aggregations.value_count(:id))
 ```
 
 </CodeGroup>
@@ -76,17 +76,6 @@ MockItem.objects.filter(
 ).order_by('rating')[:5]
 ```
 
-```ruby Rails
-MockItem.search(:category)
-        .term("electronics")
-        .aggregate_by(
-          :rating,
-          agg: ParadeDB::Aggregations.value_count(:id)
-        )
-        .order(:rating)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -102,6 +91,17 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.value_count(:id)
+        )
+        .order(:rating)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -139,15 +139,6 @@ MockItem.objects.filter(
 )
 ```
 
-```ruby Rails
-MockItem.search(:category)
-        .term("electronics")
-        .facets_agg(
-          avg_rating: ParadeDB::Aggregations.avg(:rating),
-          count: ParadeDB::Aggregations.value_count(:id)
-        )
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -164,6 +155,15 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:category)
+        .term("electronics")
+        .facets_agg(
+          avg_rating: ParadeDB::Aggregations.avg(:rating),
+          count: ParadeDB::Aggregations.value_count(:id)
+        )
 ```
 
 </CodeGroup>
@@ -199,12 +199,6 @@ MockItem.objects.filter(
 )
 ```
 
-```ruby Rails
-MockItem.search(:description)
-        .matching_any("running shoes")
-        .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -217,6 +211,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
 ```
 
 </CodeGroup>
@@ -246,12 +246,6 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"terms": {"field": "metadata.color"}}'))
 ```
 
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .facets_agg(agg: ParadeDB::Aggregations.terms("metadata.color"))
-```
-
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -265,6 +259,12 @@ stmt = (
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.terms("metadata.color"))
 ```
 
 </CodeGroup>

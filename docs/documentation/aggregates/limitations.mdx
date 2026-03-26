@@ -30,14 +30,6 @@ MockItem.objects.filter(rating=5).count()
 MockItem.objects.filter(rating=5, id=ParadeDB(All())).count()
 ```
 
-```ruby Rails
-# Not pushed down — no ParadeDB operator
-MockItem.where(rating: 5).count
-
-# Pushed down — ParadeDB operator triggers aggregate pushdown
-MockItem.search(:id).match_all.where(rating: 5).count
-```
-
 ```python SQLAlchemy
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -55,6 +47,14 @@ count_with_operator_stmt = select(func.count(MockItem.id)).where(
 with Session(engine) as session:
     count_without_operator = session.execute(count_without_operator_stmt).scalar_one()
     count_with_operator = session.execute(count_with_operator_stmt).scalar_one()
+```
+
+```ruby Rails
+# Not pushed down — no ParadeDB operator
+MockItem.where(rating: 5).count
+
+# Pushed down — ParadeDB operator triggers aggregate pushdown
+MockItem.search(:id).match_all.where(rating: 5).count
 ```
 
 </CodeGroup>

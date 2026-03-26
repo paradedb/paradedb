@@ -1253,4 +1253,104 @@ mod tests {
         assert!(!tokens_chinese.contains(&" ".to_string()));
         assert!(!tokens_chinese.iter().any(|t| t.trim().is_empty()));
     }
+
+    /// Verify that a tantivy index whose schema references the old tokenizer name
+    /// ("chinese_lindera") uses the deprecated tokenizer which preserves whitespace,
+    /// while an index using the new name ("chinese_lindera_keepwhitespace:{false|true}")
+    /// uses the new tokenizer which strips whitespace.
+    #[rstest]
+    #[case("chinese_lindera", true)]
+    #[case("chinese_lindera_keepwhitespace:false", false)]
+    #[case("chinese_lindera_keepwhitespace:true", true)]
+    #[case("japanese_lindera", true)]
+    #[case("japanese_lindera_keepwhitespace:false", false)]
+    #[case("japanese_lindera_keepwhitespace:true", true)]
+    #[case("korean_lindera", true)]
+    #[case("korean_lindera_keepwhitespace:false", false)]
+    #[case("korean_lindera_keepwhitespace:true", true)]
+    fn test_schema_tokenizer_name_determines_tokenizer_variant(
+        #[case] tokenizer_name: &str,
+        #[case] should_find_space: bool,
+    ) {
+        use tantivy::collector::TopDocs;
+        use tantivy::directory::RamDirectory;
+        use tantivy::query::TermQuery;
+        use tantivy::schema::{Schema, TextFieldIndexing, TextOptions, STORED};
+        use tantivy::{Index, Term};
+
+        // create all tokenizer variants
+        let tokenizers = vec![
+            SearchTokenizer::ChineseLinderaDeprecated(SearchTokenizerFilters::default()),
+            SearchTokenizer::ChineseLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: true,
+            },
+            SearchTokenizer::ChineseLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: false,
+            },
+            SearchTokenizer::JapaneseLinderaDeprecated(SearchTokenizerFilters::default()),
+            SearchTokenizer::JapaneseLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: true,
+            },
+            SearchTokenizer::JapaneseLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: false,
+            },
+            SearchTokenizer::KoreanLinderaDeprecated(SearchTokenizerFilters::default()),
+            SearchTokenizer::KoreanLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: true,
+            },
+            SearchTokenizer::KoreanLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: false,
+            },
+        ];
+
+        // Build schema with the given tokenizer name
+        let text_indexing = TextFieldIndexing::default()
+            .set_tokenizer(tokenizer_name)
+            .set_index_option(tantivy::schema::IndexRecordOption::WithFreqsAndPositions);
+        let text_options = TextOptions::default()
+            .set_indexing_options(text_indexing)
+            .set_stored();
+        let mut schema_builder = Schema::builder();
+        schema_builder.add_text_field("content", text_options);
+        schema_builder.add_text_field("id", STORED);
+        let schema = schema_builder.build();
+
+        // Create in-memory index and register tokenizers
+        let directory = RamDirectory::create();
+        let mut index = Index::create(directory, schema.clone(), Default::default()).unwrap();
+        let tokenizer_manager = crate::create_tokenizer_manager(tokenizers);
+        index.set_tokenizers(tokenizer_manager);
+
+        let content_field = schema.get_field("content").unwrap();
+
+        // Index a document containing spaces
+        let mut writer = index.writer_with_num_threads(1, 15_000_000).unwrap();
+        writer
+            .add_document(tantivy::doc!(
+                content_field => "foo and bar"
+            ))
+            .unwrap();
+        writer.commit().unwrap();
+
+        // Search for the space character as a raw term
+        let reader = index.reader().unwrap();
+        let searcher = reader.searcher();
+        let space_term = Term::from_field_text(content_field, " ");
+        let query = TermQuery::new(
+            space_term,
+            tantivy::schema::IndexRecordOption::WithFreqsAndPositions,
+        );
+        let top_docs = searcher
+            .search(&query, &TopDocs::with_limit(1).order_by_score())
+            .unwrap();
+
+        let found_space = !top_docs.is_empty();
+        assert_eq!(found_space, should_find_space, "tokenizer (name={tokenizer_name}) whitespace did not keep/remove whitespace as expected");
+    }
 }

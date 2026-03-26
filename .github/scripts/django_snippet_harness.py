@@ -4,9 +4,6 @@
 
 from __future__ import annotations
 
-import os
-from urllib.parse import urlparse
-
 import django
 from django.conf import settings
 from django.contrib.postgres.fields import IntegerRangeField
@@ -14,33 +11,16 @@ from django.db import models
 
 from paradedb.queryset import ParadeDBManager
 
-
-def normalize_database_url(url: str) -> str:
-    """Normalize legacy Postgres URLs for Django's database parser."""
-    if url.startswith("postgres://"):
-        return "postgresql://" + url[len("postgres://") :]
-    return url
-
-
-def database_settings() -> dict[str, object]:
-    """Build Django database settings from `DATABASE_URL`."""
-    parsed = urlparse(
-        normalize_database_url(
-            os.getenv(
-                "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres"
-            )
-        )
-    )
-    name = (parsed.path or "/postgres").lstrip("/") or "postgres"
-
-    return {
+DATABASES = {
+    "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": name,
-        "USER": parsed.username or "postgres",
-        "PASSWORD": parsed.password or "",
-        "HOST": parsed.hostname or "localhost",
-        "PORT": int(parsed.port or 5432),
+        "NAME": "postgres",
+        "USER": "postgres",
+        "PASSWORD": "postgres",
+        "HOST": "localhost",
+        "PORT": 5422,
     }
+}
 
 
 def configure_django() -> None:
@@ -49,7 +29,7 @@ def configure_django() -> None:
         return
 
     settings.configure(
-        DATABASES={"default": database_settings()},
+        DATABASES=DATABASES,
         INSTALLED_APPS=[
             "django.contrib.contenttypes",
             "django.contrib.postgres",

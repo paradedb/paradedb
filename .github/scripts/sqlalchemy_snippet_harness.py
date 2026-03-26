@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from sqlalchemy import (
@@ -20,8 +19,10 @@ from sqlalchemy import (
     create_engine,
 )
 from sqlalchemy.dialects.postgresql import INT4RANGE, JSONB
-from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5422/postgres"
 
 
 class Base(DeclarativeBase):
@@ -57,30 +58,12 @@ class Order(Base):
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
-def normalize_database_url(url: str) -> str:
-    """Normalize legacy Postgres URLs and force the psycopg SQLAlchemy dialect."""
-    if url.startswith("postgres://"):
-        url = "postgresql://" + url[len("postgres://") :]
-    if url.startswith("postgresql://"):
-        return "postgresql+psycopg://" + url[len("postgresql://") :]
-    return url
-
-
-def engine_from_env() -> Engine:
-    """Build the shared SQLAlchemy engine from `DATABASE_URL`."""
-    dsn = os.getenv(
-        "DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/postgres"
-    )
-    return create_engine(normalize_database_url(dsn), future=True)
-
-
-engine = engine_from_env()
+engine = create_engine(DATABASE_URL, future=True)
 
 __all__ = [
     "Base",
+    "DATABASE_URL",
     "MockItem",
     "Order",
     "engine",
-    "engine_from_env",
-    "normalize_database_url",
 ]

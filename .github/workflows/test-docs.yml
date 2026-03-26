@@ -13,11 +13,7 @@ on:
       - 0.*.x # Release branches
     paths:
       - ".github/workflows/test-docs.yml"
-      - ".github/scripts/django_snippet_harness.py"
-      - ".github/scripts/extract_code_snippets.py"
-      - ".github/scripts/rails_snippet_harness.rb"
-      - ".github/scripts/smoke_test_code_snippets.sh"
-      - ".github/scripts/sqlalchemy_snippet_harness.py"
+      - ".github/scripts/**"
       - "docs/**"
   workflow_dispatch:
 

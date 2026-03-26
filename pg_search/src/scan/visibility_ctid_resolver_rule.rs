@@ -91,7 +91,7 @@ fn find_ffhelper_for_ctid(
 ) -> Option<Arc<FFHelper>> {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
         if scan.deferred_ctid_alias() == Some(ctid_field_name) {
-            return scan.ffhelper_for_visibility().cloned();
+            return scan.ffhelper();
         }
     }
 

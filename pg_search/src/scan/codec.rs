@@ -48,10 +48,9 @@ struct PgSearchExtensionCodec {
     /// `try_decode_table_provider`, ensuring both the leader and all workers open each
     /// replicated index with the same frozen segment set.
     pub non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
-    /// Canonical segment IDs keyed by plan_position (not index OID), covering ALL
-    /// sources in the join. Keyed by plan_position to handle self-joins where the
-    /// same indexrelid appears with different segment sets (partitioned vs replicated).
-    pub index_segment_ids: crate::api::HashMap<usize, crate::api::HashSet<SegmentId>>,
+    /// Canonical segment IDs keyed densely by plan_position, covering ALL sources
+    /// in the join. Dense source positions make a Vec a better fit than a map.
+    pub index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -348,7 +347,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                     if !self.index_segment_ids.is_empty() {
                         let ids = self
                             .index_segment_ids
-                            .get(&pos)
+                            .get(pos)
                             .cloned()
                             .expect("missing canonical segment IDs for plan_position");
                         udf.set_canonical_segment_ids(ids);
@@ -404,7 +403,7 @@ pub fn deserialize_logical_plan_parallel(
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
     planstate: Option<*mut pgrx::pg_sys::PlanState>,
     non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
-    index_segment_ids: crate::api::HashMap<usize, crate::api::HashSet<SegmentId>>,
+    index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,

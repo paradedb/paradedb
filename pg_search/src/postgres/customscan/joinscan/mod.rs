@@ -338,10 +338,12 @@ impl JoinScan {
 
     /// Build plan_position → canonical segment IDs map for SearchPredicateUDF.
     ///
-    /// Keyed by plan_position (not indexrelid) so self-joins with the same index
-    /// but different segment sets (partitioned vs replicated) are correctly
-    /// disambiguated. If this were keyed only by indexrelid, one source could
-    /// inject the other source's segment set and make packed DocAddresses resolve
+    /// This is keyed by plan_position rather than indexrelid because it is a
+    /// per-source contract, not just a per-index one. The same index can appear
+    /// more than once in one JoinScan plan; in parallel execution those source
+    /// copies can also carry different canonical segment sets (partitioned vs
+    /// replicated). If this were keyed only by indexrelid, one source could
+    /// inject another source's segment set and make packed DocAddresses resolve
     /// against the wrong segment ordering.
     ///
     /// Workers use frozen segment IDs from DSM to match the leader's segment set.
@@ -350,8 +352,8 @@ impl JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         join_clause: &JoinCSClause,
         plan_sources: &[&build::JoinSource],
-    ) -> crate::api::HashMap<usize, crate::api::HashSet<tantivy::index::SegmentId>> {
-        let mut map = crate::api::HashMap::default();
+    ) -> Vec<crate::api::HashSet<tantivy::index::SegmentId>> {
+        let mut ids_by_pos = vec![None; plan_sources.len()];
         let partitioning_idx = join_clause.partitioning_source_index();
         let is_worker = unsafe { pg_sys::ParallelWorkerNumber >= 0 };
 
@@ -363,10 +365,10 @@ impl JoinScan {
                     if let Some(ps) = state.custom_state().parallel_state {
                         let ids =
                             unsafe { crate::postgres::customscan::parallel::list_segment_ids(ps) };
-                        map.insert(i, ids);
+                        ids_by_pos[i] = Some(ids);
                     }
                 } else if let Some(ids) = non_partitioning_segs.get(np_counter) {
-                    map.insert(i, ids.clone());
+                    ids_by_pos[i] = Some(ids.clone());
                     np_counter += 1;
                 }
             }
@@ -379,11 +381,23 @@ impl JoinScan {
                         .iter()
                         .map(|r| r.segment_id())
                         .collect();
-                    map.insert(i, ids);
+                    ids_by_pos[i] = Some(ids);
                 }
             }
         }
-        map
+
+        ids_by_pos
+            .into_iter()
+            .enumerate()
+            .map(|(plan_position, ids)| {
+                ids.unwrap_or_else(|| {
+                    panic!(
+                        "missing canonical segment IDs for join source at plan_position {}",
+                        plan_position
+                    )
+                })
+            })
+            .collect()
     }
 
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {

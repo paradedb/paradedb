@@ -414,14 +414,17 @@ pub struct JoinSource {
     /// Stable zero-based position of this source in `RelNode::sources()` order.
     ///
     /// This is the DataFusion-facing identity for a join source. It is assigned
-    /// once when the JoinScan plan is built and then used everywhere a source
+    /// once when the JoinScan plan is built and then used anywhere a source
     /// must stay distinguishable inside the plan:
     /// - synthetic ctid columns are named `ctid_<plan_position>`
     /// - deferred-visibility state is tracked per source
     /// - SearchPredicateUDF canonical segment IDs are keyed by it
     ///
-    /// We key these paths by `plan_position` rather than `indexrelid` because
-    /// self-joins can have multiple sources backed by the same index.
+    /// `indexrelid` is not sufficient here because the same underlying index can
+    /// appear more than once in a single JoinScan plan (for example a self-join,
+    /// or the same source copied into partitioning/non-partitioning roles in
+    /// parallel execution). `plan_position` is the per-source identity that
+    /// keeps those otherwise-identical sources distinct inside the plan.
     pub plan_position: usize,
     /// Identity of the PlannerInfo root this source originated from.
     pub root_id: Option<PlannerRootId>,

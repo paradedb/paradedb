@@ -94,10 +94,16 @@ use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 /// Query planner that registers extension planners for custom logical nodes
 /// (`LateMaterializeNode`, `VisibilityFilterNode`).
 ///
-/// At planning time `enable_visibility_planner` is false — physical planning
-/// does not run, but the struct is still needed as the session's query planner.
-/// At execution time it is true so `VisibilityExtensionPlanner` can convert
-/// `VisibilityFilterNode` → `VisibilityFilterExec`.
+/// We keep separate planning/execution session contexts because the logical plan
+/// is the serialized contract shared by EXPLAIN, leader execution, and workers,
+/// while execution also needs runtime-only state injected during decode
+/// (`parallel_state`, `expr_context`, `planstate`, canonical segment IDs).
+///
+/// At planning time `enable_visibility_planner` is false, so the query planner
+/// only needs to support logical optimization. At execution time it is true so
+/// `VisibilityExtensionPlanner` can convert `VisibilityFilterNode` →
+/// `VisibilityFilterExec` after the serialized logical plan has been decoded
+/// with those runtime bindings in place.
 struct PgSearchQueryPlanner {
     enable_visibility_planner: bool,
 }
@@ -238,7 +244,9 @@ fn add_tail_physical_rules(builder: SessionStateBuilder) -> SessionStateBuilder 
 ///
 /// Runs all logical optimizer rules (visibility injection, late materialization)
 /// so the serialized logical plan is the canonical contract shared by EXPLAIN,
-/// leader execution, and workers.
+/// leader execution, and workers. This phase intentionally excludes runtime
+/// extension planners because the plan bytes must remain serializable and free
+/// of backend-specific execution state.
 fn create_planning_session_context(join_clause: &JoinCSClause) -> SessionContext {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
 
@@ -262,7 +270,8 @@ fn create_planning_session_context(join_clause: &JoinCSClause) -> SessionContext
 ///
 /// The logical plan already contains `VisibilityFilterNode` and `LateMaterializeNode`
 /// (injected at planning time). This context binds runtime extension planners
-/// and applies physical optimizer rules.
+/// and applies physical optimizer rules after deserialize-time injection of
+/// backend-local state that cannot live in the serialized logical plan.
 pub fn create_execution_session_context() -> SessionContext {
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 

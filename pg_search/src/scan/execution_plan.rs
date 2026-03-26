@@ -115,9 +115,8 @@ pub struct PgSearchScanPlan {
     /// Shared FFHelper for deferred lookup and deferred visibility.
     ///
     /// A scan may participate in late materialization, deferred visibility, or both.
-    /// The role-specific accessors below decide whether this helper is exposed to
-    /// `LateMaterializePlanner` (by deferred text/bytes presence) or
-    /// `VisibilityCtidResolverRule` (by deferred_ctid_alias presence).
+    /// Callers gate usage based on `deferred_fields` / `deferred_ctid_alias`; cloning
+    /// the Arc is cheap, so this does not need separate role-specific accessors.
     ffhelper: Option<Arc<FFHelper>>,
     pub indexrelid: u32,
     /// The ctid column alias when visibility is deferred (e.g. "ctid_0").
@@ -193,24 +192,12 @@ impl PgSearchScanPlan {
         }
     }
 
-    /// FFHelper for late materialization (text/bytes dictionary lookup).
-    /// Used by LateMaterializePlanner.
-    pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {
-        if self.deferred_fields.is_empty() {
-            None
-        } else {
-            self.ffhelper.as_ref()
-        }
+    pub fn has_deferred_fields(&self) -> bool {
+        !self.deferred_fields.is_empty()
     }
 
-    /// FFHelper for deferred visibility (ctid resolution).
-    /// Used by VisibilityCtidResolverRule.
-    pub fn ffhelper_for_visibility(&self) -> Option<&Arc<FFHelper>> {
-        if self.deferred_ctid_alias.is_some() {
-            self.ffhelper.as_ref()
-        } else {
-            None
-        }
+    pub fn ffhelper(&self) -> Option<Arc<FFHelper>> {
+        self.ffhelper.clone()
     }
 
     /// Returns the deferred ctid column alias, if visibility is deferred.

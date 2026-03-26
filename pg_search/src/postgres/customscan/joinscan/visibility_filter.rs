@@ -47,9 +47,7 @@ use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
 
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
@@ -57,9 +55,7 @@ use async_trait::async_trait;
 use datafusion::arrow::compute::kernels::boolean::{and, is_not_null};
 use datafusion::common::tree_node::Transformed;
 use datafusion::common::{DFSchemaRef, DataFusionError, Result};
-use datafusion::execution::{
-    RecordBatchStream, SendableRecordBatchStream, SessionState, TaskContext,
-};
+use datafusion::execution::{SendableRecordBatchStream, SessionState, TaskContext};
 use datafusion::logical_expr::{Extension, LogicalPlan, UserDefinedLogicalNode};
 use datafusion::optimizer::optimizer::ApplyOrder;
 use datafusion::optimizer::{OptimizerConfig, OptimizerRule};
@@ -67,10 +63,11 @@ use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
     ChildFilterDescription, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
 };
-use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
+use datafusion::physical_plan::metrics::{
+    BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
+};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
-use futures::Stream;
 use pgrx::pg_sys;
 
 use crate::index::fast_fields_helper::FFHelper;
@@ -821,7 +818,7 @@ impl ExecutionPlan for VisibilityFilterExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        let input_stream = self.input.execute(partition, context)?;
+        let mut input_stream = self.input.execute(partition, context)?;
         let schema = self.schema();
 
         let resolvers = self
@@ -865,20 +862,26 @@ impl ExecutionPlan for VisibilityFilterExec {
         }
 
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
-        // SAFETY: VisibilityFilterStream contains VisibilityChecker (holding raw
-        // Postgres relation and snapshot pointers). These are safe because we run
-        // on a single-threaded Tokio runtime within the Postgres backend process.
-        let stream = unsafe {
-            UnsafeSendStream::new(
-                VisibilityFilterStream {
-                    input: input_stream,
-                    schema: schema.clone(),
-                    checkers,
-                    baseline_metrics,
-                },
-                schema,
-            )
+        let stream_schema = schema.clone();
+        let stream_gen = async_stream::try_stream! {
+            use futures::StreamExt;
+            while let Some(batch_res) = input_stream.next().await {
+                let timer = baseline_metrics.elapsed_compute().timer();
+                let result = match batch_res {
+                    Ok(batch) => filter_batch(&stream_schema, &mut checkers, batch),
+                    Err(e) => Err(e),
+                };
+                timer.done();
+
+                yield result.record_output(&baseline_metrics)?;
+            }
+            baseline_metrics.done();
         };
+
+        // SAFETY: The generated stream captures VisibilityChecker instances
+        // holding raw Postgres relation/snapshot pointers. These are safe because
+        // we run on a single-threaded Tokio runtime within the backend process.
+        let stream = unsafe { UnsafeSendStream::new(stream_gen, schema) };
         Ok(Box::pin(stream))
     }
 }
@@ -976,121 +979,94 @@ struct CtidCheckerEntry {
     visibility_results: Vec<Option<u64>>,
 }
 
-struct VisibilityFilterStream {
-    input: SendableRecordBatchStream,
-    schema: SchemaRef,
-    checkers: Vec<CtidCheckerEntry>,
-    baseline_metrics: BaselineMetrics,
+/// Runs visibility check for a single relation's ctid column.
+/// Returns HOT-resolved ctids (None for invisible rows).
+fn check_column_visibility(entry: &mut CtidCheckerEntry, ctid_array: &UInt64Array) -> ArrayRef {
+    if ctid_array.null_count() != 0 {
+        panic!(
+            "ctid column contains {} nulls — null ctids indicate a planning or storage bug",
+            ctid_array.null_count()
+        );
+    }
+    entry.ctid_input.clear();
+    entry
+        .ctid_input
+        .extend(ctid_array.values().iter().copied().map(Some));
+    entry.visibility_results.clear();
+    entry.visibility_results.resize(ctid_array.len(), None);
+    entry
+        .checker
+        .check_batch(&entry.ctid_input, &mut entry.visibility_results);
+    uint64_array_from_options(&entry.visibility_results)
 }
 
-impl VisibilityFilterStream {
-    /// Runs visibility check for a single relation's ctid column.
-    /// Returns HOT-resolved ctids (None for invisible rows).
-    fn check_column_visibility(entry: &mut CtidCheckerEntry, ctid_array: &UInt64Array) -> ArrayRef {
-        if ctid_array.null_count() != 0 {
-            panic!(
-                "ctid column contains {} nulls — null ctids indicate a planning or storage bug",
-                ctid_array.null_count()
-            );
-        }
-        entry.ctid_input.clear();
-        entry
-            .ctid_input
-            .extend(ctid_array.values().iter().copied().map(Some));
-        entry.visibility_results.clear();
-        entry.visibility_results.resize(ctid_array.len(), None);
-        entry
-            .checker
-            .check_batch(&entry.ctid_input, &mut entry.visibility_results);
-        uint64_array_from_options(&entry.visibility_results)
+fn filter_batch(
+    schema: &SchemaRef,
+    checkers: &mut [CtidCheckerEntry],
+    batch: RecordBatch,
+) -> Result<RecordBatch> {
+    if batch.num_rows() == 0 {
+        return Ok(batch);
     }
 
-    fn filter_batch(&mut self, batch: RecordBatch) -> Result<RecordBatch> {
-        if batch.num_rows() == 0 {
-            return Ok(batch);
-        }
+    let num_rows = batch.num_rows();
 
-        let num_rows = batch.num_rows();
+    // Resolve packed DocAddresses to real ctids in place.
+    let mut columns: Vec<ArrayRef> = batch.columns().to_vec();
+    for entry in checkers.iter_mut() {
+        let col = &columns[entry.col_idx];
+        let doc_addr_array = col.as_any().downcast_ref::<UInt64Array>().ok_or_else(|| {
+            DataFusionError::Execution(format!(
+                "VisibilityFilterExec: ctid column (idx {}) is not UInt64 \
+                 during DocAddress resolution",
+                entry.col_idx
+            ))
+        })?;
+        let resolved = materialize_deferred_ctid(
+            &entry.resolver,
+            doc_addr_array,
+            &mut entry.deferred_ctid_state,
+        )?;
+        columns[entry.col_idx] = resolved;
+    }
 
-        // Resolve packed DocAddresses to real ctids in place.
-        let mut columns: Vec<ArrayRef> = batch.columns().to_vec();
-        for entry in &mut self.checkers {
-            let col = &columns[entry.col_idx];
-            let doc_addr_array = col.as_any().downcast_ref::<UInt64Array>().ok_or_else(|| {
+    let mut visible_mask = None;
+    for entry in checkers.iter_mut() {
+        let ctid_array = columns[entry.col_idx]
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
                 DataFusionError::Execution(format!(
                     "VisibilityFilterExec: ctid column (idx {}) is not UInt64 \
-                     during DocAddress resolution",
+                     during visibility checking",
                     entry.col_idx
                 ))
             })?;
-            let resolved = materialize_deferred_ctid(
-                &entry.resolver,
-                doc_addr_array,
-                &mut entry.deferred_ctid_state,
-            )?;
-            columns[entry.col_idx] = resolved;
-        }
 
-        let mut visible_mask = None;
-        for entry in &mut self.checkers {
-            let ctid_array = columns[entry.col_idx]
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Execution(format!(
-                        "VisibilityFilterExec: ctid column (idx {}) is not UInt64 \
-                         during visibility checking",
-                        entry.col_idx
-                    ))
-                })?;
-
-            let resolved = Self::check_column_visibility(entry, ctid_array);
-            let current_mask = is_not_null(resolved.as_ref())
-                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-            visible_mask = Some(match visible_mask.take() {
-                None => current_mask,
-                Some(mask) => and(&mask, &current_mask)
-                    .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?,
-            });
-            columns[entry.col_idx] = resolved;
-        }
-
-        let visible_mask =
-            visible_mask.unwrap_or_else(|| arrow_array::BooleanArray::from(vec![true; num_rows]));
-        let visible_count = visible_mask
-            .iter()
-            .filter(|visible| matches!(visible, Some(true)))
-            .count();
-        let resolved_batch = RecordBatch::try_new(self.schema.clone(), columns)
+        let resolved = check_column_visibility(entry, ctid_array);
+        let current_mask = is_not_null(resolved.as_ref())
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-        if visible_count == num_rows {
-            return Ok(resolved_batch);
-        }
-        filter_record_batch(&resolved_batch, &visible_mask)
-            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+        visible_mask = Some(match visible_mask.take() {
+            None => current_mask,
+            Some(mask) => and(&mask, &current_mask)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?,
+        });
+        columns[entry.col_idx] = resolved;
     }
-}
 
-impl Stream for VisibilityFilterStream {
-    type Item = Result<RecordBatch>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll = Pin::new(&mut self.input).poll_next(cx);
-        let final_poll = match poll {
-            Poll::Ready(Some(Ok(batch))) => {
-                let result = self.filter_batch(batch);
-                Poll::Ready(Some(result))
-            }
-            other => other,
-        };
-        self.baseline_metrics.record_poll(final_poll)
+    let visible_mask =
+        visible_mask.unwrap_or_else(|| arrow_array::BooleanArray::from(vec![true; num_rows]));
+    let visible_count = visible_mask
+        .iter()
+        .filter(|visible| matches!(visible, Some(true)))
+        .count();
+    let resolved_batch = RecordBatch::try_new(schema.clone(), columns)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+    if visible_count == num_rows {
+        return Ok(resolved_batch);
     }
-}
-
-impl RecordBatchStream for VisibilityFilterStream {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
-    }
+    filter_record_batch(&resolved_batch, &visible_mask)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }
 
 #[cfg(any(test, feature = "pg_test"))]

@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${1:-$DOCS_ROOT/verify}"
 SQL_DIR="$OUTPUT_DIR/sql"
+DJANGO_DIR="$OUTPUT_DIR/django"
 RAILS_DIR="$OUTPUT_DIR/rails"
 SQLALCHEMY_DIR="$OUTPUT_DIR/sqlalchemy"
 PARADEDB_CONTAINER_NAME="paradedb-docs-verify"
@@ -15,16 +16,19 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:${PARADEDB_HOST_PORT}/pos
 export DATABASE_URL
 export PGPASSWORD="postgres"
 
-mkdir -p "$SQL_DIR" "$RAILS_DIR" "$SQLALCHEMY_DIR"
+mkdir -p "$SQL_DIR" "$DJANGO_DIR" "$RAILS_DIR" "$SQLALCHEMY_DIR"
 
-PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-python.XXXXXX)"
-PYTHON_BIN="$PYTHON_ENV_DIR/bin/python"
+DJANGO_PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-django-python.XXXXXX)"
+DJANGO_PYTHON_BIN="$DJANGO_PYTHON_ENV_DIR/bin/python"
+SQLALCHEMY_PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-sqlalchemy-python.XXXXXX)"
+SQLALCHEMY_PYTHON_BIN="$SQLALCHEMY_PYTHON_ENV_DIR/bin/python"
 RUBY_GEM_HOME="$(mktemp -d -t paradedb-docs-ruby.XXXXXX)"
 bootstrap_sql=""
 
 cleanup() {
   [[ -n "$bootstrap_sql" ]] && rm -f "$bootstrap_sql"
-  rm -rf "$PYTHON_ENV_DIR"
+  rm -rf "$DJANGO_PYTHON_ENV_DIR"
+  rm -rf "$SQLALCHEMY_PYTHON_ENV_DIR"
   rm -rf "$RUBY_GEM_HOME"
 }
 
@@ -57,11 +61,19 @@ if ! docker exec "$PARADEDB_CONTAINER_NAME" pg_isready -U postgres -d postgres >
   exit 1
 fi
 
+echo "Creating temporary Python environment for Django snippet verification..."
+python3 -m venv "$DJANGO_PYTHON_ENV_DIR"
+
+echo "Installing latest django-paradedb from PyPI..."
+PIP_DISABLE_PIP_VERSION_CHECK=1 "$DJANGO_PYTHON_BIN" -m pip install --quiet --upgrade \
+  "django-paradedb" \
+  "psycopg[binary]"
+
 echo "Creating temporary Python environment for SQLAlchemy snippet verification..."
-python3 -m venv "$PYTHON_ENV_DIR"
+python3 -m venv "$SQLALCHEMY_PYTHON_ENV_DIR"
 
 echo "Installing latest sqlalchemy-paradedb from PyPI..."
-PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
+PIP_DISABLE_PIP_VERSION_CHECK=1 "$SQLALCHEMY_PYTHON_BIN" -m pip install --quiet --upgrade \
   "sqlalchemy-paradedb" \
   "psycopg[binary]"
 
@@ -71,7 +83,7 @@ GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
   "rails-paradedb" \
   "pg"
 
-"$PYTHON_BIN" "${SCRIPT_DIR}/extract_code_snippets.py" "$DOCS_ROOT" "$OUTPUT_DIR" >/dev/null
+"$SQLALCHEMY_PYTHON_BIN" "${SCRIPT_DIR}/extract_code_snippets.py" "$DOCS_ROOT" "$OUTPUT_DIR" >/dev/null
 
 
 bootstrap_sql="$(mktemp -t paradedb-docs-bootstrap)"
@@ -126,6 +138,35 @@ while IFS= read -r snippet_file; do
   fi
 done < <(find "$SQL_DIR" -type f -name '*.sql' | LC_ALL=C sort)
 
+django_pass_count=0
+django_fail_count=0
+
+while IFS= read -r snippet_file; do
+  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
+
+  if SNIPPET_FILE="$snippet_file" \
+      SNIPPET_NAME="$rel_snippet" \
+      PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+      "$DJANGO_PYTHON_BIN" - >/dev/null <<'PY'
+from pathlib import Path
+import os
+
+from django_snippet_harness import execute_snippet
+
+execute_snippet(
+    Path(os.environ["SNIPPET_FILE"]).read_text(),
+    filename=os.environ["SNIPPET_NAME"],
+)
+PY
+  then
+    echo "[SUCCESS] $rel_snippet" >&2
+    django_pass_count=$((django_pass_count + 1))
+  else
+    echo "[FAIL] $rel_snippet" >&2
+    django_fail_count=$((django_fail_count + 1))
+  fi
+done < <(find "$DJANGO_DIR" -type f -name '*.py' | LC_ALL=C sort)
+
 rails_pass_count=0
 rails_fail_count=0
 
@@ -170,7 +211,7 @@ from sqlalchemy_snippet_harness import MockItem, Order, engine
 # Source: $rel_snippet
 PY
     cat "$snippet_file"
-  } | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - >/dev/null; then
+  } | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$SQLALCHEMY_PYTHON_BIN" - >/dev/null; then
     echo "[SUCCESS] $rel_snippet" >&2
     sqlalchemy_pass_count=$((sqlalchemy_pass_count + 1))
   else
@@ -180,9 +221,10 @@ PY
 done < <(find "$SQLALCHEMY_DIR" -type f -name '*.py' | LC_ALL=C sort)
 
 echo "SQL passed: $sql_pass_count failed: $sql_fail_count"
+echo "Django passed: $django_pass_count failed: $django_fail_count"
 echo "Rails passed: $rails_pass_count failed: $rails_fail_count"
 echo "SQLAlchemy passed: $sqlalchemy_pass_count failed: $sqlalchemy_fail_count"
 
-if [[ $sql_fail_count -gt 0 || $rails_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 ]]; then
+if [[ $sql_fail_count -gt 0 || $django_fail_count -gt 0 || $rails_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 ]]; then
   exit 1
 fi

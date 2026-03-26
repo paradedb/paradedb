@@ -1,3 +1,7 @@
+"""Execute extracted SQLAlchemy docs snippets against local verification tables."""
+
+# pylint: disable=import-error,too-few-public-methods
+
 from __future__ import annotations
 
 import os
@@ -21,10 +25,12 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    pass
+    """Declarative base shared by snippet verification models."""
 
 
 class MockItem(Base):
+    """Read-only model used by docs snippets that target `mock_items`."""
+
     __tablename__ = "mock_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -40,6 +46,8 @@ class MockItem(Base):
 
 
 class Order(Base):
+    """Read-only model used by docs snippets that target `orders`."""
+
     __tablename__ = "orders"
 
     order_id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -50,6 +58,7 @@ class Order(Base):
 
 
 def normalize_database_url(url: str) -> str:
+    """Normalize legacy Postgres URLs and force the psycopg SQLAlchemy dialect."""
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://") :]
     if url.startswith("postgresql://"):
@@ -58,6 +67,7 @@ def normalize_database_url(url: str) -> str:
 
 
 def engine_from_env() -> Engine:
+    """Build the shared SQLAlchemy engine from `DATABASE_URL`."""
     dsn = os.getenv(
         "DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/postgres"
     )

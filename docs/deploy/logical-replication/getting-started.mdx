@@ -22,6 +22,10 @@ This deployment model is useful when:
 - You want to keep Postgres as the system of record and add ParadeDB as a
   dedicated read and search node
 
+If you run ParadeDB on both the primary and standby nodes and want BM25 indexes
+to replicate automatically through WAL, use [physical
+replication](/deploy/self-hosted/physical-replication) instead.
+
 <Warning>
   Logical replication copies row changes, not schema changes or indexes. The
   published tables must already exist on ParadeDB, and any DDL must be applied

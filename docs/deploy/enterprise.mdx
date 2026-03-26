@@ -45,11 +45,15 @@ For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.
 | Block storage integration            | ✅                 | ✅                  |
 | Buffer cache integration<sup>2</sup> | ✅                 | ✅                  |
 | **Deployment** <sup>3</sup>          |                    |
-| Maximum cluster size <sup>4</sup>    | 1                  | Unlimited           |
-| Physical (i.e. WAL) Replication      | ❌                 | ✅                  |
-| Crash Recovery                       | ❌                 | ✅                  |
-| Point in Time Recovery               | ❌                 | ✅                  |
+| Maximum cluster size                 | Unlimited          | Unlimited           |
+| Physical (i.e. WAL) Replication      | ✅                 | ✅                  |
+| Crash Recovery                       | ✅                 | ✅                  |
+| Point in Time Recovery               | ✅                 | ✅                  |
 | Logical Replication                  | ✅                 | ✅                  |
+| **Operations and Licensing**         |                    |                     |
+| ParadeDB BYOC                        | ❌                 | ✅                  |
+| Commercial license / AGPL waiver     | ❌                 | ✅                  |
+| Commercial support                   | ❌                 | ✅                  |
 
 <Info>
 **Footnotes**
@@ -62,9 +66,8 @@ For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.
   2. The BM25 index is built on block storage, Postgres' native storage API.
   This means that it leverages the Postgres buffer cache, which minimizes disk
   I/O.
-  3. All listed deployment features and limitations are specific to the BM25 index. For instance,
-  ParadeDB Community supports physical/logical replication, crash recovery, etc. for heap tables and other Postgres indexes like B-Tree.
-  4. In a primary-replica topology, BM25 indexes in ParadeDB Community are only available on the primary, as
-  the Community edition does not support physical (WAL) replication.
+  3. All listed deployment features and limitations are specific to the BM25
+  index. Physical replication and recovery assume every node in the cluster is
+  running a compatible PostgreSQL and `pg_search` build.
 </p>
 </Info>

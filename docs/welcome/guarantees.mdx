@@ -10,7 +10,7 @@ All reads and writes go through Postgres’ transaction engine. This means that 
 
 Durability — the "D" in ACID — means that once a transaction is committed, its changes will survive crashes or failovers. In PostgreSQL, this guarantee is provided by the write-ahead log (WAL), which ensures that all changes are safely recorded before being applied to disk.
 
-[ParadeDB Community](https://github.com/paradedb/paradedb) does **not** write to the WAL, and therefore does not guarantee durability in the face of crashes. For production use cases that require full durability, [ParadeDB Enterprise](/deploy/enterprise) — a closed-source fork of ParadeDB for enterprise customers — includes full WAL integration.
+[ParadeDB Community](https://github.com/paradedb/paradedb) writes BM25 page mutations to PostgreSQL's WAL and therefore participates in Postgres crash recovery and physical replication. This gives BM25 indexes the same durability model as other Postgres index types when ParadeDB is deployed as the primary database.
 
 ### Concurrency
 
@@ -35,17 +35,17 @@ Logical replication refers to replicating changes from a standard Postgres prima
 
 Physical replication refers to running ParadeDB itself in a multi-node, high-availability (HA) setup using write-ahead log (WAL) shipping.
 
-[ParadeDB Community](https://github.com/paradedb/paradedb) supports logical replication, but not physical replication:
+[ParadeDB Community](https://github.com/paradedb/paradedb) supports both models:
 
-- It can act as a logical replica, ingesting changes from a Postgres primary and indexing them transactionally.
-- The BM25 index does not get physically replicated and won't be available on other nodes in a high availability setup.
+- In logical replication, ParadeDB ingests row changes from a Postgres primary and maintains BM25 indexes locally on the subscriber. Schema changes and BM25 index DDL still need to be applied separately.
+- In physical replication, ParadeDB writes BM25 page changes to WAL, so BM25 index DDL and index maintenance are replayed automatically on hot standbys.
 
 [ParadeDB Enterprise](/deploy/enterprise) supports both:
 
 - It can act as a logical replica, ingesting changes from a Postgres primary and indexing them transactionally.
 - It supports physical replication and high availability, ensuring that the BM25 index remains consistent and crash-safe across nodes.
 
-If your deployment requires high availability, or failover, we recommend using [ParadeDB Enterprise](/deploy/enterprise).
+If you are self-managing ParadeDB and need BM25 read replicas or failover, see the [physical replication guide](/deploy/self-hosted/physical-replication). If you need a managed deployment model, commercial support, or ParadeDB BYOC, see [ParadeDB Enterprise](/deploy/enterprise).
 
 ### Data Integrity
 

@@ -779,7 +779,7 @@ impl<T: AsRef<Path>> SegmentFileDetails for T {
 // Linked list entry MVCC methods
 // ---------------------------------------------------------
 
-pub trait MVCCEntry {
+pub(crate) trait MVCCEntry {
     fn pintest_blockno(&self) -> pg_sys::BlockNumber;
 
     // Provided methods

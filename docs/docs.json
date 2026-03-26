@@ -303,6 +303,7 @@
                     "pages": [
                       "deploy/self-hosted/kubernetes",
                       "deploy/self-hosted/extension",
+                      "deploy/self-hosted/physical-replication",
                       "deploy/self-hosted/high-availability"
                     ]
                   },

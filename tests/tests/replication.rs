@@ -618,7 +618,7 @@ async fn test_physical_streaming_replication() -> Result<()> {
 
 #[rstest]
 async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
-    // Primary Postgres setup + insert data
+    // Primary Postgres setup + table data.
     let postgresql_conf = "
         listen_addresses = 'localhost'
         wal_level = replica
@@ -640,7 +640,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         .execute(&mut source_conn);
     "SELECT pg_create_physical_replication_slot('wal_receiver_1');".execute(&mut source_conn);
 
-    // Install pg_search on primary and create a test table
+    // Install pg_search on primary and create a test table.
     "CREATE EXTENSION pg_search".execute(&mut source_conn);
     "CREATE TABLE items (
         id SERIAL PRIMARY KEY,
@@ -657,20 +657,6 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         ('Wireless headphones', 'Electronics', NOW()),
         ('4K television', 'Electronics', NOW())"
         .execute(&mut source_conn);
-
-    // Create a bm25 index on the items table
-    "
-    CREATE INDEX items_search_idx ON items
-    USING bm25 (id, description, category)
-    WITH (key_field = 'id');
-    "
-    .execute(&mut source_conn);
-
-    // Verify that searching on the primary works
-    let source_results: Vec<(i32,)> =
-        "SELECT id FROM items WHERE items @@@ 'description:shoes' ORDER BY id"
-            .fetch(&mut source_conn);
-    assert_eq!(source_results.len(), 2);
 
     // Set up the standby using pg_basebackup
     let target_tempdir = TempDir::new().expect("Failed to create temp dir for standby");
@@ -710,8 +696,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     );
     let mut standby_conn = standby_postgres.connection().await?;
 
-    // Wait for the standby to catch up
-    // The fetch_retry helper is used in previous tests; you can adapt a similar approach here.
+    // Wait for the standby to catch up.
     "SELECT description FROM items ORDER BY id".fetch_retry::<(String,)>(
         &mut standby_conn,
         60,
@@ -719,16 +704,164 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         |result| !result.is_empty(),
     );
 
-    // Test that the correct error is returned when trying to read from a standby
-    let result = "SELECT id FROM items WHERE items @@@ 'category:Electronics' ORDER BY id"
-        .fetch_result::<(i32,)>(&mut standby_conn);
+    // Create the bm25 index after the standby is already streaming so the index itself must
+    // arrive via WAL, not via pg_basebackup.
+    "
+    CREATE INDEX items_search_idx ON items
+    USING bm25 (id, description, category)
+    WITH (key_field = 'id', mutable_segment_rows = 1);
+    "
+    .execute(&mut source_conn);
 
-    match result {
-        Err(err) => assert!(err.to_string().contains("Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community")),
-        _ => {
-            panic!("physical replication should not be supported on ParadeDB Community {:?}", result);
-        }
-    }
+    let source_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'category:Electronics' ORDER BY id".fetch_retry(
+            &mut source_conn,
+            60,
+            1000,
+            |result| result.len() == 2,
+        );
+    assert_eq!(source_results, vec![(3,), (4,)]);
+
+    let standby_index_regclass: (Option<String>,) =
+        "SELECT to_regclass('public.items_search_idx')::text"
+            .fetch_one_retry::<(Option<String>,), _>(&mut standby_conn, 60, 1000, |result| {
+                result.0.is_some()
+            });
+    assert_eq!(
+        standby_index_regclass.0.as_deref(),
+        Some("items_search_idx")
+    );
+
+    // Verify that BM25 queries work on the standby using the WAL-built index state.
+    let standby_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'category:Electronics' ORDER BY id".fetch_retry(
+            &mut standby_conn,
+            60,
+            1000,
+            |result| result.len() == 2,
+        );
+    assert_eq!(standby_results, vec![(3,), (4,)]);
+
+    // Drop the index on the primary and confirm the standby loses it too.
+    "DROP INDEX items_search_idx".execute(&mut source_conn);
+    let standby_dropped_index: (Option<String>,) =
+        "SELECT to_regclass('public.items_search_idx')::text"
+            .fetch_one_retry::<(Option<String>,), _>(&mut standby_conn, 60, 1000, |result| {
+                result.0.is_none()
+            });
+    assert_eq!(standby_dropped_index.0, None);
+
+    // Recreate the index so the rest of the test exercises ongoing maintenance.
+    "
+    CREATE INDEX items_search_idx ON items
+    USING bm25 (id, description, category)
+    WITH (key_field = 'id', mutable_segment_rows = 1);
+    "
+    .execute(&mut source_conn);
+
+    let standby_recreated_index: (Option<String>,) =
+        "SELECT to_regclass('public.items_search_idx')::text"
+            .fetch_one_retry::<(Option<String>,), _>(&mut standby_conn, 60, 1000, |result| {
+                result.0.is_some()
+            });
+    assert_eq!(
+        standby_recreated_index.0.as_deref(),
+        Some("items_search_idx")
+    );
+
+    // Insert a new row on the primary after the standby is already streaming.
+    "INSERT INTO items (description, category, created_at)
+     VALUES ('Green trail shoes', 'Footwear', NOW())"
+        .execute(&mut source_conn);
+
+    let source_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'description:shoes' ORDER BY id".fetch_retry(
+            &mut source_conn,
+            60,
+            1000,
+            |result| result.len() == 3,
+        );
+    assert_eq!(source_results.len(), 3);
+
+    let standby_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'description:shoes' ORDER BY id".fetch_retry(
+            &mut standby_conn,
+            60,
+            1000,
+            |result| result.len() == 3,
+        );
+    assert_eq!(standby_results.len(), 3);
+
+    // Update an indexed column on the primary and verify the standby follows.
+    "UPDATE items
+     SET category = 'Footwear'
+     WHERE description = 'Wireless headphones'"
+        .execute(&mut source_conn);
+
+    let source_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'category:Footwear' ORDER BY id".fetch_retry(
+            &mut source_conn,
+            60,
+            1000,
+            |result| result.len() == 4,
+        );
+    assert_eq!(source_results, vec![(1,), (2,), (3,), (5,)]);
+
+    let standby_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'category:Footwear' ORDER BY id".fetch_retry(
+            &mut standby_conn,
+            60,
+            1000,
+            |result| result.len() == 4,
+        );
+    assert_eq!(standby_results, vec![(1,), (2,), (3,), (5,)]);
+
+    let standby_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'category:Electronics' ORDER BY id".fetch_retry(
+            &mut standby_conn,
+            60,
+            1000,
+            |result| result.len() == 1,
+        );
+    assert_eq!(standby_results, vec![(4,)]);
+
+    // Delete one of the indexed rows on the primary and verify the standby follows.
+    "DELETE FROM items WHERE description = 'Blue sports shoes'".execute(&mut source_conn);
+
+    let standby_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'description:shoes' ORDER BY id".fetch_retry(
+            &mut standby_conn,
+            60,
+            1000,
+            |result| result.len() == 2,
+        );
+    assert_eq!(standby_results, vec![(1,), (5,)]);
+
+    // VACUUM should update the BM25 metadata on the primary and replay identically on the standby.
+    "VACUUM items".execute(&mut source_conn);
+
+    let primary_index_state: (i64, i64) = "SELECT
+            COUNT(*)::bigint,
+            COALESCE(SUM(COALESCE(num_deleted::bigint, 0)), 0)::bigint
+         FROM paradedb.index_info('items_search_idx', true)"
+        .fetch_one_retry::<(i64, i64), _>(&mut source_conn, 60, 1000, |result| result.0 > 0);
+    let standby_index_state: (i64, i64) = "SELECT
+            COUNT(*)::bigint,
+            COALESCE(SUM(COALESCE(num_deleted::bigint, 0)), 0)::bigint
+         FROM paradedb.index_info('items_search_idx', true)"
+        .fetch_one_retry::<(i64, i64), _>(&mut standby_conn, 60, 1000, |result| {
+            result == &primary_index_state
+        });
+    assert_eq!(standby_index_state, primary_index_state);
+
+    let standby_results: Vec<(i32,)> =
+        "SELECT id FROM items WHERE items @@@ 'category:Footwear' ORDER BY id".fetch_retry(
+            &mut standby_conn,
+            60,
+            1000,
+            |result| result.len() == 3,
+        );
+    assert_eq!(standby_results, vec![(1,), (3,), (5,)]);
 
     Ok(())
 }

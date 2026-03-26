@@ -162,6 +162,46 @@ where
         panic!("Exhausted retries for query '{}'", self.as_ref());
     }
 
+    fn fetch_one_retry<T, F>(
+        self,
+        connection: &mut PgConnection,
+        retries: u32,
+        delay_ms: u64,
+        validate: F,
+    ) -> T
+    where
+        T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+        F: Fn(&T) -> bool,
+    {
+        for attempt in 0..retries {
+            match block_on(async {
+                sqlx::query_as::<_, T>(self.as_ref())
+                    .fetch_one(&mut *connection)
+                    .await
+                    .map_err(anyhow::Error::from)
+            }) {
+                Ok(result) => {
+                    if validate(&result) {
+                        return result;
+                    } else if attempt < retries - 1 {
+                        block_on(async_std::task::sleep(Duration::from_millis(delay_ms)));
+                    }
+                }
+                Err(_) if attempt < retries - 1 => {
+                    block_on(async_std::task::sleep(Duration::from_millis(delay_ms)));
+                }
+                Err(e) => panic!(
+                    "Fetch-one attempt {}/{} failed: {}",
+                    attempt + 1,
+                    retries,
+                    e
+                ),
+            }
+        }
+
+        panic!("Exhausted retries for single-row query '{}'", self.as_ref());
+    }
+
     fn fetch_dynamic(self, connection: &mut PgConnection) -> Vec<PgRow> {
         block_on(async {
             sqlx::query(self.as_ref())

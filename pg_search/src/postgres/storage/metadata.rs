@@ -23,11 +23,7 @@ use crate::postgres::storage::buffer::{
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{
-    function_name, iter::TableIterator, name, pg_extern, pg_sys, PgLogLevel, PgRelation,
-    PgSqlErrorCode,
-};
+use pgrx::{iter::TableIterator, name, pg_extern, pg_sys, PgRelation};
 
 /// The metadata stored on the [`Metadata`] page
 #[derive(Debug, Copy, Clone)]
@@ -115,16 +111,6 @@ impl MetaPage {
     }
 
     pub fn open(indexrel: &PgSearchRelation) -> Self {
-        if unsafe { pgrx::pg_sys::HotStandbyActive() } && unsafe { !pg_sys::XLogInsertAllowed() } {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-                "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",
-                function_name!(),
-            )
-            .set_detail("Please contact ParadeDB for access to ParadeDB Enterprise")
-            .report(PgLogLevel::ERROR);
-        }
-
         let mut bman = BufferManager::new(indexrel);
         let buffer = bman.get_buffer(METAPAGE);
         let page = buffer.page();

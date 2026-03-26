@@ -1,0 +1,116 @@
+---
+title: Physical Replication
+description: Run WAL-backed BM25 indexes on ParadeDB primaries and hot standbys
+canonical: https://docs.paradedb.com/deploy/self-hosted/physical-replication
+---
+
+Physical replication is the right deployment model when you are running
+ParadeDB itself as a Postgres cluster and want BM25 indexes to stay available
+on hot standbys.
+
+Unlike [logical replication](/deploy/logical-replication/getting-started),
+physical replication replays the primary's write-ahead log (WAL). This means
+BM25 index builds, drops, updates, deletes, and vacuum-driven maintenance are
+replayed on standbys in the same way as other Postgres indexes.
+
+## When to Use Physical Replication
+
+Use physical replication when:
+
+- You run ParadeDB on both the primary and the standby nodes
+- You want BM25 indexes to appear automatically on read replicas
+- You want failover to preserve BM25 indexes without rebuilding them
+
+If your system of record is a managed Postgres service such as RDS, Aurora,
+Cloud SQL, or AlloyDB, use [logical
+replication](/deploy/logical-replication/getting-started) instead. In that
+model, ParadeDB acts as a subscriber and builds BM25 indexes locally.
+
+## Requirements
+
+Every node in the physical replication cluster must:
+
+- Run the same PostgreSQL major version
+- Have the same `pg_search` extension version and binary installed
+- Load `pg_search` on every database that serves BM25 queries
+
+<Warning>
+  Physical replication replays on-disk storage changes. Mixing PostgreSQL major
+  versions, mixing `pg_search` versions, or promoting a standby that does not
+  have a compatible ParadeDB installation can leave BM25 indexes unreadable.
+</Warning>
+
+## How It Works
+
+ParadeDB's BM25 storage layer routes mutable page access through internal
+buffer and page wrappers. Those wrappers register BM25 page changes with
+PostgreSQL's generic WAL machinery before the modified pages are written.
+
+As a result:
+
+- `CREATE INDEX ... USING bm25` on the primary is replayed on standbys
+- Inserts, updates, and deletes that affect indexed rows are replayed on
+  standbys
+- Maintenance operations such as `VACUUM` replay the same page-level cleanup on
+  standbys
+- Standbys can execute BM25 queries after the relevant WAL has been replayed
+
+ParadeDB also maintains source-level guardrails so BM25 page mutations stay on
+the WAL-backed path instead of bypassing it with raw page writes.
+
+## Recommended PostgreSQL Settings
+
+ParadeDB physical replicas work best with the following settings:
+
+- `hot_standby_feedback=on`
+- A persistent replication slot configured through `primary_slot_name`
+
+`hot_standby_feedback` reduces standby query cancellations while the primary is
+reclaiming dead tuples and cleaning up index state. Replication slots make that
+feedback durable across reconnects and failovers.
+
+You should also size `max_wal_senders`, `max_replication_slots`, and WAL
+retention according to your replica count and recovery objectives.
+
+## Operational Constraints
+
+Physical replication keeps BM25 indexes available on standbys, but the usual
+Postgres replication tradeoffs still apply:
+
+- All BM25 writes still happen on the primary. Standbys remain read-only.
+- Asynchronous standbys can lag behind the primary and may temporarily return
+  stale search results.
+- If failover must preserve every acknowledged write, configure synchronous
+  replication at the Postgres layer.
+- A standby can only serve BM25 queries after it has replayed the relevant WAL
+  records.
+
+Physical replication also differs from logical replication in one important
+way: schema and BM25 index DDL are replicated automatically. Do not create the
+same BM25 index manually on the standby.
+
+## Verify Replication
+
+After creating a BM25 index on the primary, connect to a standby and verify
+that both the index definition and its query results are visible there.
+
+```sql
+SELECT to_regclass('public.search_idx');
+```
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY id;
+```
+
+If you insert, update, or delete matching rows on the primary, the standby
+results above should change once the standby has replayed the new WAL.
+
+## Next Steps
+
+- Follow the [high availability guide](/deploy/self-hosted/high-availability)
+  for a CNPG-based cluster deployment
+- Use [logical replication](/deploy/logical-replication/getting-started) when
+  ParadeDB is subscribing to another Postgres primary

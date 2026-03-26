@@ -186,7 +186,7 @@ mod block_tracker {
 }
 
 #[derive(Debug)]
-pub struct Buffer {
+pub(crate) struct Buffer {
     pub(super) pg_buffer: pg_sys::Buffer,
 }
 
@@ -213,13 +213,6 @@ impl Drop for Buffer {
     }
 }
 
-impl Deref for Buffer {
-    type Target = pg_sys::Buffer;
-    fn deref(&self) -> &Self::Target {
-        &self.pg_buffer
-    }
-}
-
 impl Buffer {
     fn new(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(
@@ -243,7 +236,7 @@ impl Buffer {
     /// SAFETY: Must only be used with Buffers representing immutable data, which will not be
     /// changed until all pins are dropped and/or a transaction horizon has passed (as enforced by
     /// the FSM, for example).
-    pub unsafe fn into_immutable_page(mut self) -> ImmutablePage {
+    pub(crate) unsafe fn into_immutable_page(mut self) -> ImmutablePage {
         // Unlock the buffer, but preserve our pin.
         pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as _);
         let pg_buffer =
@@ -262,6 +255,10 @@ impl Buffer {
         unsafe { pg_sys::BufferGetPageSize(self.pg_buffer) }
     }
 
+    pub(crate) fn as_pg_buffer(&self) -> pg_sys::Buffer {
+        self.pg_buffer
+    }
+
     pub fn upgrade(self, bman: &mut BufferManager) -> BufferMut {
         let blockno = self.number();
         drop(self);
@@ -270,10 +267,11 @@ impl Buffer {
             .rbufacc
             .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
         block_tracker::track!(Write, blockno);
-        BufferMut {
-            dirty: false,
-            inner: Buffer::new(pg_buffer),
-        }
+        BufferMut::new(
+            Buffer::new(pg_buffer),
+            bman.rbufacc.rel(),
+            BufferMut::wal_flags_standard(),
+        )
     }
 
     pub fn upgrade_conditional(self, bman: &mut BufferManager) -> Option<BufferMut> {
@@ -282,17 +280,32 @@ impl Buffer {
 
         let pg_buffer = bman.rbufacc.get_buffer_conditional(blockno)?;
         block_tracker::track!(Write, blockno);
-        Some(BufferMut {
-            dirty: false,
-            inner: Buffer::new(pg_buffer),
-        })
+        Some(BufferMut::new(
+            Buffer::new(pg_buffer),
+            bman.rbufacc.rel(),
+            BufferMut::wal_flags_standard(),
+        ))
     }
 }
 
 #[derive(Debug)]
-pub struct BufferMut {
+pub(crate) struct BufferMut {
     dirty: bool,
     inner: Buffer,
+    wal: BufferWalState,
+}
+
+#[derive(Debug)]
+enum BufferWalState {
+    Pending {
+        rel: PgSearchRelation,
+        flags: i32,
+    },
+    Registered {
+        state: *mut pg_sys::GenericXLogState,
+        page: pg_sys::Page,
+    },
+    Disabled,
 }
 
 impl Deref for BufferMut {
@@ -302,41 +315,135 @@ impl Deref for BufferMut {
     }
 }
 
-crate::impl_safe_drop!(BufferMut, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState() && self.dirty {
-            pg_sys::MarkBufferDirty(self.inner.pg_buffer);
+impl Drop for BufferMut {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
+
+        unsafe {
+            if !crate::postgres::utils::IsTransactionState() {
+                return;
+            }
+
+            match std::mem::replace(&mut self.wal, BufferWalState::Disabled) {
+                BufferWalState::Pending { .. } | BufferWalState::Disabled => {
+                    if self.dirty {
+                        pg_sys::MarkBufferDirty(self.inner.pg_buffer);
+                    }
+                }
+                BufferWalState::Registered { state, .. } => {
+                    if self.dirty {
+                        pg_sys::GenericXLogFinish(state);
+                    } else {
+                        pg_sys::GenericXLogAbort(state);
+                    }
+                }
+            }
         }
     }
-});
+}
 
 impl BufferMut {
-    pub fn init_page(&mut self) -> PageMut<'_> {
-        let page_size = self.page_size();
-        let page = self.page_mut();
-        page.buffer.dirty = true;
-        unsafe {
-            pg_sys::PageInit(page.pg_page, page_size, size_of::<BM25PageSpecialData>());
-
-            let special = pg_sys::PageGetSpecialPointer(page.pg_page) as *mut BM25PageSpecialData;
-            (*special).next_blockno = pg_sys::InvalidBlockNumber;
-            (*special).xmax = pg_sys::InvalidTransactionId;
+    fn new(inner: Buffer, rel: &PgSearchRelation, flags: i32) -> Self {
+        Self {
+            dirty: false,
+            inner,
+            wal: BufferWalState::Pending {
+                rel: rel.clone(),
+                flags,
+            },
         }
-        page
+    }
+
+    #[inline]
+    fn wal_flags_standard() -> i32 {
+        pg_sys::REGBUF_STANDARD as i32
+    }
+
+    #[inline]
+    fn wal_flags_will_init() -> i32 {
+        (pg_sys::REGBUF_STANDARD | pg_sys::REGBUF_WILL_INIT) as i32
+    }
+
+    fn current_page(&self) -> pg_sys::Page {
+        match &self.wal {
+            BufferWalState::Registered { page, .. } => *page,
+            BufferWalState::Pending { .. } | BufferWalState::Disabled => unsafe {
+                pg_sys::BufferGetPage(self.inner.pg_buffer)
+            },
+        }
+    }
+
+    fn ensure_registered(&mut self) -> pg_sys::Page {
+        match &self.wal {
+            BufferWalState::Registered { page, .. } => *page,
+            BufferWalState::Pending { .. } => {
+                let wal = std::mem::replace(&mut self.wal, BufferWalState::Disabled);
+                match wal {
+                    BufferWalState::Pending { rel, flags } => unsafe {
+                        let state = pg_sys::GenericXLogStart(rel.as_ptr());
+                        let page =
+                            pg_sys::GenericXLogRegisterBuffer(state, self.inner.pg_buffer, flags);
+                        self.wal = BufferWalState::Registered { state, page };
+                        page
+                    },
+                    BufferWalState::Registered { page, .. } => page,
+                    BufferWalState::Disabled => unsafe {
+                        pg_sys::BufferGetPage(self.inner.pg_buffer)
+                    },
+                }
+            }
+            BufferWalState::Disabled => unsafe { pg_sys::BufferGetPage(self.inner.pg_buffer) },
+        }
+    }
+
+    fn ensure_registered_with_flags(&mut self, extra_flags: i32) -> pg_sys::Page {
+        if let BufferWalState::Pending { flags, .. } = &mut self.wal {
+            *flags |= extra_flags;
+        }
+        self.ensure_registered()
     }
 
     #[allow(dead_code)]
-    pub fn page(&self) -> Page<'_> {
-        unsafe {
-            Page {
-                pg_page: pg_sys::BufferGetPage(self.inner.pg_buffer),
-                _buffer: Some(&self.inner),
+    fn abort_wal(&mut self) {
+        let wal = std::mem::replace(&mut self.wal, BufferWalState::Disabled);
+        if let BufferWalState::Registered { state, .. } = wal {
+            unsafe {
+                if crate::postgres::utils::IsTransactionState() {
+                    pg_sys::GenericXLogAbort(state);
+                }
             }
         }
     }
 
+    pub fn init_page(&mut self) -> PageMut<'_> {
+        let page_size = self.page_size();
+        let pg_page = self.ensure_registered_with_flags(Self::wal_flags_will_init());
+        self.dirty = true;
+        unsafe {
+            pg_sys::PageInit(pg_page, page_size, size_of::<BM25PageSpecialData>());
+
+            let special = pg_sys::PageGetSpecialPointer(pg_page) as *mut BM25PageSpecialData;
+            (*special).next_blockno = pg_sys::InvalidBlockNumber;
+            (*special).xmax = pg_sys::InvalidTransactionId;
+        }
+        PageMut {
+            buffer: self,
+            pg_page,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn page(&self) -> Page<'_> {
+        Page {
+            pg_page: self.current_page(),
+            _buffer: Some(&self.inner),
+        }
+    }
+
     pub fn page_mut(&mut self) -> PageMut<'_> {
-        let pg_page = unsafe { pg_sys::BufferGetPage(self.inner.pg_buffer) };
+        let pg_page = self.ensure_registered();
         PageMut {
             buffer: self,
             pg_page,
@@ -355,11 +462,13 @@ impl BufferMut {
         self.inner.page_size()
     }
 
+    #[allow(dead_code)]
     pub fn into_immutable_page(mut self) -> ImmutablePage {
         assert!(
             !self.dirty,
             "BufferMut::into_immutable_page called on a dirty page"
         );
+        self.abort_wal();
 
         let inner = std::mem::replace(
             &mut self.inner,
@@ -386,7 +495,7 @@ impl BufferMut {
 }
 
 #[derive(Debug)]
-pub struct PinnedBuffer {
+pub(crate) struct PinnedBuffer {
     pg_buffer: pg_sys::Buffer,
 }
 
@@ -408,20 +517,16 @@ impl Drop for PinnedBuffer {
 }
 
 impl PinnedBuffer {
-    pub fn new(pg_buffer: pg_sys::Buffer) -> Self {
+    fn new(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         Self { pg_buffer }
-    }
-
-    pub fn number(self) -> pg_sys::BlockNumber {
-        unsafe { pg_sys::BufferGetBlockNumber(self.pg_buffer) }
     }
 }
 
 /// Borrows a pinned Buffer owned by another struct (rather than acquiring one from the
 /// BufferManager), and locks it as BUFFER_LOCK_SHARE for the lifetime of the guard.
 #[derive(Debug)]
-pub struct BorrowedBuffer {
+pub(crate) struct BorrowedBuffer {
     pg_buffer: pg_sys::Buffer,
 }
 
@@ -429,7 +534,7 @@ impl BorrowedBuffer {
     /// # Safety
     /// The caller must ensure the underlying `pg_buffer` is valid and pinned for the lifetime of this struct.
     /// This will acquire a share lock on the buffer, and release it on Drop.
-    pub unsafe fn from_pg(pg_buffer: pg_sys::Buffer) -> Self {
+    pub(crate) unsafe fn from_pg(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
         Self { pg_buffer }
@@ -445,7 +550,7 @@ crate::impl_safe_drop!(BorrowedBuffer, |self| {
     }
 });
 
-pub struct Page<'a> {
+pub(crate) struct Page<'a> {
     pg_page: pg_sys::Page,
 
     // we never use this directly, but we hold onto it so that its Drop impl
@@ -517,7 +622,7 @@ impl<'a> Page<'a> {
     }
 }
 
-pub struct PageMut<'a> {
+pub(crate) struct PageMut<'a> {
     buffer: &'a mut BufferMut,
     pg_page: pg_sys::Page,
 }
@@ -729,7 +834,7 @@ impl PageHeaderMethods for pg_sys::PageHeaderData {
 }
 
 #[derive(Clone, Debug)]
-pub struct BufferManager {
+pub(crate) struct BufferManager {
     rbufacc: RelationBufferAccess,
     fsm_blockno: Option<pg_sys::BlockNumber>,
 }
@@ -774,10 +879,11 @@ impl BufferManager {
                 pg_buffer
             });
 
-        BufferMut {
-            dirty: false,
-            inner: Buffer { pg_buffer },
-        }
+        BufferMut::new(
+            Buffer { pg_buffer },
+            self.rbufacc.rel(),
+            BufferMut::wal_flags_will_init(),
+        )
     }
 
     /// Like [`new_buffer`], but returns an iterator of buffers instead.
@@ -800,10 +906,11 @@ impl BufferManager {
                 pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
                 None,
             );
-            BufferMut {
-                dirty: false,
-                inner: Buffer { pg_buffer },
-            }
+            BufferMut::new(
+                Buffer { pg_buffer },
+                buffer_access.rel(),
+                BufferMut::wal_flags_will_init(),
+            )
         });
 
         let bman = self.clone();
@@ -823,15 +930,13 @@ impl BufferManager {
             if new_buffers.is_none() {
                 // the fsm didn't give us all the buffers we asked for, so we need to get the rest
                 // by extending the relation with brand new buffers
+                let rel = bman.buffer_access().rel().clone();
                 new_buffers = Some(bman.buffer_access().new_buffers(remaining_from_fsm).map(
                     move |pg_buffer| {
                         block_tracker::track!(Write, unsafe {
                             pg_sys::BufferGetBlockNumber(pg_buffer)
                         });
-                        BufferMut {
-                            dirty: false,
-                            inner: Buffer { pg_buffer },
-                        }
+                        BufferMut::new(Buffer { pg_buffer }, &rel, BufferMut::wal_flags_will_init())
                     },
                 ));
             }
@@ -870,13 +975,14 @@ impl BufferManager {
 
     pub fn get_buffer_mut(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         block_tracker::track!(Write, blockno);
-        BufferMut {
-            dirty: false,
-            inner: Buffer::new(
+        BufferMut::new(
+            Buffer::new(
                 self.rbufacc
                     .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE)),
             ),
-        }
+            self.rbufacc.rel(),
+            BufferMut::wal_flags_standard(),
+        )
     }
 
     ///
@@ -898,10 +1004,11 @@ impl BufferManager {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBuffer(pg_buffer) {
                 block_tracker::track!(Conditional, blockno);
-                Some(BufferMut {
-                    dirty: false,
-                    inner: Buffer::new(pg_buffer),
-                })
+                Some(BufferMut::new(
+                    Buffer::new(pg_buffer),
+                    self.rbufacc.rel(),
+                    BufferMut::wal_flags_standard(),
+                ))
             } else {
                 pg_sys::ReleaseBuffer(pg_buffer);
                 None
@@ -914,10 +1021,11 @@ impl BufferManager {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             block_tracker::track!(Cleanup, blockno);
             pg_sys::LockBufferForCleanup(pg_buffer);
-            BufferMut {
-                dirty: false,
-                inner: Buffer::new(pg_buffer),
-            }
+            BufferMut::new(
+                Buffer::new(pg_buffer),
+                self.rbufacc.rel(),
+                BufferMut::wal_flags_standard(),
+            )
         }
     }
 
@@ -929,10 +1037,11 @@ impl BufferManager {
             let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBufferForCleanup(pg_buffer) {
                 block_tracker::track!(ConditionalCleanup, blockno);
-                Some(BufferMut {
-                    dirty: false,
-                    inner: Buffer::new(pg_buffer),
-                })
+                Some(BufferMut::new(
+                    Buffer::new(pg_buffer),
+                    self.rbufacc.rel(),
+                    BufferMut::wal_flags_standard(),
+                ))
             } else {
                 pg_sys::ReleaseBuffer(pg_buffer);
                 None
@@ -951,14 +1060,15 @@ impl BufferManager {
 
 /// Directly create a new buffer in the specified relation via extension, bypassing the Free Space Map,
 /// and initialize it as a new page.
-pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
+pub(crate) fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     let rbacc = RelationBufferAccess::open(rel);
     let pg_buffer = rbacc.new_buffer();
 
-    let mut buffer = BufferMut {
-        dirty: false,
-        inner: Buffer { pg_buffer },
-    };
+    let mut buffer = BufferMut::new(
+        Buffer { pg_buffer },
+        rbacc.rel(),
+        BufferMut::wal_flags_will_init(),
+    );
     let mut page = buffer.init_page();
     let special = page.special_mut::<BM25PageSpecialData>();
     special.next_blockno = pg_sys::InvalidBlockNumber;
@@ -967,7 +1077,7 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
 }
 
 #[derive(Debug)]
-pub struct ImmutablePage {
+pub(crate) struct ImmutablePage {
     pinned_buffer: PinnedBuffer,
 }
 

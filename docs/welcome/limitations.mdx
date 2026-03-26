@@ -29,3 +29,21 @@ A commonly known limitation of Postgres logical replication is that DDL (Data De
 
 If ParadeDB is running as a logical replica of a primary Postgres, DDL statements from the primary must be executed manually on the replica.
 We recommend version-controlling your schema changes and applying them in a coordinated, repeatable way — either through a migration tool or deployment automation — to keep source and target databases in sync. See the [logical replication guide](/deploy/logical-replication/getting-started) for more details.
+
+## Physical Replication Constraints
+
+BM25 indexes support Postgres physical replication, but the deployment still
+inherits Postgres' operational constraints:
+
+- Every primary and standby must run the same PostgreSQL major version and a
+  compatible `pg_search` build.
+- BM25 writes happen on the primary only. Standbys remain read-only and become
+  current only after replaying the relevant WAL.
+- Asynchronous standbys can lag. Use synchronous replication if your failover
+  policy requires every acknowledged write to be present on a standby before
+  commit.
+- `hot_standby_feedback=on` and persistent replication slots are strongly
+  recommended to reduce query cancellations during cleanup-heavy workloads.
+
+See the [physical replication guide](/deploy/self-hosted/physical-replication)
+for setup details.

@@ -20,7 +20,6 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils;
 use pgrx::pg_sys;
 use pgrx::PgList;
-use std::ops::Deref;
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
 ///
@@ -248,8 +247,8 @@ impl VisibilityChecker {
                 current_block = blockno;
             }
 
-            if let Some(visible_ctid) =
-                self.check_visibility_with_buffer(ctid, *current_buffer.as_ref().unwrap().deref())
+            if let Some(visible_ctid) = self
+                .check_visibility_with_buffer(ctid, current_buffer.as_ref().unwrap().as_pg_buffer())
             {
                 if visible_ctid != ctid {
                     ctid = visible_ctid;

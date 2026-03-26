@@ -198,7 +198,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         true
     }
 
-    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::FullTransactionId) -> Vec<T>
+    pub(crate) unsafe fn garbage_collect(
+        &mut self,
+        when_recyclable: pg_sys::FullTransactionId,
+    ) -> Vec<T>
     where
         T: MVCCEntry,
     {
@@ -239,7 +242,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
 
     /// Mutate the list in-place by optionally removing, replacing, or retaining each entry. Returns
     /// the list of removed entries.
-    pub unsafe fn retain(
+    pub(crate) unsafe fn retain(
         &mut self,
         when_recyclable: pg_sys::FullTransactionId,
         mut f: impl FnMut(&mut BufferManager, T) -> RetainItem<T>,
@@ -309,7 +312,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     }
 
     /// Visit each entry, without mutating entries or the list structure.
-    pub unsafe fn for_each(&mut self, mut f: impl FnMut(&mut BufferManager, T)) {
+    pub(crate) unsafe fn for_each(&mut self, mut f: impl FnMut(&mut BufferManager, T)) {
         let (mut blockno, mut buffer) = self.get_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
             buffer = self.bman().get_buffer_exchange(blockno, buffer);
@@ -327,7 +330,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     }
 
     /// Adds the given items to the list.
-    pub unsafe fn add_items(&mut self, items: &[T], buffer: Option<BufferMut>) {
+    pub(crate) unsafe fn add_items(&mut self, items: &[T], buffer: Option<BufferMut>) {
         let mut buffer = if let Some(buffer) = buffer {
             buffer
         } else {
@@ -566,7 +569,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     }
 }
 
-pub enum RetainItem<T> {
+pub(crate) enum RetainItem<T> {
     Remove(T),
     Retain,
 }

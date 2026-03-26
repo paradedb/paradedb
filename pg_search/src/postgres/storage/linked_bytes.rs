@@ -499,22 +499,21 @@ mod tests {
         let linked_list = writer.finalize_and_write().unwrap();
         let (mut blockno, _) = linked_list.get_start_blockno();
         linked_list.return_to_fsm();
+        let bman = BufferManager::new(&indexrel);
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = RelationBufferAccess::open(&indexrel)
-                .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
-            let page = pg_sys::BufferGetPage(buffer);
-            let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
+            let buffer = bman.get_buffer(blockno);
+            let page = buffer.page();
+            let special = page.special::<BM25PageSpecialData>();
 
-            // NB:  There was a time when the call to `linked_list.returm_to_fsm()` above would
+            // NB:  There was a time when the call to `linked_list.return_to_fsm()` above would
             // update every page in the list, setting the `xmax` in the special data to the transaction id
             // of the transaction that deleted it.
             //
             // Our custom FSM does not do this, and so now we assert that the xmax value is still invalid
             // it's actually no longer used anywhere.
-            assert!((*special).xmax == pg_sys::InvalidTransactionId);
-            blockno = (*special).next_blockno;
-            pg_sys::UnlockReleaseBuffer(buffer);
+            assert_eq!(special.xmax, pg_sys::InvalidTransactionId);
+            blockno = special.next_blockno;
         }
     }
 }

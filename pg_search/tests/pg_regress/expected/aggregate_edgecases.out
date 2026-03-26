@@ -337,4 +337,37 @@ WHERE description ||| 'running shoes';
  {"value": 4.0}
 (1 row)
 
+-- Re-insert the deleted row so counts are predictable for remaining tests
+INSERT INTO triple_pipe_agg_test (id, description, category) VALUES
+    (1, 'running shoes for men', 'footwear');
+-- Test 6: &&& operator with solve_mvcc=false (conjunction/AND match)
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description &&& 'running shoes';
+      agg       
+----------------
+ {"value": 3.0}
+(1 row)
+
+-- Test 7: ### operator with solve_mvcc=false (phrase match)
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description ### 'running shoes';
+      agg       
+----------------
+ {"value": 3.0}
+(1 row)
+
+-- Test 8: === operator with solve_mvcc=false (exact term match)
+-- === matches individual tokens, so 'running' matches tokenized terms
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description === 'running';
+      agg       
+----------------
+ {"value": 5.0}
+(1 row)
+
+-- Note: ## and ##> (proximity operators) require ProximityClause objects,
+-- not plain text, so they cannot be tested with this simple pattern.
 DROP TABLE triple_pipe_agg_test;

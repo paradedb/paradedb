@@ -211,5 +211,32 @@ SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
 FROM triple_pipe_agg_test
 WHERE description ||| 'running shoes';
 
+-- Re-insert the deleted row so counts are predictable for remaining tests
+INSERT INTO triple_pipe_agg_test (id, description, category) VALUES
+    (1, 'running shoes for men', 'footwear');
+
+-- Note: the earlier DELETE of id=1 left a ghost row in the Tantivy index.
+-- The re-insert adds a new row, so with solve_mvcc=false the index now
+-- contains 6 documents (5 original including the ghost + 1 re-inserted).
+-- This is expected: solve_mvcc=false skips visibility checks.
+-- Test 6: &&& operator with solve_mvcc=false (conjunction/AND match)
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description &&& 'running shoes';
+
+-- Test 7: ### operator with solve_mvcc=false (phrase match)
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description ### 'running shoes';
+
+-- Test 8: === operator with solve_mvcc=false (exact term match)
+-- === matches individual tokens, so 'running' matches tokenized terms
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description === 'running';
+
+-- Note: ## and ##> (proximity operators) require ProximityClause objects,
+-- not plain text, so they cannot be tested with this simple pattern.
+
 DROP TABLE triple_pipe_agg_test;
 

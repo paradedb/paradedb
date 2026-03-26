@@ -1,0 +1,552 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+// These functions are not yet called — they will be used by the planner
+// integration in #4485. Suppress dead_code until then.
+#![allow(dead_code)]
+
+//! Join tree extraction from the Postgres parse tree for AggregateScan.
+//!
+//! At the `UPPERREL_GROUP_AGG` stage the planner hook receives an `input_rel`
+//! that is a `RELOPT_JOINREL`, but the join structure (equi-keys, join type) is
+//! not directly available as it was in the `join_pathlist` hook. Instead we walk
+//! the parse tree (`root->parse->jointree`) which carries the original `FromExpr` /
+//! `JoinExpr` nodes, and reconstruct a [`RelNode`] tree that downstream code can
+//! lower into a DataFusion plan.
+
+use crate::nodecast;
+use crate::postgres::customscan::joinscan::build::{
+    JoinKeyPair, JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
+    PlannerRootId, RelNode,
+};
+use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid, get_rte};
+use crate::postgres::deparse::deparse_expr;
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::rel_get_bm25_index;
+use crate::query::SearchQueryInput;
+use pgrx::{pg_sys, PgList};
+
+/// Metadata about a table participating in the join, collected during parse-tree walk.
+#[derive(Debug)]
+pub struct JoinAggSource {
+    pub rti: pg_sys::Index,
+    pub relid: pg_sys::Oid,
+    pub alias: Option<String>,
+    pub bm25_index: Option<PgSearchRelation>,
+}
+
+/// Collected search predicates from WHERE clause walking.
+pub struct CollectedPredicates {
+    pub predicates: Vec<JoinLevelSearchPredicate>,
+    pub has_any_search_predicate: bool,
+}
+
+/// Extract all tables participating in the join from `input_rel.relids` and look up
+/// their RTE / BM25 index information.
+pub unsafe fn collect_join_agg_sources(
+    root: *mut pg_sys::PlannerInfo,
+    input_rel: &pg_sys::RelOptInfo,
+) -> Vec<JoinAggSource> {
+    let mut sources = Vec::new();
+    let rtis: Vec<pg_sys::Index> = bms_iter(input_rel.relids).collect();
+
+    for rti in rtis {
+        let rte = get_rte(
+            (*root).simple_rel_array_size as usize,
+            (*root).simple_rte_array,
+            rti,
+        );
+        let Some(rte) = rte else { continue };
+
+        let Some(relid) = get_plain_relation_relid(rte) else {
+            continue;
+        };
+
+        let alias = if !(*rte).eref.is_null() && !(*(*rte).eref).aliasname.is_null() {
+            std::ffi::CStr::from_ptr((*(*rte).eref).aliasname)
+                .to_str()
+                .ok()
+                .map(|s| s.to_string())
+        } else {
+            None
+        };
+
+        let bm25_index = rel_get_bm25_index(relid).map(|(_, idx)| idx);
+
+        sources.push(JoinAggSource {
+            rti,
+            relid,
+            alias,
+            bm25_index,
+        });
+    }
+
+    sources
+}
+
+/// Build a [`RelNode`] tree by walking the Postgres parse tree's `jointree`.
+///
+/// This is the aggregate-scan equivalent of JoinScan's `collect_join_sources()`,
+/// but works from the parse tree instead of the planner's `RelOptInfo` paths.
+pub unsafe fn extract_join_tree_from_parse(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[JoinAggSource],
+) -> Result<RelNode, String> {
+    let parse = (*root).parse;
+    if parse.is_null() {
+        return Err("parse tree is null".into());
+    }
+
+    let jointree = (*parse).jointree;
+    if jointree.is_null() {
+        return Err("jointree is null".into());
+    }
+
+    build_relnode_from_fromexpr(root, jointree, sources)
+}
+
+/// Walk a `FromExpr` and produce a `RelNode` tree.
+///
+/// A `FromExpr` contains a `fromlist` (list of tables/joins) and `quals` (WHERE).
+/// The WHERE quals are extracted separately — here we only build the join structure.
+unsafe fn build_relnode_from_fromexpr(
+    root: *mut pg_sys::PlannerInfo,
+    from: *mut pg_sys::FromExpr,
+    sources: &[JoinAggSource],
+) -> Result<RelNode, String> {
+    let from_list = PgList::<pg_sys::Node>::from_pg((*from).fromlist);
+
+    if from_list.is_empty() {
+        return Err("empty FROM list".into());
+    }
+
+    // Build RelNode for first item
+    let first_node = from_list
+        .get_ptr(0)
+        .ok_or_else(|| "failed to get first FROM item".to_string())?;
+    let mut result = build_relnode_from_node(root, first_node, sources)?;
+
+    // Additional items are implicit cross/inner joins
+    for i in 1..from_list.len() {
+        let node = from_list
+            .get_ptr(i)
+            .ok_or_else(|| format!("failed to get FROM item at index {}", i))?;
+        let right = build_relnode_from_node(root, node, sources)?;
+
+        // Implicit join — equi-keys will come from WHERE clause quals
+        result = RelNode::Join(Box::new(JoinNode {
+            join_type: JoinType::Inner,
+            left: result,
+            right,
+            equi_keys: Vec::new(),
+            filter: None,
+        }));
+    }
+
+    // Extract equi-join keys from WHERE quals and attach to join nodes
+    if !(*from).quals.is_null() {
+        extract_equi_keys_from_quals(root, (*from).quals, sources, &mut result)?;
+    }
+
+    Ok(result)
+}
+
+/// Dispatch on a parse-tree node to build the appropriate `RelNode`.
+unsafe fn build_relnode_from_node(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+    sources: &[JoinAggSource],
+) -> Result<RelNode, String> {
+    if node.is_null() {
+        return Err("null node in FROM clause".into());
+    }
+
+    let tag = (*node).type_;
+
+    if tag == pg_sys::NodeTag::T_RangeTblRef {
+        let rtref = node as *mut pg_sys::RangeTblRef;
+        let rti = (*rtref).rtindex as pg_sys::Index;
+        build_scan_node(root, rti, sources)
+    } else if tag == pg_sys::NodeTag::T_JoinExpr {
+        let join_expr = node as *mut pg_sys::JoinExpr;
+        build_join_node(root, join_expr, sources)
+    } else {
+        Err(format!("unexpected node type {:?} in join tree", tag))
+    }
+}
+
+/// Build a `RelNode::Scan` for a single base relation.
+unsafe fn build_scan_node(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    sources: &[JoinAggSource],
+) -> Result<RelNode, String> {
+    let source = sources
+        .iter()
+        .find(|s| s.rti == rti)
+        .ok_or_else(|| format!("RTI {} not found in join sources", rti))?;
+
+    let bm25_index = source.bm25_index.as_ref().ok_or_else(|| {
+        format!(
+            "table at RTI {} ({}) has no BM25 index",
+            rti,
+            source.alias.as_deref().unwrap_or("unknown")
+        )
+    })?;
+
+    let sort_order = if crate::gucs::is_columnar_sort_enabled() {
+        bm25_index.options().sort_by().into_iter().next()
+    } else {
+        None
+    };
+
+    // Build a JoinSourceCandidate progressively
+    let mut candidate = JoinSourceCandidate::new(PlannerRootId::from(root), rti)
+        .with_heaprelid(source.relid)
+        .with_indexrelid(bm25_index.oid())
+        .with_sort_order(sort_order);
+
+    if let Some(ref alias) = source.alias {
+        candidate = candidate.with_alias(alias.clone());
+    }
+
+    // Extract search predicates from baserestrictinfo if the planner has them
+    let rel_array = (*root).simple_rel_array;
+    if !rel_array.is_null() && (rti as isize) < (*root).simple_rel_array_size as isize {
+        let rel = *rel_array.offset(rti as isize);
+        if !rel.is_null() {
+            let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+
+            if !baserestrictinfo.is_empty() {
+                let context = PlannerContext::from_planner(root);
+                for ri in baserestrictinfo.iter_ptr() {
+                    let mut state = QualExtractState::default();
+                    if let Some(qual) = extract_quals(
+                        &context,
+                        rti,
+                        ri.cast(),
+                        crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
+                        bm25_index,
+                        false,
+                        &mut state,
+                        true,
+                    ) {
+                        let query = SearchQueryInput::from(&qual);
+                        let current_query = candidate.query.take();
+                        let new_query = match current_query {
+                            Some(existing) => SearchQueryInput::Boolean {
+                                must: vec![existing, query],
+                                should: vec![],
+                                must_not: vec![],
+                            },
+                            None => query,
+                        };
+                        candidate = candidate.with_query(new_query);
+                        if state.uses_our_operator {
+                            candidate = candidate.with_search_predicate();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    candidate.estimate_rows();
+
+    let join_source = JoinSource::try_from(candidate).map_err(|e| e.to_string())?;
+    Ok(RelNode::Scan(Box::new(join_source)))
+}
+
+/// Build a `RelNode::Join` from a `JoinExpr` parse node.
+unsafe fn build_join_node(
+    root: *mut pg_sys::PlannerInfo,
+    join_expr: *mut pg_sys::JoinExpr,
+    sources: &[JoinAggSource],
+) -> Result<RelNode, String> {
+    let join = &*join_expr;
+
+    let join_type = JoinType::try_from(join.jointype).map_err(|e| e.to_string())?;
+
+    // M1: Only support INNER JOIN
+    if join_type != JoinType::Inner {
+        return Err(format!(
+            "aggregate-on-join only supports INNER JOIN, got {}",
+            join_type
+        ));
+    }
+
+    let left = build_relnode_from_node(root, join.larg, sources)?;
+    let right = build_relnode_from_node(root, join.rarg, sources)?;
+
+    // Extract equi-join keys from ON clause (join.quals)
+    let equi_keys = if !join.quals.is_null() {
+        extract_equi_keys_from_expr(root, join.quals, sources)?
+    } else {
+        Vec::new()
+    };
+
+    Ok(RelNode::Join(Box::new(JoinNode {
+        join_type,
+        left,
+        right,
+        equi_keys,
+        filter: None,
+    })))
+}
+
+/// Extract equi-join keys from an expression tree (ON clause or WHERE clause).
+///
+/// Looks for `OpExpr` nodes where the operator is `=` and the arguments are `Var`
+/// nodes referencing different tables that have BM25 indexes.
+unsafe fn extract_equi_keys_from_expr(
+    _root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+    sources: &[JoinAggSource],
+) -> Result<Vec<JoinKeyPair>, String> {
+    let mut keys = Vec::new();
+
+    if node.is_null() {
+        return Ok(keys);
+    }
+
+    let tag = (*node).type_;
+
+    if tag == pg_sys::NodeTag::T_OpExpr {
+        if let Some(key) = try_extract_one_equi_key(node as *mut pg_sys::OpExpr, sources) {
+            keys.push(key);
+        }
+    } else if tag == pg_sys::NodeTag::T_BoolExpr {
+        let bool_expr = node as *mut pg_sys::BoolExpr;
+        // Only recurse into AND expressions — OR'd equi-keys aren't usable
+        if (*bool_expr).boolop == pg_sys::BoolExprType::AND_EXPR {
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+            for arg in args.iter_ptr() {
+                keys.extend(extract_equi_keys_from_expr(_root, arg, sources)?);
+            }
+        }
+    }
+
+    Ok(keys)
+}
+
+/// Try to extract a single equi-join key from an `OpExpr`.
+///
+/// Returns `Some(JoinKeyPair)` if the expression is `var1 = var2` where
+/// `var1` and `var2` reference different tables.
+unsafe fn try_extract_one_equi_key(
+    op: *mut pg_sys::OpExpr,
+    sources: &[JoinAggSource],
+) -> Option<JoinKeyPair> {
+    let opno = (*op).opno;
+
+    // Check if operator is an equality operator
+    // Check if operator is merge-joinable (i.e., an equality operator).
+    // Pass InvalidOid to check any input type.
+    if !pg_sys::op_mergejoinable(opno, pg_sys::Oid::INVALID) {
+        return None;
+    }
+
+    let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+    if args.len() != 2 {
+        return None;
+    }
+
+    let left_node = args.get_ptr(0)?;
+    let right_node = args.get_ptr(1)?;
+
+    // Both sides must be Var nodes
+    let left_var = nodecast!(Var, T_Var, left_node)?;
+    let right_var = nodecast!(Var, T_Var, right_node)?;
+
+    let left_rti = (*left_var).varno as pg_sys::Index;
+    let right_rti = (*right_var).varno as pg_sys::Index;
+
+    // Must reference different tables
+    if left_rti == right_rti {
+        return None;
+    }
+
+    // Both tables must be in our sources
+    let _left_source = sources.iter().find(|s| s.rti == left_rti)?;
+    let _right_source = sources.iter().find(|s| s.rti == right_rti)?;
+
+    let left_attno = (*left_var).varattno;
+    let right_attno = (*right_var).varattno;
+
+    // Get type info
+    let mut typlen: i16 = 0;
+    let mut typbyval: bool = false;
+    pg_sys::get_typlenbyval(
+        (*left_var).vartype,
+        &mut typlen as *mut _,
+        &mut typbyval as *mut _,
+    );
+
+    Some(JoinKeyPair {
+        outer_rti: left_rti,
+        outer_attno: left_attno,
+        inner_rti: right_rti,
+        inner_attno: right_attno,
+        type_oid: (*left_var).vartype,
+        typlen,
+        typbyval,
+    })
+}
+
+/// Walk the WHERE clause quals and attach equi-join keys to the appropriate join nodes.
+///
+/// For implicit joins (comma-separated FROM), the equi-keys live in the WHERE clause
+/// rather than in an ON clause. This function extracts them and pushes them into the
+/// `equi_keys` of the topmost `JoinNode`.
+unsafe fn extract_equi_keys_from_quals(
+    root: *mut pg_sys::PlannerInfo,
+    quals: *mut pg_sys::Node,
+    sources: &[JoinAggSource],
+    plan: &mut RelNode,
+) -> Result<(), String> {
+    let keys = extract_equi_keys_from_expr(root, quals, sources)?;
+    if keys.is_empty() {
+        return Ok(());
+    }
+
+    // Push equi-keys into the topmost join node
+    match plan {
+        RelNode::Join(ref mut join_node) => {
+            join_node.equi_keys.extend(keys);
+        }
+        _ => {
+            // Single scan — keys from WHERE don't apply to a non-join
+        }
+    }
+
+    Ok(())
+}
+
+/// Extract search predicates (`@@@` operator) from the WHERE clause for each
+/// table that has a BM25 index. Returns a list of predicates that can be
+/// stored in `JoinCSClause.join_level_predicates`.
+pub unsafe fn extract_search_predicates(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[JoinAggSource],
+) -> CollectedPredicates {
+    let mut predicates = Vec::new();
+    let mut has_any = false;
+
+    for source in sources {
+        let Some(ref bm25_index) = source.bm25_index else {
+            continue;
+        };
+
+        // Check baserestrictinfo for search predicates
+        let rel_array = (*root).simple_rel_array;
+        if rel_array.is_null() {
+            continue;
+        }
+        if (source.rti as isize) >= (*root).simple_rel_array_size as isize {
+            continue;
+        }
+
+        let rel = *rel_array.offset(source.rti as isize);
+        if rel.is_null() {
+            continue;
+        }
+
+        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        if baserestrictinfo.is_empty() {
+            continue;
+        }
+
+        let context = PlannerContext::from_planner(root);
+        let mut merged_query: Option<SearchQueryInput> = None;
+        let mut source_has_search = false;
+
+        for ri in baserestrictinfo.iter_ptr() {
+            let mut state = QualExtractState::default();
+            if let Some(qual) = extract_quals(
+                &context,
+                source.rti,
+                ri.cast(),
+                crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
+                bm25_index,
+                false,
+                &mut state,
+                true,
+            ) {
+                if state.uses_our_operator {
+                    source_has_search = true;
+                    has_any = true;
+                }
+
+                let query = SearchQueryInput::from(&qual);
+                merged_query = Some(match merged_query.take() {
+                    Some(existing) => SearchQueryInput::Boolean {
+                        must: vec![existing, query],
+                        should: vec![],
+                        must_not: vec![],
+                    },
+                    None => query,
+                });
+            }
+        }
+
+        if let Some(query) = merged_query {
+            // Deparse the first qualifying RestrictInfo for EXPLAIN display
+            let display_string = baserestrictinfo
+                .iter_ptr()
+                .next()
+                .map(|ri| {
+                    let expr = (*ri).clause as *mut pg_sys::Node;
+                    if !expr.is_null() {
+                        let context = PlannerContext::from_planner(root);
+                        let heaprel = PgSearchRelation::open(source.relid);
+                        deparse_expr(Some(&context), &heaprel, expr)
+                    } else {
+                        String::new()
+                    }
+                })
+                .unwrap_or_default();
+
+            predicates.push(JoinLevelSearchPredicate {
+                rti: source.rti,
+                indexrelid: bm25_index.oid(),
+                heaprelid: source.relid,
+                query,
+                display_string,
+            });
+        }
+
+        // We still track predicates even if not @@@ — they're relevant for the scan
+        let _ = source_has_search;
+    }
+
+    CollectedPredicates {
+        predicates,
+        has_any_search_predicate: has_any,
+    }
+}
+
+/// Validate that at least one table in the join has a BM25 index.
+pub fn has_any_bm25_index(sources: &[JoinAggSource]) -> bool {
+    sources.iter().any(|s| s.bm25_index.is_some())
+}
+
+/// Validate that all tables in the join have a BM25 index.
+/// Required because DataFusion needs to scan all tables via `PgSearchTableProvider`.
+pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
+    sources.iter().all(|s| s.bm25_index.is_some())
+}

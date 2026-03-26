@@ -13,6 +13,8 @@ on:
       - 0.*.x # Release branches
     paths:
       - ".github/workflows/test-docs.yml"
+      - ".github/scripts/extract_code_snippets.py"
+      - ".github/scripts/verify_sql_snippets.sh"
       - "docs/**"
   workflow_dispatch:
 
@@ -105,3 +107,6 @@ jobs:
           fi
 
           echo "🎉 All SEO checks passed!"
+
+      - name: Smoke Test Code Snippets
+        run: ./.github/scripts/smoke_test_code_snippets.sh

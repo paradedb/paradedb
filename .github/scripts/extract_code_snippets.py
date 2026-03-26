@@ -13,7 +13,7 @@ IGNORED_CODEGROUPS = {
     "documentation__tokenizers__available-tokenizers__lindera__group-001",
     # Once https://github.com/paradedb/paradedb/issues/4456 is fixed,
     # we should unignore this snippet.
-    "verify/rails/documentation__aggregates__overview__group-003",
+    "documentation__aggregates__overview__group-003",
 }
 
 
@@ -52,9 +52,10 @@ def codegroup_name(path: Path, group_index: int) -> str:
 def parse_args() -> tuple[Path, Path]:
     """Resolve the docs root and output directory from CLI arguments."""
     script_dir = Path(__file__).resolve().parent
-    docs_root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else script_dir.parent
+    repo_root = script_dir.parent.parent
+    docs_root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else repo_root / "docs"
     output_root = (
-        Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else docs_root / "verify"
+        Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else script_dir / "verify"
     )
     return docs_root, output_root
 

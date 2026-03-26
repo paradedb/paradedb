@@ -56,5 +56,5 @@ result*
 CLAUDE.md
 CLAUDE.local.md
 
-docs/verify
+.github/scripts/verify
 __pycache__

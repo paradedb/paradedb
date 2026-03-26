@@ -3,8 +3,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOCS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUTPUT_DIR="${1:-$DOCS_ROOT/verify}"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+DOCS_ROOT="${REPO_ROOT}/docs"
+HARNESS_DIR="${DOCS_ROOT}/scripts"
+OUTPUT_DIR="${1:-$SCRIPT_DIR/verify}"
 SQL_DIR="$OUTPUT_DIR/sql"
 DJANGO_DIR="$OUTPUT_DIR/django"
 RAILS_DIR="$OUTPUT_DIR/rails"
@@ -127,7 +129,7 @@ sql_pass_count=0
 sql_fail_count=0
 
 while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
+  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   if psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -X -f "$snippet_file" >/dev/null; then
     echo "[SUCCESS] $rel_snippet" >&2
@@ -142,11 +144,11 @@ django_pass_count=0
 django_fail_count=0
 
 while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
+  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   if SNIPPET_FILE="$snippet_file" \
       SNIPPET_NAME="$rel_snippet" \
-      PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+      PYTHONPATH="$HARNESS_DIR${PYTHONPATH:+:$PYTHONPATH}" \
       "$DJANGO_PYTHON_BIN" - >/dev/null <<'PY'
 from pathlib import Path
 import os
@@ -171,7 +173,7 @@ rails_pass_count=0
 rails_fail_count=0
 
 while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
+  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   if {
     cat <<RUBY
@@ -186,7 +188,7 @@ end
 
 RailsSnippetHarness.execute!(snippet_result)
 RUBY
-  } | RUBYLIB="$SCRIPT_DIR${RUBYLIB:+:$RUBYLIB}" \
+  } | RUBYLIB="$HARNESS_DIR${RUBYLIB:+:$RUBYLIB}" \
       GEM_HOME="$RUBY_GEM_HOME" \
       GEM_PATH="$RUBY_GEM_HOME" \
       ruby - >/dev/null; then
@@ -202,7 +204,7 @@ sqlalchemy_pass_count=0
 sqlalchemy_fail_count=0
 
 while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
+  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   if {
     cat <<PY
@@ -211,7 +213,7 @@ from sqlalchemy_snippet_harness import MockItem, Order, engine
 # Source: $rel_snippet
 PY
     cat "$snippet_file"
-  } | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$SQLALCHEMY_PYTHON_BIN" - >/dev/null; then
+  } | PYTHONPATH="$HARNESS_DIR${PYTHONPATH:+:$PYTHONPATH}" "$SQLALCHEMY_PYTHON_BIN" - >/dev/null; then
     echo "[SUCCESS] $rel_snippet" >&2
     sqlalchemy_pass_count=$((sqlalchemy_pass_count + 1))
   else

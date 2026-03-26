@@ -480,10 +480,12 @@ fn generate_test_data(url: &str, dataset: &str, rows: u32) {
 
     let status = if Path::new(&load_script).exists() {
         // Datasets with a load.sh script handle their own data loading (e.g. downloading
-        // from S3 and COPYing CSVs). The script receives the database URL as its argument.
+        // from GCS and COPYing Parquet files). The script receives the database URL and
+        // max row count as arguments.
         Command::new("bash")
             .arg(&load_script)
             .arg(url)
+            .arg(rows.to_string())
             .status()
             .expect("Failed to run load script")
     } else {

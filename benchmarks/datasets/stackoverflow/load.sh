@@ -16,16 +16,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-# load.sh — Download StackOverflow CSVs from S3 and COPY them into PostgreSQL.
+# load.sh — Download StackOverflow Parquet data from GCS and load into PostgreSQL.
 #
-# Usage: bash load.sh <postgres_url>
+# Usage: bash load.sh <postgres_url> <max_rows_per_table>
 
 set -euo pipefail
 
-URL="${1:?Usage: load.sh <postgres_url>}"
+URL="${1:?Usage: load.sh <postgres_url> <max_rows_per_table>}"
+MAX_ROWS="${2:?Usage: load.sh <postgres_url> <max_rows_per_table>}"
 
-S3_PREFIX="s3://paradedb-benchmarks/datasets/stackoverflow/03-09-2026"
+GCS_BUCKET="gs://paradedb-benchmarks/stackoverflow"
 DATA_DIR="/tmp/stackoverflow_data"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 TABLES=(
   badges
@@ -46,45 +48,38 @@ TABLES=(
   votes
 )
 
-echo "==> Downloading StackOverflow CSVs from S3..."
+echo "==> Installing pyarrow..."
+pip install --quiet pyarrow
+
+echo "==> Downloading Parquet files from GCS..."
 mkdir -p "$DATA_DIR"
 for table in "${TABLES[@]}"; do
-  file="${DATA_DIR}/${table}.csv"
-  if [ ! -f "$file" ]; then
-    echo "    Downloading ${table}.csv ..."
-    aws s3 cp "${S3_PREFIX}/${table}.csv" "$file"
+  table_dir="${DATA_DIR}/${table}"
+  if [ -d "$table_dir" ] && ls "$table_dir"/*.parquet &>/dev/null; then
+    echo "    ${table}/ already exists, skipping download."
   else
-    echo "    ${table}.csv already exists, skipping download."
+    echo "    Downloading ${table}/ ..."
+    mkdir -p "$table_dir"
+    gsutil -m cp "${GCS_BUCKET}/${table}/*.parquet" "$table_dir/"
   fi
 done
 
-echo "==> Creating tables from CSV headers..."
+echo "==> Creating tables and loading data (max ${MAX_ROWS} rows per table)..."
 for table in "${TABLES[@]}"; do
-  file="${DATA_DIR}/${table}.csv"
-  # Read the CSV header and create columns — all as TEXT to avoid type mismatches.
-  header=$(head -n 1 "$file")
-  columns=""
-  IFS=',' read -ra cols <<<"$header"
-  for col in "${cols[@]}"; do
-    col=$(echo "$col" | tr -d '\r' | xargs)
-    if [ -n "$columns" ]; then
-      columns="${columns}, "
-    fi
-    columns="${columns}${col} TEXT"
-  done
-  echo "    Creating table ${table} ..."
-  psql "$URL" -c "DROP TABLE IF EXISTS ${table} CASCADE;"
-  psql "$URL" -c "CREATE TABLE ${table} (${columns});"
-done
+  table_dir="${DATA_DIR}/${table}"
+  echo "    Processing ${table} ..."
 
-echo "==> Loading CSV data into PostgreSQL..."
-for table in "${TABLES[@]}"; do
-  file="${DATA_DIR}/${table}.csv"
-  # Read column names from CSV header for explicit column list in COPY.
-  header=$(head -n 1 "$file")
-  col_list=$(echo "$header" | tr -d '\r')
-  echo "    Loading ${table} ..."
-  psql "$URL" -c "\\COPY ${table}(${col_list}) FROM '${file}' WITH (FORMAT csv, HEADER true)"
+  # Generate CREATE TABLE SQL and combined CSV from Parquet files.
+  python3 "${SCRIPT_DIR}/load_parquet.py" "$table_dir" "$table" "$MAX_ROWS"
+
+  # Create the table.
+  psql "$URL" -f "${table_dir}/create.sql"
+
+  # Load the combined CSV.
+  psql "$URL" -c "\\COPY ${table} FROM '${table_dir}/combined.csv' WITH (FORMAT csv, HEADER true)"
+
+  # Free disk space.
+  rm -f "${table_dir}/combined.csv"
 done
 
 echo "==> Running VACUUM ANALYZE on all tables..."

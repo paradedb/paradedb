@@ -11,6 +11,9 @@ CODEGROUP_PATTERN = re.compile(r"<CodeGroup[ >].*?</CodeGroup>", re.S)
 FENCE_PATTERN = re.compile(r"^```([^\n]*)\n(.*?)^```[ \t]*$", re.M | re.S)
 IGNORED_CODEGROUPS = {
     "documentation__tokenizers__available-tokenizers__lindera__group-001",
+    # Once https://github.com/paradedb/paradedb/issues/4456 is fixed,
+    # we should unignore this snippet.
+    "verify/rails/documentation__aggregates__overview__group-003",
 }
 
 
@@ -76,7 +79,7 @@ def write_snippets(
     counts: dict[str, int],
 ) -> None:
     """Write extracted snippets to their target verification directories."""
-    suffixes = {"sql": "sql", "rails": "rb", "sqlalchemy": "py"}
+    suffixes = {"sql": "sql", "django": "py", "rails": "rb", "sqlalchemy": "py"}
 
     for target, suffix in suffixes.items():
         if target not in snippets:
@@ -86,17 +89,23 @@ def write_snippets(
         counts[target] += 1
 
 
+def build_output_dirs(output_root: Path) -> dict[str, Path]:
+    """Create and reset output directories for each supported target."""
+    output_dirs = {
+        "sql": output_root / "sql",
+        "django": output_root / "django",
+        "rails": output_root / "rails",
+        "sqlalchemy": output_root / "sqlalchemy",
+    }
+    for path in output_dirs.values():
+        reset_dir(path)
+    return output_dirs
+
+
 def main() -> int:
     """Extract all supported verification snippets from the docs tree."""
     docs_root, output_root = parse_args()
-    sql_dir = output_root / "sql"
-    rails_dir = output_root / "rails"
-    sqlalchemy_dir = output_root / "sqlalchemy"
-    output_dirs = {"sql": sql_dir, "rails": rails_dir, "sqlalchemy": sqlalchemy_dir}
-
-    reset_dir(sql_dir)
-    reset_dir(rails_dir)
-    reset_dir(sqlalchemy_dir)
+    output_dirs = build_output_dirs(output_root)
 
     docs = sorted(
         path for path in docs_root.rglob("*.mdx") if "legacy" not in path.parts
@@ -105,7 +114,7 @@ def main() -> int:
         print(f"No .mdx files found under {docs_root}", file=sys.stderr)
         return 1
 
-    counts = {"sql": 0, "rails": 0, "sqlalchemy": 0}
+    counts = {"sql": 0, "django": 0, "rails": 0, "sqlalchemy": 0}
 
     for doc in docs:
         rel_path = doc.relative_to(docs_root)
@@ -121,9 +130,13 @@ def main() -> int:
             snippets = extract_snippets(codegroup)
             write_snippets(group_name, snippets, output_dirs, counts)
 
-    print(f"Wrote {counts['sql']} SQL snippets to {sql_dir}")
-    print(f"Wrote {counts['rails']} Rails snippets to {rails_dir}")
-    print(f"Wrote {counts['sqlalchemy']} SQLAlchemy snippets to {sqlalchemy_dir}")
+    print(f"Wrote {counts['sql']} SQL snippets to {output_dirs['sql']}")
+    print(f"Wrote {counts['django']} Django snippets to {output_dirs['django']}")
+    print(f"Wrote {counts['rails']} Rails snippets to {output_dirs['rails']}")
+    print(
+        f"Wrote {counts['sqlalchemy']} SQLAlchemy snippets "
+        f"to {output_dirs['sqlalchemy']}"
+    )
     return 0
 
 

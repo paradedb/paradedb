@@ -169,18 +169,12 @@ while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   if {
+    cat "${SCRIPT_DIR}/rails_snippet_harness.rb"
     cat <<RUBY
-require "rails_snippet_harness"
 
-snippet_result = begin
 # Source: $rel_snippet
 RUBY
     cat "$snippet_file"
-    cat <<'RUBY'
-end
-
-RailsSnippetHarness.execute!(snippet_result)
-RUBY
   } | RUBYLIB="$SCRIPT_DIR${RUBYLIB:+:$RUBYLIB}" \
       GEM_HOME="$RUBY_GEM_HOME" \
       GEM_PATH="$RUBY_GEM_HOME" \

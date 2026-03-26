@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -31,6 +32,83 @@ fn collect_rs_files(dir: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
+struct ForbiddenPattern {
+    display: &'static str,
+    regex: Regex,
+    reason: &'static str,
+}
+
+fn compile_forbidden_patterns() -> Vec<ForbiddenPattern> {
+    let patterns = [
+        (
+            "RelationBufferAccess::open",
+            "raw buffer acquisition must stay in the buffer wrapper layer",
+        ),
+        (
+            "BufferGetPage",
+            "raw page access must stay in the buffer wrapper layer",
+        ),
+        (
+            "PageGetContents",
+            "raw page content access must stay in the page wrapper layer",
+        ),
+        (
+            "PageGetSpecialPointer",
+            "raw special-area access must stay in the page wrapper layer",
+        ),
+        (
+            "MarkBufferDirty",
+            "dirty-marking must stay centralized with WAL handling",
+        ),
+        (
+            "GenericXLogStart",
+            "generic WAL entry points must stay centralized",
+        ),
+        (
+            "GenericXLogRegisterBuffer",
+            "generic WAL entry points must stay centralized",
+        ),
+        (
+            "GenericXLogFinish",
+            "generic WAL entry points must stay centralized",
+        ),
+        (
+            "GenericXLogAbort",
+            "generic WAL entry points must stay centralized",
+        ),
+        (
+            "PageInit",
+            "page initialization must stay centralized with WAL handling",
+        ),
+        (
+            "PageAddItemExtended",
+            "page tuple mutation must stay in PageMut",
+        ),
+        (
+            "PageIndexTupleOverwrite",
+            "page tuple mutation must stay in PageMut",
+        ),
+        (
+            "PageIndexMultiDelete",
+            "page tuple mutation must stay in PageMut",
+        ),
+        (
+            "PageIndexTupleDelete",
+            "page tuple mutation must stay in PageMut",
+        ),
+    ];
+
+    patterns
+        .into_iter()
+        .map(|(display, reason)| ForbiddenPattern {
+            display,
+            regex: Regex::new(&format!(r"{}\s*\(", regex::escape(display)))
+                .expect("forbidden pattern regex should compile"),
+            reason,
+        })
+        .collect()
+}
+
 #[test]
 fn raw_storage_primitives_stay_inside_wrappers() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -43,64 +121,7 @@ fn raw_storage_primitives_stay_inside_wrappers() {
         workspace_root.join("pg_search/src/postgres/storage/buffer.rs"),
         workspace_root.join("pg_search/src/postgres/storage/utils.rs"),
     ];
-    let forbidden_patterns = [
-        (
-            "RelationBufferAccess::open(",
-            "raw buffer acquisition must stay in the buffer wrapper layer",
-        ),
-        (
-            "BufferGetPage(",
-            "raw page access must stay in the buffer wrapper layer",
-        ),
-        (
-            "PageGetContents(",
-            "raw page content access must stay in the page wrapper layer",
-        ),
-        (
-            "PageGetSpecialPointer(",
-            "raw special-area access must stay in the page wrapper layer",
-        ),
-        (
-            "MarkBufferDirty(",
-            "dirty-marking must stay centralized with WAL handling",
-        ),
-        (
-            "GenericXLogStart(",
-            "generic WAL entry points must stay centralized",
-        ),
-        (
-            "GenericXLogRegisterBuffer(",
-            "generic WAL entry points must stay centralized",
-        ),
-        (
-            "GenericXLogFinish(",
-            "generic WAL entry points must stay centralized",
-        ),
-        (
-            "GenericXLogAbort(",
-            "generic WAL entry points must stay centralized",
-        ),
-        (
-            "PageInit(",
-            "page initialization must stay centralized with WAL handling",
-        ),
-        (
-            "PageAddItemExtended(",
-            "page tuple mutation must stay in PageMut",
-        ),
-        (
-            "PageIndexTupleOverwrite(",
-            "page tuple mutation must stay in PageMut",
-        ),
-        (
-            "PageIndexMultiDelete(",
-            "page tuple mutation must stay in PageMut",
-        ),
-        (
-            "PageIndexTupleDelete(",
-            "page tuple mutation must stay in PageMut",
-        ),
-    ];
+    let forbidden_patterns = compile_forbidden_patterns();
 
     let mut source_files = Vec::new();
     collect_rs_files(&pg_search_src, &mut source_files);
@@ -118,15 +139,20 @@ fn raw_storage_primitives_stay_inside_wrappers() {
         let contents = fs::read_to_string(&source_file)
             .unwrap_or_else(|err| panic!("failed reading {}: {err}", source_file.display()));
 
-        for (line_number, line) in contents.lines().enumerate() {
-            for (needle, reason) in forbidden_patterns {
-                if line.contains(needle) {
-                    violations.push(format!(
-                        "{}:{} contains `{needle}`: {reason}",
-                        relative_path.display(),
-                        line_number + 1,
-                    ));
-                }
+        for pattern in &forbidden_patterns {
+            for matched in pattern.regex.find_iter(&contents) {
+                let line_number = contents[..matched.start()]
+                    .bytes()
+                    .filter(|byte| *byte == b'\n')
+                    .count()
+                    + 1;
+                violations.push(format!(
+                    "{}:{} contains `{}`: {}",
+                    relative_path.display(),
+                    line_number,
+                    pattern.display,
+                    pattern.reason,
+                ));
             }
         }
     }

@@ -46,7 +46,7 @@ SELECT 'Hello world! 你好!'::pdb.lindera(chinese)::text[];
 
 ## Keep Whitespace
 
-By are default, whitespace is not tokenized. To include it, set `keep_whitespace` to `true`.
+By default, whitespace is not tokenized. To include it, set `keep_whitespace` to `true`.
 
 ```sql
 SELECT 'Hello world! 你好!'::pdb.lindera(chinese, 'keep_whitespace=true')::text[];

@@ -9,6 +9,8 @@ name: Antithesis - Trigger Test Run
 on:
   schedule:
     - cron: "0 2 * * 1-5" # At 02:00 UTC on every day-of-week from Monday through Friday
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       duration:
@@ -30,13 +32,24 @@ jobs:
   antithesis-trigger-test-run:
     name: Test pg_search via Antithesis
     runs-on: ubicloud-standard-8-ubuntu-2404
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'antithesis')
     strategy:
       matrix:
         pg_version: [18]
 
     steps:
+      # The job can be triggered manually by attaching the `antithesis` label to a PR. This step
+      # removes the label once the job has started, so it can be applied again if needed.
+      - name: Maybe Remove Label
+        uses: actions-ecosystem/action-remove-labels@v1
+        if: github.event_name == 'pull_request' && github.event.label.name == 'antithesis'
+        with:
+          labels: antithesis
+
       - name: Checkout Git Repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -142,6 +155,6 @@ jobs:
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
-            antithesis.duration=${{ github.event.inputs.duration || '480' }}
+            antithesis.duration=${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '30') || '480' }}
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
             antithesis.source=paradedb

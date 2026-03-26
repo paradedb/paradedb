@@ -92,7 +92,6 @@ If a text field uses multiple tokenizers and one of them is [literal](/documenta
 the other tokenizers and leaving the literal tokenizer un-aliased. This is so queries that `GROUP BY`, `ORDER BY`, or aggregate the
 text field can reference the field directly:
 
-<CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
@@ -107,6 +106,5 @@ WHERE description @@@ 'shoes'
 ORDER BY description
 LIMIT 5;
 ```
-</CodeGroup>
 
 </Note>

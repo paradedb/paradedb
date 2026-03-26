@@ -128,7 +128,7 @@ jobs:
 
       # antithesis.duration is in minutes, 480 minutes = 8 hours
       - name: Trigger Antithesis Test
-        uses: antithesishq/antithesis-trigger-action@main
+        uses: antithesishq/antithesis-trigger-action@v0.10
         with:
           notebook_name: ${{ github.event.inputs.notebook || 'paradedb' }}
           tenant: paradedb

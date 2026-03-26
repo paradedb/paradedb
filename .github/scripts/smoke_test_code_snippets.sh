@@ -3,8 +3,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOCS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUTPUT_DIR="${1:-$DOCS_ROOT/verify}"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+DOCS_ROOT="${REPO_ROOT}/docs"
+OUTPUT_DIR="${1:-$SCRIPT_DIR/verify}"
 SQL_DIR="$OUTPUT_DIR/sql"
 DJANGO_DIR="$OUTPUT_DIR/django"
 RAILS_DIR="$OUTPUT_DIR/rails"
@@ -127,7 +128,7 @@ sql_pass_count=0
 sql_fail_count=0
 
 while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
+  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   if psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -X -f "$snippet_file" >/dev/null; then
     echo "[SUCCESS] $rel_snippet" >&2
@@ -142,7 +143,7 @@ django_pass_count=0
 django_fail_count=0
 
 while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
+  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   if SNIPPET_FILE="$snippet_file" \
       SNIPPET_NAME="$rel_snippet" \
@@ -171,7 +172,7 @@ rails_pass_count=0
 rails_fail_count=0
 
 while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
+  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   if {
     cat <<RUBY
@@ -202,7 +203,7 @@ sqlalchemy_pass_count=0
 sqlalchemy_fail_count=0
 
 while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$DOCS_ROOT"/}"
+  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   if {
     cat <<PY

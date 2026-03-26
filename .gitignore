@@ -55,3 +55,6 @@ result*
 .claude/
 CLAUDE.md
 CLAUDE.local.md
+
+.github/scripts/verify
+__pycache__

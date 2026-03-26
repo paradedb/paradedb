@@ -141,7 +141,7 @@
 pub mod build;
 mod explain;
 pub mod memory;
-mod planner;
+pub mod planner;
 mod planning;
 pub mod predicate;
 mod privdat;

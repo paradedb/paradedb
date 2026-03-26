@@ -39,6 +39,10 @@ pub struct AggregateScanState {
     pub execution_rti: pg_sys::Index,
     pub aggregate_clause: AggregateCSClause,
 
+    /// True when using the DataFusion backend (join aggregates).
+    /// When true, the Tantivy-specific fields above are unused.
+    pub is_datafusion_backend: bool,
+
     /// Target list with FuncExpr placeholders replaced by Const nodes.
     /// Used for expression projection when aggregates are wrapped in functions.
     /// The Const nodes are mutated with actual aggregate values before each

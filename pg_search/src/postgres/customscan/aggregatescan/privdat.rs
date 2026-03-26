@@ -17,15 +17,59 @@
 
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
+use crate::postgres::customscan::joinscan::build::RelNode;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
 
+/// Private data serialized between planning and execution for AggregateScan.
+///
+/// The `Tantivy` variant is the existing single-table path. The `DataFusion`
+/// variant is the new join aggregate path (and single-table fallback when
+/// Tantivy bucket limits are exceeded).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PrivateData {
-    pub indexrelid: pg_sys::Oid,
-    pub heap_rti: pg_sys::Index,
-    pub aggregate_clause: AggregateCSClause,
+pub enum PrivateData {
+    /// Existing single-table Tantivy aggregation path.
+    Tantivy {
+        indexrelid: pg_sys::Oid,
+        heap_rti: pg_sys::Index,
+        aggregate_clause: Box<AggregateCSClause>,
+    },
+
+    /// New DataFusion-backed aggregation path (for JOINs).
+    DataFusion {
+        /// The join tree (Scan/Join/Filter nodes).
+        plan: RelNode,
+        /// The aggregate target list (GROUP BY columns + aggregate functions).
+        targetlist: JoinAggregateTargetList,
+    },
+}
+
+impl PrivateData {
+    /// Helper to access Tantivy-specific fields. Panics if called on DataFusion variant.
+    pub fn as_tantivy(&self) -> (&pg_sys::Oid, &pg_sys::Index, &AggregateCSClause) {
+        match self {
+            PrivateData::Tantivy {
+                indexrelid,
+                heap_rti,
+                aggregate_clause,
+            } => (indexrelid, heap_rti, aggregate_clause),
+            PrivateData::DataFusion { .. } => {
+                panic!("called as_tantivy() on DataFusion PrivateData")
+            }
+        }
+    }
+
+    /// Returns true if this is the Tantivy backend path.
+    pub fn is_tantivy(&self) -> bool {
+        matches!(self, PrivateData::Tantivy { .. })
+    }
+
+    /// Returns true if this is the DataFusion backend path.
+    pub fn is_datafusion(&self) -> bool {
+        matches!(self, PrivateData::DataFusion { .. })
+    }
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

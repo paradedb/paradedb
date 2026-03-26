@@ -20,6 +20,21 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"value_count": {"field": "rating"}}'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.value_count(field="rating")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id)
         .match_all
@@ -62,6 +77,21 @@ MockItem.objects.filter(
 ).aggregate(count=Count('rating'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.count(MockItem.rating))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id).match_all.count(:rating)
 ```
@@ -80,6 +110,21 @@ WHERE id @@@ pdb.all();
 from paradedb import All, ParadeDB
 
 MockItem.objects.filter(id=ParadeDB(All())).count()
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.count())
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails

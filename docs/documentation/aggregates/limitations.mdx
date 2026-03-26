@@ -30,6 +30,25 @@ MockItem.objects.filter(rating=5).count()
 MockItem.objects.filter(rating=5, id=ParadeDB(All())).count()
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+# Not pushed down.
+count_without_operator_stmt = select(func.count(MockItem.id)).where(MockItem.rating == 5)
+
+# Pushed down.
+count_with_operator_stmt = select(func.count(MockItem.id)).where(
+    MockItem.rating == 5,
+    search.all(MockItem.id),
+)
+
+with Session(engine) as session:
+    count_without_operator = session.execute(count_without_operator_stmt).scalar_one()
+    count_with_operator = session.execute(count_with_operator_stmt).scalar_one()
+```
+
 ```ruby Rails
 # Not pushed down — no ParadeDB operator
 MockItem.where(rating: 5).count

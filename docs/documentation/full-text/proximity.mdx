@@ -25,6 +25,19 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = select(MockItem.description, MockItem.rating, MockItem.category).where(
+    search.proximity(MockItem.description, search.prox_str("sleek").within(1, "shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .near(ParadeDB.proximity("sleek").within(1, "shoes"))
@@ -54,6 +67,20 @@ from paradedb import ParadeDB, Proximity
 MockItem.objects.filter(
     description=ParadeDB(Proximity('sleek').within(1, 'shoes', ordered=True))
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_str("sleek").within(1, "shoes", ordered=True)))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -86,6 +113,20 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_regex("sl.*").within(1, "shoes")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .near(ParadeDB.proximity(ParadeDB.regex_term("sl.*")).within(1, "shoes"))
@@ -111,6 +152,20 @@ from paradedb import ParadeDB, ProximityRegex
 MockItem.objects.filter(
     description=ParadeDB(Proximity('shoes').within(1, ProxRegex('sl.*', max_expansions=100)))
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_regex("sl.*", 100).within(1, "shoes")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -141,6 +196,20 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_array("sleek", "white").within(1, "shoes")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .near(ParadeDB.proximity("sleek", "white").within(1, "shoes"))
@@ -164,6 +233,20 @@ from paradedb import ParadeDB, ProxRegex, ProximityArray
 MockItem.objects.filter(
     description=ParadeDB(Proximity([ProxRegex('sl.*'), 'white']).within(1, 'shoes'))
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_array(search.prox_regex("sl.*"), "white").within(1, "shoes")))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -191,6 +274,20 @@ from paradedb import ParadeDB, ProxRegex, ProximityArray
 MockItem.objects.filter(
     description=ParadeDB(Proximity('sleek').within(1, 'running').within(2, ['sneakers', ProxRegex('sho.*')]))
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.proximity(MockItem.description, search.prox_str("sleek").within(1, "running").within(2, search.prox_array('sneakers', search.prox_regex('sho.*')))))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails

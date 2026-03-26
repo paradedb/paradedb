@@ -37,9 +37,16 @@
                   {
                     "group": "Getting Started",
                     "pages": [
+                      "welcome/ai-agents",
                       "documentation/getting-started/install",
                       "documentation/getting-started/quickstart",
                       "documentation/getting-started/load"
+                    ]
+                  },
+                  {
+                    "group": "Migration",
+                    "pages": [
+                      "documentation/migration/elasticsearch-feature-comparison"
                     ]
                   },
                   {
@@ -180,7 +187,6 @@
                       }
                     ]
                   },
-                  "welcome/ai-agents",
                   "welcome/support"
                 ]
               }

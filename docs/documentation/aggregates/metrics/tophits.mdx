@@ -28,6 +28,30 @@ MockItem.objects.filter(
 ).values('agg')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.top_hits(
+                size=3,
+                sort=[{"created_at": "desc"}],
+                docvalue_fields=["id", "created_at"],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id)
         .match_all
@@ -80,6 +104,31 @@ MockItem.objects.filter(
 ).values('agg')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.top_hits(
+                size=3,
+                from_=1,
+                sort=[{"created_at": "desc"}],
+                docvalue_fields=["id", "created_at"],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id)
         .match_all
@@ -114,6 +163,30 @@ MockItem.objects.filter(
 ).values('rating').annotate(
     agg=Agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}')
 ).values('agg')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.top_hits(
+                size=3,
+                sort=[{"created_at": "desc"}, {"id": "asc"}],
+                docvalue_fields=["id", "created_at"],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails

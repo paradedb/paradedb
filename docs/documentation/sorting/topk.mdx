@@ -23,6 +23,22 @@ MockItem.objects.filter(
 ).order_by('rating').values('description', 'rating', 'category')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("running shoes")
@@ -91,6 +107,22 @@ MockItem.objects.filter(
 ).order_by('rating', 'id').values('description', 'rating', 'category')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating, MockItem.id)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("running shoes")
@@ -138,6 +170,22 @@ from paradedb import Match, ParadeDB
 MockItem.objects.filter(
     description=ParadeDB(Match('sleek running shoes', operator='OR'))
 ).order_by(Lower('description')).values('description', 'rating', 'category')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "sleek running shoes"))
+    .order_by(func.lower(MockItem.description))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails

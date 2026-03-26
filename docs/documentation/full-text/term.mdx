@@ -39,6 +39,26 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+term_query_1 = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.term(MockItem.description, "running"))
+)
+
+term_query_2 = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.term(MockItem.description, "RUNNING"))
+)
+
+with Session(engine) as session:
+    rows_query_1 = session.execute(term_query_1).all()
+    rows_query_2 = session.execute(term_query_2).all()
+```
+
 ```ruby Rails
 # Term query 1
 MockItem.search(:description)
@@ -114,6 +134,25 @@ from paradedb import ParadeDB, TermSet
 MockItem.objects.filter(
     description=ParadeDB(TermSet('shoes', 'running'))
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(
+        or_(
+            search.term(MockItem.description, "shoes"),
+            search.term(MockItem.description, "running"),
+        )
+    )
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails

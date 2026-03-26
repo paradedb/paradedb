@@ -79,6 +79,10 @@ struct Args {
     /// that may not support all query syntax.
     #[arg(long, default_value_t = true, num_args = 1)]
     fail_on_error: bool,
+
+    /// Whether to clear the OS page cache and Postgres buffer cache before each query.
+    #[arg(long, default_value_t = true)]
+    clear_caches: bool,
 }
 
 #[tokio::main]
@@ -239,8 +243,10 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
     let mut results = Vec::new();
     for path in query_paths {
         for (query_type, query) in benchmark_queries(&path) {
-            if let Err(err) = clear_caches(&mut utility_conn).await {
-                panic!("Failed to clear caches before query: {err}");
+            if args.clear_caches {
+                if let Err(err) = clear_caches(&mut utility_conn).await {
+                    panic!("Failed to clear caches before query: {err}");
+                }
             }
             println!("Query Type: {query_type}\nQuery: {query}");
             let result = execute_query_multiple_times(
@@ -728,7 +734,7 @@ fn drop_os_page_cache() -> Result<(), String> {
     #[cfg(not(target_os = "linux"))]
     {
         // No portable equivalent in this benchmark runner today.
-        Err("unsupported platform (cache-drop is only implemented on Linux)".to_string())
+        Err("unsupported platform (cache-drop is only implemented on Linux; pass --clear-caches=false to disable)".to_string())
     }
 }
 

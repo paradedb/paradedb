@@ -37,6 +37,29 @@ MockItem.objects.filter(
 ).order_by('-rating')[:3]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, search
+
+base = (
+    select(MockItem.id, MockItem.description, MockItem.rating)
+    .where(
+        search.all(MockItem.id),
+        search.term(MockItem.category, "electronics"),
+    )
+    .order_by(MockItem.rating.desc())
+    .limit(3)
+)
+
+stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=MockItem.id)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+    facets = facets.extract(rows)
+
+```
+
 ```ruby Rails
 relation = MockItem.search(:category)
                    .term("electronics")

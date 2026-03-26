@@ -32,6 +32,32 @@ MockItem.objects.filter(
 ).values('id', 'score', 'description', 'category').order_by('-score')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import desc, or_, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.score(MockItem.id).label("score"),
+        MockItem.description,
+        MockItem.category,
+    )
+    .where(
+        or_(
+            search.match_any(MockItem.description, "shoes", boost=2.0),
+            search.match_any(MockItem.category, "footwear"),
+        )
+    )
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("shoes", boost: 2)
@@ -67,6 +93,27 @@ MockItem.objects.filter(
 ).values('id', 'description', 'category', 'score').order_by('-score')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        MockItem.description,
+        MockItem.category,
+        pdb.score(MockItem.id).label("score"),
+    )
+    .where(search.regex(MockItem.description, "key.*", boost=2.0))
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .regex("key.*", boost: 2)
@@ -97,6 +144,27 @@ MockItem.objects.filter(
 ).annotate(
     score=Score()
 ).values('id', 'description', 'category', 'score').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        MockItem.description,
+        MockItem.category,
+        pdb.score(MockItem.id).label("score"),
+    )
+    .where(search.match_any(MockItem.description, "shose", distance=2, boost=2.0))
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -134,6 +202,27 @@ MockItem.objects.filter(
 ).annotate(
     score=Score()
 ).values('id', 'score', 'description', 'category').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.score(MockItem.id).label("score"),
+        MockItem.description,
+        MockItem.category,
+    )
+    .where(search.match_any(MockItem.description, "shoes", const=1.0))
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails

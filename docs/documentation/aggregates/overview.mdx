@@ -24,6 +24,21 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"value_count": {"field": "id"}}'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.value_count(field="id")))
+    .select_from(MockItem)
+    .where(search.term(MockItem.category, "electronics"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:category)
         .term("electronics")
@@ -59,6 +74,23 @@ MockItem.objects.filter(
 ).values('rating').annotate(
     agg=Agg('{"value_count": {"field": "id"}}')
 ).order_by('rating')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(MockItem.rating, pdb.agg(facets.value_count(field="id")).label("agg"))
+    .where(search.term(MockItem.category, "electronics"))
+    .group_by(MockItem.rating)
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -107,6 +139,24 @@ MockItem.objects.filter(
 )
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(facets.avg(field="rating")).label("avg_rating"),
+        pdb.agg(facets.value_count(field="id")).label("count"),
+    )
+    .select_from(MockItem)
+    .where(search.term(MockItem.category, "electronics"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:category)
         .term("electronics")
@@ -149,6 +199,20 @@ MockItem.objects.filter(
 )
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.value_count(field="id"), approximate=True).label("agg"))
+    .where(search.match_any(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("running shoes")
@@ -180,6 +244,21 @@ from paradedb import Agg, All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(agg=Agg('{"terms": {"field": "metadata.color"}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.terms(field="metadata.color")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
 ```
 
 ```ruby Rails

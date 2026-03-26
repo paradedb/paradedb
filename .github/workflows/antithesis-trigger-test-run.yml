@@ -141,3 +141,5 @@ jobs:
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
             antithesis.duration=${{ github.event.inputs.duration || '480' }}
+            antithesis.source=paradedb
+            antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}

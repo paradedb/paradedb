@@ -18,6 +18,7 @@
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
+use crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK;
 use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
@@ -41,6 +42,8 @@ pub struct DataFusionAggState {
     pub plan: RelNode,
     /// GROUP BY columns and aggregate functions.
     pub targetlist: JoinAggregateTargetList,
+    /// Optional TopK sort+limit pushed down from Postgres.
+    pub topk: Option<DataFusionTopK>,
     /// Tokio runtime for async DataFusion execution.
     pub runtime: Option<tokio::runtime::Runtime>,
     /// DataFusion result stream.

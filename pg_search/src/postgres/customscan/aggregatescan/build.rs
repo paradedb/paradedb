@@ -487,7 +487,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
 
 /// Determines sort direction from a Postgres sort operator OID.
 #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-unsafe fn is_sort_descending(sortop: pg_sys::Oid) -> bool {
+pub(super) unsafe fn is_sort_descending(sortop: pg_sys::Oid) -> bool {
     let mut opfamily = pg_sys::InvalidOid;
     let mut opcintype = pg_sys::InvalidOid;
     let mut strategy: i16 = 0;
@@ -499,7 +499,7 @@ unsafe fn is_sort_descending(sortop: pg_sys::Oid) -> bool {
 }
 
 #[cfg(feature = "pg18")]
-unsafe fn is_sort_descending(sortop: pg_sys::Oid) -> bool {
+pub(super) unsafe fn is_sort_descending(sortop: pg_sys::Oid) -> bool {
     let mut opfamily = pg_sys::InvalidOid;
     let mut opcintype = pg_sys::InvalidOid;
     let mut cmptype = pg_sys::CompareType::COMPARE_LT;

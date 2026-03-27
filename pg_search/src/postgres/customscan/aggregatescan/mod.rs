@@ -121,14 +121,6 @@ impl CustomScan for AggregateScan {
                 if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
                     return Vec::new();
                 }
-                // DataFusion execution is wired up in #4488. Until then,
-                // building the path is safe for EXPLAIN but the stub
-                // executor returns no rows, which breaks queries.
-                // Gate behind pdb.agg() so standard SQL aggregates don't
-                // hit the stub path.
-                if !has_paradedb_agg {
-                    return Vec::new();
-                }
                 Self::build_datafusion_aggregate_path(builder)
             }
             _ => Vec::new(),

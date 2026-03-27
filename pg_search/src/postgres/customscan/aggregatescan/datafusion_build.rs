@@ -99,6 +99,58 @@ pub unsafe fn collect_join_agg_sources(
     sources
 }
 
+/// Check whether the WHERE clause contains predicates that our per-table
+/// push-down cannot handle correctly:
+///   - OR expressions (may reference multiple tables → can't split)
+///   - Non-@@@ predicates (we only push search predicates, not SQL filters)
+///
+/// Returns `true` if the quals are problematic and should cause the path
+/// to be rejected.
+unsafe fn has_unpushable_quals(node: *mut pg_sys::Node) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    let tag = (*node).type_;
+
+    if tag == pg_sys::NodeTag::T_BoolExpr {
+        let boolexpr = node as *mut pg_sys::BoolExpr;
+        // OR across tables is unpushable
+        if (*boolexpr).boolop == pg_sys::BoolExprType::OR_EXPR {
+            return true;
+        }
+        // For AND, recurse into args — an OR inside an AND is still unpushable
+        let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+        for arg in args.iter_ptr() {
+            if has_unpushable_quals(arg) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Non-search-predicate scalar conditions (e.g., `id = 4`, `price > 10`)
+    // at the top level of the WHERE clause are not pushed through our DataFusion
+    // path, so they'd be silently dropped → wrong results.
+    if tag == pg_sys::NodeTag::T_OpExpr {
+        let opexpr = node as *mut pg_sys::OpExpr;
+        let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+        // Check if this is a @@@ operator by looking for FuncExpr args
+        // (our custom operator is implemented as a function call).
+        // If none of the arguments is a search predicate, it's a plain
+        // SQL filter that we can't push.
+        let has_search = args.iter_ptr().any(|arg| {
+            let t = (*arg).type_;
+            t == pg_sys::NodeTag::T_FuncExpr || t == pg_sys::NodeTag::T_Const
+        });
+        if !has_search {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Build a [`RelNode`] tree by walking the Postgres parse tree's `jointree`
 /// and extracting equi-join keys from the `input_rel`'s cheapest path.
 ///
@@ -576,6 +628,57 @@ unsafe fn extract_equi_keys_from_path(
 
     extract_keys_from_path_recursive(path, sources, &mut keys);
     keys
+}
+
+/// Check whether the join path has any non-equi-join quals (OR across tables,
+/// cross-table filters) that our DataFusion backend can't execute.
+///
+/// Walks the cheapest path's joinrestrictinfo and counts entries that aren't
+/// equi-join keys. If any remain, the query has post-join filters we'd lose.
+pub unsafe fn has_non_equi_join_quals(
+    input_rel: &pg_sys::RelOptInfo,
+    sources: &[JoinAggSource],
+) -> bool {
+    let path = input_rel.cheapest_total_path;
+    if path.is_null() {
+        return false;
+    }
+    let mut total_restrict = 0usize;
+    let mut equi_keys = 0usize;
+    count_restrict_entries_recursive(path, sources, &mut total_restrict, &mut equi_keys);
+    total_restrict > equi_keys
+}
+
+unsafe fn count_restrict_entries_recursive(
+    path: *mut pg_sys::Path,
+    sources: &[JoinAggSource],
+    total: &mut usize,
+    equi: &mut usize,
+) {
+    if path.is_null() {
+        return;
+    }
+    let tag = (*path).type_;
+    let is_join_path = matches!(
+        tag,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    );
+    if is_join_path {
+        let join_path = path as *mut pg_sys::JoinPath;
+        let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
+        *total += restrict_list.len();
+        for ri in restrict_list.iter_ptr() {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            if !clause.is_null()
+                && (*clause).type_ == pg_sys::NodeTag::T_OpExpr
+                && try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources).is_some()
+            {
+                *equi += 1;
+            }
+        }
+        count_restrict_entries_recursive((*join_path).outerjoinpath, sources, total, equi);
+        count_restrict_entries_recursive((*join_path).innerjoinpath, sources, total, equi);
+    }
 }
 
 /// Recursively walk a path tree extracting equi-join keys from JoinPath nodes.

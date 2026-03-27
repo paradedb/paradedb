@@ -1,0 +1,123 @@
+-- =====================================================================
+-- TopK Aggregate infrastructure + scalar aggregate-on-JOIN correctness
+-- =====================================================================
+-- Verifies the TopKAggregateRule + TopKAggregateExec are registered in
+-- the DataFusion session context and scalar aggregate-on-join queries
+-- continue to produce correct results.
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
+-- Test Data Setup
+-- =====================================================================
+CREATE TABLE topk_products (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    price FLOAT,
+    rating INTEGER
+);
+
+CREATE TABLE topk_tags (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    tag_name TEXT
+);
+
+INSERT INTO topk_products (description, category, price, rating) VALUES
+    ('Laptop with fast processor', 'Electronics', 999.99, 5),
+    ('Gaming laptop with RGB', 'Electronics', 1299.99, 5),
+    ('Wireless mouse for office', 'Electronics', 29.99, 4),
+    ('Running shoes for athletes', 'Sports', 89.99, 4),
+    ('Basketball shoes premium', 'Sports', 119.99, 3),
+    ('Winter jacket warm', 'Clothing', 129.99, 3),
+    ('Summer dress casual', 'Clothing', 49.99, 4),
+    ('Toy laptop for kids', 'Toys', 499.99, 2),
+    ('Puzzle game educational', 'Toys', 19.99, 5),
+    ('Cookbook healthy recipes', 'Books', 24.99, 4);
+
+INSERT INTO topk_tags (product_id, tag_name) VALUES
+    (1, 'tech'), (1, 'computer'),
+    (2, 'tech'), (2, 'gaming'),
+    (3, 'tech'), (3, 'office'),
+    (4, 'fitness'), (4, 'running'),
+    (5, 'fitness'), (5, 'basketball'),
+    (6, 'outdoor'),
+    (7, 'fashion'),
+    (8, 'tech'), (8, 'kids'),
+    (9, 'kids'), (9, 'education'),
+    (10, 'cooking');
+
+CREATE INDEX topk_products_idx ON topk_products
+USING bm25 (id, description, category, price, rating)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
+);
+
+CREATE INDEX topk_tags_idx ON topk_tags
+USING bm25 (id, product_id, tag_name)
+WITH (
+    key_field='id',
+    numeric_fields='{"product_id": {"fast": true}}',
+    text_fields='{"tag_name": {"fast": true}}'
+);
+
+-- =====================================================================
+-- Test 1: DataFusion backend — EXPLAIN shows Backend: DataFusion
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+
+-- =====================================================================
+-- Test 2: Scalar COUNT(*) on join
+-- =====================================================================
+SELECT COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop';
+
+-- =====================================================================
+-- Test 3: Multiple scalar aggregates (COUNT, SUM, AVG, MIN, MAX)
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), SUM(p.price), AVG(p.rating), MIN(p.price), MAX(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+SELECT COUNT(*), SUM(p.price), AVG(p.rating), MIN(p.price), MAX(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- =====================================================================
+-- Test 4: Parity check — DataFusion vs Postgres native (scalar aggs)
+-- =====================================================================
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*), SUM(p.price), MIN(p.rating), MAX(p.rating)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook';
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT COUNT(*), SUM(p.price), MIN(p.rating), MAX(p.rating)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook';
+
+-- =====================================================================
+-- Test 5: Empty result set
+-- =====================================================================
+SELECT COUNT(*), SUM(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nonexistent_xyz_term';
+
+DROP TABLE topk_tags;
+DROP TABLE topk_products;

@@ -61,6 +61,7 @@ pub struct RegexTypmod {
 pub struct LinderaTypmod {
     pub language: LinderaLanguage,
     pub filters: SearchTokenizerFilters,
+    pub keep_whitespace: bool,
 }
 
 // for pdb.unicode_words
@@ -136,12 +137,15 @@ impl TypmodRules for RegexTypmod {
 
 impl TypmodRules for LinderaTypmod {
     fn rules() -> Vec<PropertyRule> {
-        vec![rule!(
-            "language",
-            ValueConstraint::StringChoice(vec!["chinese", "japanese", "korean"]),
-            required,
-            positional = 0
-        )]
+        vec![
+            rule!(
+                "language",
+                ValueConstraint::StringChoice(vec!["chinese", "japanese", "korean"]),
+                required,
+                positional = 0
+            ),
+            rule!("keep_whitespace", ValueConstraint::Boolean),
+        ]
     }
 }
 
@@ -273,7 +277,15 @@ impl TryFrom<i32> for LinderaTypmod {
                 }
             })
             .ok_or(typmod::Error::MissingKey("language"))?;
-        Ok(LinderaTypmod { language, filters })
+        let keep_whitespace = parsed
+            .get("keep_whitespace")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        Ok(LinderaTypmod {
+            language,
+            filters,
+            keep_whitespace,
+        })
     }
 }
 

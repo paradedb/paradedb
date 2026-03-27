@@ -379,16 +379,33 @@ pub enum SearchTokenizer {
         positions: bool,
         filters: SearchTokenizerFilters,
     },
-    ChineseLindera(SearchTokenizerFilters),
-    JapaneseLindera(SearchTokenizerFilters),
-    KoreanLindera(SearchTokenizerFilters),
+    ChineseLinderaDeprecated(SearchTokenizerFilters),
+    ChineseLindera {
+        filters: SearchTokenizerFilters,
+        keep_whitespace: bool,
+    },
+    JapaneseLinderaDeprecated(SearchTokenizerFilters),
+    JapaneseLindera {
+        filters: SearchTokenizerFilters,
+        keep_whitespace: bool,
+    },
+    KoreanLinderaDeprecated(SearchTokenizerFilters),
+    KoreanLindera {
+        filters: SearchTokenizerFilters,
+        keep_whitespace: bool,
+    },
     #[strum(serialize = "icu")]
     ICUTokenizer(SearchTokenizerFilters),
     Jieba {
         chinese_convert: Option<ConvertMode>,
         filters: SearchTokenizerFilters,
     },
-    Lindera(LinderaLanguage, SearchTokenizerFilters),
+    LinderaDeprecated(LinderaLanguage, SearchTokenizerFilters),
+    Lindera {
+        language: LinderaLanguage,
+        filters: SearchTokenizerFilters,
+        keep_whitespace: bool,
+    },
     UnicodeWordsDeprecated {
         remove_emojis: bool,
         filters: SearchTokenizerFilters,
@@ -418,6 +435,7 @@ impl Default for SearchTokenizer {
 }
 
 impl SearchTokenizer {
+    // This is only used by the v1 api (prior to v0.20.0)
     pub fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         // We use the `type` field of a JSON object to distinguish the tokenizer variant.
         // Deserialized in this "tagged enum" fashion is not supported by bincode, which
@@ -470,9 +488,9 @@ impl SearchTokenizer {
                     filters,
                 })
             }
-            "chinese_lindera" => Ok(SearchTokenizer::ChineseLindera(filters)),
-            "japanese_lindera" => Ok(SearchTokenizer::JapaneseLindera(filters)),
-            "korean_lindera" => Ok(SearchTokenizer::KoreanLindera(filters)),
+            "chinese_lindera" => Ok(SearchTokenizer::ChineseLinderaDeprecated(filters)),
+            "japanese_lindera" => Ok(SearchTokenizer::JapaneseLinderaDeprecated(filters)),
+            "korean_lindera" => Ok(SearchTokenizer::KoreanLinderaDeprecated(filters)),
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
             "jieba" => {
                 let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
@@ -563,17 +581,50 @@ impl SearchTokenizer {
                     add_filters!(CodeTokenizer::default(), filters)
                 }
             }
-            SearchTokenizer::ChineseLindera(filters)
-            | SearchTokenizer::Lindera(LinderaLanguage::Chinese, filters) => {
-                add_filters!(LinderaChineseTokenizer::default(), filters)
+            SearchTokenizer::ChineseLinderaDeprecated(filters)
+            | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Chinese, filters) => {
+                add_filters!(LinderaChineseTokenizer::new(true), filters)
             }
-            SearchTokenizer::JapaneseLindera(filters)
-            | SearchTokenizer::Lindera(LinderaLanguage::Japanese, filters) => {
-                add_filters!(LinderaJapaneseTokenizer::default(), filters)
+            SearchTokenizer::ChineseLindera {
+                filters,
+                keep_whitespace,
             }
-            SearchTokenizer::KoreanLindera(filters)
-            | SearchTokenizer::Lindera(LinderaLanguage::Korean, filters) => {
-                add_filters!(LinderaKoreanTokenizer::default(), filters)
+            | SearchTokenizer::Lindera {
+                language: LinderaLanguage::Chinese,
+                filters,
+                keep_whitespace,
+            } => {
+                add_filters!(LinderaChineseTokenizer::new(*keep_whitespace), filters)
+            }
+            SearchTokenizer::JapaneseLinderaDeprecated(filters)
+            | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Japanese, filters) => {
+                add_filters!(LinderaJapaneseTokenizer::new(true), filters)
+            }
+            SearchTokenizer::JapaneseLindera {
+                filters,
+                keep_whitespace,
+            }
+            | SearchTokenizer::Lindera {
+                language: LinderaLanguage::Japanese,
+                filters,
+                keep_whitespace,
+            } => {
+                add_filters!(LinderaJapaneseTokenizer::new(*keep_whitespace), filters)
+            }
+            SearchTokenizer::KoreanLinderaDeprecated(filters)
+            | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Korean, filters) => {
+                add_filters!(LinderaKoreanTokenizer::new(true), filters)
+            }
+            SearchTokenizer::KoreanLindera {
+                filters,
+                keep_whitespace,
+            }
+            | SearchTokenizer::Lindera {
+                language: LinderaLanguage::Korean,
+                filters,
+                keep_whitespace,
+            } => {
+                add_filters!(LinderaKoreanTokenizer::new(*keep_whitespace), filters)
             }
             SearchTokenizer::ICUTokenizer(filters) => {
                 add_filters!(ICUTokenizer, filters)
@@ -596,7 +647,11 @@ impl SearchTokenizer {
                     )
                 }
             }
-            SearchTokenizer::Lindera(LinderaLanguage::Unspecified, _) => {
+            SearchTokenizer::LinderaDeprecated(LinderaLanguage::Unspecified, _)
+            | SearchTokenizer::Lindera {
+                language: LinderaLanguage::Unspecified,
+                ..
+            } => {
                 panic!("LinderaStyle::Unspecified is not supported")
             }
             SearchTokenizer::UnicodeWords {
@@ -628,10 +683,14 @@ impl SearchTokenizer {
             SearchTokenizer::ChineseCompatible(filters) => filters,
             SearchTokenizer::SourceCode(filters) => filters,
             SearchTokenizer::Ngram { filters, .. } => filters,
-            SearchTokenizer::ChineseLindera(filters) => filters,
-            SearchTokenizer::JapaneseLindera(filters) => filters,
-            SearchTokenizer::KoreanLindera(filters) => filters,
-            SearchTokenizer::Lindera(_, filters) => filters,
+            SearchTokenizer::ChineseLinderaDeprecated(filters) => filters,
+            SearchTokenizer::ChineseLindera { filters, .. } => filters,
+            SearchTokenizer::JapaneseLinderaDeprecated(filters) => filters,
+            SearchTokenizer::JapaneseLindera { filters, .. } => filters,
+            SearchTokenizer::KoreanLinderaDeprecated(filters) => filters,
+            SearchTokenizer::KoreanLindera { filters, .. } => filters,
+            SearchTokenizer::LinderaDeprecated(_, filters) => filters,
+            SearchTokenizer::Lindera { filters, .. } => filters,
             SearchTokenizer::ICUTokenizer(filters) => filters,
             SearchTokenizer::Jieba { filters, .. } => filters,
             SearchTokenizer::UnicodeWordsDeprecated { filters, .. } => filters,
@@ -700,18 +759,58 @@ impl SearchTokenizer {
                     "ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{positions_suffix}{filters_suffix}"
                 )
             }
-            SearchTokenizer::ChineseLindera(_filters) => format!("chinese_lindera{filters_suffix}"),
-            SearchTokenizer::JapaneseLindera(_filters) => {
+            SearchTokenizer::ChineseLinderaDeprecated(_filters) => {
+                format!("chinese_lindera{filters_suffix}")
+            }
+            SearchTokenizer::ChineseLindera {
+                filters: _,
+                keep_whitespace,
+            } => {
+                format!("chinese_lindera_keepwhitespace:{keep_whitespace}{filters_suffix}")
+            }
+            SearchTokenizer::JapaneseLinderaDeprecated(_filters) => {
                 format!("japanese_lindera{filters_suffix}")
             }
-            SearchTokenizer::KoreanLindera(_filters) => format!("korean_lindera{filters_suffix}"),
-            SearchTokenizer::Lindera(style, _filters) => match style {
+            SearchTokenizer::JapaneseLindera {
+                filters: _,
+                keep_whitespace,
+            } => {
+                format!("japanese_lindera_keepwhitespace:{keep_whitespace}{filters_suffix}")
+            }
+            SearchTokenizer::KoreanLinderaDeprecated(_filters) => {
+                format!("korean_lindera{filters_suffix}")
+            }
+            SearchTokenizer::KoreanLindera {
+                filters: _,
+                keep_whitespace,
+            } => {
+                format!("korean_lindera_keepwhitespace:{keep_whitespace}{filters_suffix}")
+            }
+            SearchTokenizer::LinderaDeprecated(style, _filters) => match style {
                 LinderaLanguage::Unspecified => {
                     panic!("LinderaStyle::Unspecified is not supported")
                 }
                 LinderaLanguage::Chinese => format!("chinese_lindera{filters_suffix}"),
                 LinderaLanguage::Japanese => format!("japanese_lindera{filters_suffix}"),
                 LinderaLanguage::Korean => format!("korean_lindera{filters_suffix}"),
+            },
+            SearchTokenizer::Lindera {
+                language,
+                filters: _,
+                keep_whitespace,
+            } => match language {
+                LinderaLanguage::Unspecified => {
+                    panic!("LinderaStyle::Unspecified is not supported")
+                }
+                LinderaLanguage::Chinese => {
+                    format!("chinese_lindera_keepwhitespace:{keep_whitespace}{filters_suffix}")
+                }
+                LinderaLanguage::Japanese => {
+                    format!("japanese_lindera_keepwhitespace:{keep_whitespace}{filters_suffix}")
+                }
+                LinderaLanguage::Korean => {
+                    format!("korean_lindera_keepwhitespace:{keep_whitespace}{filters_suffix}")
+                }
             },
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba {
@@ -1029,7 +1128,7 @@ mod tests {
 
         assert_eq!(
             tokenizer,
-            SearchTokenizer::KoreanLindera(SearchTokenizerFilters {
+            SearchTokenizer::KoreanLinderaDeprecated(SearchTokenizerFilters {
                 remove_short: None,
                 remove_long: None,
                 lowercase: None,
@@ -1066,7 +1165,7 @@ mod tests {
     }
 
     #[rstest]
-    fn test_chinese_lindera_tokenizer_preserves_whitespace() {
+    fn test_deprecated_chinese_lindera_tokenizer_preserves_whitespace() {
         use tantivy::tokenizer::TokenStream;
 
         // Test Chinese Lindera tokenizer preserves whitespace by default
@@ -1153,5 +1252,105 @@ mod tests {
         // Verify no whitespace tokens
         assert!(!tokens_chinese.contains(&" ".to_string()));
         assert!(!tokens_chinese.iter().any(|t| t.trim().is_empty()));
+    }
+
+    /// Verify that a tantivy index whose schema references the old tokenizer name
+    /// ("chinese_lindera") uses the deprecated tokenizer which preserves whitespace,
+    /// while an index using the new name ("chinese_lindera_keepwhitespace:{false|true}")
+    /// uses the new tokenizer which strips whitespace.
+    #[rstest]
+    #[case("chinese_lindera", true)]
+    #[case("chinese_lindera_keepwhitespace:false", false)]
+    #[case("chinese_lindera_keepwhitespace:true", true)]
+    #[case("japanese_lindera", true)]
+    #[case("japanese_lindera_keepwhitespace:false", false)]
+    #[case("japanese_lindera_keepwhitespace:true", true)]
+    #[case("korean_lindera", true)]
+    #[case("korean_lindera_keepwhitespace:false", false)]
+    #[case("korean_lindera_keepwhitespace:true", true)]
+    fn test_schema_tokenizer_name_determines_tokenizer_variant(
+        #[case] tokenizer_name: &str,
+        #[case] should_find_space: bool,
+    ) {
+        use tantivy::collector::TopDocs;
+        use tantivy::directory::RamDirectory;
+        use tantivy::query::TermQuery;
+        use tantivy::schema::{Schema, TextFieldIndexing, TextOptions, STORED};
+        use tantivy::{Index, Term};
+
+        // create all tokenizer variants
+        let tokenizers = vec![
+            SearchTokenizer::ChineseLinderaDeprecated(SearchTokenizerFilters::default()),
+            SearchTokenizer::ChineseLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: true,
+            },
+            SearchTokenizer::ChineseLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: false,
+            },
+            SearchTokenizer::JapaneseLinderaDeprecated(SearchTokenizerFilters::default()),
+            SearchTokenizer::JapaneseLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: true,
+            },
+            SearchTokenizer::JapaneseLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: false,
+            },
+            SearchTokenizer::KoreanLinderaDeprecated(SearchTokenizerFilters::default()),
+            SearchTokenizer::KoreanLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: true,
+            },
+            SearchTokenizer::KoreanLindera {
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: false,
+            },
+        ];
+
+        // Build schema with the given tokenizer name
+        let text_indexing = TextFieldIndexing::default()
+            .set_tokenizer(tokenizer_name)
+            .set_index_option(tantivy::schema::IndexRecordOption::WithFreqsAndPositions);
+        let text_options = TextOptions::default()
+            .set_indexing_options(text_indexing)
+            .set_stored();
+        let mut schema_builder = Schema::builder();
+        schema_builder.add_text_field("content", text_options);
+        schema_builder.add_text_field("id", STORED);
+        let schema = schema_builder.build();
+
+        // Create in-memory index and register tokenizers
+        let directory = RamDirectory::create();
+        let mut index = Index::create(directory, schema.clone(), Default::default()).unwrap();
+        let tokenizer_manager = crate::create_tokenizer_manager(tokenizers);
+        index.set_tokenizers(tokenizer_manager);
+
+        let content_field = schema.get_field("content").unwrap();
+
+        // Index a document containing spaces
+        let mut writer = index.writer_with_num_threads(1, 15_000_000).unwrap();
+        writer
+            .add_document(tantivy::doc!(
+                content_field => "foo and bar"
+            ))
+            .unwrap();
+        writer.commit().unwrap();
+
+        // Search for the space character as a raw term
+        let reader = index.reader().unwrap();
+        let searcher = reader.searcher();
+        let space_term = Term::from_field_text(content_field, " ");
+        let query = TermQuery::new(
+            space_term,
+            tantivy::schema::IndexRecordOption::WithFreqsAndPositions,
+        );
+        let top_docs = searcher
+            .search(&query, &TopDocs::with_limit(1).order_by_score())
+            .unwrap();
+
+        let found_space = !top_docs.is_empty();
+        assert_eq!(found_space, should_find_space, "tokenizer (name={tokenizer_name}) whitespace did not keep/remove whitespace as expected");
     }
 }

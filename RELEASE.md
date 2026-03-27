@@ -10,7 +10,7 @@ Releases must always be triggered **from the branch being released** (e.g., `mai
 
 | Type          | Description                                                                                             |
 | ------------- | ------------------------------------------------------------------------------------------------------- |
-| **Minor**     | Triggered from the `dev` branch.                                                                        |
+| **Minor**     | Triggered from the `main` branch.                                                                       |
 | **Patch**     | A patch bump off an existing tag (e.g., `v1.4.0 → v1.4.1`).                                             |
 | **Beta (RC)** | Marked with `beta: true`. Produces a prerelease tag like `vX.Y.Z-rc.N`. Requires `-rc` in `Cargo.toml`. |
 

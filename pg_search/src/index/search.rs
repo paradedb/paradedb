@@ -35,16 +35,50 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
         if let Some(tokenizer) = config.tokenizer() {
             tokenizers.push(tokenizer.clone());
 
-            // <= `0.20.5`, `unicode_words` was accidentally named `remove_emojis`, so we need to register the old name for backwards compatibility
-            if let SearchTokenizer::UnicodeWords {
-                remove_emojis,
-                filters,
-            } = tokenizer
-            {
-                tokenizers.push(SearchTokenizer::UnicodeWordsDeprecated {
-                    remove_emojis: *remove_emojis,
-                    filters: filters.clone(),
-                });
+            match tokenizer {
+                // <= `0.20.5`, `unicode_words` was accidentally named `remove_emojis`, so we need to register the old name for backwards compatibility
+                SearchTokenizer::UnicodeWords {
+                    remove_emojis,
+                    filters,
+                } => {
+                    tokenizers.push(SearchTokenizer::UnicodeWordsDeprecated {
+                        remove_emojis: *remove_emojis,
+                        filters: filters.clone(),
+                    });
+                }
+
+                // <= `0.22.3`, Lindera tokenizers did not support user-specified keep_whitespace. They defaulted to true.
+                // Going forward, they default to false (to match Lindera behavior), but we need to register the old ones
+                // (that still default to false) for backwards compatibility
+                SearchTokenizer::ChineseLindera {
+                    filters,
+                    keep_whitespace: _,
+                } => {
+                    tokenizers.push(SearchTokenizer::ChineseLinderaDeprecated(filters.clone()));
+                }
+                SearchTokenizer::JapaneseLindera {
+                    filters,
+                    keep_whitespace: _,
+                } => {
+                    tokenizers.push(SearchTokenizer::JapaneseLinderaDeprecated(filters.clone()));
+                }
+                SearchTokenizer::KoreanLindera {
+                    filters,
+                    keep_whitespace: _,
+                } => {
+                    tokenizers.push(SearchTokenizer::KoreanLinderaDeprecated(filters.clone()));
+                }
+                SearchTokenizer::Lindera {
+                    language,
+                    filters,
+                    keep_whitespace: _,
+                } => {
+                    tokenizers.push(SearchTokenizer::LinderaDeprecated(
+                        language.clone(),
+                        filters.clone(),
+                    ));
+                }
+                _ => {}
             }
         }
 

@@ -17,26 +17,54 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::FileEntry;
+use crate::postgres::storage::dsm_cache;
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
+use pgrx::pg_sys;
 use std::io::Error;
 use std::ops::Range;
 use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
 
+/// Optional metadata for DSM caching of segment component data.
+pub struct CacheInfo {
+    pub index_oid: pg_sys::Oid,
+    pub segment_id: [u8; 16],
+    pub is_fieldnorm: bool,
+}
+
 #[derive(Debug)]
 pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
     entry: FileEntry,
+    cache_info: Option<CacheInfo>,
+}
+
+// CacheInfo contains only Copy types; Debug not needed but we suppress the derive for the parent
+impl std::fmt::Debug for CacheInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CacheInfo")
+            .field("index_oid", &self.index_oid)
+            .field("is_fieldnorm", &self.is_fieldnorm)
+            .finish()
+    }
 }
 
 impl SegmentComponentReader {
-    pub unsafe fn new(indexrel: &PgSearchRelation, entry: FileEntry) -> Self {
+    pub unsafe fn new(
+        indexrel: &PgSearchRelation,
+        entry: FileEntry,
+        cache_info: Option<CacheInfo>,
+    ) -> Self {
         let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
 
-        Self { block_list, entry }
+        Self {
+            block_list,
+            entry,
+            cache_info,
+        }
     }
 
     fn read_bytes_raw(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
@@ -44,7 +72,24 @@ impl SegmentComponentReader {
             let end = range.end.min(self.len());
             let range = range.start..end;
 
-            // read one or more pages
+            // Try DSM cache for fieldnorm components
+            if let Some(ref info) = self.cache_info {
+                if info.is_fieldnorm && !range.is_empty() && crate::gucs::enable_dsm_fieldnorms() {
+                    let key = dsm_cache::CacheKey {
+                        index_oid: info.index_oid,
+                        segment_id: info.segment_id,
+                        tag: dsm_cache::CacheTag::FieldNorms,
+                        sub_key: range.start as u32,
+                    };
+                    if let Some(dsm_slice) = dsm_cache::get_or_create(&key, range.len(), |buf| {
+                        self.block_list.get_bytes_range_into(range.clone(), buf);
+                    }) {
+                        return Ok(dsm_slice.into_owned_bytes());
+                    }
+                }
+            }
+
+            // Fall back to buffer pool read
             Ok(self.block_list.get_bytes_range(range))
         }
     }
@@ -93,7 +138,7 @@ mod tests {
         let file_entry = writer.file_entry();
         writer.terminate().unwrap();
 
-        let reader = SegmentComponentReader::new(&indexrel, file_entry);
+        let reader = SegmentComponentReader::new(&indexrel, file_entry, None);
 
         assert_eq!(reader.len(), 100_000);
         assert_eq!(

@@ -17,7 +17,7 @@
 
 use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
-use crate::index::reader::segment_component::SegmentComponentReader;
+use crate::index::reader::segment_component::{CacheInfo, SegmentComponentReader};
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
@@ -193,8 +193,14 @@ impl MVCCDirectory {
                 let file_entry = entry
                     .file_entry(uuid_string, path)
                     .expect("No such path for {entry:?}: {path:?}");
+                let is_fieldnorm = path.extension().and_then(|e| e.to_str()) == Some("fieldnorm");
+                let cache_info = CacheInfo {
+                    index_oid: self.indexrel.oid(),
+                    segment_id: *segment_id.uuid_bytes(),
+                    is_fieldnorm,
+                };
                 Ok(Arc::new(unsafe {
-                    SegmentComponentReader::new(&self.indexrel, file_entry)
+                    SegmentComponentReader::new(&self.indexrel, file_entry, Some(cache_info))
                 }))
             }
             LoadedSegmentMetaEntry::Memory {
@@ -312,7 +318,7 @@ impl Directory for MVCCDirectory {
                         };
                     Ok(vacant
                         .insert(Arc::new(unsafe {
-                            SegmentComponentReader::new(&self.indexrel, file_entry)
+                            SegmentComponentReader::new(&self.indexrel, file_entry, None)
                         }))
                         .clone())
                 }

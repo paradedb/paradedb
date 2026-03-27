@@ -343,6 +343,16 @@ impl LinkedBytesList {
         self.bman.page_is_empty(self.get_start_blockno().0)
     }
 
+    /// Like `get_bytes_range`, but writes directly into a caller-supplied buffer
+    /// instead of allocating.
+    pub unsafe fn get_bytes_range_into(&self, range: Range<usize>, out: &mut [u8]) {
+        if range.is_empty() {
+            return;
+        }
+        let bytes = self.get_bytes_range(range);
+        out.copy_from_slice(bytes.as_ref());
+    }
+
     pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> OwnedBytes {
         if range.is_empty() {
             return OwnedBytes::empty();

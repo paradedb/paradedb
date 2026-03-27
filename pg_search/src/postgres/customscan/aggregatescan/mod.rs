@@ -161,6 +161,16 @@ impl CustomScan for AggregateScan {
                 builder.set_scanrelid(0);
                 unsafe {
                     let mut cscan = builder.build();
+
+                    // Set custom_scan_tlist so Postgres can resolve variable references
+                    // when Sort/Limit nodes are placed above this scanrelid=0 CustomScan.
+                    // This is a copy of the original targetlist (with Aggrefs intact) —
+                    // setrefs.c uses it to create INDEX_VAR references in parent nodes.
+                    let original_tlist = cscan.scan.plan.targetlist;
+                    cscan.custom_scan_tlist =
+                        pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
+
+                    // Replace Aggrefs in the plan's targetlist (but NOT custom_scan_tlist)
                     let plan = &mut cscan.scan.plan;
                     replace_aggrefs_in_target_list(plan);
                     cscan

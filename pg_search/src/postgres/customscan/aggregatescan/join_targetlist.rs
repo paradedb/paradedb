@@ -127,14 +127,6 @@ fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool) -> Option<AggKind> {
     }
 }
 
-/// Result type OID for a given aggregate kind.
-fn result_type_oid_for_kind(kind: &AggKind) -> pg_sys::Oid {
-    match kind {
-        AggKind::CountStar | AggKind::Count => pg_sys::INT8OID,
-        AggKind::Sum | AggKind::Avg | AggKind::Min | AggKind::Max => pg_sys::FLOAT8OID,
-    }
-}
-
 /// Extract aggregate target list from `output_rel.reltarget.exprs` for a join
 /// aggregate query.
 ///
@@ -223,7 +215,9 @@ pub unsafe fn extract_aggregate_targetlist(
                 .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
 
             let field_ref = extract_aggref_field_ref(aggref, sources)?;
-            let result_type_oid = result_type_oid_for_kind(&agg_kind);
+            // Use the actual Postgres result type from the Aggref node,
+            // not a guessed type — this avoids segfaults from type mismatches
+            let result_type_oid = (*aggref).aggtype;
 
             aggregates.push(JoinAggregateEntry {
                 func_oid: aggfnoid,

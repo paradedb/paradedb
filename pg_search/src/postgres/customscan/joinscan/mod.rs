@@ -138,15 +138,15 @@
 //! - [`privdat`]: Private data serialization between planning and execution.
 //! - [`explain`]: EXPLAIN output formatting.
 
-mod build;
+pub mod build;
 mod explain;
-mod memory;
+pub mod memory;
 mod planner;
 mod planning;
-mod predicate;
+pub mod predicate;
 mod privdat;
-mod scan_state;
-mod translator;
+pub mod scan_state;
+pub mod translator;
 
 use self::build::{CtidColumn, JoinCSClause, RelNode, RelationAlias};
 use self::explain::{format_join_level_expr, get_attname_safe};

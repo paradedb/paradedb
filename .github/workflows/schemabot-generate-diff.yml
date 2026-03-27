@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - 0.*.x # Release branches
+      - moe/** # Temporary: trigger CI on stacked PR chain
     paths:
       - ".github/workflows/schemabot-generate-diff.yml"
       - ".github/scripts/check_migration_diff.py"

@@ -40,7 +40,7 @@ pub fn search_with_parse(_element: AnyElement, query: &str) -> bool {
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.@@@)]
-pub fn search_with_fielded_query_input(_element: AnyElement, query: pdb::Query) -> bool {
+pub fn search_with_fieled_query_input(_element: AnyElement, query: pdb::Query) -> bool {
     panic!("query is incompatible with pg_search's `@@@(field, pdb.query)` operator: `{query:?}`")
 }
 
@@ -185,13 +185,13 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
 extension_sql!(
     r#"
         ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.atatat_support;
-        ALTER FUNCTION paradedb.search_with_fielded_query_input SUPPORT paradedb.atatat_support;
+        ALTER FUNCTION paradedb.search_with_fieled_query_input SUPPORT paradedb.atatat_support;
         ALTER FUNCTION paradedb.search_with_proximity_clause SUPPORT paradedb.atatat_support;
     "#,
     name = "atatat_support_fn",
     requires = [
         search_with_parse,
-        search_with_fielded_query_input,
+        search_with_fieled_query_input,
         search_with_proximity_clause,
         atatat_support
     ]

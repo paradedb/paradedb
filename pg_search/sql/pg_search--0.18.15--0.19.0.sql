@@ -1885,14 +1885,5 @@ ALTER FUNCTION paradedb.search_with_term_boost SUPPORT paradedb.search_with_term
 ALTER FUNCTION paradedb.search_with_term_fuzzy SUPPORT paradedb.search_with_term_support;
 
 ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.atatat_support;
--- Rename the legacy misspelled helper during upgrade before attaching support.
-DO $$
-BEGIN
-    IF to_regprocedure('paradedb.search_with_fieled_query_input(anyelement,pdb.query)') IS NOT NULL
-        AND to_regprocedure('paradedb.search_with_fielded_query_input(anyelement,pdb.query)') IS NULL THEN
-        EXECUTE 'ALTER FUNCTION paradedb.search_with_fieled_query_input(anyelement, pdb.query) RENAME TO search_with_fielded_query_input';
-    END IF;
-END
-$$;
-ALTER FUNCTION paradedb.search_with_fielded_query_input SUPPORT paradedb.atatat_support;
+ALTER FUNCTION paradedb.search_with_fieled_query_input SUPPORT paradedb.atatat_support;
 ALTER FUNCTION paradedb.search_with_proximity_clause SUPPORT paradedb.atatat_support;

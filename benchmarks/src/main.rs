@@ -476,14 +476,28 @@ async fn write_postgres_settings(file: &mut File, url: &str) {
 }
 
 fn generate_test_data(url: &str, dataset: &str, rows: u32) {
-    let status = Command::new("psql")
-        .arg(url)
-        .arg("-v")
-        .arg(format!("rows={rows}"))
-        .arg("-f")
-        .arg(format!("datasets/{dataset}/generate.sql"))
-        .status()
-        .expect("Failed to create table");
+    let load_script = format!("datasets/{dataset}/load.sh");
+
+    let status = if Path::new(&load_script).exists() {
+        // Datasets with a load.sh script handle their own data loading (e.g. downloading
+        // from GCS and COPYing Parquet files). The script receives the database URL and
+        // max row count as arguments.
+        Command::new("bash")
+            .arg(&load_script)
+            .arg(url)
+            .arg(rows.to_string())
+            .status()
+            .expect("Failed to run load script")
+    } else {
+        Command::new("psql")
+            .arg(url)
+            .arg("-v")
+            .arg(format!("rows={rows}"))
+            .arg("-f")
+            .arg(format!("datasets/{dataset}/generate.sql"))
+            .status()
+            .expect("Failed to create table")
+    };
 
     if !status.success() {
         eprintln!("Failed to create table");

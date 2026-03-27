@@ -52,7 +52,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (
         github.event_name == 'pull_request' &&
-        contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
+        contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs", "benchmark-queries-stackoverflow"]'), github.event.label.name)
       )
     env:
       pg_version: 18
@@ -64,13 +64,14 @@ jobs:
         uses: actions-ecosystem/action-remove-labels@v1
         if: >-
           github.event_name == 'pull_request' &&
-          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs", "benchmark-queries-stackoverflow"]'), github.event.label.name)
         with:
           labels: |
             benchmark
             benchmark-queries
             benchmark-queries-logs
             benchmark-queries-docs
+            benchmark-queries-stackoverflow
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -105,7 +106,7 @@ jobs:
 
       - name: Fetch the Latest Composite Actions
         if: >-
-          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs", "benchmark-queries-stackoverflow"]'), github.event.label.name)
         uses: actions/checkout@v6
         with:
           repository: ${{ github.repository }}
@@ -116,18 +117,18 @@ jobs:
 
       - name: Copy latest actions into place
         if: >-
-          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs", "benchmark-queries-stackoverflow"]'), github.event.label.name)
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
         if: >-
-          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs", "benchmark-queries-stackoverflow"]'), github.event.label.name)
         run: rm -rf actions-temp
 
       # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
       - name: Fetch latest benchmark code, suites
         if: >-
-          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs"]'), github.event.label.name)
+          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs", "benchmark-queries-docs", "benchmark-queries-stackoverflow"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -249,6 +250,20 @@ jobs:
         working-directory: pg_search/
         run: psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
 
+      - name: Authenticate to Google Cloud
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow"]'), github.event.label.name)
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+
+      - name: Set up Cloud SDK
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow"]'), github.event.label.name)
+        uses: google-github-actions/setup-gcloud@v2
+
       # Benchmark "logs" dataset at multiple scales (10K, 100K, 1M, 10M, 100M)
       - name: Benchmark "logs" Dataset (10K rows)
         if: >-
@@ -333,6 +348,23 @@ jobs:
         with:
           dataset: docs
           rows: 25000000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
+
+      # Benchmark "stackoverflow" dataset (data loaded from GCS Parquet files)
+      # TODO: Once we are comfortable with this dataset, we can remove the other datasets and the rows parameter.
+      - name: Benchmark "stackoverflow" Dataset
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow"]'), github.event.label.name)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: stackoverflow
+          rows: 100000
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}

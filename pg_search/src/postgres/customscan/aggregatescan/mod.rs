@@ -826,6 +826,17 @@ impl AggregateScan {
             }
         };
 
+        // Reject CROSS JOINs (no equi-join keys). Without join keys the
+        // second table's PgSearchTableProvider has no Named fields, producing
+        // empty RecordBatches.
+        if plan.join_keys().is_empty() {
+            Self::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
+                "join".to_string(),
+            );
+            return Vec::new();
+        }
+
         // Populate the fast fields on each source so PgSearchTableProvider exposes them.
         // This fails if join key fields aren't indexed as fast fields.
         if let Err(e) =

@@ -76,8 +76,11 @@ impl QueryPlanner for AggQueryPlanner {
 ///
 /// Similar to JoinScan's `create_session_context()` but without
 /// `SegmentedTopKRule` (row-level TopK doesn't apply to aggregates).
-pub fn create_aggregate_session_context() -> SessionContext {
-    let config = SessionConfig::new().with_target_partitions(1);
+///
+/// `target_partitions` controls parallelism: 1 = single-threaded,
+/// >1 = DataFusion produces two-phase aggregate plans (partial → final).
+pub fn create_aggregate_session_context(target_partitions: usize) -> SessionContext {
+    let config = SessionConfig::new().with_target_partitions(target_partitions);
 
     let mut builder = SessionStateBuilder::new().with_config(config);
 
@@ -180,6 +183,10 @@ pub async fn build_join_aggregate_plan(
 }
 
 /// Build a DataFusion physical plan from a logical plan.
+///
+/// When `target_partitions > 1`, the optimizer will produce a two-phase
+/// aggregate plan (Partial → Repartition → FinalPartitioned). We add a
+/// `CoalescePartitionsExec` on top to merge into a single output stream.
 pub async fn build_aggregate_physical_plan(
     ctx: &SessionContext,
     logical_plan: datafusion::logical_expr::LogicalPlan,
@@ -195,6 +202,39 @@ pub async fn build_aggregate_physical_plan(
     } else {
         Ok(plan)
     }
+}
+
+/// Build a [`datafusion::execution::TaskContext`] with a memory pool
+/// sized for the given physical plan.
+///
+/// Follows JoinScan's pattern: walks the plan tree to estimate memory
+/// needs (hash joins, sorts) and wraps them in a `PanicOnOOMMemoryPool`.
+pub fn build_aggregate_task_context(
+    ctx: &SessionContext,
+    plan: &Arc<dyn ExecutionPlan>,
+) -> Arc<datafusion::execution::TaskContext> {
+    use crate::postgres::customscan::joinscan::memory::create_memory_pool;
+    use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+    use pgrx::pg_sys;
+
+    let (work_mem, hash_mem_mul) = unsafe {
+        (
+            pg_sys::work_mem as usize * 1024,
+            pg_sys::hash_mem_multiplier,
+        )
+    };
+    let memory_pool = create_memory_pool(plan, work_mem, hash_mem_mul);
+
+    Arc::new(
+        datafusion::execution::TaskContext::default()
+            .with_session_config(ctx.state().config().clone())
+            .with_runtime(Arc::new(
+                RuntimeEnvBuilder::new()
+                    .with_memory_pool(memory_pool)
+                    .build()
+                    .expect("Failed to create RuntimeEnv"),
+            )),
+    )
 }
 
 /// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].

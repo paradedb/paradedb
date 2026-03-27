@@ -141,3 +141,102 @@ FROM mvcc_agg_test WHERE id @@@ paradedb.all();
 
 DROP TABLE mvcc_agg_test;
 
+-- =====================================================================
+-- SECTION 4: pdb.agg() with ||| operator (GitHub Issue #4456)
+-- =====================================================================
+-- Tests that pdb.agg() works with the ||| (text-contains) operator,
+-- not just @@@. Previously, ||| caused AggregateScan to be rejected
+-- because the operator was not recognized in the uses_our_operator check.
+
+CREATE TABLE triple_pipe_agg_test (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT
+);
+
+CREATE INDEX triple_pipe_agg_test_idx ON triple_pipe_agg_test
+USING bm25 (id, description, category)
+WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+
+INSERT INTO triple_pipe_agg_test (description, category) VALUES
+    ('running shoes for men', 'footwear'),
+    ('running shoes for women', 'footwear'),
+    ('casual walking shoes', 'footwear'),
+    ('running shorts', 'apparel'),
+    ('running jacket', 'apparel');
+
+-- Test 1: ||| operator with solve_mvcc=false — the exact failing query from issue #4456
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description ||| 'running shoes';
+
+-- This SELECT is the actual proof the bug is fixed: it previously errored with
+-- "pdb.agg() must be handled by ParadeDB's custom scan..."
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description ||| 'running shoes';
+
+-- Test 2: ||| operator with solve_mvcc=true (explicit)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, true)
+FROM triple_pipe_agg_test
+WHERE description ||| 'running shoes';
+
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, true)
+FROM triple_pipe_agg_test
+WHERE description ||| 'running shoes';
+
+-- Test 3: ||| operator with solve_mvcc=false + GROUP BY
+SELECT category, pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description ||| 'running'
+GROUP BY category
+ORDER BY category;
+
+-- Test 4: ||| operator with deletion + solve_mvcc=false (verify count correctness)
+DELETE FROM triple_pipe_agg_test WHERE id = 1;
+
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description ||| 'running shoes';
+
+-- With solve_mvcc=true, should reflect the deletion
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, true)
+FROM triple_pipe_agg_test
+WHERE description ||| 'running shoes';
+
+-- Test 5: ||| with default (single-arg) pdb.agg — should also work
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb)
+FROM triple_pipe_agg_test
+WHERE description ||| 'running shoes';
+
+-- Re-insert the deleted row so counts are predictable for remaining tests
+INSERT INTO triple_pipe_agg_test (id, description, category) VALUES
+    (1, 'running shoes for men', 'footwear');
+
+-- Note: the earlier DELETE of id=1 left a ghost row in the Tantivy index.
+-- The re-insert adds a new row, so with solve_mvcc=false the index now
+-- contains 6 documents (5 original including the ghost + 1 re-inserted).
+-- This is expected: solve_mvcc=false skips visibility checks.
+-- Test 6: &&& operator with solve_mvcc=false (conjunction/AND match)
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description &&& 'running shoes';
+
+-- Test 7: ### operator with solve_mvcc=false (phrase match)
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description ### 'running shoes';
+
+-- Test 8: === operator with solve_mvcc=false (exact term match)
+-- === matches individual tokens, so 'running' matches tokenized terms
+SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb, false)
+FROM triple_pipe_agg_test
+WHERE description === 'running';
+
+-- Note: ## and ##> (proximity operators) require ProximityClause objects,
+-- not plain text, so they cannot be tested with this simple pattern.
+
+DROP TABLE triple_pipe_agg_test;
+

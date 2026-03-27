@@ -91,16 +91,15 @@ pub unsafe fn resolve_fast_field(
                     // (e.g. (col)::pdb.literal_normalized) are handled by the
                     // find_matching_fast_field fallback below instead.
                     if matches!(data.source, FieldSource::Heap { attno: source_attno } if source_attno == (attno - 1) as usize)
+                        && search_field.is_fast()
                     {
-                        if search_field.is_fast() {
-                            if let Some(field_type) =
-                                field_type_for_pullup(search_field.field_type(), data.is_array)
-                            {
-                                return Some(WhichFastField::Named(
-                                    att.name().to_string(),
-                                    field_type,
-                                ));
-                            }
+                        if let Some(field_type) =
+                            field_type_for_pullup(search_field.field_type(), data.is_array)
+                        {
+                            return Some(WhichFastField::Named(
+                                att.name().to_string(),
+                                field_type,
+                            ));
                         }
                     }
                 }

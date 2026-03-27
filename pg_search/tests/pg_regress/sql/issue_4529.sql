@@ -52,7 +52,45 @@ WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
 
+-- =============================================================================
+-- Verify #3978 safety: expression-transformed indexes must NOT be pulled up
+-- as fast fields for the raw column. Only simple tokenizer casts (like
+-- ::pdb.literal_normalized) are safe because they store the original value.
+-- =============================================================================
+
+DROP INDEX typmod_products_idx;
+DROP INDEX typmod_suppliers_idx;
+
+-- Re-index with lower() expression — the fast field stores lowered values,
+-- so pulling up raw 'name' from it would return wrong data.
+CREATE INDEX typmod_products_idx ON typmod_products
+    USING bm25 (id, ((lower(name))::pdb.literal('alias=name_lower')), description, supplier_id)
+    WITH (key_field = 'id');
+
+CREATE INDEX typmod_suppliers_idx ON typmod_suppliers
+    USING bm25 (id, ((lower(name))::pdb.literal('alias=name_lower')))
+    WITH (key_field = 'id');
+
+-- JoinScan must NOT activate here — 'name' is not a direct fast field,
+-- and the expression index stores lower(name) which differs from name.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT s.name
+FROM typmod_products p
+JOIN typmod_suppliers s ON p.supplier_id = s.id
+WHERE p.description === 'widget'
+ORDER BY s.name
+LIMIT 10;
+
+-- Correctness: must return 'Alpha' (original case), not 'alpha'
+SELECT DISTINCT s.name
+FROM typmod_products p
+JOIN typmod_suppliers s ON p.supplier_id = s.id
+WHERE p.description === 'widget'
+ORDER BY s.name
+LIMIT 10;
+
 DROP TABLE typmod_products CASCADE;
 DROP TABLE typmod_suppliers CASCADE;
 RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
 RESET paradedb.enable_join_custom_scan;

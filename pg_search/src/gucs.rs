@@ -118,6 +118,13 @@ static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(
 /// won't use parallel, and larger tables scale workers appropriately.
 static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 
+/// Number of DataFusion target partitions for aggregate-on-join queries.
+/// 1 = single-threaded (default). Values > 1 enable DataFusion's two-phase
+/// aggregation where partial aggregates run per partition and merge into a
+/// final result. Execution remains on the backend's main thread (cooperative
+/// via current-thread tokio runtime) to respect Postgres FFI thread-safety.
+static AGGREGATE_TARGET_PARTITIONS: GucSetting<i32> = GucSetting::<i32>::new(1);
+
 /// Override the scanner batch size when dynamic filters are pushed down.
 /// 0 means disabled (use the scanner's default). When > 0, the scanner's batch
 /// size is capped to this value during filter pushdown so that Top K can tighten
@@ -391,6 +398,20 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.aggregate_target_partitions",
+        c"Number of DataFusion partitions for aggregate-on-join queries",
+        c"Controls partition count for DataFusion aggregate execution. \
+          1 = single-threaded (default). Values > 1 enable two-phase \
+          aggregation (partial per partition, then merge). Execution \
+          remains on the backend thread (Postgres FFI is not thread-safe).",
+        &AGGREGATE_TARGET_PARTITIONS,
+        1,
+        256,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
         c"paradedb.dynamic_filter_batch_size",
         c"Scanner batch size override for dynamic filter pushdown",
         c"When > 0, caps the scanner batch size during dynamic filter pushdown so that \
@@ -573,6 +594,10 @@ pub fn dynamic_filter_batch_size() -> i32 {
 
 pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn aggregate_target_partitions() -> usize {
+    AGGREGATE_TARGET_PARTITIONS.get().max(1) as usize
 }
 
 #[cfg(any(test, feature = "pg_test"))]

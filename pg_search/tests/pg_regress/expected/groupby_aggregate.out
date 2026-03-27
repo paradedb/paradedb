@@ -716,8 +716,9 @@ LIMIT 10;
                  Applies to Aggregates: COUNT(*)
                  Group By: category
                  Limit: 10
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(13 rows)
+                 TopK Order: COUNT(*) DESC
+                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":10,"size":10}}}
+(14 rows)
 
 SELECT category
 FROM products
@@ -738,8 +739,8 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(category) DESC;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (pdb.agg_fn('COUNT'::text))
    Sort Key: (pdb.agg_fn('COUNT'::text)) DESC
@@ -749,8 +750,9 @@ ORDER BY COUNT(category) DESC;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
            Applies to Aggregates: COUNT(category)
            Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"category","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+           TopK Order: COUNT(category) DESC
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"category","missing":null}}},"terms":{"field":"category","order":{"0":"desc"},"segment_size":65000,"size":65000}}}
+(11 rows)
 
 SELECT category
 FROM products
@@ -770,8 +772,8 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY SUM(price) DESC;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (pdb.agg_fn('SUM'::text))
    Sort Key: (pdb.agg_fn('SUM'::text)) DESC
@@ -781,8 +783,9 @@ ORDER BY SUM(price) DESC;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
            Applies to Aggregates: SUM(price)
            Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+           TopK Order: SUM(price) DESC
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"0":"desc"},"segment_size":65000,"size":65000}}}
+(11 rows)
 
 SELECT category, SUM(price) as total_price
 FROM products
@@ -802,8 +805,8 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY AVG(price) ASC;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (pdb.agg_fn('AVG'::text))
    Sort Key: (pdb.agg_fn('AVG'::text))
@@ -813,8 +816,9 @@ ORDER BY AVG(price) ASC;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
            Applies to Aggregates: AVG(price)
            Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+           TopK Order: AVG(price) ASC
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"0":"asc"},"segment_size":65000,"size":65000}}}
+(11 rows)
 
 SELECT category, AVG(price) as avg_price
 FROM products
@@ -834,8 +838,8 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY MIN(price) DESC;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (pdb.agg_fn('MIN'::text)), (pdb.agg_fn('MAX'::text))
    Sort Key: (pdb.agg_fn('MIN'::text)) DESC
@@ -845,8 +849,9 @@ ORDER BY MIN(price) DESC;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
            Applies to Aggregates: MIN(price), MAX(price)
            Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"min":{"field":"price","missing":null}},"1":{"max":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+           TopK Order: MIN(price) DESC
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"min":{"field":"price","missing":null}},"1":{"max":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"0":"desc"},"segment_size":65000,"size":65000}}}
+(11 rows)
 
 SELECT category, MIN(price) as min_price, MAX(price) as max_price
 FROM products
@@ -913,8 +918,9 @@ LIMIT 2;
                  Applies to Aggregates: COUNT(*)
                  Group By: category
                  Limit: 2
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(13 rows)
+                 TopK Order: COUNT(*) DESC
+                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":2,"size":2}}}
+(14 rows)
 
 SELECT category, COUNT(*) as product_count
 FROM products
@@ -953,8 +959,9 @@ LIMIT 10;
                  Applies to Aggregates: COUNT(*)
                  Group By: category
                  Limit: 10
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(13 rows)
+                 TopK Order: COUNT(*) DESC
+                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":10,"size":10}}}
+(14 rows)
 
 SELECT category, COUNT(*) as pcount
 FROM products
@@ -975,8 +982,8 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(category) DESC;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (pdb.agg_fn('COUNT'::text))
    Sort Key: (pdb.agg_fn('COUNT'::text)) DESC
@@ -986,8 +993,9 @@ ORDER BY COUNT(category) DESC;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
            Applies to Aggregates: COUNT(category)
            Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"category","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+           TopK Order: COUNT(category) DESC
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"category","missing":null}}},"terms":{"field":"category","order":{"0":"desc"},"segment_size":65000,"size":65000}}}
+(11 rows)
 
 SELECT category
 FROM products
@@ -1007,8 +1015,8 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY SUM(price) DESC;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (pdb.agg_fn('SUM'::text))
    Sort Key: (pdb.agg_fn('SUM'::text)) DESC
@@ -1018,8 +1026,9 @@ ORDER BY SUM(price) DESC;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
            Applies to Aggregates: SUM(price)
            Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+           TopK Order: SUM(price) DESC
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"0":"desc"},"segment_size":65000,"size":65000}}}
+(11 rows)
 
 SELECT category, SUM(price) as total_price
 FROM products
@@ -1290,8 +1299,9 @@ ORDER BY count DESC;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
            Applies to Aggregates: COUNT(*)
            Group By: category
-           Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+           TopK Order: COUNT(*) DESC
+           Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":65000,"size":65000}}}
+(11 rows)
 
 SELECT d.category AS label, COUNT(*)::int AS count
 FROM products d

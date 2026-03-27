@@ -157,10 +157,15 @@ pub fn is_anyelement_search_opoid(opno: pg_sys::Oid) -> bool {
 }
 
 /// Check if an operator OID belongs to a ParadeDB search operator by looking up its name
-/// in the system catalog. Recognizes: @@@, |||, &&&, ===, ###, ##, ##>
+/// and left argument type in the system catalog.
 ///
-/// Checks operator name regardless of argument types (text, text[], pdb.query, pdb.boost,
-/// pdb.fuzzy, etc.), covering all overload variants with a single name match.
+/// Recognizes: @@@, |||, &&&, ===, ### (left type = anyelement)
+///             ##, ##> (left type = proximityclause, a ParadeDB type)
+///
+/// Checks operator name regardless of right-hand argument types (text, text[], pdb.query,
+/// pdb.boost, pdb.fuzzy, etc.), covering all overload variants with a single name match.
+/// The left-type check prevents false positives against built-in operators with the same
+/// name (e.g., PostgreSQL's geometric ## or tsvector @@@).
 pub fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
     unsafe {
         let opertup = pg_sys::SearchSysCache1(
@@ -174,11 +179,25 @@ pub fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
 
         let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
         let opername = pgrx::name_data_to_str(&(*operform).oprname);
+        let oprleft = (*operform).oprleft;
 
-        let is_ours = matches!(
-            opername,
-            "@@@" | "|||" | "&&&" | "===" | "###" | "##" | "##>"
-        );
+        let is_ours = match opername {
+            // These have anyelement as the left type.
+            // The left-type check excludes built-in @@ @/tsvector and geometric collisions.
+            "@@@" | "|||" | "&&&" | "===" | "###" => oprleft == pg_sys::ANYELEMENTOID,
+
+            // Proximity operators use proximityclause (a ParadeDB type) on the left.
+            // No built-in collision risk, but we still verify it's not a geometric ##
+            // by confirming the left type is NOT a built-in geometric type.
+            "##" | "##>" => {
+                oprleft != pg_sys::POINTOID
+                    && oprleft != pg_sys::LINEOID
+                    && oprleft != pg_sys::LSEGOID
+                    && oprleft != pg_sys::BOXOID
+            }
+
+            _ => false,
+        };
 
         pg_sys::ReleaseSysCache(opertup);
         is_ours

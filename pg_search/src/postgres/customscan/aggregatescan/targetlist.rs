@@ -259,6 +259,13 @@ impl CustomScanClause<AggregateScan> for TargetList {
                     // The placeholder pdb.agg() state function will error if PostgreSQL's
                     // standard aggregate machinery tries to process it.
                     if matches!(aggregate, AggregateType::Custom { .. }) {
+                        if !uses_our_operator {
+                            pgrx::warning!(
+                                "pdb.agg() detected but the WHERE clause operator was not recognized \
+                                 as a ParadeDB operator. This may indicate a missing operator in \
+                                 is_paradedb_search_operator(). Forcing AggregateScan anyway."
+                            );
+                        }
                         uses_our_operator = true;
                     }
 

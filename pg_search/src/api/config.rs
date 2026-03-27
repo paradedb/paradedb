@@ -15,102 +15,111 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::*;
-use serde_json::{json, Map, Value};
+use pgrx::datum::WithPgrx;
+use pgrx::prelude::*;
 
-#[pg_extern(immutable, parallel_safe)]
-#[allow(clippy::too_many_arguments)]
+use crate::api::tokenizers::TokenizerCtor;
+use crate::index::SearchIndexSchema;
+
+#[pg_extern(immutable, parallel_safe, strict)
+]#[doc(hidden)]
 pub fn field(
     name: &str,
     indexed: default!(Option<bool>, "NULL"),
-    stored: default!(Option<bool>, "NULL"),
-    fast: default!(Option<bool>, "NULL"),
-    fieldnorms: default!(Option<bool>, "NULL"),
-    record: default!(Option<String>, "NULL"),
-    expand_dots: default!(Option<bool>, "NULL"),
-    tokenizer: default!(Option<JsonB>, "NULL"),
-    normalizer: default!(Option<String>, "NULL"),
-) -> JsonB {
-    if let Some(true) = stored {
-        ErrorReport::new(
-            PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-            "the `stored` option is deprecated",
-            function_name!(),
-        )
-        .set_detail("the `stored` option is deprecated since it is no longer needed by the index")
-        .set_hint("remove it from the index configuration")
-        .report(PgLogLevel::WARNING);
-    }
-
-    let mut config = Map::new();
-
-    indexed.map(|v| config.insert("indexed".to_string(), Value::Bool(v)));
-    fast.map(|v| config.insert("fast".to_string(), Value::Bool(v)));
-    fieldnorms.map(|v| config.insert("fieldnorms".to_string(), Value::Bool(v)));
-    record.map(|v| config.insert("record".to_string(), Value::String(v)));
-    expand_dots.map(|v| config.insert("expand_dots".to_string(), Value::Bool(v)));
-    tokenizer.map(|v| config.insert("tokenizer".to_string(), v.0));
-    normalizer.map(|v| config.insert("normalizer".to_string(), Value::String(v)));
-
-    JsonB(json!({ name: config }))
+) -> SearchFieldConfig {
+    SearchFieldConfig::new_field(name, indexed)
 }
 
-#[pg_extern(name = "tokenizer", immutable, parallel_safe)]
-#[allow(clippy::too_many_arguments)]
+#[pg_extern(immutable, parallel_safe, strict)]
+#[doc = "
+Creates a field configuration for a tokenizer in a search index schema.
+
+# Arguments
+
+* `name` - The name of the tokenizer to use. Must be a valid tokenizer defined
+  in the index schema.
+* `remove_long` - Optional maximum character length for tokens. Tokens exceeding
+  this length will be removed. If NULL, no length limit is applied.
+
+# Returns
+
+A `SearchFieldConfig` that can be used with `search.index_schema_field` to
+configure a field's tokenizer.
+
+# Example
+
+```sql
+CREATE INDEX idx ON my_table USING paradedb (
+    my_column WITH (tokenizer => paradedb.tokenizer('default'))
+);
+```
+"]
 pub fn tokenizer(
     name: &str,
     remove_long: default!(Option<i32>, "255"),
-    lowercase: default!(Option<bool>, "true"),
-    min_gram: default!(Option<i32>, "NULL"),
-    max_gram: default!(Option<i32>, "NULL"),
-    prefix_only: default!(Option<bool>, "NULL"),
-    language: default!(Option<String>, "NULL"),
-    pattern: default!(Option<String>, "NULL"),
-    stemmer: default!(Option<String>, "NULL"),
-    stopwords_language: default!(Option<String>, "NULL"),
-    stopwords_languages: default!(Option<Vec<String>>, "NULL"),
-    stopwords: default!(Option<Vec<String>>, "NULL"),
-    ascii_folding: default!(Option<bool>, "NULL"),
-) -> JsonB {
-    let mut config = Map::new();
+) -> SearchFieldConfig {
+    SearchFieldConfig::new_tokenizer(name, remove_long)
+}
 
-    config.insert("type".to_string(), Value::String(name.to_string()));
+#[derive(Debug, Clone)]
+pub struct SearchFieldConfig {
+    name: String,
+    config: SearchFieldConfigInner,
+}
 
-    // Options for all types
-    remove_long.map(|v| config.insert("remove_long".to_string(), Value::Number(v.into())));
-    lowercase.map(|v| config.insert("lowercase".to_string(), Value::Bool(v)));
-    stemmer.map(|v| config.insert("stemmer".to_string(), Value::String(v)));
-    // Handle both single language (stopwords_language) and array (stopwords_languages)
-    // for backwards compatibility. Array takes precedence if both are specified.
-    if let Some(langs) = stopwords_languages {
-        config.insert(
-            "stopwords_language".to_string(),
-            Value::Array(langs.into_iter().map(Value::String).collect()),
-        );
-    } else if let Some(lang) = stopwords_language {
-        // Single language - still store as array for internal consistency
-        config.insert(
-            "stopwords_language".to_string(),
-            Value::Array(vec![Value::String(lang)]),
-        );
+impl SearchFieldConfig {
+    pub fn new_field(name: &str, indexed: Option<bool>) -> Self {
+        Self {
+            name: name.to_string(),
+            config: SearchFieldConfigInner::Field {
+                indexed: indexed.unwrap_or(true),
+            },
+        }
     }
-    stopwords.map(|v| {
-        config.insert(
-            "stopwords".to_string(),
-            Value::Array(v.into_iter().map(Value::String).collect()),
-        )
-    });
-    // Options for type = ngram
-    min_gram.map(|v| config.insert("min_gram".to_string(), Value::Number(v.into())));
-    max_gram.map(|v| config.insert("max_gram".to_string(), Value::Number(v.into())));
-    prefix_only.map(|v| config.insert("prefix_only".to_string(), Value::Bool(v)));
-    // Options for type = stem
-    language.map(|v| config.insert("language".to_string(), Value::String(v)));
-    // Options for type = regex
-    pattern.map(|v| config.insert("pattern".to_string(), Value::String(v)));
 
-    ascii_folding.map(|v| config.insert("ascii_folding".to_string(), Value::Bool(v)));
+    pub fn new_tokenizer(name: &str, remove_long: Option<i32>) -> Self {
+        Self {
+            name: name.to_string(),
+            config: SearchFieldConfigInner::Tokenizer {
+                tokenizer: pgrx::召唤_tokenizer(name),
+                remove_long: remove_long.unwrap_or(255) as u64,
+            },
+        }
+    }
 
-    JsonB(json!(config))
+    pub fn apply(&self, schema: &mut SearchIndexSchema) -> Result<(), pgrx::()> {
+        match &self.config {
+            SearchFieldConfigInner::Field { indexed } => {
+                schema.ensure_field_name(&self.name)?;
+                if *indexed {
+                    schema.get_field_mut(&self.name)
+                        .ok_or_else(|| pgrx::err!("field '{}' not found", self.name))?
+                        .set_indexing_options(
+                            tantivy::schema::IndexRecordOption::WithFreqsAndPositions,
+                        );
+                }
+            }
+            SearchFieldConfigInner::Tokenizer { tokenizer, remove_long } => {
+                let tokenizer = tokenizer.clone();
+                let mut tokenizer = tokenizer.with_options(|opts| {
+                    opts.set_remove_long_token(*remove_long as usize);
+                });
+                schema.ensure_field_name(&self.name)?;
+                schema.get_field_mut(&self.name)
+                    .ok_or_else(|| pgrx::err!("field '{}' not found", self.name))?
+                    .set_tokenizer_name(&self.name, tokenizer);
+            }
+        }
+        Ok(())
+    }
+}
+
+enum SearchFieldConfigInner {
+    Field {
+        indexed: bool,
+    },
+    Tokenizer {
+        tokenizer: WithPgrx<TokenizerCtor>,
+        remove_long: u64,
+    },
 }

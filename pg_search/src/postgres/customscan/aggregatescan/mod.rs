@@ -103,6 +103,16 @@ impl CustomScan for AggregateScan {
 
         match input_rel.reloptkind {
             pg_sys::RelOptKind::RELOPT_BASEREL => {
+                // If the estimated number of groups exceeds Tantivy's bucket limit,
+                // fall back to DataFusion which has no such limit.
+                let estimated_groups = builder.args().output_rel().rows;
+                let max_buckets = gucs::max_term_agg_buckets() as f64;
+                if estimated_groups > max_buckets {
+                    if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
+                        return Vec::new();
+                    }
+                    return Self::build_datafusion_aggregate_path(builder);
+                }
                 Self::build_tantivy_aggregate_path(builder, has_paradedb_agg)
             }
             pg_sys::RelOptKind::RELOPT_JOINREL => {

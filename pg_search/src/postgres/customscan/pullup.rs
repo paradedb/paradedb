@@ -81,8 +81,15 @@ pub unsafe fn resolve_fast_field(
                     .map(|(_, data)| data);
 
                 if let Some(data) = field_data {
-                    // Direct heap column: source attno must match.
+                    // For direct heap columns, the source attno must match.
+                    // Expression-indexed columns (FieldSource::Expression) are NOT
+                    // handled here — pulling up the raw column value from a transformed
+                    // expression (e.g. lower(name)) would return wrong data.
                     // See: https://github.com/paradedb/paradedb/issues/3978
+                    //
+                    // Expression-indexed columns that are simple tokenizer casts
+                    // (e.g. (col)::pdb.literal_normalized) are handled by the
+                    // find_matching_fast_field fallback below instead.
                     if matches!(data.source, FieldSource::Heap { attno: source_attno } if source_attno == (attno - 1) as usize)
                     {
                         if search_field.is_fast() {

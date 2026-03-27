@@ -24,7 +24,7 @@
 //! - Handle ORDER BY score pathkeys
 
 use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode};
-use super::predicate::{find_base_info_recursive, is_column_fast_field};
+use super::predicate::find_base_info_recursive;
 use super::privdat::{OutputColumnInfo, PrivateData};
 
 use crate::api::operator::anyelement_query_input_opoid;
@@ -410,8 +410,18 @@ unsafe fn collect_join_sources_join_rel(
                     let inner_heaprelid = inner.scan_info.heaprelid;
                     let inner_indexrelid = inner.scan_info.indexrelid;
 
-                    if !is_column_fast_field(outer_heaprelid, outer_indexrelid, jk.outer_attno)
-                        || !is_column_fast_field(inner_heaprelid, inner_indexrelid, jk.inner_attno)
+                    let outer_hr = PgSearchRelation::open(outer_heaprelid);
+                    let outer_ir = PgSearchRelation::open(outer_indexrelid);
+                    let inner_hr = PgSearchRelation::open(inner_heaprelid);
+                    let inner_ir = PgSearchRelation::open(inner_indexrelid);
+                    if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
+                        .is_none()
+                        || resolve_fast_field(
+                            jk.inner_attno as i32,
+                            &inner_hr.tuple_desc(),
+                            &inner_ir,
+                        )
+                        .is_none()
                     {
                         return None;
                     }
@@ -869,9 +879,7 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
 
     let heaprel = PgSearchRelation::open(side.scan_info.heaprelid);
     let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
-    let tupdesc = heaprel.tuple_desc();
-
-    let field = resolve_fast_field(attno as i32, &tupdesc, &indexrel)?;
+    let field = resolve_fast_field(attno as i32, &heaprel.tuple_desc(), &indexrel)?;
     side.scan_info.add_field(attno, field);
     Some(())
 }
@@ -968,11 +976,9 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 let mut found = false;
                 for source in sources {
                     if source.contains_rti(varno) {
-                        if !is_column_fast_field(
-                            source.scan_info.heaprelid,
-                            source.scan_info.indexrelid,
-                            varattno,
-                        ) {
+                        let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+                        let ir = PgSearchRelation::open(source.scan_info.indexrelid);
+                        if resolve_fast_field(varattno as i32, &hr.tuple_desc(), &ir).is_none() {
                             return false;
                         }
                         found = true;
@@ -1037,12 +1043,13 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             // Plain column reference — must be a fast field in its source index.
             let varno = (*var).varno as pg_sys::Index;
             sources.iter().any(|source| {
-                source.contains_rti(varno)
-                    && is_column_fast_field(
-                        source.scan_info.heaprelid,
-                        source.scan_info.indexrelid,
-                        (*var).varattno,
-                    )
+                if !source.contains_rti(varno) {
+                    return false;
+                }
+                let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+                let ir = PgSearchRelation::open(source.scan_info.indexrelid);
+                let td = hr.tuple_desc();
+                resolve_fast_field((*var).varattno as i32, &td, &ir).is_some()
             })
         } else if get_score_func_rti(expr.cast()).is_some() {
             // Score functions are handled separately — always allowed in DISTINCT.

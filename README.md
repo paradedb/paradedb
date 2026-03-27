@@ -47,9 +47,8 @@ When you're ready to deploy, check out our [hosting options](https://docs.parade
   - [x] [Bucket & Metrics](https://docs.paradedb.com/documentation/aggregates/overview)
   - [x] [Facets](https://docs.paradedb.com/documentation/aggregates/facets)
 - [x] [JOINs](https://docs.paradedb.com/documentation/joins/overview)
-- [x] [Vector Search via `pgvector`](https://docs.paradedb.com/documentation/full-text/overview#similarity-search)
-- [x] [Hybrid Search via `pgvector` + BM25](https://docs.paradedb.com/documentation/full-text/overview#similarity-search)
-- [ ] Native vector search in ParadeDB indexes (in progress)
+- [ ] Vector Search (coming soon)
+- [ ] Hybrid Search (coming soon)
 
 Star and watch this repository to follow along. See our [current projects](https://github.com/paradedb/paradedb/projects?query=is%3Aopen) and [long-term roadmap](https://docs.paradedb.com/welcome/roadmap).
 

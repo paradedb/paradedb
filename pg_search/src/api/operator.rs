@@ -145,7 +145,44 @@ pub fn anyelement_search_opoids() -> [pg_sys::Oid; 2] {
 }
 
 pub fn is_anyelement_search_opoid(opno: pg_sys::Oid) -> bool {
-    anyelement_search_opoids().contains(&opno)
+    // Fast path: check for common @@@(anyelement, searchqueryinput/pdb.query) first
+    if anyelement_search_opoids().contains(&opno) {
+        return true;
+    }
+
+    // Slow path: check operator name for all ParadeDB search operators (|||, &&&, ===, ###, ##, ##>)
+    // These operators have many type overloads, so checking by name is more practical than
+    // enumerating all OIDs.
+    is_paradedb_search_operator(opno)
+}
+
+/// Check if an operator OID belongs to a ParadeDB search operator by looking up its name
+/// in the system catalog. Recognizes: @@@, |||, &&&, ===, ###, ##, ##>
+///
+/// Checks operator name regardless of argument types (text, text[], pdb.query, pdb.boost,
+/// pdb.fuzzy, etc.), covering all overload variants with a single name match.
+pub fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
+    unsafe {
+        let opertup = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::OPEROID as _,
+            opno.into_datum().unwrap(),
+        );
+
+        if opertup.is_null() {
+            return false;
+        }
+
+        let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
+        let opername = pgrx::name_data_to_str(&(*operform).oprname);
+
+        let is_ours = matches!(
+            opername,
+            "@@@" | "|||" | "&&&" | "===" | "###" | "##" | "##>"
+        );
+
+        pg_sys::ReleaseSysCache(opertup);
+        is_ours
+    }
 }
 
 pub fn searchqueryinput_typoid() -> pg_sys::Oid {

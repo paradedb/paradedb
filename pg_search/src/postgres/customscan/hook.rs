@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::agg_funcoid;
-use crate::api::operator::anyelement_search_opoids;
+use crate::api::operator::{anyelement_search_opoids, is_paradedb_search_operator};
 use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
 use crate::nodecast;
@@ -34,7 +34,7 @@ use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_war
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_contains_any_operator, pg_search_extension_installed};
 use once_cell::sync::Lazy;
-use pgrx::{pg_guard, pg_sys, IntoDatum, PgList, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
 use std::collections::{hash_map::Entry, HashMap};
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
@@ -788,34 +788,6 @@ unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
     let mut context = WalkerContext { found: false };
     walker(node, &mut context as *mut _ as *mut core::ffi::c_void);
     context.found
-}
-
-/// Check if an operator OID is a ParadeDB search operator.
-///
-/// Checks operator name regardless of argument types (text, text[], pdb.query, pdb.boost, pdb.fuzzy, etc.)
-unsafe fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
-    // Look up the operator from pg_catalog.pg_operator
-    let opertup = pg_sys::SearchSysCache1(
-        pg_sys::SysCacheIdentifier::OPEROID as _,
-        opno.into_datum().unwrap(),
-    );
-
-    if opertup.is_null() {
-        return false;
-    }
-
-    let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
-    let opername = pgrx::name_data_to_str(&(*operform).oprname);
-
-    // Check if it's one of our search operators
-    // Note: This covers all argument type variants (text, text[], pdb.query, pdb.boost, pdb.fuzzy, etc.)
-    let is_our_operator = matches!(
-        opername,
-        "@@@" | "|||" | "&&&" | "===" | "###" | "##" | "##>"
-    );
-
-    pg_sys::ReleaseSysCache(opertup);
-    is_our_operator
 }
 
 /// Check if the query contains pdb.agg() in any context (window function or aggregate)

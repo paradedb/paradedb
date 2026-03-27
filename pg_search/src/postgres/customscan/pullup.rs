@@ -21,17 +21,19 @@
 //! column can be resolved using Tantivy fast fields.
 
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::rel::PgSearchRelation;
 use crate::schema::{FieldSource, SearchFieldType};
 use pgrx::pg_sys;
 
 /// Resolves a PostgreSQL attribute number to a Tantivy fast field, if available.
 ///
-/// This checks if the column corresponding to `attno` in the `heaprel` is available
-/// as a fast field in the `index` relation. It handles:
+/// This checks if the column corresponding to `attno` in the heap relation is available
+/// as a fast field in the BM25 index. It handles:
 ///
 /// - System columns (ctid, tableoid)
 /// - Regular columns (mapped via name)
+/// - Expression-indexed columns (e.g. typmod casts like `(col)::pdb.literal_normalized`)
 /// - Type compatibility checks
 /// - Field source verification (ensuring index field comes from the expected heap column)
 ///
@@ -56,17 +58,14 @@ pub unsafe fn resolve_fast_field(
         pg_sys::TableOidAttributeNumber => Some(WhichFastField::TableOid),
 
         attno => {
-            // Handle attno <= 0 - this can happen in materialized views and FULL JOINs
             if attno <= 0 {
                 return None;
             }
 
-            // Get attribute info - use if let to handle missing attributes gracefully
             let att = tupdesc.get((attno - 1) as usize)?;
             let schema = index.schema().ok()?;
 
             if let Some(search_field) = schema.search_field(att.name()) {
-                // Check if this is the key field (implicitly fast)
                 let key_field_name = schema.key_field_name();
                 if att.name() == key_field_name.to_string().as_str() {
                     return Some(WhichFastField::Named(
@@ -82,18 +81,18 @@ pub unsafe fn resolve_fast_field(
                     .map(|(_, data)| data);
 
                 if let Some(data) = field_data {
-                    // Ensure that the expression used to index the value exactly matches the
-                    // expression used in the target list (which we know is a Var, because
-                    // that is the only thing that calls this function with attno > 0).
-                    //
-                    // Expression indices where target list references original column are not supported.
+                    // For direct heap columns, the source attno must match.
+                    // Expression-indexed columns (FieldSource::Expression) are NOT
+                    // handled here — pulling up the raw column value from a transformed
+                    // expression (e.g. lower(name)) would return wrong data.
                     // See: https://github.com/paradedb/paradedb/issues/3978
-                    if !matches!(data.source, FieldSource::Heap { attno: source_attno } if source_attno == (attno - 1) as usize)
+                    //
+                    // Expression-indexed columns that are simple tokenizer casts
+                    // (e.g. (col)::pdb.literal_normalized) are handled by the
+                    // find_matching_fast_field fallback below instead.
+                    if matches!(data.source, FieldSource::Heap { attno: source_attno } if source_attno == (attno - 1) as usize)
+                        && search_field.is_fast()
                     {
-                        return None;
-                    }
-
-                    if search_field.is_fast() {
                         if let Some(field_type) =
                             field_type_for_pullup(search_field.field_type(), data.is_array)
                         {
@@ -102,7 +101,30 @@ pub unsafe fn resolve_fast_field(
                     }
                 }
             }
-            None
+
+            // Fallback for expression-indexed columns (e.g. typmod casts like
+            // `(col)::pdb.literal_normalized`). These have FieldSource::Expression
+            // which the check above skips, but find_matching_fast_field handles
+            // by stripping the tokenizer cast and matching the underlying Var.
+            //
+            // We use varno=1 because Postgres stores index expressions with
+            // varno=1 regardless of the table's actual range table index in
+            // the query. find_matching_fast_field compares via pg_sys::equal(),
+            // so both sides must use the same varno to match.
+            let dummy_var = pg_sys::makeVar(
+                1,
+                attno as pg_sys::AttrNumber,
+                att.atttypid,
+                att.atttypmod,
+                att.attcollation,
+                0,
+            );
+            find_matching_fast_field(
+                dummy_var as *mut pg_sys::Node,
+                &index.index_expressions(),
+                index.schema().ok()?,
+                1,
+            )
         }
     }
 }

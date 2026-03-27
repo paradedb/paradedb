@@ -118,4 +118,51 @@ GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
 
+-- ================================================================
+-- Test 7: LIMIT 1 (smallest possible K)
+-- ================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*)
+FROM mock_items
+WHERE mock_items @@@ paradedb.all()
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 1;
+
+SELECT category, COUNT(*)
+FROM mock_items
+WHERE mock_items @@@ paradedb.all()
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 1;
+
+-- ================================================================
+-- Test 8: LIMIT larger than number of groups (returns all groups)
+-- ================================================================
+SELECT category, COUNT(*)
+FROM mock_items
+WHERE mock_items @@@ paradedb.all()
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 100;
+
+-- ================================================================
+-- Test 9: Parity — TopK top-3 matches top-3 of full result
+-- ================================================================
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, COUNT(*)
+FROM mock_items
+WHERE mock_items @@@ paradedb.all()
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT category, COUNT(*)
+FROM mock_items
+WHERE mock_items @@@ paradedb.all()
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+
 DROP TABLE mock_items;

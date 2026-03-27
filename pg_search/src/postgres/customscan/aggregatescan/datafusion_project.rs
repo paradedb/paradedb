@@ -15,10 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-// These functions are not yet called from the execution loop — they will be
-// used by the execution integration in #4488.
-#![allow(dead_code)]
-
 //! Arrow-to-Postgres result projection for aggregate `RecordBatch`es.
 //!
 //! Converts DataFusion aggregate results (Arrow arrays) into Postgres tuples.
@@ -258,6 +254,7 @@ mod tests {
     use std::sync::Arc;
 
     /// Build a test RecordBatch with known values for projection testing.
+    #[allow(dead_code)]
     fn make_test_batch() -> RecordBatch {
         let schema = Schema::new(vec![
             Field::new("category", DataType::Utf8, false),

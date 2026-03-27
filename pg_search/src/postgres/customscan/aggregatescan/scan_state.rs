@@ -17,10 +17,14 @@
 
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
+use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
+use crate::postgres::customscan::joinscan::build::RelNode;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
 
+use arrow_array::RecordBatch;
+use datafusion::physical_plan::SendableRecordBatchStream;
 use pgrx::pg_sys;
 
 #[derive(Default)]
@@ -31,6 +35,22 @@ pub enum ExecutionState {
     Completed,
 }
 
+/// State for the DataFusion aggregate execution backend.
+pub struct DataFusionAggState {
+    /// The join tree.
+    pub plan: RelNode,
+    /// GROUP BY columns and aggregate functions.
+    pub targetlist: JoinAggregateTargetList,
+    /// Tokio runtime for async DataFusion execution.
+    pub runtime: Option<tokio::runtime::Runtime>,
+    /// DataFusion result stream.
+    pub stream: Option<SendableRecordBatchStream>,
+    /// Current batch being consumed row-by-row.
+    pub current_batch: Option<RecordBatch>,
+    /// Row index within current_batch.
+    pub batch_row_idx: usize,
+}
+
 #[derive(Default)]
 pub struct AggregateScanState {
     pub state: ExecutionState,
@@ -39,9 +59,9 @@ pub struct AggregateScanState {
     pub execution_rti: pg_sys::Index,
     pub aggregate_clause: AggregateCSClause,
 
-    /// True when using the DataFusion backend (join aggregates).
-    /// When true, the Tantivy-specific fields above are unused.
-    pub is_datafusion_backend: bool,
+    /// DataFusion backend state. When `Some`, the DataFusion path is active
+    /// and the Tantivy-specific fields above are unused.
+    pub datafusion_state: Option<DataFusionAggState>,
 
     /// Target list with FuncExpr placeholders replaced by Const nodes.
     /// Used for expression projection when aggregates are wrapped in functions.
@@ -76,6 +96,11 @@ impl AggregateScanState {
             .map(|(_, rel)| rel)
             .expect("BaseScanState: indexrel should be initialized")
     }
+
+    /// Returns true if the DataFusion backend is active.
+    pub fn is_datafusion_backend(&self) -> bool {
+        self.datafusion_state.is_some()
+    }
 }
 
 impl CustomScanState for AggregateScanState {
@@ -87,6 +112,9 @@ impl CustomScanState for AggregateScanState {
 
 impl SolvePostgresExpressions for AggregateScanState {
     fn has_heap_filters(&mut self) -> bool {
+        if self.is_datafusion_backend() {
+            return false;
+        }
         self.aggregate_clause.query_mut().has_heap_filters()
             || self
                 .aggregate_clause
@@ -95,6 +123,9 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn has_postgres_expressions(&mut self) -> bool {
+        if self.is_datafusion_backend() {
+            return false;
+        }
         self.aggregate_clause.query_mut().has_postgres_expressions()
             || self
                 .aggregate_clause
@@ -103,6 +134,9 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) {
+        if self.is_datafusion_backend() {
+            return;
+        }
         self.aggregate_clause
             .query_mut()
             .init_postgres_expressions(planstate);
@@ -112,6 +146,9 @@ impl SolvePostgresExpressions for AggregateScanState {
     }
 
     fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+        if self.is_datafusion_backend() {
+            return;
+        }
         self.aggregate_clause
             .query_mut()
             .solve_postgres_expressions(expr_context);

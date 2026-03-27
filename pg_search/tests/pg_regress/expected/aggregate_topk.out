@@ -241,4 +241,97 @@ LIMIT 3;
  Home Decor  |     4 |  18 |   4 |   5
 (3 rows)
 
+-- ================================================================
+-- Test 7: LIMIT 1 (smallest possible K)
+-- ================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, COUNT(*)
+FROM mock_items
+WHERE mock_items @@@ paradedb.all()
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 1;
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: category, (pdb.agg_fn('COUNT(*)'::text))
+   ->  Sort
+         Output: category, (pdb.agg_fn('COUNT(*)'::text))
+         Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
+               Output: category, pdb.agg_fn('COUNT(*)'::text)
+               Index: idx_mock_items
+               Tantivy Query: {"with_index":{"query":"all"}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: category
+                 Limit: 1
+                 TopK Order: COUNT(*) DESC
+                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":1,"size":1}}}
+(14 rows)
+
+SELECT category, COUNT(*)
+FROM mock_items
+WHERE mock_items @@@ paradedb.all()
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 1;
+ category | count 
+----------+-------
+ Footwear |     6
+(1 row)
+
+-- ================================================================
+-- Test 8: LIMIT larger than number of groups (returns all groups)
+-- ================================================================
+SELECT category, COUNT(*)
+FROM mock_items
+WHERE mock_items @@@ paradedb.all()
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 100;
+  category   | count 
+-------------+-------
+ Footwear    |     6
+ Electronics |     5
+ Groceries   |     4
+ Toys        |     4
+ Books       |     4
+ Apparel     |     4
+ Home Decor  |     4
+ Photography |     4
+ Beauty      |     3
+ Furniture   |     3
+(10 rows)
+
+-- ================================================================
+-- Test 9: Parity — TopK top-3 matches top-3 of full result
+-- ================================================================
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, COUNT(*)
+FROM mock_items
+WHERE mock_items @@@ paradedb.all()
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+  category   | count 
+-------------+-------
+ Footwear    |     6
+ Electronics |     5
+ Groceries   |     4
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT category, COUNT(*)
+FROM mock_items
+WHERE mock_items @@@ paradedb.all()
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+  category   | count 
+-------------+-------
+ Footwear    |     6
+ Electronics |     5
+ Apparel     |     4
+(3 rows)
+
 DROP TABLE mock_items;

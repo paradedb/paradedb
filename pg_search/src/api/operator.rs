@@ -204,6 +204,24 @@ pub fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
     }
 }
 
+/// Look up the name of a PostgreSQL operator by its OID. Returns "unknown" if the OID
+/// is not found in the system catalog.
+pub fn operator_name_from_oid(opno: pg_sys::Oid) -> String {
+    unsafe {
+        let opertup = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::OPEROID as _,
+            opno.into_datum().unwrap(),
+        );
+        if opertup.is_null() {
+            return "unknown".to_string();
+        }
+        let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
+        let name = pgrx::name_data_to_str(&(*operform).oprname).to_string();
+        pg_sys::ReleaseSysCache(opertup);
+        name
+    }
+}
+
 pub fn searchqueryinput_typoid() -> pg_sys::Oid {
     unsafe {
         let oid = direct_function_call::<pg_sys::Oid>(

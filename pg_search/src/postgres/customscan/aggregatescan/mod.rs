@@ -191,14 +191,21 @@ impl CustomScan for AggregateScan {
                 builder.custom_state().aggregate_clause = *aggregate_clause;
                 builder.build()
             }
-            PrivateData::DataFusion { .. } => {
+            PrivateData::DataFusion { plan, targetlist } => {
                 // Replace Aggrefs for DataFusion path too
                 unsafe {
                     let cscan = builder.args().cscan;
-                    let plan = &mut (*cscan).scan.plan;
-                    replace_aggrefs_in_target_list(plan);
+                    let pg_plan = &mut (*cscan).scan.plan;
+                    replace_aggrefs_in_target_list(pg_plan);
                 }
-                builder.custom_state().is_datafusion_backend = true;
+                builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
+                    plan,
+                    targetlist,
+                    runtime: None,
+                    stream: None,
+                    current_batch: None,
+                    batch_row_idx: 0,
+                });
                 builder.build()
             }
         }
@@ -209,8 +216,56 @@ impl CustomScan for AggregateScan {
         _ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
-        if state.custom_state().is_datafusion_backend {
-            explainer.add_text("Backend", "DataFusion (stub — execution in #4488)");
+        if state.custom_state().is_datafusion_backend() {
+            explainer.add_text("Backend", "DataFusion");
+            if let Some(ref df_state) = state.custom_state().datafusion_state {
+                // Show indexes from the join tree sources
+                let indexes: Vec<String> = df_state
+                    .plan
+                    .sources()
+                    .iter()
+                    .map(|s| {
+                        let alias = s.scan_info.alias.as_deref().unwrap_or("unknown");
+                        format!(
+                            "{} ({})",
+                            crate::postgres::PgSearchRelation::open(s.scan_info.indexrelid).name(),
+                            alias
+                        )
+                    })
+                    .collect();
+                if !indexes.is_empty() {
+                    explainer.add_text("Indexes", indexes.join(", "));
+                }
+
+                // Show GROUP BY columns
+                if !df_state.targetlist.group_columns.is_empty() {
+                    let groups: Vec<String> = df_state
+                        .targetlist
+                        .group_columns
+                        .iter()
+                        .map(|gc| gc.field_name.clone())
+                        .collect();
+                    explainer.add_text("Group By", groups.join(", "));
+                }
+
+                // Show aggregates
+                let aggs: Vec<String> = df_state
+                    .targetlist
+                    .aggregates
+                    .iter()
+                    .map(|a| {
+                        let field = a
+                            .field_ref
+                            .as_ref()
+                            .map(|(_, _, n)| n.as_str())
+                            .unwrap_or("*");
+                        format!("{}({})", a.agg_kind, field)
+                    })
+                    .collect();
+                if !aggs.is_empty() {
+                    explainer.add_text("Aggregates", aggs.join(", "));
+                }
+            }
             return;
         }
 
@@ -235,10 +290,16 @@ impl CustomScan for AggregateScan {
         estate: *mut pg_sys::EState,
         _eflags: i32,
     ) {
-        if state.custom_state().is_datafusion_backend {
-            // DataFusion backend: execution will be implemented in #4488.
-            // For now, mark as completed so exec_custom_scan returns null immediately.
-            state.custom_state_mut().state = ExecutionState::Completed;
+        if state.custom_state().is_datafusion_backend() {
+            // DataFusion backend: create scan slot for result projection
+            unsafe {
+                let planstate = state.planstate();
+                let scan_slot = pg_sys::MakeTupleTableSlot(
+                    (*planstate).ps_ResultTupleDesc,
+                    &pg_sys::TTSOpsVirtual,
+                );
+                state.custom_state_mut().scan_slot = Some(scan_slot);
+            }
             return;
         }
 
@@ -282,6 +343,12 @@ impl CustomScan for AggregateScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        // DataFusion backend: consume Arrow RecordBatches
+        if state.custom_state().is_datafusion_backend() {
+            return Self::exec_datafusion_aggregate(state);
+        }
+
+        // Tantivy backend: existing path
         let next = match &mut state.custom_state_mut().state {
             ExecutionState::Completed => {
                 return std::ptr::null_mut();
@@ -722,7 +789,9 @@ impl AggregateScan {
         }
 
         // Extract the join tree from the parse tree
-        let plan = match unsafe { extract_join_tree_from_parse(root, &sources) } {
+        let mut plan = match unsafe {
+            extract_join_tree_from_parse(root, &sources, builder.args().input_rel())
+        } {
             Ok(plan) => plan,
             Err(e) => {
                 Self::add_planner_warning(
@@ -745,8 +814,112 @@ impl AggregateScan {
             }
         };
 
+        // Populate the fast fields on each source so PgSearchTableProvider exposes them
+        unsafe {
+            datafusion_build::populate_required_fields(&mut plan, &targetlist);
+        }
+
         // Build the custom path with DataFusion private data
         vec![builder.build(PrivateData::DataFusion { plan, targetlist })]
+    }
+
+    /// Execute the DataFusion aggregate path: build plan, consume Arrow batches,
+    /// project each row to a Postgres TupleTableSlot.
+    fn exec_datafusion_aggregate(
+        state: &mut CustomScanStateWrapper<Self>,
+    ) -> *mut pg_sys::TupleTableSlot {
+        use crate::postgres::customscan::aggregatescan::datafusion_exec::{
+            build_aggregate_physical_plan, build_join_aggregate_plan,
+            create_aggregate_session_context,
+        };
+        use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
+        use std::sync::Arc;
+
+        // Grab the scan_slot pointer before entering the mutable borrow
+        let scan_slot = state
+            .custom_state()
+            .scan_slot
+            .expect("scan_slot must be initialized in begin_custom_scan");
+
+        let df_state = state
+            .custom_state_mut()
+            .datafusion_state
+            .as_mut()
+            .expect("DataFusion state must be initialized");
+
+        // First call: build and execute the DataFusion plan
+        if df_state.runtime.is_none() {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
+
+            let ctx = create_aggregate_session_context();
+
+            let physical_plan = runtime.block_on(async {
+                let logical =
+                    build_join_aggregate_plan(&df_state.plan, &df_state.targetlist, &ctx).await?;
+                build_aggregate_physical_plan(&ctx, logical).await
+            });
+
+            let physical_plan = match physical_plan {
+                Ok(p) => p,
+                Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
+            };
+
+            let task_ctx = Arc::new(datafusion::execution::TaskContext::default());
+            let stream = match physical_plan.execute(0, task_ctx) {
+                Ok(s) => s,
+                Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+            };
+
+            df_state.runtime = Some(runtime);
+            df_state.stream = Some(stream);
+        }
+
+        // Consume batches row-by-row
+        loop {
+            // Try current batch
+            if let Some(ref batch) = df_state.current_batch {
+                if df_state.batch_row_idx < batch.num_rows() {
+                    unsafe {
+                        pg_sys::ExecClearTuple(scan_slot);
+                    }
+                    let row_idx = df_state.batch_row_idx;
+                    let targetlist = &df_state.targetlist;
+                    let result = unsafe {
+                        project_aggregate_row_to_slot(scan_slot, batch, row_idx, targetlist)
+                    };
+                    df_state.batch_row_idx += 1;
+                    return result;
+                }
+                // Current batch exhausted
+                df_state.current_batch = None;
+            }
+
+            // Fetch next batch from stream
+            let runtime = df_state.runtime.as_ref().unwrap();
+            let stream = df_state.stream.as_mut().unwrap();
+
+            let next = runtime.block_on(async {
+                use futures::StreamExt;
+                stream.next().await
+            });
+
+            match next {
+                Some(Ok(batch)) => {
+                    df_state.current_batch = Some(batch);
+                    df_state.batch_row_idx = 0;
+                }
+                Some(Err(e)) => {
+                    pgrx::error!("DataFusion aggregate execution failed: {}", e);
+                }
+                None => {
+                    // Stream exhausted — no more results
+                    return std::ptr::null_mut();
+                }
+            }
+        }
     }
 }
 

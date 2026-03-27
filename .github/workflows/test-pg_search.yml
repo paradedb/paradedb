@@ -14,6 +14,7 @@ on:
     branches:
       - main
       - 0.*.x # Release branches
+      - moe/** # Temporary: trigger CI on stacked PR chain
     paths:
       - "Cargo.toml"
       - "Cargo.lock"

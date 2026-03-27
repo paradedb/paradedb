@@ -171,5 +171,79 @@ FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
 
+-- =====================================================================
+-- Test 8: LIMIT 1 (smallest possible K)
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 1;
+
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 1;
+
+-- =====================================================================
+-- Test 9: LIMIT larger than number of groups (returns all groups)
+-- =====================================================================
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 100;
+
+-- =====================================================================
+-- Test 10: OFFSET + LIMIT on join TopK
+-- =====================================================================
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 2 OFFSET 1;
+
+-- =====================================================================
+-- Test 11: Parity — TopK top-3 matches top-3 of full result
+-- =====================================================================
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+
+-- =====================================================================
+-- Test 12: ORDER BY SUM ASC LIMIT (bottom K by sum)
+-- =====================================================================
+SELECT p.category, SUM(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY SUM(p.price) ASC
+LIMIT 2;
+
 DROP TABLE topk_tags;
 DROP TABLE topk_products;

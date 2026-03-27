@@ -46,7 +46,7 @@ impl TantivyOperatorExt for TantivyOperator {
     }
 }
 
-pub const TEXT_TYPE_PAIRS: &[[&str; 2]] = &[["text", "text"], ["uuid", "uuid"]];
+pub const TEXT_TYPE_PAIRS: &[[&str; 2]] = &[["text", "text"], ["uuid", "uuid"], ["inet", "inet"]];
 pub const NUMERIC_TYPE_PAIRS: &[[&str; 2]] = &[
     // integers
     ["int2", "int2"],

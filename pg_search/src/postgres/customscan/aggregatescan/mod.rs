@@ -801,6 +801,17 @@ impl AggregateScan {
             return Vec::new();
         }
 
+        // Reject joins with non-equi quals (OR across tables, cross-table
+        // filters, non-@@@ conditions). These live in the join path's
+        // joinrestrictinfo and our DataFusion backend can't apply them.
+        if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
+            Self::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
+                "join".to_string(),
+            );
+            return Vec::new();
+        }
+
         // Extract the join tree from the parse tree
         let mut plan = match unsafe {
             extract_join_tree_from_parse(root, &sources, builder.args().input_rel())

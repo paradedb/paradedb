@@ -66,8 +66,16 @@ pub unsafe fn project_aggregate_row_to_slot(
         }
 
         let col = batch.column(df_col_idx);
-        let typoid = pg_sys::TupleDescAttr(tupdesc, pg_idx as i32);
-        let expected_type = (*typoid).atttypid;
+        let expected_type = {
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+            {
+                (*tupdesc).attrs.as_slice(natts)[pg_idx].atttypid
+            }
+            #[cfg(feature = "pg18")]
+            {
+                (*pg_sys::TupleDescAttr(tupdesc, pg_idx as i32)).atttypid
+            }
+        };
 
         if col.is_null(row_idx) {
             isnull[pg_idx] = true;

@@ -145,6 +145,8 @@ fn complex_aggregation_setup() -> &'static str {
     "#
 }
 
+// TODO: This test is currently ignored because it asserts a specific ColumnarExecState plan shape,
+// and planner/executor selection for this aggregate is not stable enough across environments yet.
 #[ignore]
 #[rstest]
 fn test_complex_aggregation_with_columnar(mut conn: PgConnection) {

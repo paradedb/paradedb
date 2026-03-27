@@ -15,23 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-// Copyright (c) 2023-2025 ParadeDB, Inc.
-//
-// This file is part of ParadeDB - Postgres for Search and Analytics
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
-
 use crate::suite::PgVersion;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
@@ -74,8 +57,8 @@ pub struct UiArgs {
     #[arg(long, default_value = "false")]
     pub paused: bool,
 
-    /// PostgreSQL version to use (pg17 or pg18).
-    #[arg(long, default_value = "pg17")]
+    /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
+    #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
 }
 
@@ -94,8 +77,8 @@ pub struct HeadlessArgs {
     /// Runtime (in milliseconds)
     #[arg(long, default_value = "600000")]
     pub runtime: u128,
-    /// PostgreSQL version to use (pg17 or pg18).
-    #[arg(long, default_value = "pg17")]
+    /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
+    #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
 }
 

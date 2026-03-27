@@ -827,9 +827,16 @@ impl AggregateScan {
             }
         };
 
-        // Populate the fast fields on each source so PgSearchTableProvider exposes them
-        unsafe {
-            datafusion_build::populate_required_fields(&mut plan, &targetlist);
+        // Populate the fast fields on each source so PgSearchTableProvider exposes them.
+        // This fails if join key fields aren't indexed as fast fields.
+        if let Err(e) =
+            unsafe { datafusion_build::populate_required_fields(&mut plan, &targetlist) }
+        {
+            Self::add_planner_warning(
+                format!("Aggregate Scan (DataFusion) not used: {}", e),
+                "join".to_string(),
+            );
+            return Vec::new();
         }
 
         // Build the custom path with DataFusion private data

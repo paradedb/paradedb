@@ -666,7 +666,7 @@ pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
 pub unsafe fn populate_required_fields(
     plan: &mut RelNode,
     targetlist: &super::join_targetlist::JoinAggregateTargetList,
-) {
+) -> Result<(), String> {
     use crate::postgres::customscan::pullup::resolve_fast_field;
 
     let mut sources = plan.sources_mut();
@@ -704,7 +704,10 @@ pub unsafe fn populate_required_fields(
         }
     }
 
-    // Also add fields for join keys
+    // Also add fields for join keys — these MUST be resolvable as fast fields
+    // because DataFusion reads them from the BM25 index. If a join key can't be
+    // resolved, the PgSearchTableProvider would have no data columns, producing
+    // empty RecordBatches that crash execution.
     let join_keys = plan.join_keys();
     let mut sources = plan.sources_mut();
     for jk in &join_keys {
@@ -713,20 +716,34 @@ pub unsafe fn populate_required_fields(
                 let heaprel = PgSearchRelation::open(source.scan_info.heaprelid);
                 let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
                 let tupdesc = heaprel.tuple_desc();
-                if let Some(field) = resolve_fast_field(jk.outer_attno as i32, &tupdesc, &indexrel)
-                {
-                    source.scan_info.add_field(jk.outer_attno, field);
+                match resolve_fast_field(jk.outer_attno as i32, &tupdesc, &indexrel) {
+                    Some(field) => source.scan_info.add_field(jk.outer_attno, field),
+                    None => {
+                        return Err(format!(
+                            "join key (attno={}) is not a fast field on table {}",
+                            jk.outer_attno,
+                            source.scan_info.heaprelid.to_u32()
+                        ));
+                    }
                 }
             }
             if source.contains_rti(jk.inner_rti) {
                 let heaprel = PgSearchRelation::open(source.scan_info.heaprelid);
                 let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
                 let tupdesc = heaprel.tuple_desc();
-                if let Some(field) = resolve_fast_field(jk.inner_attno as i32, &tupdesc, &indexrel)
-                {
-                    source.scan_info.add_field(jk.inner_attno, field);
+                match resolve_fast_field(jk.inner_attno as i32, &tupdesc, &indexrel) {
+                    Some(field) => source.scan_info.add_field(jk.inner_attno, field),
+                    None => {
+                        return Err(format!(
+                            "join key (attno={}) is not a fast field on table {}",
+                            jk.inner_attno,
+                            source.scan_info.heaprelid.to_u32()
+                        ));
+                    }
                 }
             }
         }
     }
+
+    Ok(())
 }

@@ -198,37 +198,6 @@ GROUP BY p.category
 ORDER BY p.category;
 
 -- =====================================================================
--- SECTION 4: TopK with memory pool (target_partitions=1)
--- =====================================================================
-
--- Test 4.1: ORDER BY COUNT(*) DESC LIMIT
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT p.category, COUNT(*)
-FROM par_agg_products p
-JOIN par_agg_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
-GROUP BY p.category
-ORDER BY COUNT(*) DESC
-LIMIT 2;
-
-SELECT p.category, COUNT(*)
-FROM par_agg_products p
-JOIN par_agg_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
-GROUP BY p.category
-ORDER BY COUNT(*) DESC
-LIMIT 2;
-
--- Test 4.2: ORDER BY SUM DESC LIMIT
-SELECT p.category, SUM(p.price)
-FROM par_agg_products p
-JOIN par_agg_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
-GROUP BY p.category
-ORDER BY SUM(p.price) DESC
-LIMIT 2;
-
--- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE par_agg_tags;

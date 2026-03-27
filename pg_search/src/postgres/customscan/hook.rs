@@ -487,8 +487,10 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
         return false;
     }
 
-    // Early return: no window functions
-    if !query_has_window_func_nodes(parse) {
+    // Early return: no window functions at this query level.
+    // The parser sets hasWindowFuncs during parse analysis — this is authoritative
+    // for the current query level and avoids an expensive expression tree walk.
+    if !(*parse).hasWindowFuncs {
         return false;
     }
 
@@ -558,9 +560,10 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         return result;
     }
 
-    // Check if we should replace window functions and do so if needed
-    // This checks the OUTER query level
-    if should_replace_window_functions(parse) {
+    // Check if we should replace window functions and do so if needed.
+    // Use hasWindowFuncs as a cheap pre-filter before the more expensive
+    // should_replace_window_functions checks (search operator detection, etc.)
+    if (*parse).hasWindowFuncs && should_replace_window_functions(parse) {
         replace_windowfuncs_recursively(parse);
     } else {
         // Even if the outer query doesn't need replacement, CTEs might!
@@ -570,7 +573,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
             for cte in ctelist.iter_ptr() {
                 if !(*cte).ctequery.is_null() {
                     let cte_query = (*cte).ctequery.cast::<pg_sys::Query>();
-                    if should_replace_window_functions(cte_query) {
+                    if (*cte_query).hasWindowFuncs
+                        && should_replace_window_functions(cte_query)
+                    {
                         replace_windowfuncs_recursively(cte_query);
                     }
                 }
@@ -592,90 +597,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     result
 }
 
-/// Check if the target list contains any window functions (WindowFunc nodes)
-/// This is called BEFORE window function replacement in the planner hook
-unsafe fn targetlist_has_window_func_nodes(target_list: *mut pg_sys::List) -> bool {
-    struct WalkerContext {
-        found: bool,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let ctx = context.cast::<WalkerContext>();
-
-        // Check if this node is a WindowFunc
-        if nodecast!(WindowFunc, T_WindowFunc, node).is_some() {
-            (*ctx).found = true;
-            return true; // Stop walking
-        }
-
-        // Continue walking the tree
-        pg_sys::expression_tree_walker(node, Some(walker), context)
-    }
-
-    let mut context = WalkerContext { found: false };
-
-    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(target_list);
-    for te in tlist.iter_ptr() {
-        if !(*te).expr.is_null() {
-            walker(
-                (*te).expr as *mut pg_sys::Node,
-                &mut context as *mut _ as *mut core::ffi::c_void,
-            );
-            if context.found {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-/// Check if the query (or any subquery/CTE) contains window functions (WindowFunc nodes)
-/// This is called BEFORE window function replacement in the planner hook
-/// Recursively checks subqueries and CTEs
-unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
-    if parse.is_null() {
-        return false;
-    }
-
-    // Check the current query's target list
-    if !(*parse).targetList.is_null() && targetlist_has_window_func_nodes((*parse).targetList) {
-        return true;
-    }
-
-    // Check subqueries in RTEs
-    if !(*parse).rtable.is_null() {
-        let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-        for rte in rtable.iter_ptr() {
-            if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
-                && !(*rte).subquery.is_null()
-                && query_has_window_func_nodes((*rte).subquery)
-            {
-                return true;
-            }
-        }
-    }
-
-    // Check CTEs (Common Table Expressions)
-    if !(*parse).cteList.is_null() {
-        let ctelist = PgList::<pg_sys::CommonTableExpr>::from_pg((*parse).cteList);
-        for cte in ctelist.iter_ptr() {
-            if !(*cte).ctequery.is_null() && query_has_window_func_nodes((*cte).ctequery.cast()) {
-                return true;
-            }
-        }
-    }
-
-    false
-}
+// Note: query_has_window_func_nodes and targetlist_has_window_func_nodes have been
+// removed. We now use the parser-set Query.hasWindowFuncs flag directly, which is
+// authoritative for the current query level and avoids expensive expression tree walks.
 
 /// Check if the query contains any ParadeDB search operator.
 ///

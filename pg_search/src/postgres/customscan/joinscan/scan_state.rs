@@ -91,8 +91,28 @@ use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::min;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 
-#[derive(Debug)]
-struct PgSearchQueryPlanner;
+/// Query planner that registers extension planners for custom logical nodes
+/// (`LateMaterializeNode`, `VisibilityFilterNode`).
+///
+/// We keep separate planning/execution session contexts because the logical plan
+/// is the serialized contract shared by EXPLAIN, leader execution, and workers,
+/// while execution also needs runtime-only state injected during decode
+/// (`parallel_state`, `expr_context`, `planstate`, canonical segment IDs).
+///
+/// At planning time `enable_visibility_planner` is false, so the query planner
+/// only needs to support logical optimization. At execution time it is true so
+/// `VisibilityExtensionPlanner` can convert `VisibilityFilterNode` →
+/// `VisibilityFilterExec` after the serialized logical plan has been decoded
+/// with those runtime bindings in place.
+struct PgSearchQueryPlanner {
+    enable_visibility_planner: bool,
+}
+
+impl std::fmt::Debug for PgSearchQueryPlanner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PgSearchQueryPlanner").finish()
+    }
+}
 
 #[async_trait]
 impl QueryPlanner for PgSearchQueryPlanner {
@@ -101,9 +121,17 @@ impl QueryPlanner for PgSearchQueryPlanner {
         logical_plan: &datafusion::logical_expr::LogicalPlan,
         session_state: &SessionState,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let physical_planner = DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(
+        let mut extension_planners: Vec<
+            Arc<dyn datafusion::physical_planner::ExtensionPlanner + Send + Sync>,
+        > = vec![Arc::new(
             crate::scan::late_materialization::LateMaterializePlanner {},
-        )]);
+        )];
+        if self.enable_visibility_planner {
+            extension_planners.push(Arc::new(
+                super::visibility_filter::VisibilityExtensionPlanner::new(),
+            ));
+        }
+        let physical_planner = DefaultPhysicalPlanner::with_extension_planners(extension_planners);
         physical_planner
             .create_physical_plan(logical_plan, session_state)
             .await
@@ -193,52 +221,80 @@ impl CustomScanState for JoinScanState {
     }
 }
 
-/// Creates a DataFusion SessionContext with our custom SortMergeJoinEnforcer physical optimizer rule.
-///
-/// We set `target_partitions = 1` to ensure deterministic EXPLAIN output.
-/// The `SortMergeJoinEnforcer` rule runs after the initial execution plan is built
-/// and replaces `HashJoinExec` with `SortMergeJoinExec` if the inputs are already sorted
-/// in a compatible way.
-pub fn create_session_context() -> SessionContext {
+/// Base session config shared by all contexts.
+fn base_session_config() -> SessionConfig {
     let mut config = SessionConfig::new().with_target_partitions(1);
     config
         .options_mut()
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
+    config
+}
 
-    let mut builder = SessionStateBuilder::new().with_config(config);
+/// Adds SegmentedTopK + final FilterPushdown pass.
+fn add_tail_physical_rules(builder: SessionStateBuilder) -> SessionStateBuilder {
+    builder
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::segmented_topk_rule::SegmentedTopKRule,
+        ))
+        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()))
+}
+
+/// Creates a DataFusion SessionContext for **planning**.
+///
+/// Runs all logical optimizer rules (visibility injection, late materialization)
+/// so the serialized logical plan is the canonical contract shared by EXPLAIN,
+/// leader execution, and workers. This phase intentionally excludes runtime
+/// extension planners because the plan bytes must remain serializable and free
+/// of backend-specific execution state.
+fn create_planning_session_context(join_clause: &JoinCSClause) -> SessionContext {
+    use super::visibility_filter::VisibilityFilterOptimizerRule;
+
+    let builder = SessionStateBuilder::new().with_config(base_session_config());
+    // Inject visibility before late materialization so ctid lineage is analyzed
+    // while DeferredCtid columns are still present in the logical plan.
+    let builder = builder
+        .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new(
+            join_clause.clone(),
+        )))
+        .with_optimizer_rule(Arc::new(
+            crate::scan::late_materialization::LateMaterializationRule,
+        ))
+        .with_query_planner(Arc::new(PgSearchQueryPlanner {
+            enable_visibility_planner: false,
+        }));
+    SessionContext::new_with_state(builder.build())
+}
+
+/// Creates a DataFusion SessionContext for **execution**.
+///
+/// The logical plan already contains `VisibilityFilterNode` and `LateMaterializeNode`
+/// (injected at planning time). This context binds runtime extension planners
+/// and applies physical optimizer rules after deserialize-time injection of
+/// backend-local state that cannot live in the serialized logical plan.
+pub fn create_execution_session_context() -> SessionContext {
+    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
+
+    let mut builder = SessionStateBuilder::new().with_config(base_session_config());
 
     if crate::gucs::is_columnar_sort_enabled() {
-        let rule = Arc::new(SortMergeJoinEnforcer::new());
-        builder = builder.with_physical_optimizer_rule(rule);
-        // Re-run dynamic filter pushdown after the enforcer. The enforcer's
-        // transform_up causes `with_new_children` on ancestor nodes, which in
-        // SortExec's case creates a new DynamicFilterPhysicalExpr that hasn't
-        // been pushed to PgSearchScan yet. This second pass establishes the
-        // connection.
-        //
-        // NOTE: Inserting the enforcer before the default FilterPushdown(Post)
-        // rule (rather than appending a second pass) was considered, but the
-        // enforcer relies on detecting CoalescePartitionsExec on HashJoin
-        // children — the plan structure at that earlier pipeline point differs,
-        // causing missing SortPreservingMergeExec and incorrect join results.
+        builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
+    }
+
+    builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner {
+        enable_visibility_planner: true,
+    }));
+
+    // VisibilityExtensionPlanner already places visibility below any immediate
+    // TantivyLookupExec chain, so only resolver wiring remains here before
+    // later post-optimization FilterPushdown passes can run.
+    builder = builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
+    if crate::gucs::is_columnar_sort_enabled() {
         builder =
             builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
     }
-    builder = builder.with_optimizer_rule(Arc::new(
-        crate::scan::late_materialization::LateMaterializationRule,
-    ));
-    builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner {}));
-    builder = builder.with_physical_optimizer_rule(Arc::new(
-        crate::scan::segmented_topk_rule::SegmentedTopKRule,
-    ));
-    // Run a second FilterPushdown(Post) pass so that filters from nodes injected
-    // by SegmentedTopKRule (e.g. SegmentedTopKExec's DynamicFilterPhysicalExpr)
-    // are pushed down through TantivyLookupExec to PgSearchScan.
-    builder =
-        builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-    let state = builder.build();
-    SessionContext::new_with_state(state)
+    let builder = add_tail_physical_rules(builder);
+    SessionContext::new_with_state(builder.build())
 }
 
 /// Build the DataFusion logical plan for the join.
@@ -248,12 +304,16 @@ pub async fn build_joinscan_logical_plan(
     private_data: &PrivateData,
     custom_exprs: *mut pg_sys::List,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
-    let ctx = create_session_context();
+    let ctx = create_planning_session_context(join_clause);
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs).await?;
     df.into_optimized_plan()
 }
 
 /// Convert a LogicalPlan to an ExecutionPlan.
+///
+/// The input logical plan is already fully optimized (visibility + late materialization
+/// nodes injected at planning time). Execution only binds runtime extension planners
+/// and lowers the stored plan to a physical plan.
 pub async fn build_joinscan_physical_plan(
     ctx: &SessionContext,
     plan: datafusion::logical_expr::LogicalPlan,
@@ -428,12 +488,21 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
+                // Compute per-plan_position deferred visibility. A plan_position's
+                // ctid is "deferred" (packed DocAddress) if it flows only through
+                // inner joins from the leaf scan. Non-inner joins (semi, anti, etc.)
+                // trigger per-child visibility barriers that resolve ctids to real
+                // heap TIDs. In mixed trees like (A INNER B) INNER (C SEMI D),
+                // ctid_A and ctid_B are still packed while ctid_C is resolved.
+                let deferred_positions =
+                    super::visibility_filter::deferred_plan_positions(&filter.input);
                 let filter_expr = unsafe {
                     crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
                         translated_exprs,
                         ctid_map,
                         &join_clause.join_level_predicates,
+                        &deferred_positions,
                     )
                 }
                 .ok_or_else(|| {
@@ -805,7 +874,7 @@ fn build_source_df<'a>(
             }
         }
 
-        provider.try_enable_late_materialization(&required_early);
+        provider.try_enable_late_materialization(&required_early, Some(plan_position));
 
         let provider = Arc::new(provider);
         ctx.register_table(alias.as_str(), provider)?;

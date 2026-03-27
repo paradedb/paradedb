@@ -26,6 +26,7 @@ use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use tantivy::index::SegmentId;
 
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
 
@@ -47,6 +48,9 @@ struct PgSearchExtensionCodec {
     /// `try_decode_table_provider`, ensuring both the leader and all workers open each
     /// replicated index with the same frozen segment set.
     pub non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    /// Canonical segment IDs keyed densely by plan_position, covering ALL sources
+    /// in the join. Dense source positions make a Vec a better fit than a map.
+    pub index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -167,6 +171,35 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             return Ok(Extension { node });
         }
 
+        if tag == 2 {
+            if inputs.len() != 1 {
+                return Err(DataFusionError::Internal(
+                    "VisibilityFilterNode requires exactly one input".into(),
+                ));
+            }
+            let input_plan = inputs[0].clone();
+            let payload_len_bytes = buf.get(1..5).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: missing visibility length".into())
+            })?;
+            let payload_len = u32::from_le_bytes(payload_len_bytes.try_into().unwrap()) as usize;
+            let payload = buf.get(5..5 + payload_len).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: incomplete visibility payload".into())
+            })?;
+            let (plan_pos_oids, table_names): (Vec<(usize, pgrx::pg_sys::Oid)>, Vec<String>) =
+                serde_json::from_slice(payload).map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to deserialize visibility payload: {e}"
+                    ))
+                })?;
+            return Ok(Extension {
+                node: Arc::new(VisibilityFilterNode::new(
+                    input_plan,
+                    plan_pos_oids,
+                    table_names,
+                )),
+            });
+        }
+
         Err(DataFusionError::NotImplemented(format!(
             "Extension node decoding not implemented for tag {}",
             tag
@@ -193,6 +226,20 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
 
             buf.extend_from_slice(&(schema_bytes.len() as u32).to_le_bytes());
             buf.extend_from_slice(&schema_bytes);
+            buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&bytes);
+            return Ok(());
+        }
+
+        if let Some(vis_node) = node.node.as_any().downcast_ref::<VisibilityFilterNode>() {
+            let payload: (&[(usize, pgrx::pg_sys::Oid)], &[String]) =
+                (&vis_node.plan_pos_oids, &vis_node.table_names);
+            let bytes = serde_json::to_vec(&payload).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "Failed to serialize visibility plan positions: {e}"
+                ))
+            })?;
+            buf.push(2);
             buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
             buf.extend_from_slice(&bytes);
             return Ok(());
@@ -289,11 +336,23 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
         match name {
             "pdb_search_predicate" => {
-                let udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
+                let mut udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
                     DataFusionError::Internal(format!(
                         "Failed to deserialize SearchPredicateUDF: {e}"
                     ))
                 })?;
+                // Inject canonical segment IDs by plan_position (not index_oid) to
+                // handle self-joins where the same index has different segment sets.
+                if let Some(pos) = udf.plan_position() {
+                    if !self.index_segment_ids.is_empty() {
+                        let ids = self
+                            .index_segment_ids
+                            .get(pos)
+                            .cloned()
+                            .expect("missing canonical segment IDs for plan_position");
+                        udf.set_canonical_segment_ids(ids);
+                    }
+                }
                 Ok(Arc::new(ScalarUDF::new_from_impl(udf)))
             }
             _ => Err(DataFusionError::NotImplemented(format!(
@@ -329,6 +388,7 @@ pub fn deserialize_logical_plan(
         expr_context,
         planstate,
         non_partitioning_segment_ids: vec![],
+        index_segment_ids: Default::default(),
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
 }
@@ -343,12 +403,14 @@ pub fn deserialize_logical_plan_parallel(
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
     planstate: Option<*mut pgrx::pg_sys::PlanState>,
     non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
         expr_context,
         planstate,
         non_partitioning_segment_ids,
+        index_segment_ids,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
 }

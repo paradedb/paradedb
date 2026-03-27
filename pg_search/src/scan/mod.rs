@@ -31,6 +31,7 @@ pub mod table_provider;
 pub mod tantivy_lookup_exec;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
+pub mod visibility_ctid_resolver_rule;
 
 pub use batch_scanner::Scanner;
 pub use info::ScanInfo;

@@ -112,8 +112,15 @@ pub struct PgSearchScanPlan {
     /// Metrics for EXPLAIN ANALYZE.
     metrics: ExecutionPlanMetricsSet,
     deferred_fields: Vec<DeferredField>,
-    ffhelper_for_lookup: Option<Arc<FFHelper>>,
+    /// Shared FFHelper for deferred lookup and deferred visibility.
+    ///
+    /// A scan may participate in late materialization, deferred visibility, or both.
+    /// Callers gate usage based on `deferred_fields` / `deferred_ctid_alias`; cloning
+    /// the Arc is cheap, so this does not need separate role-specific accessors.
+    ffhelper: Option<Arc<FFHelper>>,
     pub indexrelid: u32,
+    /// The ctid column alias when visibility is deferred (e.g. "ctid_0").
+    deferred_ctid_alias: Option<String>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -133,14 +140,16 @@ impl PgSearchScanPlan {
     /// * `schema` - Arrow schema for the output
     /// * `query_for_display` - Search query for EXPLAIN
     /// * `sort_order` - Optional sort order declaration for equivalence properties
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         states: Vec<ScanState>,
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         sort_order: Option<&SortByField>,
         deferred_fields: Vec<DeferredField>,
-        ffhelper_for_lookup: Option<Arc<FFHelper>>,
+        ffhelper: Option<Arc<FFHelper>>,
         indexrelid: u32,
+        deferred_ctid_alias: Option<String>,
     ) -> Self {
         // Ensure we always return at least one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
@@ -177,13 +186,23 @@ impl PgSearchScanPlan {
             dynamic_filters: Vec::new(),
             metrics: ExecutionPlanMetricsSet::new(),
             deferred_fields,
-            ffhelper_for_lookup,
+            ffhelper,
             indexrelid,
+            deferred_ctid_alias,
         }
     }
 
-    pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {
-        self.ffhelper_for_lookup.as_ref()
+    pub fn has_deferred_fields(&self) -> bool {
+        !self.deferred_fields.is_empty()
+    }
+
+    pub fn ffhelper(&self) -> Option<Arc<FFHelper>> {
+        self.ffhelper.clone()
+    }
+
+    /// Returns the deferred ctid column alias, if visibility is deferred.
+    pub fn deferred_ctid_alias(&self) -> Option<&str> {
+        self.deferred_ctid_alias.as_deref()
     }
 }
 
@@ -440,8 +459,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filters,
                 metrics: self.metrics.clone(),
                 deferred_fields: self.deferred_fields.clone(),
-                ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
+                ffhelper: self.ffhelper.clone(),
                 indexrelid: self.indexrelid,
+                deferred_ctid_alias: self.deferred_ctid_alias.clone(),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
@@ -547,6 +567,7 @@ pub fn create_sorted_scan(
         Vec::new(),
         None,
         0,
+        None,
     ));
 
     // For a single segment, no merging is needed

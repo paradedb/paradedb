@@ -204,7 +204,11 @@ impl CustomScan for AggregateScan {
                 builder.custom_state().aggregate_clause = *aggregate_clause;
                 builder.build()
             }
-            PrivateData::DataFusion { plan, targetlist } => {
+            PrivateData::DataFusion {
+                plan,
+                targetlist,
+                topk,
+            } => {
                 // Replace Aggrefs for DataFusion path too
                 unsafe {
                     let cscan = builder.args().cscan;
@@ -214,6 +218,7 @@ impl CustomScan for AggregateScan {
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
                     plan,
                     targetlist,
+                    topk,
                     runtime: None,
                     stream: None,
                     current_batch: None,
@@ -873,8 +878,21 @@ impl AggregateScan {
             return Vec::new();
         }
 
+        // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
+        // We pass the TopK info to DataFusion so it can fuse Sort+Limit+Aggregate
+        // internally via TopKAggregateRule. We do NOT declare pathkeys to Postgres
+        // because scanrelid=0 CustomScans cannot resolve pathkey items through
+        // setrefs.c, causing "could not find pathkey item to sort" errors.
+        // Postgres may add a redundant Sort above us, which is correct (just wasteful).
+        let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
+
+
         // Build the custom path with DataFusion private data
-        vec![builder.build(PrivateData::DataFusion { plan, targetlist })]
+        vec![builder.build(PrivateData::DataFusion {
+            plan,
+            targetlist,
+            topk,
+        })]
     }
 
     /// Execute the DataFusion aggregate path: build plan, consume Arrow batches,
@@ -901,12 +919,17 @@ impl AggregateScan {
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            let ctx = create_session_context();
+            let ctx = create_aggregate_session_context();
 
             let physical_plan = runtime.block_on(async {
-                let logical =
-                    build_join_aggregate_plan(&df_state.plan, &df_state.targetlist, &ctx).await?;
-                build_joinscan_physical_plan(&ctx, logical).await
+                let logical = build_join_aggregate_plan(
+                    &df_state.plan,
+                    &df_state.targetlist,
+                    df_state.topk.as_ref(),
+                    &ctx,
+                )
+                .await?;
+                build_aggregate_physical_plan(&ctx, logical).await
             });
 
             let physical_plan = match physical_plan {
@@ -983,6 +1006,70 @@ impl AggregateScan {
             }
         }
     }
+}
+
+/// Detects ORDER BY on aggregate + LIMIT for join aggregate queries.
+/// Returns `Some(DataFusionTopK)` when the sort clause targets a single aggregate
+/// that can be pushed down into the DataFusion plan as sort + limit.
+unsafe fn detect_join_aggregate_topk(
+    args: &crate::postgres::customscan::CreateUpperPathsHookArgs,
+    targetlist: &join_targetlist::JoinAggregateTargetList,
+) -> Option<privdat::DataFusionTopK> {
+    let parse = args.root().parse;
+    if parse.is_null() || (*parse).sortClause.is_null() {
+        return None;
+    }
+
+    // Only single sort clause for TopK
+    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    if sort_clauses.len() != 1 {
+        return None;
+    }
+
+    let sort_clause_ptr = sort_clauses.get_ptr(0)?;
+    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+
+    // Check if the sort expression contains an aggregate
+    targetlist::find_single_aggref_in_expr(sort_expr)?;
+
+    let descending = build::is_sort_descending((*sort_clause_ptr).sortop);
+
+    // Find matching position in output_rel target using structural equality
+    let reltarget = args.output_rel().reltarget;
+    if reltarget.is_null() {
+        return None;
+    }
+    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs);
+
+    let mut match_pos = None;
+    for (pos, target_expr) in target_exprs.iter_ptr().enumerate() {
+        if pg_sys::equal(
+            sort_expr as *const core::ffi::c_void,
+            target_expr as *const core::ffi::c_void,
+        ) {
+            match_pos = Some(pos);
+            break;
+        }
+    }
+    let pos = match_pos?;
+
+    // Check if this output position corresponds to an aggregate in the join targetlist
+    let agg_idx = targetlist
+        .aggregates
+        .iter()
+        .position(|a| a.output_index == pos)?;
+
+    // Extract LIMIT
+    let limit_offset = crate::postgres::customscan::limit_offset::LimitOffset::from_parse(parse);
+    let limit = limit_offset.limit()? as usize;
+    let offset = limit_offset.offset().unwrap_or(0) as usize;
+    let k = limit + offset;
+
+    Some(privdat::DataFusionTopK {
+        sort_agg_idx: agg_idx,
+        descending,
+        k,
+    })
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders

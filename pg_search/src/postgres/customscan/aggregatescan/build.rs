@@ -21,13 +21,16 @@ use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::filterquery::{new_filter_query, FilterQuery};
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
-use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
+use crate::postgres::customscan::aggregatescan::targetlist::{
+    find_single_aggref_in_expr, TargetList, TargetListEntry,
+};
 use crate::postgres::customscan::aggregatescan::{
     AggregateScan, CustomScanBuildError, CustomScanClause,
 };
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
+use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::sort_json_keys;
 use crate::postgres::PgSearchRelation;
@@ -37,9 +40,10 @@ use crate::schema::SearchIndexSchema;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use anyhow::Result;
 use pgrx::pg_sys;
+use pgrx::PgList;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
-use tantivy::aggregation::bucket::{CustomOrder, OrderTarget, TermsAggregation};
+use tantivy::aggregation::bucket::{CustomOrder, Order, OrderTarget, TermsAggregation};
 use tantivy::aggregation::metric::CountAggregation;
 
 pub trait AggregationKey {
@@ -61,6 +65,17 @@ impl AggregationKey for FilterSentinelKey {
     const NAME: &'static str = "filter_sentinel";
 }
 
+/// ORDER BY on an aggregate metric for TopK optimization.
+/// Allows pushing LIMIT into Tantivy's TermsAggregation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AggregateOrderBy {
+    /// For COUNT(*): None (uses OrderTarget::Count).
+    /// For other aggregates: Some(key) where key is the sub-aggregation position.
+    pub metric_key: Option<String>,
+    /// true = DESC, false = ASC
+    pub descending: bool,
+}
+
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregateCSClause {
     targetlist: TargetList,
@@ -69,6 +84,7 @@ pub struct AggregateCSClause {
     quals: SearchQueryClause,
     indexrelid: pg_sys::Oid,
     is_execution_time: bool,
+    aggregate_orderby: Option<AggregateOrderBy>,
 }
 
 trait CollectNested<Key: AggregationKey> {
@@ -380,10 +396,40 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             ))
         };
 
+        let topk_output: Vec<(String, String)> = if let Some(ref agg_order) = self.aggregate_orderby
+        {
+            let dir = if agg_order.descending { "DESC" } else { "ASC" };
+            let target_name = match &agg_order.metric_key {
+                None => "COUNT(*)".to_string(),
+                Some(key) => {
+                    let mut idx = 0usize;
+                    let mut name = format!("metric_{}", key);
+                    for agg in self.targetlist.aggregates() {
+                        if agg.can_use_doc_count() {
+                            continue;
+                        }
+                        if idx.to_string() == *key {
+                            name = agg.to_string();
+                            break;
+                        }
+                        idx += 1;
+                    }
+                    name
+                }
+            };
+            vec![(
+                String::from("TopK Order"),
+                format!("{} {}", target_name, dir),
+            )]
+        } else {
+            vec![]
+        };
+
         Box::new(
             aggregate_types
                 .chain(self.groupby().explain_output())
                 .chain(self.limit_offset.explain_output())
+                .chain(topk_output)
                 .chain(aggregate_json),
         )
     }
@@ -420,6 +466,13 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             return Err(CustomScanBuildError::NotInteresting);
         }
 
+        // Detect ORDER BY on aggregate for TopK optimization
+        let aggregate_orderby = if orderby.has_orderby() && orderby.orderby_info().is_empty() {
+            unsafe { detect_aggregate_orderby(args, &targetlist) }
+        } else {
+            None
+        };
+
         Ok(Self {
             targetlist,
             orderby,
@@ -427,8 +480,121 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             quals,
             indexrelid: index.oid(),
             is_execution_time: false,
+            aggregate_orderby,
         })
     }
+}
+
+/// Determines sort direction from a Postgres sort operator OID.
+#[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+unsafe fn is_sort_descending(sortop: pg_sys::Oid) -> bool {
+    let mut opfamily = pg_sys::InvalidOid;
+    let mut opcintype = pg_sys::InvalidOid;
+    let mut strategy: i16 = 0;
+    if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut strategy) {
+        strategy as u32 == pg_sys::BTGreaterStrategyNumber
+    } else {
+        false
+    }
+}
+
+#[cfg(feature = "pg18")]
+unsafe fn is_sort_descending(sortop: pg_sys::Oid) -> bool {
+    let mut opfamily = pg_sys::InvalidOid;
+    let mut opcintype = pg_sys::InvalidOid;
+    let mut cmptype = pg_sys::CompareType::COMPARE_LT;
+    if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut cmptype) {
+        cmptype == pg_sys::CompareType::COMPARE_GT
+    } else {
+        false
+    }
+}
+
+/// Detects ORDER BY on aggregate metrics (e.g., ORDER BY COUNT(*) DESC)
+/// for TopK optimization in TermsAggregation.
+///
+/// Returns `Some(AggregateOrderBy)` when the sort clause targets a single aggregate
+/// that can be pushed down to Tantivy's TermsAggregation ordering.
+unsafe fn detect_aggregate_orderby(
+    args: &CreateUpperPathsHookArgs,
+    targetlist: &TargetList,
+) -> Option<AggregateOrderBy> {
+    let parse = args.root().parse;
+    if parse.is_null() || (*parse).sortClause.is_null() || (*parse).groupClause.is_null() {
+        return None;
+    }
+
+    // Only support single sort clause for TopK
+    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    if sort_clauses.len() != 1 {
+        return None;
+    }
+
+    // Don't support TopK with aggregate filters (different tree structure)
+    if targetlist.aggregates().any(|agg| agg.has_filter()) {
+        return None;
+    }
+
+    let sort_clause_ptr = sort_clauses.get_ptr(0)?;
+    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+
+    // Check if the sort expression contains an aggregate
+    find_single_aggref_in_expr(sort_expr)?;
+
+    let descending = is_sort_descending((*sort_clause_ptr).sortop);
+
+    // Find matching position in output_rel target using structural equality
+    let reltarget = args.output_rel().reltarget;
+    if reltarget.is_null() {
+        return None;
+    }
+    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs);
+
+    let mut match_pos = None;
+    for (pos, target_expr) in target_exprs.iter_ptr().enumerate() {
+        if pg_sys::equal(
+            sort_expr as *const core::ffi::c_void,
+            target_expr as *const core::ffi::c_void,
+        ) {
+            match_pos = Some(pos);
+            break;
+        }
+    }
+
+    let pos = match_pos?;
+
+    // Check if this position is an Aggregate in our TargetList
+    let entry = targetlist.entries().nth(pos)?;
+    let agg = match entry {
+        TargetListEntry::Aggregate(agg) => agg,
+        _ => return None,
+    };
+
+    // COUNT(*) without filter uses doc_count
+    if agg.can_use_doc_count() {
+        return Some(AggregateOrderBy {
+            metric_key: None,
+            descending,
+        });
+    }
+
+    // Compute position among non-doc-count metrics (matches CollectFlat<MetricsWithGroupBy> keying)
+    let mut metric_idx = 0usize;
+    for (i, entry) in targetlist.entries().enumerate() {
+        if i == pos {
+            return Some(AggregateOrderBy {
+                metric_key: Some(metric_idx.to_string()),
+                descending,
+            });
+        }
+        if let TargetListEntry::Aggregate(a) = entry {
+            if !a.can_use_doc_count() {
+                metric_idx += 1;
+            }
+        }
+    }
+
+    None
 }
 
 impl CollectNested<GroupedKey> for AggregateCSClause {
@@ -441,10 +607,11 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
             let offset = self.limit_offset.offset();
             let max_buckets = gucs::max_term_agg_buckets() as u32;
 
-            // We can only use LIMIT-based size optimization when:
+            // We can use LIMIT-based size optimization when:
             // 1. There's exactly one grouping column (multiple columns need all combinations)
-            // 2. There's no ORDER BY (we can't ask Tantivy to sort grouping columns reliably)
-            let can_limit_buckets = grouping_columns.len() == 1 && !self.orderby.has_orderby();
+            // 2. Either no ORDER BY, or ORDER BY targets an aggregate metric
+            let can_limit_buckets = grouping_columns.len() == 1
+                && (!self.orderby.has_orderby() || self.aggregate_orderby.is_some());
 
             if can_limit_buckets {
                 if let Some(limit) = limit {
@@ -455,6 +622,13 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
             } else {
                 max_buckets
             }
+        };
+
+        // Only apply aggregate ordering for single grouping column
+        let aggregate_orderby = if grouping_columns.len() == 1 {
+            self.aggregate_orderby.clone()
+        } else {
+            None
         };
 
         Ok(grouping_columns.into_iter().map(move |column| {
@@ -476,7 +650,21 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
                 ..Default::default()
             };
 
-            if let Some(orderby) = orderby {
+            if let Some(ref agg_order) = aggregate_orderby {
+                // ORDER BY on aggregate metric — use Count or SubAggregation target
+                let target = match &agg_order.metric_key {
+                    None => OrderTarget::Count,
+                    Some(key) => OrderTarget::SubAggregation(key.clone()),
+                };
+                terms_agg.order = Some(CustomOrder {
+                    target,
+                    order: if agg_order.descending {
+                        Order::Desc
+                    } else {
+                        Order::Asc
+                    },
+                });
+            } else if let Some(orderby) = orderby {
                 terms_agg.order = Some(CustomOrder {
                     target: OrderTarget::Key,
                     order: orderby.direction.into(),

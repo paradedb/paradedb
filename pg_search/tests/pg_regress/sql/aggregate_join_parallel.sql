@@ -199,7 +199,10 @@ ORDER BY p.category;
 
 -- =====================================================================
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> 3fd0a5474 (feat: add configurable target partitions and memory pool for DataFusion aggregates)
 -- SECTION 4: TopK with memory pool (target_partitions=1)
 -- =====================================================================
 
@@ -231,6 +234,9 @@ ORDER BY SUM(p.price) DESC
 LIMIT 2;
 
 -- =====================================================================
+<<<<<<< HEAD
+>>>>>>> 3fd0a5474 (feat: add configurable target partitions and memory pool for DataFusion aggregates)
+=======
 >>>>>>> 3fd0a5474 (feat: add configurable target partitions and memory pool for DataFusion aggregates)
 -- Clean up
 -- =====================================================================

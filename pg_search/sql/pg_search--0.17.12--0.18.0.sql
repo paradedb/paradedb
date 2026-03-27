@@ -1124,19 +1124,19 @@ CREATE TYPE pdb.Query (
 
 /* <begin connected objects> */
 -- pg_search/src/api/operator/atatat.rs:39
--- pg_search::api::operator::atatat::search_with_fieled_query_input
-CREATE  FUNCTION "search_with_fieled_query_input"(
+-- pg_search::api::operator::atatat::search_with_fielded_query_input
+CREATE  FUNCTION "search_with_fielded_query_input"(
     "_element" anyelement, /* pgrx::datum::anyelement::AnyElement */
     "query" pdb.Query /* pg_search::query::pdb_query::pdb::Query */
 ) RETURNS bool /* bool */
     IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
     LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'search_with_fieled_query_input_wrapper';
+AS 'MODULE_PATHNAME', 'search_with_fielded_query_input_wrapper';
 
 -- pg_search/src/api/operator/atatat.rs:39
--- pg_search::api::operator::atatat::search_with_fieled_query_input
+-- pg_search::api::operator::atatat::search_with_fielded_query_input
 CREATE OPERATOR pg_catalog.@@@ (
-    PROCEDURE="search_with_fieled_query_input",
+    PROCEDURE="search_with_fielded_query_input",
     LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
     RIGHTARG=pdb.Query /* pg_search::query::pdb_query::pdb::Query */
     );
@@ -1147,11 +1147,11 @@ CREATE OPERATOR pg_catalog.@@@ (
 -- pg_search/src/api/operator/atatat.rs:136
 -- requires:
 --   search_with_parse
---   search_with_fieled_query_input
+--   search_with_fielded_query_input
 --   atatat_support
 
 
-ALTER FUNCTION paradedb.search_with_fieled_query_input SUPPORT paradedb.atatat_support;
+ALTER FUNCTION paradedb.search_with_fielded_query_input SUPPORT paradedb.atatat_support;
 /* </end connected objects> */
 
 /* <begin connected objects> */

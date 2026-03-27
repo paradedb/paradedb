@@ -23,7 +23,7 @@ use sqlx::PgConnection;
 
 /// `sqlsmith` generated a query that crashed due to us dereferencing a null pointer
 ///
-/// The query itself it completely nonsensical but we shouldn't crash no matter what
+/// The query itself is completely nonsensical, but we shouldn't crash no matter what
 /// the user (or sqlsmith) throws at us.
 #[rstest]
 fn crash_in_subquery(mut conn: PgConnection) {

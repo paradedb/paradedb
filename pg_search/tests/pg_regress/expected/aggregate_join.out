@@ -200,7 +200,7 @@ GROUP BY p.category;
                          QUERY PLAN                          
 -------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: p.category, pdb.agg_fn('COUNT(*)'::text)
+   Output: p.category, (count(*))
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Group By: category

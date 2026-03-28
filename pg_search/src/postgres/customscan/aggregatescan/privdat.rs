@@ -65,6 +65,30 @@ pub struct PostJoinFilter {
     pub expr: FilterExpr,
 }
 
+/// A HAVING clause expression that filters aggregate results.
+/// References aggregate outputs by their index in the targetlist.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum HavingExpr {
+    /// Reference to an aggregate result: index into targetlist.aggregates
+    AggRef(usize),
+    /// Reference to a GROUP BY column: index into targetlist.group_columns
+    GroupRef(usize),
+    /// Literal values
+    LitInt(i64),
+    LitFloat(f64),
+    LitBool(bool),
+    LitNull,
+    /// Comparison
+    BinOp {
+        left: Box<HavingExpr>,
+        op: FilterOp,
+        right: Box<HavingExpr>,
+    },
+    And(Vec<HavingExpr>),
+    Or(Vec<HavingExpr>),
+    Not(Box<HavingExpr>),
+}
+
 /// TopK sort+limit info pushed into the DataFusion aggregate plan.
 /// Allows DataFusion to handle ORDER BY aggregate + LIMIT internally.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -100,6 +124,8 @@ pub enum PrivateData {
         topk: Option<DataFusionTopK>,
         /// Post-join filter clauses from joinrestrictinfo that aren't equi-keys.
         post_join_filters: Vec<PostJoinFilter>,
+        /// HAVING clause filter (applied after aggregation).
+        having_filter: Option<HavingExpr>,
     },
 }
 

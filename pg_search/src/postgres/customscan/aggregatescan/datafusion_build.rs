@@ -491,6 +491,215 @@ unsafe fn extract_equi_keys_from_path(
     keys
 }
 
+/// Check the parse tree's WHERE clause for any OR predicates.
+/// OR predicates in join aggregate queries are problematic because our
+/// per-table scan pushdown can't split OR branches correctly across
+/// different PG versions. Reject and let Postgres handle them natively.
+pub unsafe fn has_or_in_quals(
+    root: *mut pg_sys::PlannerInfo,
+    input_rel: &pg_sys::RelOptInfo,
+) -> bool {
+    let parse = (*root).parse;
+    if parse.is_null() {
+        return false;
+    }
+    let jointree = (*parse).jointree;
+    if jointree.is_null() {
+        return false;
+    }
+    // Check parse tree WHERE clause (FromExpr.quals)
+    if !(*jointree).quals.is_null() && contains_or_expr((*jointree).quals) {
+        return true;
+    }
+    // Check JoinExpr quals in the fromlist (for explicit JOIN ... ON ... WHERE)
+    let from_list = PgList::<pg_sys::Node>::from_pg((*jointree).fromlist);
+    for node in from_list.iter_ptr() {
+        if has_or_in_join_tree(node) {
+            return true;
+        }
+    }
+    // Check joinrestrictinfo on cheapest path (PG may move OR there)
+    let path = input_rel.cheapest_total_path;
+    if !path.is_null() && has_or_in_path_recursive(path) {
+        return true;
+    }
+    false
+}
+
+/// Recursively walk a parse tree node (JoinExpr/RangeTblRef) for OR predicates.
+unsafe fn has_or_in_join_tree(node: *mut pg_sys::Node) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    if (*node).type_ == pg_sys::NodeTag::T_JoinExpr {
+        let join = node as *mut pg_sys::JoinExpr;
+        if !(*join).quals.is_null() && contains_or_expr((*join).quals) {
+            return true;
+        }
+        if has_or_in_join_tree((*join).larg) || has_or_in_join_tree((*join).rarg) {
+            return true;
+        }
+    }
+    false
+}
+
+unsafe fn has_or_in_path_recursive(path: *mut pg_sys::Path) -> bool {
+    if path.is_null() {
+        return false;
+    }
+    let tag = (*path).type_;
+    if matches!(
+        tag,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    ) {
+        let join_path = path as *mut pg_sys::JoinPath;
+        let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
+        for ri in restrict_list.iter_ptr() {
+            if contains_or_expr((*ri).clause as *mut pg_sys::Node) {
+                return true;
+            }
+        }
+        if has_or_in_path_recursive((*join_path).outerjoinpath)
+            || has_or_in_path_recursive((*join_path).innerjoinpath)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+unsafe fn contains_or_expr(node: *mut pg_sys::Node) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    let tag = (*node).type_;
+    match tag {
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bexpr = node as *mut pg_sys::BoolExpr;
+            if (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR {
+                return true;
+            }
+            let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+            for arg in args.iter_ptr() {
+                if contains_or_expr(arg) {
+                    return true;
+                }
+            }
+            false
+        }
+        pg_sys::NodeTag::T_List => {
+            let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+            for item in list.iter_ptr() {
+                if contains_or_expr(item) {
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+/// Translate a HAVING qual into a serializable `HavingExpr`.
+pub unsafe fn translate_having_qual(
+    node: *mut pg_sys::Node,
+    targetlist: &crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList,
+) -> Option<crate::postgres::customscan::aggregatescan::privdat::HavingExpr> {
+    use crate::postgres::customscan::aggregatescan::privdat::{FilterOp, HavingExpr};
+
+    if node.is_null() {
+        return None;
+    }
+    let tag = (*node).type_;
+    match tag {
+        pg_sys::NodeTag::T_Aggref => {
+            let aggref = node as *mut pg_sys::Aggref;
+            let aggfnoid = (*aggref).aggfnoid.to_u32();
+            let aggstar = (*aggref).aggstar;
+            for (i, agg) in targetlist.aggregates.iter().enumerate() {
+                if agg.func_oid == aggfnoid
+                    && (aggstar
+                        == (agg.agg_kind
+                            == crate::postgres::customscan::aggregatescan::join_targetlist::AggKind::CountStar))
+                {
+                    return Some(HavingExpr::AggRef(i));
+                }
+            }
+            None
+        }
+        pg_sys::NodeTag::T_Const => {
+            let c = node as *mut pg_sys::Const;
+            if (*c).constisnull {
+                return Some(HavingExpr::LitNull);
+            }
+            let datum = (*c).constvalue;
+            match (*c).consttype {
+                pg_sys::INT2OID => Some(HavingExpr::LitInt(
+                    pgrx::FromDatum::from_datum(datum, false).unwrap_or(0) as i64,
+                )),
+                pg_sys::INT4OID => Some(HavingExpr::LitInt(
+                    pgrx::FromDatum::from_datum(datum, false).unwrap_or(0i32) as i64,
+                )),
+                pg_sys::INT8OID => Some(HavingExpr::LitInt(
+                    pgrx::FromDatum::from_datum(datum, false).unwrap_or(0i64),
+                )),
+                pg_sys::FLOAT4OID => Some(HavingExpr::LitFloat(
+                    pgrx::FromDatum::from_datum(datum, false).unwrap_or(0.0f32) as f64,
+                )),
+                pg_sys::FLOAT8OID => Some(HavingExpr::LitFloat(
+                    pgrx::FromDatum::from_datum(datum, false).unwrap_or(0.0f64),
+                )),
+                _ => None,
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let op = node as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+            if args.len() != 2 {
+                return None;
+            }
+            let left = translate_having_qual(args.get_ptr(0)?, targetlist)?;
+            let right = translate_having_qual(args.get_ptr(1)?, targetlist)?;
+            let opname_ptr = pg_sys::get_opname((*op).opno);
+            if opname_ptr.is_null() {
+                return None;
+            }
+            let opname = std::ffi::CStr::from_ptr(opname_ptr).to_str().ok()?;
+            let filter_op = match opname {
+                "=" => FilterOp::Eq,
+                "<>" | "!=" => FilterOp::NotEq,
+                "<" => FilterOp::Lt,
+                "<=" => FilterOp::LtEq,
+                ">" => FilterOp::Gt,
+                ">=" => FilterOp::GtEq,
+                _ => return None,
+            };
+            Some(HavingExpr::BinOp {
+                left: Box::new(left),
+                op: filter_op,
+                right: Box::new(right),
+            })
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bexpr = node as *mut pg_sys::BoolExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+            let children: Vec<_> = args
+                .iter_ptr()
+                .filter_map(|a| translate_having_qual(a, targetlist))
+                .collect();
+            if children.is_empty() {
+                return None;
+            }
+            match (*bexpr).boolop {
+                pg_sys::BoolExprType::AND_EXPR => Some(HavingExpr::And(children)),
+                pg_sys::BoolExprType::OR_EXPR => Some(HavingExpr::Or(children)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Check whether the join path has non-equi-join quals that our DataFusion
 /// backend can't execute (e.g., cross-table OR conditions, inequality filters).
 ///

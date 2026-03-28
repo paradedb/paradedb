@@ -43,6 +43,7 @@ use pgrx::PgList;
 pub enum AggKind {
     CountStar,
     Count,
+    CountDistinct,
     Sum,
     Avg,
     Min,
@@ -54,6 +55,7 @@ impl std::fmt::Display for AggKind {
         match self {
             AggKind::CountStar => write!(f, "COUNT(*)"),
             AggKind::Count => write!(f, "COUNT"),
+            AggKind::CountDistinct => write!(f, "COUNT(DISTINCT)"),
             AggKind::Sum => write!(f, "SUM"),
             AggKind::Avg => write!(f, "AVG"),
             AggKind::Min => write!(f, "MIN"),
@@ -100,12 +102,13 @@ pub struct JoinAggregateTargetList {
 /// Classify an aggregate function OID into an [`AggKind`].
 ///
 /// Returns `None` for unsupported or unknown OIDs (including `pdb.agg()`).
-fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool) -> Option<AggKind> {
+fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> Option<AggKind> {
     if aggfnoid == F_COUNT_ && aggstar {
         return Some(AggKind::CountStar);
     }
 
     match aggfnoid {
+        F_COUNT_ANY if has_distinct => Some(AggKind::CountDistinct),
         F_COUNT_ANY => Some(AggKind::Count),
         F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
             Some(AggKind::Avg)
@@ -193,11 +196,7 @@ pub unsafe fn extract_aggregate_targetlist(
         } else if let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) {
             // Aggregate function (possibly wrapped in COALESCE, etc.)
             let aggfnoid = (*aggref).aggfnoid.to_u32();
-
-            // Reject DISTINCT
-            if !(*aggref).aggdistinct.is_null() {
-                return Err("DISTINCT aggregates are not supported on joins".into());
-            }
+            let has_distinct = !(*aggref).aggdistinct.is_null();
 
             // Reject pdb.agg()
             let pdb_agg_oid = crate::api::agg_funcoid().to_u32();
@@ -208,7 +207,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 );
             }
 
-            let agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar)
+            let agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
                 .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
 
             let field_ref = extract_aggref_field_ref(aggref, sources)?;

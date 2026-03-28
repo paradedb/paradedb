@@ -212,20 +212,45 @@ WHERE p.description @@@ 'laptop OR orphan';
 DELETE FROM agg_join_products WHERE description = 'Orphan product no tags';
 
 -- =====================================================================
--- SECTION 6: Verify single-table aggregates still use Tantivy
+-- SECTION 6: COUNT(DISTINCT) on JOIN
 -- =====================================================================
 
--- Test 6.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
+-- Test 6.1: COUNT(DISTINCT) — falls back to Postgres native because
+-- DISTINCT aggregates change the UPPERREL_GROUP_AGG input structure,
+-- causing join key extraction to fail. Results are still correct.
+SELECT p.category, COUNT(DISTINCT t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 6.2: COUNT(DISTINCT) parity — verify same result with custom scan off
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(DISTINCT t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
+-- SECTION 7: Verify single-table aggregates still use Tantivy
+-- =====================================================================
+
+-- Test 7.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 
 -- =====================================================================
--- SECTION 7: Correctness parity — compare DataFusion vs Postgres default
+-- SECTION 8: Correctness parity — compare DataFusion vs Postgres default
 -- =====================================================================
 
--- Test 7.1: Run the same query with custom scan OFF to verify result parity
+-- Test 8.1: Run the same query with custom scan OFF to verify result parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT COUNT(*)

@@ -49,6 +49,7 @@ use async_trait::async_trait;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
+use datafusion::functions_aggregate::count::count_udaf;
 
 /// Custom query planner that uses our LateMaterializePlanner extension.
 /// Same as JoinScan's PgSearchQueryPlanner.
@@ -141,6 +142,19 @@ pub async fn build_join_aggregate_plan(
             let agg_expr = match agg.agg_kind {
                 AggKind::CountStar => Ok(count(lit(1))),
                 AggKind::Count => agg_field_col(agg, plan).map(count),
+                AggKind::CountDistinct => {
+                    let col_expr = agg_field_col(agg, plan)?;
+                    Ok(Expr::AggregateFunction(
+                        datafusion::logical_expr::expr::AggregateFunction::new_udf(
+                            count_udaf(),
+                            vec![col_expr],
+                            true,   // distinct
+                            None,   // filter
+                            vec![], // order_by
+                            None,   // null_treatment
+                        ),
+                    ))
+                }
                 AggKind::Sum => agg_field_col(agg, plan).map(sum),
                 AggKind::Avg => agg_field_col(agg, plan).map(avg),
                 AggKind::Min => agg_field_col(agg, plan).map(min),

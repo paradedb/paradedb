@@ -248,20 +248,55 @@ ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
--- SECTION 7: Verify single-table aggregates still use Tantivy
+-- SECTION 7: LEFT JOIN aggregates
 -- =====================================================================
 
--- Test 7.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
+-- Test 7.1: LEFT JOIN with COUNT — includes products with no tags
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(t.tag_name)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+SELECT p.category, COUNT(t.tag_name)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- Test 7.2: LEFT JOIN parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(t.tag_name), SUM(p.price)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, COUNT(t.tag_name), SUM(p.price)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- =====================================================================
+-- SECTION 8: Verify single-table aggregates still use Tantivy
+-- =====================================================================
+
+-- Test 8.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 
 -- =====================================================================
--- SECTION 8: Correctness parity — compare DataFusion vs Postgres default
+-- SECTION 9: Correctness parity — compare DataFusion vs Postgres default
 -- =====================================================================
 
--- Test 8.1: Run the same query with custom scan OFF to verify result parity
+-- Test 9.1: Run the same query with custom scan OFF to verify result parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT COUNT(*)

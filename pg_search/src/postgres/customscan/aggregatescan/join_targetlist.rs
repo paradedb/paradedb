@@ -48,6 +48,10 @@ pub enum AggKind {
     Avg,
     Min,
     Max,
+    StddevSamp,
+    StddevPop,
+    VarSamp,
+    VarPop,
 }
 
 impl std::fmt::Display for AggKind {
@@ -60,6 +64,10 @@ impl std::fmt::Display for AggKind {
             AggKind::Avg => write!(f, "AVG"),
             AggKind::Min => write!(f, "MIN"),
             AggKind::Max => write!(f, "MAX"),
+            AggKind::StddevSamp => write!(f, "STDDEV_SAMP"),
+            AggKind::StddevPop => write!(f, "STDDEV_POP"),
+            AggKind::VarSamp => write!(f, "VAR_SAMP"),
+            AggKind::VarPop => write!(f, "VAR_POP"),
         }
     }
 }
@@ -125,6 +133,26 @@ fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> O
         F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
         | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
         | F_MIN_NUMERIC => Some(AggKind::Min),
+        _ => classify_aggregate_by_name(aggfnoid),
+    }
+}
+
+/// Fallback classification by looking up the function name from the catalog.
+/// Handles aggregate functions whose OIDs aren't exposed as constants in pg_sys
+/// (e.g., STDDEV, VARIANCE and their variants).
+fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
+    let name = unsafe {
+        let name_ptr = pg_sys::get_func_name(pg_sys::Oid::from(aggfnoid));
+        if name_ptr.is_null() {
+            return None;
+        }
+        std::ffi::CStr::from_ptr(name_ptr).to_str().ok()?.to_owned()
+    };
+    match name.as_str() {
+        "stddev" | "stddev_samp" => Some(AggKind::StddevSamp),
+        "stddev_pop" => Some(AggKind::StddevPop),
+        "variance" | "var_samp" => Some(AggKind::VarSamp),
+        "var_pop" => Some(AggKind::VarPop),
         _ => None,
     }
 }

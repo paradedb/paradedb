@@ -42,7 +42,9 @@ use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::functions_aggregate::count::count_udaf;
-use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
+use datafusion::functions_aggregate::expr_fn::{
+    avg, count, max, min, stddev, stddev_pop, sum, var_pop, var_sample,
+};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -123,6 +125,10 @@ pub async fn build_join_aggregate_plan(
                 AggKind::Avg => agg_field_col(agg, plan).map(avg),
                 AggKind::Min => agg_field_col(agg, plan).map(min),
                 AggKind::Max => agg_field_col(agg, plan).map(max),
+                AggKind::StddevSamp => agg_field_col(agg, plan).map(stddev),
+                AggKind::StddevPop => agg_field_col(agg, plan).map(stddev_pop),
+                AggKind::VarSamp => agg_field_col(agg, plan).map(var_sample),
+                AggKind::VarPop => agg_field_col(agg, plan).map(var_pop),
             }?;
             // Alias for stable reference
             Ok(agg_expr.alias(format!("agg_{}", i)))

@@ -101,7 +101,21 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-ERROR:  could not find pathkey item to sort
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit
+   Output: p.category, (count(*))
+   ->  Sort
+         Output: p.category, (count(*))
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.category, (count(*))
+               Backend: DataFusion
+               Indexes: topk_products_idx (p), topk_tags_idx (t)
+               Group By: category
+               Aggregates: COUNT(*)(*)
+(11 rows)
+
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
@@ -109,7 +123,13 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-ERROR:  could not find pathkey item to sort
+  category   | count 
+-------------+-------
+ Electronics |     4
+ Sports      |     4
+ Toys        |     4
+(3 rows)
+
 -- =====================================================================
 -- Test 3: ORDER BY SUM(price) DESC LIMIT
 -- =====================================================================
@@ -121,7 +141,21 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY SUM(p.price) DESC
 LIMIT 2;
-ERROR:  could not find pathkey item to sort
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit
+   Output: p.category, (sum(p.price))
+   ->  Sort
+         Output: p.category, (sum(p.price))
+         Sort Key: (sum(p.price)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.category, (sum(p.price))
+               Backend: DataFusion
+               Indexes: topk_products_idx (p), topk_tags_idx (t)
+               Group By: category
+               Aggregates: SUM(price)
+(11 rows)
+
 SELECT p.category, SUM(p.price)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
@@ -129,7 +163,12 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY SUM(p.price) DESC
 LIMIT 2;
-ERROR:  could not find pathkey item to sort
+  category   |   sum   
+-------------+---------
+ Electronics | 4599.96
+ Toys        | 1039.96
+(2 rows)
+
 -- =====================================================================
 -- Test 4: ORDER BY COUNT(*) ASC LIMIT (bottom K)
 -- =====================================================================
@@ -140,7 +179,12 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) ASC
 LIMIT 2;
-ERROR:  could not find pathkey item to sort
+ category | count 
+----------+-------
+ Books    |     1
+ Clothing |     2
+(2 rows)
+
 -- =====================================================================
 -- Test 5: Multiple aggregates with ORDER BY one of them
 -- =====================================================================
@@ -151,7 +195,13 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY SUM(p.price) DESC
 LIMIT 3;
-ERROR:  could not find pathkey item to sort
+  category   | count |   sum   | min | max 
+-------------+-------+---------+-----+-----
+ Electronics |     4 | 4599.96 |   5 |   5
+ Toys        |     4 | 1039.96 |   2 |   5
+ Sports      |     4 |  419.96 |   3 |   4
+(3 rows)
+
 -- =====================================================================
 -- Test 6: Parity — TopK results match full ORDER BY
 -- =====================================================================
@@ -179,7 +229,13 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-ERROR:  could not find pathkey item to sort
+  category   | count |   sum   
+-------------+-------+---------
+ Electronics |     4 | 4599.96
+ Sports      |     4 |  419.96
+ Toys        |     4 | 1039.96
+(3 rows)
+
 -- =====================================================================
 -- Test 7: Scalar aggregates (no GROUP BY) still work
 -- =====================================================================
@@ -203,7 +259,21 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
-ERROR:  could not find pathkey item to sort
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit
+   Output: p.category, (count(*))
+   ->  Sort
+         Output: p.category, (count(*))
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.category, (count(*))
+               Backend: DataFusion
+               Indexes: topk_products_idx (p), topk_tags_idx (t)
+               Group By: category
+               Aggregates: COUNT(*)(*)
+(11 rows)
+
 SELECT p.category, COUNT(*)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
@@ -211,7 +281,11 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
-ERROR:  could not find pathkey item to sort
+  category   | count 
+-------------+-------
+ Electronics |     4
+(1 row)
+
 -- =====================================================================
 -- Test 9: LIMIT larger than number of groups (returns all groups)
 -- =====================================================================
@@ -222,7 +296,15 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 100;
-ERROR:  could not find pathkey item to sort
+  category   | count 
+-------------+-------
+ Electronics |     4
+ Sports      |     4
+ Toys        |     4
+ Clothing    |     2
+ Books       |     1
+(5 rows)
+
 -- =====================================================================
 -- Test 10: OFFSET + LIMIT on join TopK
 -- =====================================================================
@@ -233,7 +315,12 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 2 OFFSET 1;
-ERROR:  could not find pathkey item to sort
+ category | count 
+----------+-------
+ Sports   |     4
+ Toys     |     4
+(2 rows)
+
 -- =====================================================================
 -- Test 11: Parity — TopK top-3 matches top-3 of full result
 -- =====================================================================
@@ -260,7 +347,13 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-ERROR:  could not find pathkey item to sort
+  category   | count 
+-------------+-------
+ Electronics |     4
+ Sports      |     4
+ Toys        |     4
+(3 rows)
+
 -- =====================================================================
 -- Test 12: ORDER BY SUM ASC LIMIT (bottom K by sum)
 -- =====================================================================
@@ -271,6 +364,11 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY SUM(p.price) ASC
 LIMIT 2;
-ERROR:  could not find pathkey item to sort
+ category |        sum         
+----------+--------------------
+ Books    |              24.99
+ Clothing | 179.98000000000002
+(2 rows)
+
 DROP TABLE topk_tags;
 DROP TABLE topk_products;

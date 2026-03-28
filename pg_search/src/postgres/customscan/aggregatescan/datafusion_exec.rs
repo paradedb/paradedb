@@ -50,7 +50,9 @@ use crate::scan::PgSearchTableProvider;
 
 // Re-export DataFusion aggregate helpers
 use datafusion::functions_aggregate::count::count_udaf;
-use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
+use datafusion::functions_aggregate::expr_fn::{
+    avg, count, max, min, stddev, stddev_pop, sum, var_pop, var_sample,
+};
 
 /// Custom query planner that uses our LateMaterializePlanner extension.
 /// Same as JoinScan's PgSearchQueryPlanner.
@@ -174,6 +176,22 @@ pub async fn build_join_aggregate_plan(
                 AggKind::Max => {
                     let col_expr = agg_field_col(agg, plan);
                     max(col_expr)
+                }
+                AggKind::StddevSamp => {
+                    let col_expr = agg_field_col(agg, plan);
+                    stddev(col_expr)
+                }
+                AggKind::StddevPop => {
+                    let col_expr = agg_field_col(agg, plan);
+                    stddev_pop(col_expr)
+                }
+                AggKind::VarSamp => {
+                    let col_expr = agg_field_col(agg, plan);
+                    var_sample(col_expr)
+                }
+                AggKind::VarPop => {
+                    let col_expr = agg_field_col(agg, plan);
+                    var_pop(col_expr)
                 }
             };
             // Alias for stable reference

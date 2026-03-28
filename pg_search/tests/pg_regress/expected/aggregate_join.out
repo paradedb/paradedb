@@ -206,20 +206,16 @@ SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-ORDER BY p.category;
-                            QUERY PLAN                             
--------------------------------------------------------------------
- Sort
+GROUP BY p.category;
+                         QUERY PLAN
+-------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
    Output: p.category, (count(*))
-   Sort Key: p.category
-   ->  Custom Scan (ParadeDB Aggregate Scan)
-         Output: p.category, (count(*))
-         Backend: DataFusion
-         Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-         Group By: category
-         Aggregates: COUNT(*)(*)
-(9 rows)
+   Backend: DataFusion
+   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+   Group By: category
+   Aggregates: COUNT(*)(*)
+(6 rows)
 
 SELECT p.category, COUNT(*)
 FROM agg_join_products p

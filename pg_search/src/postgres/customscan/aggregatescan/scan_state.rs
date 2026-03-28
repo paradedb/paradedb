@@ -44,6 +44,8 @@ pub struct DataFusionAggState {
     pub targetlist: JoinAggregateTargetList,
     /// Optional TopK sort+limit pushed down from Postgres.
     pub topk: Option<DataFusionTopK>,
+    /// Post-join filter clauses from joinrestrictinfo.
+    pub post_join_filters: Vec<crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter>,
     /// Tokio runtime for async DataFusion execution.
     pub runtime: Option<tokio::runtime::Runtime>,
     /// DataFusion result stream.

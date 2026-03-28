@@ -23,6 +23,48 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
 
+/// A post-join filter expression that couldn't be pushed to individual table scans.
+/// Serialized at plan time, translated to DataFusion `Expr` at execution time.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum FilterExpr {
+    /// Column reference: (source_index, field_name)
+    Column(usize, String),
+    /// Literal value
+    LitInt(i64),
+    LitFloat(f64),
+    LitString(String),
+    LitBool(bool),
+    LitNull,
+    /// Binary comparison: left op right
+    BinOp {
+        left: Box<FilterExpr>,
+        op: FilterOp,
+        right: Box<FilterExpr>,
+    },
+    /// Boolean AND/OR
+    And(Vec<FilterExpr>),
+    Or(Vec<FilterExpr>),
+    /// NOT
+    Not(Box<FilterExpr>),
+}
+
+/// Comparison operators for filter expressions.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum FilterOp {
+    Eq,
+    NotEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+}
+
+/// A post-join filter (wrapper for serialization).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PostJoinFilter {
+    pub expr: FilterExpr,
+}
+
 /// TopK sort+limit info pushed into the DataFusion aggregate plan.
 /// Allows DataFusion to handle ORDER BY aggregate + LIMIT internally.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -57,6 +99,8 @@ pub enum PrivateData {
         targetlist: JoinAggregateTargetList,
         /// Optional TopK sort+limit pushed down from Postgres.
         topk: Option<DataFusionTopK>,
+        /// Post-join filter clauses from joinrestrictinfo that aren't equi-keys.
+        post_join_filters: Vec<PostJoinFilter>,
     },
 }
 

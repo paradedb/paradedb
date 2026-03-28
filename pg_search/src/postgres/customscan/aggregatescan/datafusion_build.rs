@@ -360,6 +360,12 @@ unsafe fn extract_equi_keys_from_expr(
                 keys.extend(extract_equi_keys_from_expr(arg, sources)?);
             }
         }
+    } else if tag == pg_sys::NodeTag::T_List {
+        // Postgres may wrap ON clause quals in a List node
+        let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+        for item in list.iter_ptr() {
+            keys.extend(extract_equi_keys_from_expr(_root, item, sources)?);
+        }
     }
 
     Ok(keys)

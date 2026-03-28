@@ -355,7 +355,37 @@ WHERE p.description @@@ 'laptop';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
--- SECTION 10: Date/Timestamp aggregates on JOIN
+-- SECTION 10: STDDEV/VARIANCE aggregates on JOIN
+-- =====================================================================
+
+-- Test 10.1: STDDEV and VARIANCE on join
+SELECT STDDEV(p.price), VARIANCE(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 10.2: STDDEV_POP and VAR_POP on join with GROUP BY
+SELECT p.category, STDDEV_POP(p.rating), VAR_POP(p.rating)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- Test 10.3: STDDEV parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT STDDEV(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT STDDEV(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- =====================================================================
+-- SECTION 11: Date/Timestamp aggregates on JOIN
 -- =====================================================================
 
 CREATE TABLE ts_orders (

@@ -49,6 +49,7 @@ use crate::postgres::customscan::joinscan::translator::make_col;
 use crate::scan::PgSearchTableProvider;
 
 // Re-export DataFusion aggregate helpers
+use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 
 /// Custom query planner that uses our LateMaterializePlanner extension.
@@ -144,6 +145,19 @@ pub async fn build_join_aggregate_plan(
                 AggKind::Count => {
                     let col_expr = agg_field_col(agg, plan);
                     count(col_expr)
+                }
+                AggKind::CountDistinct => {
+                    let col_expr = agg_field_col(agg, plan);
+                    Expr::AggregateFunction(
+                        datafusion::logical_expr::expr::AggregateFunction::new_udf(
+                            count_udaf(),
+                            vec![col_expr],
+                            true,   // distinct
+                            None,   // filter
+                            vec![], // order_by
+                            None,   // null_treatment
+                        ),
+                    )
                 }
                 AggKind::Sum => {
                     let col_expr = agg_field_col(agg, plan);

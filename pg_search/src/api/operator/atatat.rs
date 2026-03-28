@@ -17,11 +17,14 @@
 
 use crate::api::builder_fns::{parse, parse_with_field, proximity};
 use crate::api::operator::{
-    get_expr_result_type, pdb_query_typoid, request_simplify, searchqueryinput_typoid, RHSValue,
-    ReturnedNodePointer,
+    boost_typoid, coerce_to_pdb_query, fuzzy_typoid, get_expr_result_type,
+    pdb_proximityclause_typoid, pdb_query_typoid, request_simplify, searchqueryinput_typoid,
+    RHSValue, ReturnedNodePointer,
 };
+use crate::api::FieldName;
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::proximity::ProximityClause;
+use crate::query::SearchQueryInput;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -48,6 +51,45 @@ pub fn search_with_fieled_query_input(_element: AnyElement, query: pdb::Query) -
 #[opname(pg_catalog.@@@)]
 pub fn search_with_proximity_clause(_element: AnyElement, query: ProximityClause) -> bool {
     panic!("query is incompatible with pg_search's `@@@(field, pdb.ProximityClause)` operator: `{query:?}`")
+}
+
+/// Converts a pdb::Query to SearchQueryInput for the @@@ operator.
+/// Handles UnclassifiedString by converting it to ParseWithField at runtime.
+#[pg_extern(immutable, parallel_safe, name = "parse_with_field_query")]
+fn parse_with_field_query(field: FieldName, query: pdb::Query) -> SearchQueryInput {
+    match query {
+        pdb::Query::UnclassifiedString {
+            string,
+            fuzzy_data,
+            slop_data,
+        } => {
+            let mut query = parse_with_field(string, None, None);
+            query.apply_fuzzy_data(fuzzy_data);
+            query.apply_slop_data(slop_data);
+            to_search_query_input(field, query)
+        }
+        pdb::Query::ScoreAdjusted { query, score } => {
+            let mut inner = *query;
+            if let pdb::Query::UnclassifiedString {
+                string,
+                fuzzy_data,
+                slop_data,
+            } = inner
+            {
+                inner = parse_with_field(string, None, None);
+                inner.apply_fuzzy_data(fuzzy_data);
+                inner.apply_slop_data(slop_data);
+            }
+            to_search_query_input(
+                field,
+                pdb::Query::ScoreAdjusted {
+                    query: Box::new(inner),
+                    score,
+                },
+            )
+        }
+        other => to_search_query_input(field, other),
+    }
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -87,7 +129,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                 }
                 _ => {
                     unreachable!(
-                        "atatat_support should only ever be called with a text value"
+                        "atatat_support should only ever be called with text, pdb.query, or pdb.ProximityClause values"
                     )
                 }
             },
@@ -95,32 +137,50 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                 let search_query_input_typoid = searchqueryinput_typoid();
                 let pdb_query_typoid = pdb_query_typoid();
                 let expr_type = get_expr_result_type(rhs);
+                let is_text = expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID;
                 let is_pdb_query = expr_type == pdb_query_typoid;
+                let is_boost = expr_type == boost_typoid();
+                let is_fuzzy = expr_type == fuzzy_typoid();
+                let is_prox = expr_type == pdb_proximityclause_typoid();
 
                 assert!(
-                    expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID || is_pdb_query,
-                    "The right-hand side of the `@@@` operator must be a text value"
+                    is_text || is_pdb_query || is_boost || is_fuzzy || is_prox,
+                    "The right-hand side of the `@@@` operator must be text, pdb.query, pdb.boost, pdb.fuzzy, or pdb.ProximityClause"
                 );
 
+                // Cast pdb.boost/pdb.fuzzy to pdb.query before calling parse_with_field_query
+                let rhs = if is_boost {
+                    coerce_to_pdb_query(rhs, c"paradedb.boost_to_query(pdb.boost)")
+                } else if is_fuzzy {
+                    coerce_to_pdb_query(rhs, c"paradedb.fuzzy_to_query(pdb.fuzzy)")
+                } else {
+                    rhs
+                };
 
-                let funcid = if is_pdb_query {
+                let funcid = if is_pdb_query || is_boost || is_fuzzy {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
-                        &[c"paradedb.to_search_query_input(paradedb.fieldname, pdb.query)".into_datum()],
+                        &[c"paradedb.parse_with_field_query(paradedb.fieldname, pdb.query)".into_datum()],
                     )
-                        .expect("`paradedb.to_search_query_input(paradedb.fieldname, pdb.query)` should exist")
+                    .expect("`paradedb.parse_with_field_query(paradedb.fieldname, pdb.query)` should exist")
+                } else if is_prox {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.proximity(paradedb.fieldname, pdb.proximityclause)".into_datum()],
+                    )
+                    .expect("`paradedb.proximity(paradedb.fieldname, pdb.proximityclause)` should exist")
                 } else if field.is_some() {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
                         &[c"paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)".into_datum()],
                     )
-                        .expect("`paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)` should exist")
+                    .expect("`paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)` should exist")
                 } else {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
                         &[c"paradedb.parse(text, bool, bool)".into_datum()],
                     )
-                        .expect("`paradedb.parse(text, bool, bool)` should exist")
+                    .expect("`paradedb.parse(text, bool, bool)` should exist")
                 };
 
                 match field {
@@ -130,7 +190,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                         args.push(field.into_const().cast());
                         args.push(rhs.cast());
 
-                        if !is_pdb_query {
+                        if is_text {
                             args.push(pg_sys::makeBoolConst(false, true));
                             args.push(pg_sys::makeBoolConst(false, true));
                         }
@@ -153,7 +213,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
 
                     // here we call the `paradedb.parse` function without a FieldName
                     None => {
-                        assert!(!is_pdb_query);
+                        assert!(is_text);
 
                         let mut args = PgList::<pg_sys::Node>::new();
                         args.push(rhs.cast());

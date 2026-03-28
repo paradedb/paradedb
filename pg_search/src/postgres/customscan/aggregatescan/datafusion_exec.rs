@@ -153,7 +153,6 @@ pub async fn build_join_aggregate_plan(
 
 /// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].
 ///
-/// Unlike JoinScan's `build_relnode_df`, this version:
 /// - Does NOT include CTID columns (no heap fetch needed for aggregates)
 /// - Does NOT handle LIMIT, ORDER BY, DISTINCT, or output projection
 ///   (those are handled by the aggregate layer above)

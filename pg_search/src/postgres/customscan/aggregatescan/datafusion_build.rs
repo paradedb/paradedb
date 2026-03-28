@@ -601,6 +601,106 @@ unsafe fn contains_or_expr(node: *mut pg_sys::Node) -> bool {
     }
 }
 
+/// Translate a HAVING qual into a serializable `HavingExpr`.
+pub unsafe fn translate_having_qual(
+    node: *mut pg_sys::Node,
+    targetlist: &crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList,
+) -> Option<crate::postgres::customscan::aggregatescan::privdat::HavingExpr> {
+    use crate::postgres::customscan::aggregatescan::privdat::{FilterOp, HavingExpr};
+
+    if node.is_null() {
+        return None;
+    }
+    let tag = (*node).type_;
+    match tag {
+        pg_sys::NodeTag::T_Aggref => {
+            let aggref = node as *mut pg_sys::Aggref;
+            let aggfnoid = (*aggref).aggfnoid.to_u32();
+            let aggstar = (*aggref).aggstar;
+            for (i, agg) in targetlist.aggregates.iter().enumerate() {
+                if agg.func_oid == aggfnoid
+                    && (aggstar
+                        == (agg.agg_kind
+                            == crate::postgres::customscan::aggregatescan::join_targetlist::AggKind::CountStar))
+                {
+                    return Some(HavingExpr::AggRef(i));
+                }
+            }
+            None
+        }
+        pg_sys::NodeTag::T_Const => {
+            let c = node as *mut pg_sys::Const;
+            if (*c).constisnull {
+                return Some(HavingExpr::LitNull);
+            }
+            let datum = (*c).constvalue;
+            match (*c).consttype {
+                pg_sys::INT2OID => Some(HavingExpr::LitInt(
+                    pgrx::FromDatum::from_datum(datum, false).unwrap_or(0) as i64,
+                )),
+                pg_sys::INT4OID => Some(HavingExpr::LitInt(
+                    pgrx::FromDatum::from_datum(datum, false).unwrap_or(0i32) as i64,
+                )),
+                pg_sys::INT8OID => Some(HavingExpr::LitInt(
+                    pgrx::FromDatum::from_datum(datum, false).unwrap_or(0i64),
+                )),
+                pg_sys::FLOAT4OID => Some(HavingExpr::LitFloat(
+                    pgrx::FromDatum::from_datum(datum, false).unwrap_or(0.0f32) as f64,
+                )),
+                pg_sys::FLOAT8OID => Some(HavingExpr::LitFloat(
+                    pgrx::FromDatum::from_datum(datum, false).unwrap_or(0.0f64),
+                )),
+                _ => None,
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let op = node as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+            if args.len() != 2 {
+                return None;
+            }
+            let left = translate_having_qual(args.get_ptr(0)?, targetlist)?;
+            let right = translate_having_qual(args.get_ptr(1)?, targetlist)?;
+            let opname_ptr = pg_sys::get_opname((*op).opno);
+            if opname_ptr.is_null() {
+                return None;
+            }
+            let opname = std::ffi::CStr::from_ptr(opname_ptr).to_str().ok()?;
+            let filter_op = match opname {
+                "=" => FilterOp::Eq,
+                "<>" | "!=" => FilterOp::NotEq,
+                "<" => FilterOp::Lt,
+                "<=" => FilterOp::LtEq,
+                ">" => FilterOp::Gt,
+                ">=" => FilterOp::GtEq,
+                _ => return None,
+            };
+            Some(HavingExpr::BinOp {
+                left: Box::new(left),
+                op: filter_op,
+                right: Box::new(right),
+            })
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bexpr = node as *mut pg_sys::BoolExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+            let children: Vec<_> = args
+                .iter_ptr()
+                .filter_map(|a| translate_having_qual(a, targetlist))
+                .collect();
+            if children.is_empty() {
+                return None;
+            }
+            match (*bexpr).boolop {
+                pg_sys::BoolExprType::AND_EXPR => Some(HavingExpr::And(children)),
+                pg_sys::BoolExprType::OR_EXPR => Some(HavingExpr::Or(children)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Check whether the join path has non-equi-join quals that our DataFusion
 /// backend can't execute (e.g., cross-table OR conditions, inequality filters).
 ///

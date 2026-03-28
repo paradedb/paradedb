@@ -124,46 +124,68 @@ WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (n
 (1 row)
 
 -- =====================================================================
--- Test 3: HAVING clause → should fall back to Postgres native
+-- Test 3: HAVING clause → should now use DataFusion
 -- =====================================================================
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*)
 FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
-HAVING COUNT(*) > 1;
-WARNING:  Aggregate Scan (DataFusion) not used: HAVING clause is not supported for aggregate-on-join (table: join)
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: p.category
-   Filter: (count(*) > 1)
-   ->  Sort
-         Sort Key: p.category
-         ->  Hash Join
-               Hash Cond: (t.product_id = p.id)
-               ->  Seq Scan on fb_tags t
-               ->  Hash
-                     ->  Custom Scan (ParadeDB Base Scan) on fb_products p
-                           Table: fb_products
-                           Index: fb_products_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: category, id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+HAVING COUNT(*) > 0;
+                   QUERY PLAN                    
+-------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: p.category, (count(*))
+   Backend: DataFusion
+   Indexes: fb_products_idx (p), fb_tags_idx (t)
+   Group By: category
+   Aggregates: COUNT(*)(*)
+(6 rows)
 
 SELECT p.category, COUNT(*)
 FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
-HAVING COUNT(*) > 1;
-WARNING:  Aggregate Scan (DataFusion) not used: HAVING clause is not supported for aggregate-on-join (table: join)
- category | count 
-----------+-------
-(0 rows)
+HAVING COUNT(*) > 0;
+  category   | count 
+-------------+-------
+ Electronics |     1
+ Sports      |     1
+ Clothing    |     1
+(3 rows)
+
+-- Test 3b: HAVING parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 0
+ORDER BY p.category;
+  category   | count 
+-------------+-------
+ Clothing    |     1
+ Electronics |     1
+ Sports      |     1
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 0
+ORDER BY p.category;
+  category   | count 
+-------------+-------
+ Clothing    |     1
+ Electronics |     1
+ Sports      |     1
+(3 rows)
 
 -- =====================================================================
 -- Clean up

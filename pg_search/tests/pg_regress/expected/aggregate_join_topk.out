@@ -69,7 +69,7 @@ GROUP BY p.category;
                      QUERY PLAN                      
 -----------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: p.category, pdb.agg_fn('COUNT(*)'::text)
+   Output: p.category, (count(*))
    Backend: DataFusion
    Indexes: topk_products_idx (p), topk_tags_idx (t)
    Group By: category

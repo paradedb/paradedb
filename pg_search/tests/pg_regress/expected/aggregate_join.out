@@ -208,13 +208,13 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-                            QUERY PLAN                             
+                            QUERY PLAN
 -------------------------------------------------------------------
  Sort
-   Output: p.category, (pdb.agg_fn('COUNT(*)'::text))
+   Output: p.category, (count(*))
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
-         Output: p.category, pdb.agg_fn('COUNT(*)'::text)
+         Output: p.category, count(*)
          Backend: DataFusion
          Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
          Group By: category

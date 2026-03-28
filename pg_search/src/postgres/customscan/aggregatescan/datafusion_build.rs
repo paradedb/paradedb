@@ -494,6 +494,193 @@ unsafe fn extract_equi_keys_from_path(
 /// Check whether the join path has non-equi-join quals that our DataFusion
 /// backend can't execute (e.g., cross-table OR conditions, inequality filters).
 ///
+/// Walks the cheapest path's joinrestrictinfo and counts entries that aren't
+/// equi-join keys. If any remain, the query has post-join filters we'd lose.
+/// Extract non-equi join quals from the cheapest path's joinrestrictinfo.
+/// Returns `PostJoinFilter` entries for clauses that aren't equi-join keys.
+pub unsafe fn extract_non_equi_join_quals(
+    input_rel: &pg_sys::RelOptInfo,
+    sources: &[JoinAggSource],
+) -> Vec<crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter> {
+    let path = input_rel.cheapest_total_path;
+    if path.is_null() {
+        return Vec::new();
+    }
+    let mut filters = Vec::new();
+    collect_non_equi_quals_recursive(path, sources, &mut filters);
+    filters
+}
+
+unsafe fn collect_non_equi_quals_recursive(
+    path: *mut pg_sys::Path,
+    sources: &[JoinAggSource],
+    filters: &mut Vec<crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter>,
+) {
+    if path.is_null() {
+        return;
+    }
+    let tag = (*path).type_;
+    let is_join_path = matches!(
+        tag,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    );
+    if is_join_path {
+        let join_path = path as *mut pg_sys::JoinPath;
+        let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
+        for ri in restrict_list.iter_ptr() {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            if clause.is_null() {
+                continue;
+            }
+            // Skip equi-join keys — they're already handled
+            if (*clause).type_ == pg_sys::NodeTag::T_OpExpr
+                && try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources).is_some()
+            {
+                continue;
+            }
+            // Translate the clause to a serializable FilterExpr
+            if let Some(expr) = translate_node_to_filter_expr(clause, sources) {
+                filters.push(
+                    crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter { expr },
+                );
+            } else {
+                // Can't translate — reject the whole path by pushing an untranslatable marker
+                filters.push(
+                    crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter {
+                        expr: crate::postgres::customscan::aggregatescan::privdat::FilterExpr::LitNull,
+                    },
+                );
+            }
+        }
+        collect_non_equi_quals_recursive((*join_path).outerjoinpath, sources, filters);
+        collect_non_equi_quals_recursive((*join_path).innerjoinpath, sources, filters);
+    }
+}
+
+/// Translate a Postgres expression node into a serializable `FilterExpr`.
+/// Returns `None` for expression types we can't translate.
+unsafe fn translate_node_to_filter_expr(
+    node: *mut pg_sys::Node,
+    sources: &[JoinAggSource],
+) -> Option<crate::postgres::customscan::aggregatescan::privdat::FilterExpr> {
+    use crate::postgres::customscan::aggregatescan::privdat::{FilterExpr, FilterOp};
+
+    if node.is_null() {
+        return None;
+    }
+
+    let tag = (*node).type_;
+
+    match tag {
+        pg_sys::NodeTag::T_Var => {
+            let var = node as *mut pg_sys::Var;
+            let rti = (*var).varno as pg_sys::Index;
+            let attno = (*var).varattno;
+            let (idx, source) = sources.iter().enumerate().find(|(_, s)| s.rti == rti)?;
+            let name_ptr = pg_sys::get_attname(source.relid, attno, false);
+            if name_ptr.is_null() {
+                return None;
+            }
+            let name = std::ffi::CStr::from_ptr(name_ptr).to_str().ok()?.to_owned();
+            Some(FilterExpr::Column(idx, name))
+        }
+        pg_sys::NodeTag::T_Const => {
+            let c = node as *mut pg_sys::Const;
+            if (*c).constisnull {
+                return Some(FilterExpr::LitNull);
+            }
+            let typoid = (*c).consttype;
+            let datum = (*c).constvalue;
+            match typoid {
+                pg_sys::INT2OID => {
+                    let i: Option<i16> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitInt(i? as i64))
+                }
+                pg_sys::INT4OID => {
+                    let i: Option<i32> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitInt(i? as i64))
+                }
+                pg_sys::INT8OID => {
+                    let i: Option<i64> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitInt(i?))
+                }
+                pg_sys::FLOAT4OID => {
+                    let f: Option<f32> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitFloat(f? as f64))
+                }
+                pg_sys::FLOAT8OID => {
+                    let f: Option<f64> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitFloat(f?))
+                }
+                pg_sys::BOOLOID => {
+                    let b: Option<bool> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitBool(b?))
+                }
+                pg_sys::TEXTOID | pg_sys::VARCHAROID => {
+                    let s: Option<String> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitString(s?))
+                }
+                _ => None,
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let op = node as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+            if args.len() != 2 {
+                return None;
+            }
+            let left = translate_node_to_filter_expr(args.get_ptr(0)?, sources)?;
+            let right = translate_node_to_filter_expr(args.get_ptr(1)?, sources)?;
+
+            // Map Postgres operator to FilterOp
+            let opname_ptr = pg_sys::get_opname((*op).opno);
+            if opname_ptr.is_null() {
+                return None;
+            }
+            let opname = std::ffi::CStr::from_ptr(opname_ptr).to_str().ok()?;
+            let filter_op = match opname {
+                "=" => FilterOp::Eq,
+                "<>" | "!=" => FilterOp::NotEq,
+                "<" => FilterOp::Lt,
+                "<=" => FilterOp::LtEq,
+                ">" => FilterOp::Gt,
+                ">=" => FilterOp::GtEq,
+                _ => return None,
+            };
+
+            Some(FilterExpr::BinOp {
+                left: Box::new(left),
+                op: filter_op,
+                right: Box::new(right),
+            })
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bexpr = node as *mut pg_sys::BoolExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+            let mut children = Vec::new();
+            for arg in args.iter_ptr() {
+                children.push(translate_node_to_filter_expr(arg, sources)?);
+            }
+            match (*bexpr).boolop {
+                pg_sys::BoolExprType::AND_EXPR => Some(FilterExpr::And(children)),
+                pg_sys::BoolExprType::OR_EXPR => Some(FilterExpr::Or(children)),
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    if children.len() == 1 {
+                        Some(FilterExpr::Not(Box::new(children.into_iter().next()?)))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Check whether the join path has non-equi-join quals that our DataFusion
+/// backend can't execute (e.g., cross-table OR conditions, inequality filters).
+///
 /// Uses the same path-walking strategy as [`extract_equi_keys_from_path`] but
 /// counts total `RestrictInfo` entries vs. those that are equi-join keys. If
 /// `total > equi`, the remaining entries are post-join filters we'd silently

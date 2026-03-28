@@ -151,6 +151,14 @@ impl CustomScan for AggregateScan {
             PrivateData::DataFusion { .. } => {
                 // For join aggregates, scanrelid=0 (no single base relation)
                 builder.set_scanrelid(0);
+
+                // Check if the query has pathkeys (ORDER BY) before consuming builder.
+                let root = builder.args().root;
+                let has_pathkeys = unsafe {
+                    !(*root).query_pathkeys.is_null()
+                        && pg_sys::list_length((*root).query_pathkeys) > 0
+                };
+
                 unsafe {
                     let mut cscan = builder.build();
 
@@ -162,9 +170,14 @@ impl CustomScan for AggregateScan {
                     cscan.custom_scan_tlist =
                         pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
 
-                    // Replace Aggrefs in the plan's targetlist (but NOT custom_scan_tlist)
-                    let plan = &mut cscan.scan.plan;
-                    replace_aggrefs_in_target_list(plan);
+                    if !has_pathkeys {
+                        // No ORDER BY: safe to replace Aggrefs at plan time.
+                        let plan = &mut cscan.scan.plan;
+                        replace_aggrefs_in_target_list(plan);
+                    }
+                    // When has_pathkeys: aggrefs stay in plan.targetlist so Postgres's
+                    // make_sort_from_pathkeys can find them. Replacement is deferred to
+                    // create_custom_scan_state (execution time).
                     cscan
                 }
             }
@@ -193,7 +206,11 @@ impl CustomScan for AggregateScan {
                 builder.custom_state().aggregate_clause = *aggregate_clause;
                 builder.build()
             }
-            PrivateData::DataFusion { plan, targetlist } => {
+            PrivateData::DataFusion {
+                plan,
+                targetlist,
+                topk,
+            } => {
                 // Replace Aggrefs for DataFusion path too
                 unsafe {
                     let cscan = builder.args().cscan;
@@ -203,6 +220,7 @@ impl CustomScan for AggregateScan {
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
                     plan,
                     targetlist,
+                    topk,
                     runtime: None,
                     stream: None,
                     current_batch: None,
@@ -861,8 +879,18 @@ impl AggregateScan {
             return Vec::new();
         }
 
+        // TopK for join aggregates is disabled. Postgres cannot resolve pathkey
+        // items through scanrelid=0 CustomScans, causing "could not find pathkey
+        // item to sort" errors even with custom_scan_tlist set. The infrastructure
+        // (TopKAggregateRule + TopKAggregateExec) is ready — see #4493.
+        let topk = None::<privdat::DataFusionTopK>;
+
         // Build the custom path with DataFusion private data
-        vec![builder.build(PrivateData::DataFusion { plan, targetlist })]
+        vec![builder.build(PrivateData::DataFusion {
+            plan,
+            targetlist,
+            topk,
+        })]
     }
 
     /// Execute the DataFusion aggregate path: build plan, consume Arrow batches,
@@ -899,8 +927,13 @@ impl AggregateScan {
             let ctx = create_aggregate_session_context();
 
             let physical_plan = runtime.block_on(async {
-                let logical =
-                    build_join_aggregate_plan(&df_state.plan, &df_state.targetlist, &ctx).await?;
+                let logical = build_join_aggregate_plan(
+                    &df_state.plan,
+                    &df_state.targetlist,
+                    df_state.topk.as_ref(),
+                    &ctx,
+                )
+                .await?;
                 build_aggregate_physical_plan(&ctx, logical).await
             });
 
@@ -963,6 +996,71 @@ impl AggregateScan {
             }
         }
     }
+}
+
+/// Detects ORDER BY on aggregate + LIMIT for join aggregate queries.
+/// Returns `Some(DataFusionTopK)` when the sort clause targets a single aggregate
+/// that can be pushed down into the DataFusion plan as sort + limit.
+#[allow(dead_code)] // Will be used when TopK for join aggregates is re-enabled (#4493)
+unsafe fn detect_join_aggregate_topk(
+    args: &crate::postgres::customscan::CreateUpperPathsHookArgs,
+    targetlist: &join_targetlist::JoinAggregateTargetList,
+) -> Option<privdat::DataFusionTopK> {
+    let parse = args.root().parse;
+    if parse.is_null() || (*parse).sortClause.is_null() {
+        return None;
+    }
+
+    // Only single sort clause for TopK
+    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    if sort_clauses.len() != 1 {
+        return None;
+    }
+
+    let sort_clause_ptr = sort_clauses.get_ptr(0)?;
+    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+
+    // Check if the sort expression contains an aggregate
+    targetlist::find_single_aggref_in_expr(sort_expr)?;
+
+    let descending = build::is_sort_descending((*sort_clause_ptr).sortop);
+
+    // Find matching position in output_rel target using structural equality
+    let reltarget = args.output_rel().reltarget;
+    if reltarget.is_null() {
+        return None;
+    }
+    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs);
+
+    let mut match_pos = None;
+    for (pos, target_expr) in target_exprs.iter_ptr().enumerate() {
+        if pg_sys::equal(
+            sort_expr as *const core::ffi::c_void,
+            target_expr as *const core::ffi::c_void,
+        ) {
+            match_pos = Some(pos);
+            break;
+        }
+    }
+    let pos = match_pos?;
+
+    // Check if this output position corresponds to an aggregate in the join targetlist
+    let agg_idx = targetlist
+        .aggregates
+        .iter()
+        .position(|a| a.output_index == pos)?;
+
+    // Extract LIMIT
+    let limit_offset = crate::postgres::customscan::limit_offset::LimitOffset::from_parse(parse);
+    let limit = limit_offset.limit()? as usize;
+    let offset = limit_offset.offset().unwrap_or(0) as usize;
+    let k = limit + offset;
+
+    Some(privdat::DataFusionTopK {
+        sort_agg_idx: agg_idx,
+        descending,
+        k,
+    })
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders

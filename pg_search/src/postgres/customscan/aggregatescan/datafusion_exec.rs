@@ -96,7 +96,10 @@ pub fn create_aggregate_session_context() -> SessionContext {
     // Our custom query planner
     builder = builder.with_query_planner(Arc::new(AggQueryPlanner {}));
 
-    // Skip SegmentedTopKRule — not applicable to aggregates (M2 will add TopKAggregateRule)
+    // TopKAggregateRule: fuse sort + limit into TopK selection for aggregate output
+    builder = builder.with_physical_optimizer_rule(Arc::new(
+        crate::scan::topk_aggregate_rule::TopKAggregateRule,
+    ));
 
     // FilterPushdown: push filters to PgSearchTableProvider
     builder =
@@ -106,10 +109,11 @@ pub fn create_aggregate_session_context() -> SessionContext {
 }
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
-/// scan(s) → join → aggregate.
+/// scan(s) → join → aggregate [→ sort → limit].
 pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
+    topk: Option<&crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK>,
     ctx: &SessionContext,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     // Step 1: Build the join DataFrame from the RelNode tree
@@ -162,6 +166,15 @@ pub async fn build_join_aggregate_plan(
 
     // Step 4: Apply aggregate
     let df = df.aggregate(group_exprs, agg_exprs)?;
+
+    // Step 5: If TopK is requested, add sort + limit so DataFusion handles it internally
+    if let Some(topk) = topk {
+        let sort_col_name = format!("agg_{}", topk.sort_agg_idx);
+        let sort_expr = datafusion::prelude::col(&sort_col_name).sort(!topk.descending, true);
+        let df = df.sort(vec![sort_expr])?;
+        let df = df.limit(0, Some(topk.k))?;
+        return df.into_optimized_plan();
+    }
 
     df.into_optimized_plan()
 }

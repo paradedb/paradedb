@@ -93,22 +93,41 @@ CROSS JOIN fb_tags t
 WHERE p.description @@@ 'laptop';
 
 -- =====================================================================
--- Test 3: HAVING clause → should fall back to Postgres native
+-- Test 3: HAVING clause → should now use DataFusion
 -- =====================================================================
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*)
 FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
-HAVING COUNT(*) > 1;
+HAVING COUNT(*) > 0;
 
 SELECT p.category, COUNT(*)
 FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
-HAVING COUNT(*) > 1;
+HAVING COUNT(*) > 0;
+
+-- Test 3b: HAVING parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 0
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 0
+ORDER BY p.category;
 
 -- =====================================================================
 -- Clean up

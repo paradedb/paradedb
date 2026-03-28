@@ -634,73 +634,143 @@ unsafe fn collect_non_equi_quals_recursive(
             {
                 continue;
             }
-            // This is a non-equi qual — deparse it and collect column references
-            // Use nodeToString as a simple deparsing that doesn't need PlannerContext
-            let deparsed = {
-                let cstr = pg_sys::nodeToString(clause as *mut std::ffi::c_void);
-                if cstr.is_null() {
-                    String::from("<unknown>")
-                } else {
-                    std::ffi::CStr::from_ptr(cstr)
-                        .to_str()
-                        .unwrap_or("<unknown>")
-                        .to_owned()
-                }
-            };
-            let mut columns = Vec::new();
-            collect_var_refs(clause, sources, &mut columns);
-            filters.push(
-                crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter {
-                    deparsed,
-                    columns,
-                },
-            );
+            // Translate the clause to a serializable FilterExpr
+            if let Some(expr) = translate_node_to_filter_expr(clause, sources) {
+                filters.push(
+                    crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter { expr },
+                );
+            } else {
+                // Can't translate — reject the whole path by pushing an untranslatable marker
+                filters.push(
+                    crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter {
+                        expr: crate::postgres::customscan::aggregatescan::privdat::FilterExpr::LitNull,
+                    },
+                );
+            }
         }
         collect_non_equi_quals_recursive((*join_path).outerjoinpath, sources, filters);
         collect_non_equi_quals_recursive((*join_path).innerjoinpath, sources, filters);
     }
 }
 
-/// Collect (source_index, field_name) pairs for all Var nodes in an expression.
-unsafe fn collect_var_refs(
+/// Translate a Postgres expression node into a serializable `FilterExpr`.
+/// Returns `None` for expression types we can't translate.
+unsafe fn translate_node_to_filter_expr(
     node: *mut pg_sys::Node,
     sources: &[JoinAggSource],
-    out: &mut Vec<(usize, String)>,
-) {
+) -> Option<crate::postgres::customscan::aggregatescan::privdat::FilterExpr> {
+    use crate::postgres::customscan::aggregatescan::privdat::{FilterExpr, FilterOp};
+
     if node.is_null() {
-        return;
+        return None;
     }
+
     let tag = (*node).type_;
-    if tag == pg_sys::NodeTag::T_Var {
-        let var = node as *mut pg_sys::Var;
-        let rti = (*var).varno as pg_sys::Index;
-        let attno = (*var).varattno;
-        if let Some((idx, source)) = sources.iter().enumerate().find(|(_, s)| s.rti == rti) {
+
+    match tag {
+        pg_sys::NodeTag::T_Var => {
+            let var = node as *mut pg_sys::Var;
+            let rti = (*var).varno as pg_sys::Index;
+            let attno = (*var).varattno;
+            let (idx, source) = sources.iter().enumerate().find(|(_, s)| s.rti == rti)?;
             let name_ptr = pg_sys::get_attname(source.relid, attno, false);
-            if !name_ptr.is_null() {
-                if let Ok(name) = std::ffi::CStr::from_ptr(name_ptr).to_str() {
-                    out.push((idx, name.to_owned()));
+            if name_ptr.is_null() {
+                return None;
+            }
+            let name = std::ffi::CStr::from_ptr(name_ptr).to_str().ok()?.to_owned();
+            Some(FilterExpr::Column(idx, name))
+        }
+        pg_sys::NodeTag::T_Const => {
+            let c = node as *mut pg_sys::Const;
+            if (*c).constisnull {
+                return Some(FilterExpr::LitNull);
+            }
+            let typoid = (*c).consttype;
+            let datum = (*c).constvalue;
+            match typoid {
+                pg_sys::INT2OID => {
+                    let i: Option<i16> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitInt(i? as i64))
                 }
+                pg_sys::INT4OID => {
+                    let i: Option<i32> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitInt(i? as i64))
+                }
+                pg_sys::INT8OID => {
+                    let i: Option<i64> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitInt(i?))
+                }
+                pg_sys::FLOAT4OID => {
+                    let f: Option<f32> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitFloat(f? as f64))
+                }
+                pg_sys::FLOAT8OID => {
+                    let f: Option<f64> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitFloat(f?))
+                }
+                pg_sys::BOOLOID => {
+                    let b: Option<bool> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitBool(b?))
+                }
+                pg_sys::TEXTOID | pg_sys::VARCHAROID => {
+                    let s: Option<String> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(FilterExpr::LitString(s?))
+                }
+                _ => None,
             }
         }
-    } else if tag == pg_sys::NodeTag::T_OpExpr {
-        let op = node as *mut pg_sys::OpExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*op).args);
-        for arg in args.iter_ptr() {
-            collect_var_refs(arg, sources, out);
+        pg_sys::NodeTag::T_OpExpr => {
+            let op = node as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+            if args.len() != 2 {
+                return None;
+            }
+            let left = translate_node_to_filter_expr(args.get_ptr(0)?, sources)?;
+            let right = translate_node_to_filter_expr(args.get_ptr(1)?, sources)?;
+
+            // Map Postgres operator to FilterOp
+            let opname_ptr = pg_sys::get_opname((*op).opno);
+            if opname_ptr.is_null() {
+                return None;
+            }
+            let opname = std::ffi::CStr::from_ptr(opname_ptr).to_str().ok()?;
+            let filter_op = match opname {
+                "=" => FilterOp::Eq,
+                "<>" | "!=" => FilterOp::NotEq,
+                "<" => FilterOp::Lt,
+                "<=" => FilterOp::LtEq,
+                ">" => FilterOp::Gt,
+                ">=" => FilterOp::GtEq,
+                _ => return None,
+            };
+
+            Some(FilterExpr::BinOp {
+                left: Box::new(left),
+                op: filter_op,
+                right: Box::new(right),
+            })
         }
-    } else if tag == pg_sys::NodeTag::T_BoolExpr {
-        let bexpr = node as *mut pg_sys::BoolExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
-        for arg in args.iter_ptr() {
-            collect_var_refs(arg, sources, out);
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bexpr = node as *mut pg_sys::BoolExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+            let mut children = Vec::new();
+            for arg in args.iter_ptr() {
+                children.push(translate_node_to_filter_expr(arg, sources)?);
+            }
+            match (*bexpr).boolop {
+                pg_sys::BoolExprType::AND_EXPR => Some(FilterExpr::And(children)),
+                pg_sys::BoolExprType::OR_EXPR => Some(FilterExpr::Or(children)),
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    if children.len() == 1 {
+                        Some(FilterExpr::Not(Box::new(children.into_iter().next()?)))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
         }
-    } else if tag == pg_sys::NodeTag::T_FuncExpr {
-        let fexpr = node as *mut pg_sys::FuncExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*fexpr).args);
-        for arg in args.iter_ptr() {
-            collect_var_refs(arg, sources, out);
-        }
+        _ => None,
     }
 }
 

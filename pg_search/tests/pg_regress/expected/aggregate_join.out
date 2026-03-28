@@ -468,7 +468,6 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
   category   | stddev_pop | var_pop 
 -------------+------------+---------
  Electronics |          0 |       0

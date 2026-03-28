@@ -592,6 +592,118 @@ unsafe fn extract_equi_keys_from_path(
 ///
 /// Walks the cheapest path's joinrestrictinfo and counts entries that aren't
 /// equi-join keys. If any remain, the query has post-join filters we'd lose.
+/// Extract non-equi join quals from the cheapest path's joinrestrictinfo.
+/// Returns `PostJoinFilter` entries for clauses that aren't equi-join keys.
+pub unsafe fn extract_non_equi_join_quals(
+    input_rel: &pg_sys::RelOptInfo,
+    sources: &[JoinAggSource],
+) -> Vec<crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter> {
+    let path = input_rel.cheapest_total_path;
+    if path.is_null() {
+        return Vec::new();
+    }
+    let mut filters = Vec::new();
+    collect_non_equi_quals_recursive(path, sources, &mut filters);
+    filters
+}
+
+unsafe fn collect_non_equi_quals_recursive(
+    path: *mut pg_sys::Path,
+    sources: &[JoinAggSource],
+    filters: &mut Vec<crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter>,
+) {
+    if path.is_null() {
+        return;
+    }
+    let tag = (*path).type_;
+    let is_join_path = matches!(
+        tag,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    );
+    if is_join_path {
+        let join_path = path as *mut pg_sys::JoinPath;
+        let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
+        for ri in restrict_list.iter_ptr() {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            if clause.is_null() {
+                continue;
+            }
+            // Skip equi-join keys — they're already handled
+            if (*clause).type_ == pg_sys::NodeTag::T_OpExpr
+                && try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources).is_some()
+            {
+                continue;
+            }
+            // This is a non-equi qual — deparse it and collect column references
+            // Use nodeToString as a simple deparsing that doesn't need PlannerContext
+            let deparsed = {
+                let cstr = pg_sys::nodeToString(clause as *mut std::ffi::c_void);
+                if cstr.is_null() {
+                    String::from("<unknown>")
+                } else {
+                    std::ffi::CStr::from_ptr(cstr)
+                        .to_str()
+                        .unwrap_or("<unknown>")
+                        .to_owned()
+                }
+            };
+            let mut columns = Vec::new();
+            collect_var_refs(clause, sources, &mut columns);
+            filters.push(
+                crate::postgres::customscan::aggregatescan::privdat::PostJoinFilter {
+                    deparsed,
+                    columns,
+                },
+            );
+        }
+        collect_non_equi_quals_recursive((*join_path).outerjoinpath, sources, filters);
+        collect_non_equi_quals_recursive((*join_path).innerjoinpath, sources, filters);
+    }
+}
+
+/// Collect (source_index, field_name) pairs for all Var nodes in an expression.
+unsafe fn collect_var_refs(
+    node: *mut pg_sys::Node,
+    sources: &[JoinAggSource],
+    out: &mut Vec<(usize, String)>,
+) {
+    if node.is_null() {
+        return;
+    }
+    let tag = (*node).type_;
+    if tag == pg_sys::NodeTag::T_Var {
+        let var = node as *mut pg_sys::Var;
+        let rti = (*var).varno as pg_sys::Index;
+        let attno = (*var).varattno;
+        if let Some((idx, source)) = sources.iter().enumerate().find(|(_, s)| s.rti == rti) {
+            let name_ptr = pg_sys::get_attname(source.relid, attno, false);
+            if !name_ptr.is_null() {
+                if let Ok(name) = std::ffi::CStr::from_ptr(name_ptr).to_str() {
+                    out.push((idx, name.to_owned()));
+                }
+            }
+        }
+    } else if tag == pg_sys::NodeTag::T_OpExpr {
+        let op = node as *mut pg_sys::OpExpr;
+        let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+        for arg in args.iter_ptr() {
+            collect_var_refs(arg, sources, out);
+        }
+    } else if tag == pg_sys::NodeTag::T_BoolExpr {
+        let bexpr = node as *mut pg_sys::BoolExpr;
+        let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+        for arg in args.iter_ptr() {
+            collect_var_refs(arg, sources, out);
+        }
+    } else if tag == pg_sys::NodeTag::T_FuncExpr {
+        let fexpr = node as *mut pg_sys::FuncExpr;
+        let args = PgList::<pg_sys::Node>::from_pg((*fexpr).args);
+        for arg in args.iter_ptr() {
+            collect_var_refs(arg, sources, out);
+        }
+    }
+}
+
 pub unsafe fn has_non_equi_join_quals(
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],

@@ -23,6 +23,18 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
 
+/// A post-join filter clause that couldn't be pushed to individual table scans.
+/// Serialized at plan time, translated to DataFusion `Expr` at execution time.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PostJoinFilter {
+    /// Deparsed SQL expression (e.g., "(p.price > 100)").
+    /// Used as a fallback representation — the execution path re-resolves
+    /// column references via the source/alias mapping.
+    pub deparsed: String,
+    /// Column references: (plan_position, field_name) pairs found in the expression.
+    pub columns: Vec<(usize, String)>,
+}
+
 /// TopK sort+limit info pushed into the DataFusion aggregate plan.
 /// Allows DataFusion to handle ORDER BY aggregate + LIMIT internally.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -57,6 +69,8 @@ pub enum PrivateData {
         targetlist: JoinAggregateTargetList,
         /// Optional TopK sort+limit pushed down from Postgres.
         topk: Option<DataFusionTopK>,
+        /// Post-join filter clauses from joinrestrictinfo that aren't equi-keys.
+        post_join_filters: Vec<PostJoinFilter>,
     },
 }
 

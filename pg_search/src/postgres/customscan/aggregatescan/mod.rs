@@ -210,6 +210,7 @@ impl CustomScan for AggregateScan {
                 plan,
                 targetlist,
                 topk,
+                post_join_filters: _,
             } => {
                 // Replace Aggrefs for DataFusion path too
                 unsafe {
@@ -827,17 +828,6 @@ impl AggregateScan {
             return Vec::new();
         }
 
-        // Reject joins with non-equi quals (OR across tables, cross-table
-        // filters, non-@@@ conditions). These live in the join path's
-        // joinrestrictinfo and our DataFusion backend can't apply them.
-        if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
-                "join".to_string(),
-            );
-            return Vec::new();
-        }
-
         // Extract the join tree from the parse tree
         let mut plan = match unsafe {
             extract_join_tree_from_parse(root, &sources, builder.args().input_rel())
@@ -893,11 +883,29 @@ impl AggregateScan {
         // (TopKAggregateRule + TopKAggregateExec) is ready — see #4493.
         let topk = None::<privdat::DataFusionTopK>;
 
+        // Extract non-equi join quals for post-join filtering.
+        // These are quals from joinrestrictinfo that aren't equi-join keys
+        // (e.g., cross-table filters, OR predicates). If any exist and we
+        // can't apply them, we must reject the path to avoid wrong results.
+        let post_join_filters =
+            unsafe { datafusion_build::extract_non_equi_join_quals(input_rel, &sources) };
+        if !post_join_filters.is_empty() {
+            Self::add_planner_warning(
+                format!(
+                    "Aggregate Scan (DataFusion) not used: {} non-equi join qual(s) cannot be applied in DataFusion yet",
+                    post_join_filters.len()
+                ),
+                "join".to_string(),
+            );
+            return Vec::new();
+        }
+
         // Build the custom path with DataFusion private data
         vec![builder.build(PrivateData::DataFusion {
             plan,
             targetlist,
             topk,
+            post_join_filters,
         })]
     }
 

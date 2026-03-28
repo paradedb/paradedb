@@ -39,7 +39,7 @@ use pgrx::PgList;
 /// Simplified aggregate classification for the DataFusion backend.
 /// Unlike [`AggregateType`] (Tantivy-oriented), this enum is lightweight and maps
 /// directly to DataFusion aggregate expressions.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AggKind {
     CountStar,
     Count,
@@ -181,12 +181,6 @@ pub unsafe fn extract_aggregate_targetlist(
     let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
-    }
-
-    // Check for HAVING — not supported
-    let parse = args.root().parse;
-    if !parse.is_null() && !(*parse).havingQual.is_null() {
-        return Err("HAVING clause is not supported for aggregate-on-join".into());
     }
 
     let mut group_columns = Vec::new();

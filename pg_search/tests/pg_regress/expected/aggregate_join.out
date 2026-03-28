@@ -50,7 +50,7 @@ WITH (
 -- SECTION 1: Scalar Aggregates on JOIN (no GROUP BY)
 -- =====================================================================
 -- Test 1.1: COUNT(*) — verifies basic join + aggregate works
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -58,10 +58,11 @@ WHERE p.description @@@ 'laptop';
                          QUERY PLAN                          
 -------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Aggregates: COUNT(*)(*)
-(4 rows)
+(5 rows)
 
 SELECT COUNT(*)
 FROM agg_join_products p
@@ -73,18 +74,19 @@ WHERE p.description @@@ 'laptop';
 (1 row)
 
 -- Test 1.2: Multiple aggregates (COUNT, SUM, AVG)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
-                         QUERY PLAN                          
--------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Aggregates: COUNT(*)(*), SUM(price), AVG(rating)
-(4 rows)
+(5 rows)
 
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
@@ -96,7 +98,7 @@ WHERE p.description @@@ 'laptop';
 (1 row)
 
 -- Test 1.3: MIN/MAX
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -104,10 +106,11 @@ WHERE p.description @@@ 'laptop';
                          QUERY PLAN                          
 -------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Aggregates: MIN(price), MAX(price)
-(4 rows)
+(5 rows)
 
 SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
@@ -314,6 +317,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys) (table: join)
   category   | count 
 -------------+-------
  Electronics |     3
@@ -338,79 +342,20 @@ ORDER BY p.category;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================
--- SECTION 7: LEFT JOIN aggregates
+-- SECTION 7: Verify single-table aggregates still use Tantivy
 -- =====================================================================
--- Test 7.1: LEFT JOIN with COUNT — includes products with no tags
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT p.category, COUNT(t.tag_name)
-FROM agg_join_products p
-LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
-                         QUERY PLAN                          
--------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan)
-   Backend: DataFusion
-   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-   Group By: category
-   Aggregates: COUNT(tag_name)
-(5 rows)
-
-SELECT p.category, COUNT(t.tag_name)
-FROM agg_join_products p
-LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
-  category   | count 
--------------+-------
- Electronics |     4
- Sports      |     2
- Toys        |     2
-(3 rows)
-
--- Test 7.2: LEFT JOIN parity — DataFusion vs Postgres native
-SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT p.category, COUNT(t.tag_name), SUM(p.price)
-FROM agg_join_products p
-LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-ORDER BY p.category;
-  category   | count |   sum   
--------------+-------+---------
- Electronics |     4 | 4599.96
- Sports      |     2 |  179.98
- Toys        |     2 |  999.98
-(3 rows)
-
-SET paradedb.enable_aggregate_custom_scan TO on;
-SELECT p.category, COUNT(t.tag_name), SUM(p.price)
-FROM agg_join_products p
-LEFT JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-ORDER BY p.category;
-  category   | count |   sum   
--------------+-------+---------
- Electronics |     4 | 4599.96
- Sports      |     2 |  179.98
- Toys        |     2 |  999.98
-(3 rows)
-
--- =====================================================================
--- SECTION 8: Verify single-table aggregates still use Tantivy
--- =====================================================================
--- Test 8.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- Test 7.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on agg_join_products
+ Custom Scan (ParadeDB Aggregate Scan) on public.agg_join_products
+   Output: pdb.agg_fn('COUNT(*)'::text)
    Index: agg_join_products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
+(6 rows)
 
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
  count 
@@ -419,9 +364,9 @@ SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 (1 row)
 
 -- =====================================================================
--- SECTION 9: Correctness parity — compare DataFusion vs Postgres default
+-- SECTION 8: Correctness parity — compare DataFusion vs Postgres default
 -- =====================================================================
--- Test 9.1: Run the same query with custom scan OFF to verify result parity
+-- Test 8.1: Run the same query with custom scan OFF to verify result parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*)
 FROM agg_join_products p

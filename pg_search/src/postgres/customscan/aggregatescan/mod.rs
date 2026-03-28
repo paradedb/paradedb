@@ -204,6 +204,7 @@ impl CustomScan for AggregateScan {
                 plan,
                 targetlist,
                 topk,
+                post_join_filters,
             } => {
                 // Replace Aggrefs for DataFusion path too
                 unsafe {
@@ -215,6 +216,7 @@ impl CustomScan for AggregateScan {
                     plan,
                     targetlist,
                     topk,
+                    post_join_filters,
                     runtime: None,
                     stream: None,
                     current_batch: None,
@@ -892,11 +894,30 @@ impl AggregateScan {
         // Postgres may add a redundant Sort above us, which is correct (just wasteful).
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
+
+        // Extract non-equi join quals for post-join filtering.
+        // These are applied as DataFusion filter expressions between join and aggregate.
+        let post_join_filters =
+            unsafe { datafusion_build::extract_non_equi_join_quals(input_rel, &sources) };
+
+        // If any filter couldn't be translated (marked as LitNull), reject the path
+        if post_join_filters
+            .iter()
+            .any(|f| matches!(f.expr, privdat::FilterExpr::LitNull))
+        {
+            Self::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be translated to DataFusion filters",
+                "join".to_string(),
+            );
+            return Vec::new();
+        }
+
         // Build the custom path with DataFusion private data
         vec![builder.build(PrivateData::DataFusion {
             plan,
             targetlist,
             topk,
+            post_join_filters,
         })]
     }
 
@@ -933,6 +954,7 @@ impl AggregateScan {
                     &df_state.plan,
                     &df_state.targetlist,
                     df_state.topk.as_ref(),
+                    &df_state.post_join_filters,
                     &ctx,
                 )
                 .await?;

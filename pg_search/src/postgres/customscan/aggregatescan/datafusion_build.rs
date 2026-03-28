@@ -99,13 +99,16 @@ pub unsafe fn collect_join_agg_sources(
     sources
 }
 
-/// Build a [`RelNode`] tree by walking the Postgres parse tree's `jointree`.
+/// Build a [`RelNode`] tree by walking the Postgres parse tree's `jointree`
+/// and extracting equi-join keys from the `input_rel`'s cheapest path.
 ///
-/// This is the aggregate-scan equivalent of JoinScan's `collect_join_sources()`,
-/// but works from the parse tree instead of the planner's `RelOptInfo` paths.
+/// We use the parse tree for the join structure (FROM items, explicit JOINs)
+/// and the planner's path for equi-join keys (since the parser moves quals
+/// into restrictinfo lists during planning).
 pub unsafe fn extract_join_tree_from_parse(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinAggSource],
+    input_rel: &pg_sys::RelOptInfo,
 ) -> Result<RelNode, String> {
     let parse = (*root).parse;
     if parse.is_null() {
@@ -117,7 +120,20 @@ pub unsafe fn extract_join_tree_from_parse(
         return Err("jointree is null".into());
     }
 
-    build_relnode_from_fromexpr(root, jointree, sources)
+    let mut plan = build_relnode_from_fromexpr(root, jointree, sources)?;
+
+    // Extract equi-join keys from the input_rel's cheapest path
+    let equi_keys = extract_equi_keys_from_path(input_rel, sources);
+    if !equi_keys.is_empty() {
+        inject_equi_keys(&mut plan, equi_keys);
+    }
+
+    // Fix plan_positions (they default to 0 from JoinSourceCandidate)
+    for (position, source) in plan.sources_mut().into_iter().enumerate() {
+        source.plan_position = position;
+    }
+
+    Ok(plan)
 }
 
 /// Walk a `FromExpr` and produce a `RelNode` tree.
@@ -540,6 +556,150 @@ pub unsafe fn extract_search_predicates(
     }
 }
 
+/// Extract equi-join keys from the `input_rel`'s cheapest path.
+///
+/// At `UPPERREL_GROUP_AGG`, `input_rel` is a `RELOPT_JOINREL` whose `pathlist`
+/// contains planned join paths. We extract equi-keys from the cheapest path's
+/// `joinrestrictinfo` — specifically looking for `OpExpr` clauses with equality
+/// operators referencing two different base relations.
+unsafe fn extract_equi_keys_from_path(
+    input_rel: &pg_sys::RelOptInfo,
+    sources: &[JoinAggSource],
+) -> Vec<JoinKeyPair> {
+    let mut keys = Vec::new();
+
+    // Walk the cheapest_total_path chain looking for JoinPath nodes
+    let path = input_rel.cheapest_total_path;
+    if path.is_null() {
+        return keys;
+    }
+
+    extract_keys_from_path_recursive(path, sources, &mut keys);
+    keys
+}
+
+/// Check whether the join path has any non-equi-join quals (OR across tables,
+/// cross-table filters) that our DataFusion backend can't execute.
+///
+/// Walks the cheapest path's joinrestrictinfo and counts entries that aren't
+/// equi-join keys. If any remain, the query has post-join filters we'd lose.
+pub unsafe fn has_non_equi_join_quals(
+    input_rel: &pg_sys::RelOptInfo,
+    sources: &[JoinAggSource],
+) -> bool {
+    let path = input_rel.cheapest_total_path;
+    if path.is_null() {
+        return false;
+    }
+    let mut total_restrict = 0usize;
+    let mut equi_keys = 0usize;
+    count_restrict_entries_recursive(path, sources, &mut total_restrict, &mut equi_keys);
+    total_restrict > equi_keys
+}
+
+unsafe fn count_restrict_entries_recursive(
+    path: *mut pg_sys::Path,
+    sources: &[JoinAggSource],
+    total: &mut usize,
+    equi: &mut usize,
+) {
+    if path.is_null() {
+        return;
+    }
+    let tag = (*path).type_;
+    let is_join_path = matches!(
+        tag,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    );
+    if is_join_path {
+        let join_path = path as *mut pg_sys::JoinPath;
+        let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
+        *total += restrict_list.len();
+        for ri in restrict_list.iter_ptr() {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            if !clause.is_null()
+                && (*clause).type_ == pg_sys::NodeTag::T_OpExpr
+                && try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources).is_some()
+            {
+                *equi += 1;
+            }
+        }
+        count_restrict_entries_recursive((*join_path).outerjoinpath, sources, total, equi);
+        count_restrict_entries_recursive((*join_path).innerjoinpath, sources, total, equi);
+    }
+}
+
+/// Recursively walk a path tree extracting equi-join keys from JoinPath nodes.
+unsafe fn extract_keys_from_path_recursive(
+    path: *mut pg_sys::Path,
+    sources: &[JoinAggSource],
+    keys: &mut Vec<JoinKeyPair>,
+) {
+    if path.is_null() {
+        return;
+    }
+
+    let tag = (*path).type_;
+
+    // Check if this is a join-type path
+    let is_join_path = matches!(
+        tag,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    );
+
+    if is_join_path {
+        let join_path = path as *mut pg_sys::JoinPath;
+        let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
+
+        for ri in restrict_list.iter_ptr() {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            if clause.is_null() {
+                continue;
+            }
+            // Look for OpExpr equality clauses
+            if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
+                if let Some(key) = try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources)
+                {
+                    // Avoid duplicates
+                    if !keys.iter().any(|k| {
+                        (k.outer_rti == key.outer_rti
+                            && k.outer_attno == key.outer_attno
+                            && k.inner_rti == key.inner_rti
+                            && k.inner_attno == key.inner_attno)
+                            || (k.outer_rti == key.inner_rti
+                                && k.outer_attno == key.inner_attno
+                                && k.inner_rti == key.outer_rti
+                                && k.inner_attno == key.outer_attno)
+                    }) {
+                        keys.push(key);
+                    }
+                }
+            }
+        }
+
+        // Recurse into subpaths
+        extract_keys_from_path_recursive((*join_path).outerjoinpath, sources, keys);
+        extract_keys_from_path_recursive((*join_path).innerjoinpath, sources, keys);
+    }
+
+    // If it's a non-join path (e.g., CustomPath wrapping our BaseScan), stop recursing
+}
+
+/// Inject extracted equi-join keys into the topmost JoinNode of the plan.
+fn inject_equi_keys(plan: &mut RelNode, keys: Vec<JoinKeyPair>) {
+    match plan {
+        RelNode::Join(ref mut join_node) => {
+            join_node.equi_keys.extend(keys);
+        }
+        RelNode::Filter(ref mut filter) => {
+            inject_equi_keys(&mut filter.input, keys);
+        }
+        RelNode::Scan(_) => {
+            // Single scan — no join to inject into
+        }
+    }
+}
+
 /// Validate that at least one table in the join has a BM25 index.
 pub fn has_any_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().any(|s| s.bm25_index.is_some())
@@ -549,4 +709,92 @@ pub fn has_any_bm25_index(sources: &[JoinAggSource]) -> bool {
 /// Required because DataFusion needs to scan all tables via `PgSearchTableProvider`.
 pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().all(|s| s.bm25_index.is_some())
+}
+
+/// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on
+/// columns referenced in the target list (GROUP BY + aggregate arguments) and
+/// join keys. Without this, `PgSearchTableProvider` exposes an empty schema.
+pub unsafe fn populate_required_fields(
+    plan: &mut RelNode,
+    targetlist: &super::join_targetlist::JoinAggregateTargetList,
+) -> Result<(), String> {
+    use crate::postgres::customscan::pullup::resolve_fast_field;
+
+    let mut sources = plan.sources_mut();
+
+    for source in &mut sources {
+        let heaprel = PgSearchRelation::open(source.scan_info.heaprelid);
+        let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
+        let tupdesc = heaprel.tuple_desc();
+
+        // Always add Ctid so the provider schema is never empty (needed for COUNT(*))
+        use crate::index::fast_fields_helper::WhichFastField;
+        source.scan_info.add_field(
+            pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
+            WhichFastField::Ctid,
+        );
+
+        // Add fields referenced in GROUP BY
+        for gc in &targetlist.group_columns {
+            if source.contains_rti(gc.rti) {
+                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, &indexrel) {
+                    source.scan_info.add_field(gc.attno, field);
+                }
+            }
+        }
+
+        // Add fields referenced in aggregate arguments
+        for agg in &targetlist.aggregates {
+            if let Some((rti, attno, _)) = &agg.field_ref {
+                if source.contains_rti(*rti) {
+                    if let Some(field) = resolve_fast_field(*attno as i32, &tupdesc, &indexrel) {
+                        source.scan_info.add_field(*attno, field);
+                    }
+                }
+            }
+        }
+    }
+
+    // Also add fields for join keys — these MUST be resolvable as fast fields
+    // because DataFusion reads them from the BM25 index. If a join key can't be
+    // resolved, the PgSearchTableProvider would have no data columns, producing
+    // empty RecordBatches that crash execution.
+    let join_keys = plan.join_keys();
+    let mut sources = plan.sources_mut();
+    for jk in &join_keys {
+        for source in &mut sources {
+            if source.contains_rti(jk.outer_rti) {
+                let heaprel = PgSearchRelation::open(source.scan_info.heaprelid);
+                let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
+                let tupdesc = heaprel.tuple_desc();
+                match resolve_fast_field(jk.outer_attno as i32, &tupdesc, &indexrel) {
+                    Some(field) => source.scan_info.add_field(jk.outer_attno, field),
+                    None => {
+                        return Err(format!(
+                            "join key (attno={}) is not a fast field on table {}",
+                            jk.outer_attno,
+                            source.scan_info.heaprelid.to_u32()
+                        ));
+                    }
+                }
+            }
+            if source.contains_rti(jk.inner_rti) {
+                let heaprel = PgSearchRelation::open(source.scan_info.heaprelid);
+                let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
+                let tupdesc = heaprel.tuple_desc();
+                match resolve_fast_field(jk.inner_attno as i32, &tupdesc, &indexrel) {
+                    Some(field) => source.scan_info.add_field(jk.inner_attno, field),
+                    None => {
+                        return Err(format!(
+                            "join key (attno={}) is not a fast field on table {}",
+                            jk.inner_attno,
+                            source.scan_info.heaprelid.to_u32()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

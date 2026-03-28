@@ -15,10 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-// These functions are not yet called — they will be used by the execution
-// integration in #4488. Suppress dead_code until then.
-#![allow(dead_code)]
-
 //! DataFusion plan builder for aggregate-on-join queries.
 //!
 //! Builds a DataFusion logical plan from a [`RelNode`] join tree and a
@@ -281,11 +277,23 @@ async fn build_source_df(
     source: &JoinSource,
     plan_position: usize,
 ) -> Result<DataFrame> {
-    let scan_info = source.scan_info.clone();
-    let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+    let mut scan_info = source.scan_info.clone();
 
-    // Collect only Named fast fields — skip Ctid, Score, Junk
-    let fields: Vec<WhichFastField> = source
+    // Set estimated_rows_per_worker for the table provider. In M1 we're
+    // single-threaded, so the per-worker estimate equals the total estimate.
+    if scan_info.estimated_rows_per_worker.is_none() {
+        scan_info.estimated_rows_per_worker = Some(match scan_info.estimate {
+            crate::scan::info::RowEstimate::Known(n) => n,
+            crate::scan::info::RowEstimate::Unknown => 1000, // conservative fallback
+        });
+    }
+
+    let alias = RelationAlias::new(scan_info.alias.as_deref()).execution(plan_position);
+
+    // Use all fast fields from the source (the provider exposes them to DataFusion).
+    // Include Named fields plus Ctid as a sentinel — DataFusion needs at least one
+    // column to produce RecordBatches with row counts (important for COUNT(*)).
+    let mut fields: Vec<WhichFastField> = source
         .scan_info
         .fields
         .iter()
@@ -298,23 +306,34 @@ async fn build_source_df(
         })
         .collect();
 
-    let provider = PgSearchTableProvider::new(scan_info, fields.clone(), None, false);
+    // Always include Ctid so the provider schema is never empty
+    if fields.is_empty() || !fields.iter().any(|f| matches!(f, WhichFastField::Ctid)) {
+        fields.push(WhichFastField::Ctid);
+    }
+
+    let provider = PgSearchTableProvider::new(scan_info, fields, None, false);
     let provider = Arc::new(provider);
     ctx.register_table(alias.as_str(), provider)?;
 
-    let mut df = ctx.table(alias.as_str()).await?;
+    let df = ctx.table(alias.as_str()).await?;
 
-    // Select only the named fields
-    let exprs: Vec<Expr> = fields
+    // Select all fields from the provider schema using their qualified names.
+    // This mirrors JoinScan's pattern and ensures column names are accessible
+    // via make_col(alias, field_name) in join keys and aggregate expressions.
+    let exprs: Vec<Expr> = df
+        .schema()
+        .fields()
         .iter()
-        .map(|f| make_col(alias.as_str(), &f.name()))
+        .map(|f| make_col(alias.as_str(), f.name()))
         .collect();
 
-    if !exprs.is_empty() {
-        df = df.select(exprs)?;
+    if exprs.is_empty() {
+        // No fields at all — this can happen for COUNT(*) where no columns are
+        // referenced from this source. Return the raw DataFrame.
+        Ok(df)
+    } else {
+        df.select(exprs)
     }
-
-    Ok(df)
 }
 
 /// Resolve a source column to its DataFusion alias and column name.

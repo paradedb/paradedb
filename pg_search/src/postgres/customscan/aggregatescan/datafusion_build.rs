@@ -99,58 +99,6 @@ pub unsafe fn collect_join_agg_sources(
     sources
 }
 
-/// Check whether the WHERE clause contains predicates that our per-table
-/// push-down cannot handle correctly:
-///   - OR expressions (may reference multiple tables → can't split)
-///   - Non-@@@ predicates (we only push search predicates, not SQL filters)
-///
-/// Returns `true` if the quals are problematic and should cause the path
-/// to be rejected.
-unsafe fn has_unpushable_quals(node: *mut pg_sys::Node) -> bool {
-    if node.is_null() {
-        return false;
-    }
-
-    let tag = (*node).type_;
-
-    if tag == pg_sys::NodeTag::T_BoolExpr {
-        let boolexpr = node as *mut pg_sys::BoolExpr;
-        // OR across tables is unpushable
-        if (*boolexpr).boolop == pg_sys::BoolExprType::OR_EXPR {
-            return true;
-        }
-        // For AND, recurse into args — an OR inside an AND is still unpushable
-        let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-        for arg in args.iter_ptr() {
-            if has_unpushable_quals(arg) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Non-search-predicate scalar conditions (e.g., `id = 4`, `price > 10`)
-    // at the top level of the WHERE clause are not pushed through our DataFusion
-    // path, so they'd be silently dropped → wrong results.
-    if tag == pg_sys::NodeTag::T_OpExpr {
-        let opexpr = node as *mut pg_sys::OpExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-        // Check if this is a @@@ operator by looking for FuncExpr args
-        // (our custom operator is implemented as a function call).
-        // If none of the arguments is a search predicate, it's a plain
-        // SQL filter that we can't push.
-        let has_search = args.iter_ptr().any(|arg| {
-            let t = (*arg).type_;
-            t == pg_sys::NodeTag::T_FuncExpr || t == pg_sys::NodeTag::T_Const
-        });
-        if !has_search {
-            return true;
-        }
-    }
-
-    false
-}
-
 /// Build a [`RelNode`] tree by walking the Postgres parse tree's `jointree`
 /// and extracting equi-join keys from the `input_rel`'s cheapest path.
 ///

@@ -643,6 +643,66 @@ WHERE p.description @@@ 'laptop';
 -- Restore
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================
+-- SECTION 10: Date/Timestamp aggregates on JOIN
+-- =====================================================================
+CREATE TABLE ts_orders (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    created_at TIMESTAMP
+);
+CREATE TABLE ts_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER,
+    item_name TEXT
+);
+INSERT INTO ts_orders (description, category, created_at) VALUES
+    ('Laptop order', 'Electronics', '2024-01-15 10:30:00'),
+    ('Phone order', 'Electronics', '2024-03-20 14:45:00'),
+    ('Shoes order', 'Sports', '2024-06-10 08:15:00');
+INSERT INTO ts_items (order_id, item_name) VALUES
+    (1, 'laptop'), (1, 'charger'),
+    (2, 'phone'),
+    (3, 'shoes'), (3, 'socks');
+CREATE INDEX ts_orders_idx ON ts_orders
+USING bm25 (id, description, category, created_at)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    datetime_fields='{"created_at": {"fast": true}}'
+);
+CREATE INDEX ts_items_idx ON ts_items
+USING bm25 (id, order_id, item_name)
+WITH (
+    key_field='id',
+    numeric_fields='{"order_id": {"fast": true}}',
+    text_fields='{"item_name": {"fast": true}}'
+);
+-- Test 10.1: MIN/MAX on timestamp column via join
+SELECT MIN(o.created_at), MAX(o.created_at)
+FROM ts_orders o
+JOIN ts_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order';
+           min            |           max
+--------------------------+--------------------------
+ Mon Jan 15 10:30:00 2024 | Mon Jun 10 08:15:00 2024
+(1 row)
+
+-- Test 10.2: GROUP BY with timestamp aggregate
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM ts_orders o
+JOIN ts_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category;
+  category   |           min            |           max
+-------------+--------------------------+--------------------------
+ Electronics | Mon Jan 15 10:30:00 2024 | Wed Mar 20 14:45:00 2024
+ Sports      | Mon Jun 10 08:15:00 2024 | Mon Jun 10 08:15:00 2024
+(2 rows)
+
+DROP TABLE ts_items;
+DROP TABLE ts_orders;
+-- =====================================================================
 -- SECTION 11: ORDER BY aggregate NULLS FIRST / NULLS LAST
 -- Tests that non-default NULL ordering in TopK produces correct results.
 -- LEFT JOIN creates groups with NULL SUM (no right-side matches).
@@ -672,10 +732,10 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC NULLS LAST
 LIMIT 2;
- category  |  sum  
+ category  |  sum
 -----------+-------
  NullSortB | 19804
- NullSortA |      
+ NullSortA |
 (2 rows)
 
 -- Parity check
@@ -687,10 +747,10 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC NULLS LAST
 LIMIT 2;
- category  |  sum  
+ category  |  sum
 -----------+-------
  NullSortB | 19804
- NullSortA |      
+ NullSortA |
 (2 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -702,9 +762,9 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) ASC NULLS FIRST
 LIMIT 2;
- category  |  sum  
+ category  |  sum
 -----------+-------
- NullSortA |      
+ NullSortA |
  NullSortB | 19804
 (2 rows)
 
@@ -717,9 +777,9 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) ASC NULLS FIRST
 LIMIT 2;
- category  |  sum  
+ category  |  sum
 -----------+-------
- NullSortA |      
+ NullSortA |
  NullSortB | 19804
 (2 rows)
 
@@ -733,9 +793,9 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC
 LIMIT 2;
- category  |  sum  
+ category  |  sum
 -----------+-------
- NullSortA |      
+ NullSortA |
  NullSortB | 19804
 (2 rows)
 
@@ -748,9 +808,9 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC
 LIMIT 2;
- category  |  sum  
+ category  |  sum
 -----------+-------
- NullSortA |      
+ NullSortA |
  NullSortB | 19804
 (2 rows)
 
@@ -770,7 +830,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
 WARNING:  Aggregate Scan (DataFusion) not used: unsupported aggregate function OID: 2108 (table: join)
-                                                                                       QUERY PLAN                                                                                       
+                                                                                       QUERY PLAN
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Group Key: p.category
@@ -797,7 +857,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
 WARNING:  Aggregate Scan (DataFusion) not used: unsupported aggregate function OID: 2101 (table: join)
-                                                                                       QUERY PLAN                                                                                       
+                                                                                       QUERY PLAN
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Group Key: p.category
@@ -823,7 +883,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-                         QUERY PLAN                          
+                         QUERY PLAN
 -------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
@@ -843,7 +903,8 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
- count 
+WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans (table: join)
+ count
 -------
      2
 (1 row)
@@ -853,7 +914,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
- count 
+ count
 -------
      2
 (1 row)
@@ -864,7 +925,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
- count 
+ count
 -------
      2
 (1 row)
@@ -874,7 +935,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
- count 
+ count
 -------
      2
 (1 row)

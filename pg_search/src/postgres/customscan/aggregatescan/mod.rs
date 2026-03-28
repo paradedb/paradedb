@@ -886,18 +886,6 @@ impl AggregateScan {
             return Vec::new();
         }
 
-        // Cost estimate: startup includes opening indexes for each source;
-        // total adds per-group cost based on output_rel row estimate.
-        let num_sources = plan.sources().len() as f64;
-        let startup_cost = crate::DEFAULT_STARTUP_COST * num_sources;
-        let estimated_groups = builder.args().output_rel().rows.max(1.0);
-        let total_cost = startup_cost + estimated_groups * unsafe { pg_sys::cpu_tuple_cost };
-
-        let builder = builder
-            .set_startup_cost(startup_cost)
-            .set_total_cost(total_cost)
-            .set_rows(estimated_groups);
-
         // Build the custom path with DataFusion private data
         vec![builder.build(PrivateData::DataFusion { plan, targetlist })]
     }

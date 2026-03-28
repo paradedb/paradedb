@@ -237,7 +237,15 @@ impl CustomScan for AggregateScan {
         explainer: &mut Explainer,
     ) {
         if state.custom_state().is_datafusion_backend() {
-            explainer.add_text("Backend", "DataFusion");
+            let target_partitions = gucs::aggregate_target_partitions();
+            if target_partitions > 1 {
+                explainer.add_text(
+                    "Backend",
+                    format!("DataFusion (parallel, partitions={})", target_partitions),
+                );
+            } else {
+                explainer.add_text("Backend", "DataFusion");
+            }
             if let Some(ref df_state) = state.custom_state().datafusion_state {
                 // Show indexes from the join tree sources
                 let indexes: Vec<String> = df_state
@@ -899,11 +907,10 @@ impl AggregateScan {
         state: &mut CustomScanStateWrapper<Self>,
     ) -> *mut pg_sys::TupleTableSlot {
         use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-            build_aggregate_physical_plan, build_join_aggregate_plan,
+            build_aggregate_physical_plan, build_aggregate_task_context, build_join_aggregate_plan,
             create_aggregate_session_context,
         };
         use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
-        use std::sync::Arc;
 
         // Grab the scan_slot pointer before entering the mutable borrow
         let scan_slot = state
@@ -919,12 +926,20 @@ impl AggregateScan {
 
         // First call: build and execute the DataFusion plan
         if df_state.runtime.is_none() {
+            let target_partitions = gucs::aggregate_target_partitions();
+
+            // Always use current-thread runtime: Postgres FFI is not
+            // thread-safe and PgSearchTableProvider makes FFI calls.
+            // DataFusion's two-phase aggregation still runs with
+            // target_partitions > 1 — tasks execute cooperatively on
+            // the current thread via tokio::spawn on the current-thread
+            // runtime.
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            let ctx = create_aggregate_session_context();
+            let ctx = create_aggregate_session_context(target_partitions);
 
             let physical_plan = runtime.block_on(async {
                 let logical = build_join_aggregate_plan(
@@ -942,10 +957,15 @@ impl AggregateScan {
                 Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
             };
 
-            let task_ctx = Arc::new(datafusion::execution::TaskContext::default());
-            let stream = match physical_plan.execute(0, task_ctx) {
-                Ok(s) => s,
-                Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+            let task_ctx = build_aggregate_task_context(&ctx, &physical_plan);
+            // Enter the runtime context so CoalescePartitionsExec (used when
+            // target_partitions > 1) can spawn tokio tasks.
+            let stream = {
+                let _guard = runtime.enter();
+                match physical_plan.execute(0, task_ctx) {
+                    Ok(s) => s,
+                    Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+                }
             };
 
             df_state.runtime = Some(runtime);

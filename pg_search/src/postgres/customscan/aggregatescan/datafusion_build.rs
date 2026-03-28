@@ -298,12 +298,15 @@ unsafe fn build_join_node(
 
     let join_type = JoinType::try_from(join.jointype).map_err(|e| e.to_string())?;
 
-    // M1: Only support INNER JOIN
-    if join_type != JoinType::Inner {
-        return Err(format!(
-            "aggregate-on-join only supports INNER JOIN, got {}",
-            join_type
-        ));
+    // Support INNER and LEFT/RIGHT JOINs
+    match join_type {
+        JoinType::Inner | JoinType::Left | JoinType::Right => {}
+        _ => {
+            return Err(format!(
+                "aggregate-on-join does not support {} JOIN",
+                join_type
+            ));
+        }
     }
 
     let left = build_relnode_from_node(root, join.larg, sources)?;

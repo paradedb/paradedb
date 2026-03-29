@@ -557,6 +557,47 @@ GROUP BY o.category;
 DROP TABLE ts_items;
 DROP TABLE ts_orders;
 -- =====================================================================
+-- SECTION 12: Post-join filter execution
+-- =====================================================================
+-- Test 12.1: Post-join filter with simple comparison
+-- The price > 500 filter cannot be pushed to the scan level for the join,
+-- so it should be applied as a DataFusion filter between join and aggregate.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop' AND p.price > 500;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
+   Backend: DataFusion
+   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+   Aggregates: COUNT(*)(*), SUM(price)
+(5 rows)
+
+SELECT COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop' AND p.price > 500;
+ count |   sum   
+-------+---------
+     4 | 4599.96
+(1 row)
+
+-- Test 12.2: Post-join filter parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop' AND p.price > 500;
+ count |   sum   
+-------+---------
+     4 | 4599.96
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

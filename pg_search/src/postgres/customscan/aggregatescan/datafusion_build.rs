@@ -298,12 +298,15 @@ unsafe fn build_join_node(
 
     let join_type = JoinType::try_from(join.jointype).map_err(|e| e.to_string())?;
 
-    // M1: Only support INNER JOIN
-    if join_type != JoinType::Inner {
-        return Err(format!(
-            "aggregate-on-join only supports INNER JOIN, got {}",
-            join_type
-        ));
+    // Support INNER and LEFT/RIGHT JOINs
+    match join_type {
+        JoinType::Inner | JoinType::Left | JoinType::Right => {}
+        _ => {
+            return Err(format!(
+                "aggregate-on-join does not support {} JOIN",
+                join_type
+            ));
+        }
     }
 
     let left = build_relnode_from_node(root, join.larg, sources)?;
@@ -354,6 +357,12 @@ unsafe fn extract_equi_keys_from_expr(
             for arg in args.iter_ptr() {
                 keys.extend(extract_equi_keys_from_expr(_root, arg, sources)?);
             }
+        }
+    } else if tag == pg_sys::NodeTag::T_List {
+        // Postgres may wrap ON clause quals in a List node
+        let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+        for item in list.iter_ptr() {
+            keys.extend(extract_equi_keys_from_expr(_root, item, sources)?);
         }
     }
 
@@ -576,6 +585,115 @@ unsafe fn extract_equi_keys_from_path(
 
     extract_keys_from_path_recursive(path, sources, &mut keys);
     keys
+}
+
+/// Check the parse tree's WHERE clause for any OR predicates.
+/// OR predicates in join aggregate queries are problematic because our
+/// per-table scan pushdown can't split OR branches correctly across
+/// different PG versions. Reject and let Postgres handle them natively.
+pub unsafe fn has_or_in_quals(
+    root: *mut pg_sys::PlannerInfo,
+    input_rel: &pg_sys::RelOptInfo,
+) -> bool {
+    let parse = (*root).parse;
+    if parse.is_null() {
+        return false;
+    }
+    let jointree = (*parse).jointree;
+    if jointree.is_null() {
+        return false;
+    }
+    // Check parse tree WHERE clause (FromExpr.quals)
+    if !(*jointree).quals.is_null() && contains_or_expr((*jointree).quals) {
+        return true;
+    }
+    // Check JoinExpr quals in the fromlist (for explicit JOIN ... ON ... WHERE)
+    let from_list = PgList::<pg_sys::Node>::from_pg((*jointree).fromlist);
+    for node in from_list.iter_ptr() {
+        if has_or_in_join_tree(node) {
+            return true;
+        }
+    }
+    // Check joinrestrictinfo on cheapest path (PG may move OR there)
+    let path = input_rel.cheapest_total_path;
+    if !path.is_null() && has_or_in_path_recursive(path) {
+        return true;
+    }
+    false
+}
+
+/// Recursively walk a parse tree node (JoinExpr/RangeTblRef) for OR predicates.
+unsafe fn has_or_in_join_tree(node: *mut pg_sys::Node) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    if (*node).type_ == pg_sys::NodeTag::T_JoinExpr {
+        let join = node as *mut pg_sys::JoinExpr;
+        if !(*join).quals.is_null() && contains_or_expr((*join).quals) {
+            return true;
+        }
+        if has_or_in_join_tree((*join).larg) || has_or_in_join_tree((*join).rarg) {
+            return true;
+        }
+    }
+    false
+}
+
+unsafe fn has_or_in_path_recursive(path: *mut pg_sys::Path) -> bool {
+    if path.is_null() {
+        return false;
+    }
+    let tag = (*path).type_;
+    if matches!(
+        tag,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    ) {
+        let join_path = path as *mut pg_sys::JoinPath;
+        let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
+        for ri in restrict_list.iter_ptr() {
+            if contains_or_expr((*ri).clause as *mut pg_sys::Node) {
+                return true;
+            }
+        }
+        if has_or_in_path_recursive((*join_path).outerjoinpath)
+            || has_or_in_path_recursive((*join_path).innerjoinpath)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+unsafe fn contains_or_expr(node: *mut pg_sys::Node) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    let tag = (*node).type_;
+    match tag {
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bexpr = node as *mut pg_sys::BoolExpr;
+            if (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR {
+                return true;
+            }
+            let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+            for arg in args.iter_ptr() {
+                if contains_or_expr(arg) {
+                    return true;
+                }
+            }
+            false
+        }
+        pg_sys::NodeTag::T_List => {
+            let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+            for item in list.iter_ptr() {
+                if contains_or_expr(item) {
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
+    }
 }
 
 /// Check whether the join path has any non-equi-join quals (OR across tables,

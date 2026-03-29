@@ -307,9 +307,13 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::Inner => {
                         JoinType::Inner
                     }
+                    crate::postgres::customscan::joinscan::build::JoinType::Left => JoinType::Left,
+                    crate::postgres::customscan::joinscan::build::JoinType::Right => {
+                        JoinType::Right
+                    }
                     unsupported => {
                         return Err(DataFusionError::NotImplemented(format!(
-                            "Aggregate-on-join only supports INNER JOIN, got {}",
+                            "Aggregate-on-join does not support {} JOIN",
                             unsupported
                         )));
                     }

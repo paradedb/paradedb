@@ -806,10 +806,11 @@ async fn generated_joinscan(database: Db) {
 /// from = vs @@@ semantic differences.
 ///
 /// Randomly combines:
-/// - 2 or 3 table INNER joins (on id)
-/// - BM25 predicates (@@@ on outer table)
-/// - GROUP BY with 0-2 grouping columns (indexed fast fields only)
-/// - Aggregate functions: COUNT(*), SUM, AVG, MIN, MAX (on indexed columns only)
+/// - 2 or 3 table INNER joins (on primary key)
+/// - Random BM25 search terms on outer table
+/// - 1-3 aggregate functions: COUNT(*), SUM, AVG, MIN, MAX
+/// - 0-2 GROUP BY columns from indexed fast fields
+/// - Optional HAVING clause
 #[rstest]
 #[tokio::test]
 async fn generated_aggregate_join(database: Db) {
@@ -830,12 +831,11 @@ async fn generated_aggregate_join(database: Db) {
     let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
 
     // Join key columns — need at least N-1 for N tables (arb_joins uses subsequence).
-    // Use 'id' twice: arb_joins selects N-1 columns from this vec and uses each
-    // as the equi-key for one join step. Duplicate 'id' ensures all joins use the
-    // primary key, which avoids known issues with non-unique join keys.
+    // Duplicate 'id' so arb_joins can select N-1 join keys for N tables.
     let join_key_columns = vec!["id", "id"];
-    // Aggregate functions on indexed fast-field columns only
-    let agg_options = [
+
+    // All aggregate function options (on indexed fast-field columns only)
+    let all_aggs: Vec<&str> = vec![
         "COUNT(*)",
         "SUM(users.age)",
         "AVG(users.age)",
@@ -844,19 +844,30 @@ async fn generated_aggregate_join(database: Db) {
     ];
 
     // GROUP BY column options (indexed fast fields)
-    let group_by_options = [
+    let group_cols: Vec<String> = vec![
         format!("{}.name", all_tables[0]),
         format!("{}.age", all_tables[0]),
     ];
 
+    // Search terms — the 'name' column values from COLUMNS random_generator_sql
+    let search_terms = [
+        "alice", "bob", "cloe", "sally", "brandy", "brisket", "anchovy",
+    ];
+
     proptest!(|(
         num_tables in 2..=3usize,
-        // Random aggregate function
-        agg_idx in 0..agg_options.len(),
-        // Whether to include GROUP BY
-        include_group_by in proptest::bool::ANY,
-        // Which GROUP BY column
-        group_col_idx in 0..group_by_options.len(),
+        // Random search term
+        search_idx in 0..search_terms.len(),
+        // Number of aggregates (1-3)
+        num_aggs in 1..=3usize,
+        // Aggregate selection indices (up to 3)
+        agg_idx0 in 0..all_aggs.len(),
+        agg_idx1 in 0..all_aggs.len(),
+        agg_idx2 in 0..all_aggs.len(),
+        // GROUP BY: 0 = none, 1 = first col, 2 = second col, 3 = both
+        group_by_mode in 0..=3u8,
+        // Whether to include HAVING (only when GROUP BY is present)
+        include_having in proptest::bool::ANY,
     )| {
         // Build join with selected number of tables
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
@@ -877,20 +888,54 @@ async fn generated_aggregate_join(database: Db) {
 
         let join_clause = join_expr.to_sql();
 
-        let agg_fn = agg_options[agg_idx];
-        let (select_list, group_by_clause) = if include_group_by {
-            let col = &group_by_options[group_col_idx];
-            (format!("{col}, {agg_fn}"), format!("GROUP BY {col}"))
-        } else {
-            (agg_fn.to_string(), String::new())
+        // Build aggregate list (deduplicated)
+        let agg_indices = [agg_idx0, agg_idx1, agg_idx2];
+        let mut agg_fns: Vec<&str> = agg_indices[..num_aggs]
+            .iter()
+            .map(|&i| all_aggs[i])
+            .collect();
+        agg_fns.dedup();
+        if agg_fns.is_empty() {
+            agg_fns.push("COUNT(*)");
+        }
+
+        // Build GROUP BY
+        let group_by_cols: Vec<&str> = match group_by_mode {
+            1 => vec![&group_cols[0]],
+            2 => vec![&group_cols[1]],
+            3 => vec![&group_cols[0], &group_cols[1]],
+            _ => vec![],
         };
 
-        // Use a simple @@@ predicate for BOTH queries — the only variable
-        // is whether the DataFusion aggregate custom scan is used.
-        let where_clause = format!("{}.name @@@ 'bob'", all_tables[0]);
+        // Build SELECT list: group cols + aggregates
+        let mut select_parts: Vec<String> = Vec::new();
+        for col in &group_by_cols {
+            select_parts.push(col.to_string());
+        }
+        for agg in &agg_fns {
+            select_parts.push(agg.to_string());
+        }
+        let select_list = select_parts.join(", ");
+
+        let group_by_clause = if group_by_cols.is_empty() {
+            String::new()
+        } else {
+            format!("GROUP BY {}", group_by_cols.to_vec().join(", "))
+        };
+
+        // Optional HAVING clause (only with GROUP BY)
+        let having_clause = if include_having && !group_by_cols.is_empty() {
+            "HAVING COUNT(*) > 0".to_string()
+        } else {
+            String::new()
+        };
+
+        // Random search term
+        let search_term = search_terms[search_idx];
+        let where_clause = format!("{}.name @@@ '{search_term}'", all_tables[0]);
 
         let query = format!(
-            "SELECT {select_list} {join_clause} WHERE {where_clause} {group_by_clause}"
+            "SELECT {select_list} {join_clause} WHERE {where_clause} {group_by_clause} {having_clause}"
         );
 
         // GUCs: enable aggregate + join custom scans with production defaults

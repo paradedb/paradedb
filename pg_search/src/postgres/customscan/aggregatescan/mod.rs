@@ -903,10 +903,10 @@ impl AggregateScan {
             }
         };
 
-        // Reject CROSS JOINs (no equi-join keys). Without join keys the
-        // second table's PgSearchTableProvider has no Named fields, producing
-        // empty RecordBatches. Single-table queries have no joins, so skip.
-        if sources.len() > 1 && plan.join_keys().is_empty() {
+        // Reject CROSS JOINs (no equi-join keys) at ANY level of the join tree.
+        // Without join keys, PgSearchTableProvider has no Named fields, producing
+        // empty RecordBatches. Check every join node, not just the top level.
+        if sources.len() > 1 && plan.has_cross_join() {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
                 "join".to_string(),

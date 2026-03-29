@@ -820,6 +820,47 @@ ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
+-- SECTION 14: FULL OUTER JOIN aggregates
+-- =====================================================================
+
+-- Test 14.1: FULL OUTER JOIN with COUNT — includes unmatched rows from both sides
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
+FROM agg_join_products p
+FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
+FROM agg_join_products p
+FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 14.2: FULL OUTER JOIN with GROUP BY
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 14.3: FULL OUTER JOIN parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

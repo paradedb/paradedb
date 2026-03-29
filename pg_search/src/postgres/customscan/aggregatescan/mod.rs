@@ -862,11 +862,11 @@ impl AggregateScan {
             );
             return Vec::new();
         }
-        // Also check parse tree WHERE quals for cross-table OR predicates
-        // that Postgres may not put in joinrestrictinfo (e.g., for OUTER JOINs).
-        if unsafe { datafusion_build::has_cross_table_or_quals(root, &sources) } {
+        // Reject queries with OR predicates in WHERE or joinrestrictinfo.
+        // Different PG versions place OR predicates in different locations.
+        if unsafe { datafusion_build::has_or_in_quals(root, input_rel) } {
             Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: WHERE clause has cross-table OR predicates",
+                "Aggregate Scan (DataFusion) not used: query contains OR predicates",
                 "join".to_string(),
             );
             return Vec::new();

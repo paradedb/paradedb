@@ -63,7 +63,7 @@ WITH (
 );
 
 -- =====================================================================
--- Test 1: 3-table join → should fall back to Postgres native
+-- Test 1: 3-table join → should use DataFusion backend
 -- =====================================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
@@ -77,6 +77,79 @@ FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop';
+
+-- Test 1b: 3-table join with GROUP BY
+SELECT p.category, COUNT(*), SUM(r.rating)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 1c: 3-table join parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), SUM(r.rating)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 1d: 3-table join with multiple aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating), MIN(r.rating), MAX(r.rating)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category;
+
+SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating), MIN(r.rating), MAX(r.rating)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 1e: 3-table star schema (tags and reviews both join to products)
+SELECT COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop';
+
+-- Test 1f: 3-table chain join (products → tags → reviews via tag)
+-- Note: fb_reviews doesn't have tag_id, so we join on product_id for both
+-- This tests the equi-key injection at the correct join level
+SELECT t.tag_name, COUNT(*), SUM(r.rating)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+-- Test 1g: 3-table with LEFT JOIN → falls back (3+ tables requires INNER)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category, COUNT(*), COUNT(r.rating)
+FROM fb_products p
+LEFT JOIN fb_tags t ON p.id = t.product_id
+LEFT JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category;
+
+SELECT p.category, COUNT(*), COUNT(r.rating)
+FROM fb_products p
+LEFT JOIN fb_tags t ON p.id = t.product_id
+LEFT JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
 
 -- =====================================================================
 -- Test 2: CROSS JOIN → should fall back to Postgres native

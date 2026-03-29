@@ -628,6 +628,17 @@ impl RelNode {
         unsupported
     }
 
+    /// Returns true if any join node in the tree has empty equi_keys (CROSS JOIN).
+    pub fn has_cross_join(&self) -> bool {
+        match self {
+            RelNode::Scan(_) => false,
+            RelNode::Join(j) => {
+                j.equi_keys.is_empty() || j.left.has_cross_join() || j.right.has_cross_join()
+            }
+            RelNode::Filter(f) => f.input.has_cross_join(),
+        }
+    }
+
     /// Returns true if the query tree contains a SEMI or ANTI join at any level.
     pub fn has_semi_or_anti(&self) -> bool {
         match self {

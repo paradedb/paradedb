@@ -827,16 +827,6 @@ impl AggregateScan {
             return Vec::new();
         }
 
-        // Only 2-table joins are supported; 3+ table joins produce
-        // unreliable plans in DataFusion (empty batches, join errors).
-        if sources.len() > 2 {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported",
-                "join".to_string(),
-            );
-            return Vec::new();
-        }
-
         // At least one table must have a BM25 index
         if !has_any_bm25_index(&sources) {
             return Vec::new();
@@ -890,6 +880,17 @@ impl AggregateScan {
             }
         };
 
+        // For 3+ table joins, only INNER JOINs are supported. Mixed
+        // LEFT/RIGHT/FULL with 3+ tables can produce empty RecordBatches
+        // in DataFusion's internal join processing.
+        if sources.len() > 2 && !plan.unsupported_join_types().is_empty() {
+            Self::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: 3+ table joins only support INNER JOIN",
+                "join".to_string(),
+            );
+            return Vec::new();
+        }
+
         // Extract aggregate target list (GROUP BY + aggregates)
         let targetlist = match unsafe { extract_aggregate_targetlist(builder.args(), &sources) } {
             Ok(tl) => tl,
@@ -902,10 +903,10 @@ impl AggregateScan {
             }
         };
 
-        // Reject CROSS JOINs (no equi-join keys). Without join keys the
-        // second table's PgSearchTableProvider has no Named fields, producing
-        // empty RecordBatches. Single-table queries have no joins, so skip.
-        if sources.len() > 1 && plan.join_keys().is_empty() {
+        // Reject CROSS JOINs (no equi-join keys) at ANY level of the join tree.
+        // Without join keys, PgSearchTableProvider has no Named fields, producing
+        // empty RecordBatches. Check every join node, not just the top level.
+        if sources.len() > 1 && plan.has_cross_join() {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
                 "join".to_string(),

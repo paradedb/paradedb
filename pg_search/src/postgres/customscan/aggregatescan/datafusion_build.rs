@@ -587,6 +587,85 @@ unsafe fn extract_equi_keys_from_path(
     keys
 }
 
+/// Check the parse tree's WHERE clause for OR predicates that reference
+/// multiple tables. For OUTER JOINs, Postgres may not put these in
+/// joinrestrictinfo, so we need to check the parse tree directly.
+pub unsafe fn has_cross_table_or_quals(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[JoinAggSource],
+) -> bool {
+    let parse = (*root).parse;
+    if parse.is_null() {
+        return false;
+    }
+    let jointree = (*parse).jointree;
+    if jointree.is_null() || (*jointree).quals.is_null() {
+        return false;
+    }
+    has_cross_table_or_in_node((*jointree).quals, sources)
+}
+
+unsafe fn has_cross_table_or_in_node(node: *mut pg_sys::Node, sources: &[JoinAggSource]) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    let tag = (*node).type_;
+    if tag == pg_sys::NodeTag::T_BoolExpr {
+        let bexpr = node as *mut pg_sys::BoolExpr;
+        if (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR {
+            // Check if this OR references multiple tables
+            let mut rtis = std::collections::HashSet::new();
+            collect_rtis_in_node(node, &mut rtis);
+            let source_rtis: std::collections::HashSet<_> = sources.iter().map(|s| s.rti).collect();
+            // If the OR references more than one of our source tables, it's cross-table
+            let referenced = rtis.intersection(&source_rtis).count();
+            if referenced > 1 {
+                return true;
+            }
+        }
+        // Recurse into AND/OR children
+        let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+        for arg in args.iter_ptr() {
+            if has_cross_table_or_in_node(arg, sources) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+unsafe fn collect_rtis_in_node(
+    node: *mut pg_sys::Node,
+    rtis: &mut std::collections::HashSet<pg_sys::Index>,
+) {
+    if node.is_null() {
+        return;
+    }
+    let tag = (*node).type_;
+    if tag == pg_sys::NodeTag::T_Var {
+        let var = node as *mut pg_sys::Var;
+        rtis.insert((*var).varno as pg_sys::Index);
+    } else if tag == pg_sys::NodeTag::T_OpExpr {
+        let op = node as *mut pg_sys::OpExpr;
+        let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+        for arg in args.iter_ptr() {
+            collect_rtis_in_node(arg, rtis);
+        }
+    } else if tag == pg_sys::NodeTag::T_BoolExpr {
+        let bexpr = node as *mut pg_sys::BoolExpr;
+        let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+        for arg in args.iter_ptr() {
+            collect_rtis_in_node(arg, rtis);
+        }
+    } else if tag == pg_sys::NodeTag::T_FuncExpr {
+        let fexpr = node as *mut pg_sys::FuncExpr;
+        let args = PgList::<pg_sys::Node>::from_pg((*fexpr).args);
+        for arg in args.iter_ptr() {
+            collect_rtis_in_node(arg, rtis);
+        }
+    }
+}
+
 /// Check whether the join path has any non-equi-join quals (OR across tables,
 /// cross-table filters) that our DataFusion backend can't execute.
 ///

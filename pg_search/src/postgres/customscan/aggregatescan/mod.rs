@@ -107,8 +107,28 @@ impl CustomScan for AggregateScan {
             pg_sys::RelOptKind::RELOPT_BASEREL => {
                 // If the estimated number of groups exceeds Tantivy's bucket limit,
                 // fall back to DataFusion which has no such limit.
-                let estimated_groups = builder.args().output_rel().rows;
+                //
+                // Note: output_rel.rows is 0 at hook time (Postgres hasn't populated
+                // it yet), so we use estimate_num_groups() directly.
                 let max_buckets = gucs::max_term_agg_buckets() as f64;
+                let estimated_groups = unsafe {
+                    let parse = builder.args().root().parse;
+                    let group_clause = (*parse).groupClause;
+                    if !group_clause.is_null() {
+                        let group_exprs =
+                            pg_sys::get_sortgrouplist_exprs(group_clause, (*parse).targetList);
+                        let input_rows = input_rel.rows;
+                        pg_sys::estimate_num_groups(
+                            builder.args().root,
+                            group_exprs,
+                            input_rows,
+                            std::ptr::null_mut(),
+                            std::ptr::null_mut(),
+                        )
+                    } else {
+                        1.0 // Scalar aggregate — single output row
+                    }
+                };
                 if estimated_groups > max_buckets {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
                         return Vec::new();
@@ -831,25 +851,29 @@ impl AggregateScan {
             return Vec::new();
         }
 
-        // Reject joins with non-equi quals (OR across tables, cross-table
-        // filters, non-@@@ conditions). Check both the cheapest path's
-        // joinrestrictinfo AND the parse tree's WHERE quals for cross-table
-        // references that our DataFusion backend can't apply.
-        if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
-                "join".to_string(),
-            );
-            return Vec::new();
-        }
-        // Reject queries with OR predicates in WHERE or joinrestrictinfo.
-        // Different PG versions place OR predicates in different locations.
-        if unsafe { datafusion_build::has_or_in_quals(root, input_rel) } {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: query contains OR predicates",
-                "join".to_string(),
-            );
-            return Vec::new();
+        // Join-specific guards: only apply when there are multiple tables.
+        // Single-table queries (high-cardinality BASEREL fallback) skip these.
+        if sources.len() > 1 {
+            // Reject joins with non-equi quals (OR across tables, cross-table
+            // filters, non-@@@ conditions). Check both the cheapest path's
+            // joinrestrictinfo AND the parse tree's WHERE quals for cross-table
+            // references that our DataFusion backend can't apply.
+            if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
+                Self::add_planner_warning(
+                    "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
+                    "join".to_string(),
+                );
+                return Vec::new();
+            }
+            // Reject queries with OR predicates in WHERE or joinrestrictinfo.
+            // Different PG versions place OR predicates in different locations.
+            if unsafe { datafusion_build::has_or_in_quals(root, input_rel) } {
+                Self::add_planner_warning(
+                    "Aggregate Scan (DataFusion) not used: query contains OR predicates",
+                    "join".to_string(),
+                );
+                return Vec::new();
+            }
         }
 
         // Extract the join tree from the parse tree
@@ -880,8 +904,8 @@ impl AggregateScan {
 
         // Reject CROSS JOINs (no equi-join keys). Without join keys the
         // second table's PgSearchTableProvider has no Named fields, producing
-        // empty RecordBatches.
-        if plan.join_keys().is_empty() {
+        // empty RecordBatches. Single-table queries have no joins, so skip.
+        if sources.len() > 1 && plan.join_keys().is_empty() {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
                 "join".to_string(),
@@ -907,22 +931,27 @@ impl AggregateScan {
         // (TopKAggregateRule + TopKAggregateExec) is ready — see #4493.
         let topk = None::<privdat::DataFusionTopK>;
 
-        // Extract non-equi join quals for post-join filtering.
+        // Extract non-equi join quals for post-join filtering (multi-table only).
         // These are applied as DataFusion filter expressions between join and aggregate.
-        let post_join_filters =
-            unsafe { datafusion_build::extract_non_equi_join_quals(input_rel, &sources) };
+        let post_join_filters = if sources.len() > 1 {
+            let filters =
+                unsafe { datafusion_build::extract_non_equi_join_quals(input_rel, &sources) };
 
-        // If any filter couldn't be translated (marked as LitNull), reject the path
-        if post_join_filters
-            .iter()
-            .any(|f| matches!(f.expr, privdat::FilterExpr::LitNull))
-        {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be translated to DataFusion filters",
-                "join".to_string(),
-            );
-            return Vec::new();
-        }
+            // If any filter couldn't be translated (marked as LitNull), reject the path
+            if filters
+                .iter()
+                .any(|f| matches!(f.expr, privdat::FilterExpr::LitNull))
+            {
+                Self::add_planner_warning(
+                    "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be translated to DataFusion filters",
+                    "join".to_string(),
+                );
+                return Vec::new();
+            }
+            filters
+        } else {
+            Vec::new()
+        };
 
         // Extract HAVING clause for post-aggregate filtering.
         let having_filter = unsafe {

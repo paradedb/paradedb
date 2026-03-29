@@ -1087,12 +1087,61 @@ unsafe fn extract_keys_from_path_recursive(
 
 /// Inject extracted equi-join keys into the topmost JoinNode of the plan.
 fn inject_equi_keys(plan: &mut RelNode, keys: Vec<JoinKeyPair>) {
+    for key in keys {
+        inject_single_equi_key(plan, key);
+    }
+}
+
+/// Inject a single equi-join key into the correct join node in the tree.
+///
+/// For 3+ table joins, a key pair (outer_rti, inner_rti) must be injected into
+/// the join node whose left subtree contains one RTI and right subtree contains
+/// the other. Injecting all keys at the top level would cause `resolve_against`
+/// to fail because some RTIs are nested inside inner join subtrees.
+fn inject_single_equi_key(plan: &mut RelNode, key: JoinKeyPair) {
     match plan {
         RelNode::Join(ref mut join_node) => {
-            join_node.equi_keys.extend(keys);
+            // Check if this join node can resolve this key
+            let left_has_outer = join_node
+                .left
+                .source_for_rti_in_subtree(key.outer_rti)
+                .is_some();
+            let right_has_inner = join_node
+                .right
+                .source_for_rti_in_subtree(key.inner_rti)
+                .is_some();
+            let left_has_inner = join_node
+                .left
+                .source_for_rti_in_subtree(key.inner_rti)
+                .is_some();
+            let right_has_outer = join_node
+                .right
+                .source_for_rti_in_subtree(key.outer_rti)
+                .is_some();
+
+            if (left_has_outer && right_has_inner) || (left_has_inner && right_has_outer) {
+                // This key belongs at this join level — check for duplicates
+                let already_has = join_node.equi_keys.iter().any(|k| {
+                    (k.outer_rti == key.outer_rti
+                        && k.inner_rti == key.inner_rti
+                        && k.outer_attno == key.outer_attno
+                        && k.inner_attno == key.inner_attno)
+                        || (k.outer_rti == key.inner_rti
+                            && k.inner_rti == key.outer_rti
+                            && k.outer_attno == key.inner_attno
+                            && k.inner_attno == key.outer_attno)
+                });
+                if !already_has {
+                    join_node.equi_keys.push(key);
+                }
+            } else {
+                // Try injecting into child join nodes
+                inject_single_equi_key(&mut join_node.left, key.clone());
+                inject_single_equi_key(&mut join_node.right, key);
+            }
         }
         RelNode::Filter(ref mut filter) => {
-            inject_equi_keys(&mut filter.input, keys);
+            inject_single_equi_key(&mut filter.input, key);
         }
         RelNode::Scan(_) => {
             // Single scan — no join to inject into
@@ -1190,6 +1239,36 @@ pub unsafe fn populate_required_fields(
                             jk.inner_attno,
                             source.scan_info.heaprelid.to_u32()
                         ));
+                    }
+                }
+            }
+        }
+    }
+
+    // Safety fallback: ensure every source has at least one Named fast field.
+    // Without a Named field, PgSearchTableProvider produces empty RecordBatches.
+    // This is critical for 3+ table joins where a table might not be directly
+    // referenced in GROUP BY, aggregate args, or join keys.
+    use crate::index::fast_fields_helper::WhichFastField;
+    let mut sources = plan.sources_mut();
+    for source in &mut sources {
+        let has_named = source.scan_info.fields.iter().any(|f| {
+            matches!(
+                f.field,
+                WhichFastField::Named(_, _) | WhichFastField::Deferred(_, _)
+            )
+        });
+        if !has_named {
+            // Find the first fast field from the BM25 index
+            let heaprel = PgSearchRelation::open(source.scan_info.heaprelid);
+            let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
+            let tupdesc = heaprel.tuple_desc();
+            let natts = tupdesc.len();
+            for attno in 1..=natts as pg_sys::AttrNumber {
+                if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, &indexrel) {
+                    if matches!(field, WhichFastField::Named(_, _)) {
+                        source.scan_info.add_field(attno, field);
+                        break;
                     }
                 }
             }

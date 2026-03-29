@@ -501,6 +501,7 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::Right => {
                         JoinType::Right
                     }
+                    crate::postgres::customscan::joinscan::build::JoinType::Full => JoinType::Full,
                     unsupported => {
                         return Err(DataFusionError::NotImplemented(format!(
                             "Aggregate-on-join does not support {} JOIN",

@@ -893,6 +893,25 @@ WHERE p.description @@@ 'laptop OR shoes OR toy'
 GROUP BY p.category
 ORDER BY p.category;
 
+-- Test 13.5: ARRAY_AGG on join
+SELECT p.category, ARRAY_AGG(t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 13.6: ARRAY_AGG parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, ARRAY_AGG(t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 -- Clean up the added column (drop+recreate index)
 DROP INDEX agg_join_products_idx;
 ALTER TABLE agg_join_products DROP COLUMN in_stock;

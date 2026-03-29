@@ -267,10 +267,30 @@ fn arrow_value_to_datum(
                 float64_to_datum(f_val, typoid)
             }
         }
+        DataType::List(_) | DataType::LargeList(_) => list_to_datum(col, row_idx, typoid),
+        DataType::Binary => {
+            let val = col.as_any().downcast_ref::<BinaryArray>()?.value(row_idx);
+            // If 16 bytes, likely UUID
+            if val.len() == 16 {
+                let uuid = pgrx::Uuid::from_bytes(val.try_into().ok()?);
+                uuid.into_datum()
+            } else {
+                val.to_vec().into_datum()
+            }
+        }
+        DataType::FixedSizeBinary(16) => {
+            let val = col
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()?
+                .value(row_idx);
+            let uuid = pgrx::Uuid::from_bytes(val.try_into().ok()?);
+            uuid.into_datum()
+        }
         _ => {
             pgrx::warning!(
-                "Unsupported Arrow type {:?} for aggregate projection",
-                col.data_type()
+                "Unsupported Arrow type {:?} (Postgres OID {}) for aggregate projection",
+                col.data_type(),
+                typoid.to_u32()
             );
             None
         }
@@ -315,6 +335,120 @@ fn float64_to_datum(val: f64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
             numeric.into_datum()
         }
         _ => val.into_datum(), // Default to f64
+    }
+}
+
+/// Convert an Arrow List array element to a Postgres array datum.
+///
+/// Handles `ARRAY_AGG` results by converting the inner array elements to
+/// a Postgres array via `Vec<T>::into_datum()`.
+fn list_to_datum(col: &ArrayRef, row_idx: usize, _typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
+    use arrow_array::*;
+    use arrow_schema::DataType;
+
+    let list = col.as_any().downcast_ref::<ListArray>()?;
+    let inner = list.value(row_idx);
+    let inner_type = inner.data_type();
+
+    match inner_type {
+        DataType::Utf8 => {
+            let arr = inner.as_any().downcast_ref::<StringArray>()?;
+            let vals: Vec<Option<String>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i).to_string())
+                    }
+                })
+                .collect();
+            vals.into_datum()
+        }
+        DataType::Utf8View => {
+            let arr = inner.as_any().downcast_ref::<StringViewArray>()?;
+            let vals: Vec<Option<String>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i).to_string())
+                    }
+                })
+                .collect();
+            vals.into_datum()
+        }
+        DataType::LargeUtf8 => {
+            let arr = inner.as_any().downcast_ref::<LargeStringArray>()?;
+            let vals: Vec<Option<String>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i).to_string())
+                    }
+                })
+                .collect();
+            vals.into_datum()
+        }
+        DataType::Int64 => {
+            let arr = inner.as_any().downcast_ref::<Int64Array>()?;
+            let vals: Vec<Option<i64>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i))
+                    }
+                })
+                .collect();
+            vals.into_datum()
+        }
+        DataType::Int32 => {
+            let arr = inner.as_any().downcast_ref::<Int32Array>()?;
+            let vals: Vec<Option<i32>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i))
+                    }
+                })
+                .collect();
+            vals.into_datum()
+        }
+        DataType::Float64 => {
+            let arr = inner.as_any().downcast_ref::<Float64Array>()?;
+            let vals: Vec<Option<f64>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i))
+                    }
+                })
+                .collect();
+            vals.into_datum()
+        }
+        DataType::Boolean => {
+            let arr = inner.as_any().downcast_ref::<BooleanArray>()?;
+            let vals: Vec<Option<bool>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i))
+                    }
+                })
+                .collect();
+            vals.into_datum()
+        }
+        _ => {
+            pgrx::warning!(
+                "Unsupported Arrow List element type {:?} for ARRAY_AGG projection",
+                inner_type
+            );
+            None
+        }
     }
 }
 

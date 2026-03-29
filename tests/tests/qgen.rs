@@ -808,9 +808,11 @@ async fn generated_joinscan(database: Db) {
 /// Randomly combines:
 /// - 2 or 3 table INNER joins (on primary key)
 /// - Random BM25 search terms on outer table
-/// - 1-3 aggregate functions: COUNT(*), SUM, AVG, MIN, MAX
+/// - 1-3 aggregate functions: COUNT(*), SUM, AVG, MIN, MAX on both inner and outer tables
 /// - 0-2 GROUP BY columns from indexed fast fields
-/// - Optional HAVING clause
+/// - Optional HAVING clause with varying thresholds
+/// - Random join types: INNER, LEFT, RIGHT, FULL for 2-table; INNER only for 3-table
+/// - Different table sizes to exercise outer join NULL handling
 #[rstest]
 #[tokio::test]
 async fn generated_aggregate_join(database: Db) {
@@ -825,8 +827,8 @@ async fn generated_aggregate_join(database: Db) {
         |_| {},
     );
 
-    // Three tables for 2-way and 3-way join testing
-    let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
+    // Different table sizes so outer joins produce NULLs (not all IDs match)
+    let tables_and_sizes = [("users", 50), ("products", 40), ("orders", 30)];
     let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
     let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
 
@@ -834,13 +836,16 @@ async fn generated_aggregate_join(database: Db) {
     // Duplicate 'id' so arb_joins can select N-1 join keys for N tables.
     let join_key_columns = vec!["id", "id"];
 
-    // All aggregate function options (on indexed fast-field columns only)
+    // Aggregate functions on both inner and outer tables.
+    // Cross-table aggregates (products.*) exercise NULL handling in outer joins.
     let all_aggs: Vec<&str> = vec![
         "COUNT(*)",
         "SUM(users.age)",
         "AVG(users.age)",
         "MIN(users.age)",
         "MAX(users.age)",
+        "COUNT(products.id)",
+        "SUM(products.age)",
     ];
 
     // GROUP BY column options (indexed fast fields)
@@ -856,6 +861,8 @@ async fn generated_aggregate_join(database: Db) {
 
     proptest!(|(
         num_tables in 2..=3usize,
+        // Join type: 0=Inner, 1=Left, 2=Right, 3=Full
+        join_type_idx in 0..=3u8,
         // Random search term
         search_idx in 0..search_terms.len(),
         // Number of aggregates (1-3)
@@ -866,15 +873,27 @@ async fn generated_aggregate_join(database: Db) {
         agg_idx2 in 0..all_aggs.len(),
         // GROUP BY: 0 = none, 1 = first col, 2 = second col, 3 = both
         group_by_mode in 0..=3u8,
-        // Whether to include HAVING (only when GROUP BY is present)
-        include_having in proptest::bool::ANY,
+        // HAVING mode: 0 = none, 1 = COUNT(*) > 0, 2 = COUNT(*) > 1, 3 = COUNT(*) >= 2
+        having_mode in 0..=3u8,
     )| {
         // Build join with selected number of tables
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 
+        // For 3+ tables, only INNER is supported. For 2-table, vary the join type.
+        let join_type = if num_tables > 2 {
+            JoinType::Inner
+        } else {
+            match join_type_idx {
+                0 => JoinType::Inner,
+                1 => JoinType::Left,
+                2 => JoinType::Right,
+                _ => JoinType::Full,
+            }
+        };
+
         // Generate join expression
         let join = arb_joins(
-            Just(JoinType::Inner),
+            Just(join_type),
             tables_for_join.clone(),
             join_key_columns.clone(),
         );
@@ -923,9 +942,14 @@ async fn generated_aggregate_join(database: Db) {
             format!("GROUP BY {}", group_by_cols.to_vec().join(", "))
         };
 
-        // Optional HAVING clause (only with GROUP BY)
-        let having_clause = if include_having && !group_by_cols.is_empty() {
-            "HAVING COUNT(*) > 0".to_string()
+        // Optional HAVING clause with varying thresholds (only with GROUP BY)
+        let having_clause = if !group_by_cols.is_empty() {
+            match having_mode {
+                1 => "HAVING COUNT(*) > 0".to_string(),
+                2 => "HAVING COUNT(*) > 1".to_string(),
+                3 => "HAVING COUNT(*) >= 2".to_string(),
+                _ => String::new(),
+            }
         } else {
             String::new()
         };

@@ -820,10 +820,95 @@ ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
--- SECTION 14: FULL OUTER JOIN aggregates
+-- SECTION 14: Additional aggregate functions (BOOL_AND/OR, ARRAY_AGG, STRING_AGG)
 -- =====================================================================
 
--- Test 14.1: FULL OUTER JOIN with COUNT — includes unmatched rows from both sides
+-- Add a boolean column for BOOL_AND/OR tests
+ALTER TABLE agg_join_products ADD COLUMN in_stock BOOLEAN DEFAULT true;
+UPDATE agg_join_products SET in_stock = false WHERE category = 'Toys';
+
+-- We need fast field access for in_stock; recreate BM25 index
+DROP INDEX agg_join_products_idx;
+CREATE INDEX agg_join_products_idx ON agg_join_products
+USING bm25 (id, description, category, price, rating, in_stock)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}',
+    boolean_fields='{"in_stock": {"fast": true}}'
+);
+
+-- Test 14.1: BOOL_AND on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, BOOL_AND(p.in_stock)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR toy'
+GROUP BY p.category;
+
+SELECT p.category, BOOL_AND(p.in_stock)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR toy'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 14.2: BOOL_OR on join
+SELECT p.category, BOOL_OR(p.in_stock)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR toy'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 14.3: STRING_AGG on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, STRING_AGG(t.tag_name, ', ')
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+SELECT p.category, STRING_AGG(t.tag_name, ', ')
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 14.4: BOOL_AND/OR parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR toy'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR toy'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Clean up the added column (drop+recreate index)
+DROP INDEX agg_join_products_idx;
+ALTER TABLE agg_join_products DROP COLUMN in_stock;
+CREATE INDEX agg_join_products_idx ON agg_join_products
+USING bm25 (id, description, category, price, rating)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
+);
+
+-- =====================================================================
+-- SECTION 15: FULL OUTER JOIN aggregates
+-- =====================================================================
+
+-- Test 15.1: FULL OUTER JOIN with COUNT — includes unmatched rows from both sides
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
 FROM agg_join_products p
@@ -835,7 +920,7 @@ FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
 
--- Test 14.2: FULL OUTER JOIN with GROUP BY
+-- Test 15.2: FULL OUTER JOIN with GROUP BY
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
@@ -843,7 +928,7 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
 
--- Test 14.3: FULL OUTER JOIN parity — DataFusion vs Postgres native
+-- Test 15.3: FULL OUTER JOIN parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p

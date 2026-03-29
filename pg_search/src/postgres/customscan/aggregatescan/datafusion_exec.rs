@@ -43,7 +43,8 @@ use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
-    avg, count, max, min, stddev, stddev_pop, sum, var_pop, var_sample,
+    array_agg, avg, bool_and, bool_or, count, max, min, stddev, stddev_pop, sum, var_pop,
+    var_sample,
 };
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -131,6 +132,16 @@ pub async fn build_join_aggregate_plan(
                 AggKind::StddevPop => agg_field_col(agg, plan).map(stddev_pop),
                 AggKind::VarSamp => agg_field_col(agg, plan).map(var_sample),
                 AggKind::VarPop => agg_field_col(agg, plan).map(var_pop),
+                AggKind::BoolAnd => agg_field_col(agg, plan).map(bool_and),
+                AggKind::BoolOr => agg_field_col(agg, plan).map(bool_or),
+                AggKind::ArrayAgg => agg_field_col(agg, plan).map(array_agg),
+                AggKind::StringAgg(ref sep) => {
+                    let col_expr = agg_field_col(agg, plan)?;
+                    Ok(datafusion::functions_aggregate::string_agg::string_agg(
+                        col_expr,
+                        lit(sep.clone()),
+                    ))
+                }
             }?;
             // Alias for stable reference
             Ok(agg_expr.alias(format!("agg_{}", i)))

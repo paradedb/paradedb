@@ -798,6 +798,153 @@ async fn generated_joinscan(database: Db) {
 }
 
 ///
+/// Property test for aggregate-on-join via DataFusion — ensures equivalence between
+/// PostgreSQL native aggregation and ParadeDB's DataFusion aggregate backend.
+///
+/// Uses the SAME @@@ operator for both pg and bm25 queries so the only variable
+/// is whether the aggregate custom scan is active. This avoids false failures
+/// from = vs @@@ semantic differences.
+///
+/// Randomly combines:
+/// - 2 or 3 table INNER joins (on id)
+/// - BM25 predicates (@@@ on outer table)
+/// - GROUP BY with 0-2 grouping columns (indexed fast fields only)
+/// - Aggregate functions: COUNT(*), SUM, AVG, MIN, MAX (on indexed columns only)
+#[rstest]
+#[tokio::test]
+async fn generated_aggregate_join(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    // Three tables for 2-way and 3-way join testing
+    let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
+    let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+
+    // Join key columns — need at least N-1 for N tables (arb_joins uses subsequence).
+    // Use 'id' twice: arb_joins selects N-1 columns from this vec and uses each
+    // as the equi-key for one join step. Duplicate 'id' ensures all joins use the
+    // primary key, which avoids known issues with non-unique join keys.
+    let join_key_columns = vec!["id", "id"];
+    // Aggregate functions on indexed fast-field columns only
+    let agg_options = [
+        "COUNT(*)",
+        "SUM(users.age)",
+        "AVG(users.age)",
+        "MIN(users.age)",
+        "MAX(users.age)",
+    ];
+
+    // GROUP BY column options (indexed fast fields)
+    let group_by_options = [
+        format!("{}.name", all_tables[0]),
+        format!("{}.age", all_tables[0]),
+    ];
+
+    proptest!(|(
+        num_tables in 2..=3usize,
+        // Random aggregate function
+        agg_idx in 0..agg_options.len(),
+        // Whether to include GROUP BY
+        include_group_by in proptest::bool::ANY,
+        // Which GROUP BY column
+        group_col_idx in 0..group_by_options.len(),
+    )| {
+        // Build join with selected number of tables
+        let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
+
+        // Generate join expression
+        let join = arb_joins(
+            Just(JoinType::Inner),
+            tables_for_join.clone(),
+            join_key_columns.clone(),
+        );
+
+        let join_expr = {
+            use proptest::strategy::ValueTree;
+            use proptest::test_runner::TestRunner;
+            let mut runner = TestRunner::default();
+            join.new_tree(&mut runner).unwrap().current()
+        };
+
+        let join_clause = join_expr.to_sql();
+
+        let agg_fn = agg_options[agg_idx];
+        let (select_list, group_by_clause) = if include_group_by {
+            let col = &group_by_options[group_col_idx];
+            (format!("{col}, {agg_fn}"), format!("GROUP BY {col}"))
+        } else {
+            (agg_fn.to_string(), String::new())
+        };
+
+        // Use a simple @@@ predicate for BOTH queries — the only variable
+        // is whether the DataFusion aggregate custom scan is used.
+        let where_clause = format!("{}.name @@@ 'bob'", all_tables[0]);
+
+        let query = format!(
+            "SELECT {select_list} {join_clause} WHERE {where_clause} {group_by_clause}"
+        );
+
+        // GUCs: enable aggregate + join custom scans with production defaults
+        let gucs = PgGucs {
+            aggregate_custom_scan: true,
+            join_custom_scan: true,
+            custom_scan: true,
+            filter_pushdown: true,
+            ..PgGucs::default()
+        };
+
+        // Use the SAME query for both pg and bm25.
+        // pg runs with PgGucs::default() (all custom scans off) → Postgres native.
+        // bm25 runs with our gucs → DataFusion aggregate path.
+        compare(
+            &query,
+            &query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| {
+                let rows = query.fetch_dynamic(conn);
+                let mut string_rows: Vec<String> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let mut row_string = String::new();
+                        for i in 0..row.len() {
+                            if i > 0 {
+                                row_string.push('|');
+                            }
+                            let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<f64, _>(i) {
+                                format!("{:.6}", val)
+                            } else if let Ok(val) = row.try_get::<String, _>(i) {
+                                val
+                            } else {
+                                "NULL".to_string()
+                            };
+                            row_string.push_str(&value_str);
+                        }
+                        row_string
+                    })
+                    .collect();
+                string_rows.sort();
+                string_rows
+            },
+        )?;
+    });
+}
+
+///
 /// Property test for numeric pushdown - ensures equivalence between PostgreSQL and BM25 behavior
 /// for numeric comparison operators (=, <, <=, >, >=, BETWEEN).
 ///

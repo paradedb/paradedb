@@ -110,6 +110,115 @@ ORDER BY p.category;
 (3 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test 1d: 3-table join with multiple aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating), MIN(r.rating), MAX(r.rating)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category;
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: p.category, (count(*)), (sum(r.rating)), (avg(r.rating)), (min(r.rating)), (max(r.rating))
+   Backend: DataFusion
+   Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+   Group By: category
+   Aggregates: COUNT(*)(*), SUM(rating), AVG(rating), MIN(rating), MAX(rating)
+(6 rows)
+
+SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating), MIN(r.rating), MAX(r.rating)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | sum | avg | min | max 
+-------------+-------+-----+-----+-----+-----
+ Clothing    |     1 |   4 |   4 |   4 |   4
+ Electronics |     2 |   9 | 4.5 |   4 |   5
+ Sports      |     1 |   3 |   3 |   3 |   3
+(3 rows)
+
+-- Test 1e: 3-table star schema (tags and reviews both join to products)
+SELECT COUNT(*)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop';
+ count 
+-------
+     2
+(1 row)
+
+-- Test 1f: 3-table chain join (products → tags → reviews via tag)
+-- Note: fb_reviews doesn't have tag_id, so we join on product_id for both
+-- This tests the equi-key injection at the correct join level
+SELECT t.tag_name, COUNT(*), SUM(r.rating)
+FROM fb_products p
+JOIN fb_tags t ON p.id = t.product_id
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+ tag_name | count | sum 
+----------+-------+-----
+ fitness  |     1 |   3
+ outdoor  |     1 |   4
+ tech     |     2 |   9
+(3 rows)
+
+-- Test 1g: 3-table with LEFT JOIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*), COUNT(r.rating)
+FROM fb_products p
+LEFT JOIN fb_tags t ON p.id = t.product_id
+LEFT JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category;
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: p.category, (count(*)), (count(r.rating))
+   Backend: DataFusion
+   Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+   Group By: category
+   Aggregates: COUNT(*)(*), COUNT(rating)
+(6 rows)
+
+SELECT p.category, COUNT(*), COUNT(r.rating)
+FROM fb_products p
+LEFT JOIN fb_tags t ON p.id = t.product_id
+LEFT JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | count 
+-------------+-------+-------
+ Clothing    |     1 |     1
+ Electronics |     2 |     2
+ Sports      |     1 |     1
+(3 rows)
+
+-- Test 1h: 3-table LEFT JOIN parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), COUNT(r.rating)
+FROM fb_products p
+LEFT JOIN fb_tags t ON p.id = t.product_id
+LEFT JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count | count 
+-------------+-------+-------
+ Clothing    |     1 |     1
+ Electronics |     2 |     2
+ Sports      |     1 |     1
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================
 -- Test 2: CROSS JOIN → should fall back to Postgres native
 -- =====================================================================

@@ -196,8 +196,7 @@ ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
--- Test 3: 3-table LEFT JOIN — verify graceful fallback
--- 3+ table non-INNER joins should fall back to Postgres native
+-- Test 3: 3-table LEFT JOIN — should use DataFusion backend
 -- =====================================================================
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

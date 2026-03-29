@@ -1183,21 +1183,37 @@ pub unsafe fn populate_required_fields(
             WhichFastField::Ctid,
         );
 
-        // Add fields referenced in GROUP BY
+        // Add fields referenced in GROUP BY.
+        // If any GROUP BY column can't be resolved as a fast field, the
+        // DataFusion path cannot execute — return an error to fall back.
         for gc in &targetlist.group_columns {
             if source.contains_rti(gc.rti) {
-                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, &indexrel) {
-                    source.scan_info.add_field(gc.attno, field);
+                match resolve_fast_field(gc.attno as i32, &tupdesc, &indexrel) {
+                    Some(field) => source.scan_info.add_field(gc.attno, field),
+                    None => {
+                        return Err(format!(
+                            "GROUP BY column '{}' is not a fast field",
+                            gc.field_name
+                        ));
+                    }
                 }
             }
         }
 
-        // Add fields referenced in aggregate arguments
+        // Add fields referenced in aggregate arguments.
+        // If any aggregate argument can't be resolved as a fast field, the
+        // DataFusion path cannot execute — return an error to fall back.
         for agg in &targetlist.aggregates {
-            if let Some((rti, attno, _)) = &agg.field_ref {
-                if source.contains_rti(*rti) {
-                    if let Some(field) = resolve_fast_field(*attno as i32, &tupdesc, &indexrel) {
-                        source.scan_info.add_field(*attno, field);
+            if let Some((rti, attno, ref field_name)) = agg.field_ref {
+                if source.contains_rti(rti) {
+                    match resolve_fast_field(attno as i32, &tupdesc, &indexrel) {
+                        Some(field) => source.scan_info.add_field(attno, field),
+                        None => {
+                            return Err(format!(
+                                "aggregate argument '{}' is not a fast field",
+                                field_name
+                            ));
+                        }
                     }
                 }
             }

@@ -134,8 +134,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
 
--- Test 1g: 3-table with LEFT JOIN
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+-- Test 1g: 3-table with LEFT JOIN → falls back (3+ tables requires INNER)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM fb_products p
 LEFT JOIN fb_tags t ON p.id = t.product_id
@@ -150,18 +150,6 @@ LEFT JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-
--- Test 1h: 3-table LEFT JOIN parity
-SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT p.category, COUNT(*), COUNT(r.rating)
-FROM fb_products p
-LEFT JOIN fb_tags t ON p.id = t.product_id
-LEFT JOIN fb_reviews r ON p.id = r.product_id
-WHERE p.description @@@ 'laptop OR shoes OR jacket'
-GROUP BY p.category
-ORDER BY p.category;
-
-SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
 -- Test 2: CROSS JOIN → should fall back to Postgres native

@@ -492,82 +492,112 @@ unsafe fn extract_equi_keys_from_path(
     keys
 }
 
-/// Check the parse tree's WHERE clause for OR predicates that reference
-/// multiple tables. For OUTER JOINs, Postgres may not put these in
-/// joinrestrictinfo, so we need to check the parse tree directly.
-pub unsafe fn has_cross_table_or_quals(
+/// Check the parse tree's WHERE clause for any OR predicates.
+/// OR predicates in join aggregate queries are problematic because our
+/// per-table scan pushdown can't split OR branches correctly across
+/// different PG versions. Reject and let Postgres handle them natively.
+pub unsafe fn has_or_in_quals(
     root: *mut pg_sys::PlannerInfo,
-    sources: &[JoinAggSource],
+    input_rel: &pg_sys::RelOptInfo,
 ) -> bool {
     let parse = (*root).parse;
     if parse.is_null() {
         return false;
     }
     let jointree = (*parse).jointree;
-    if jointree.is_null() || (*jointree).quals.is_null() {
+    if jointree.is_null() {
         return false;
     }
-    has_cross_table_or_in_node((*jointree).quals, sources)
+    // Check parse tree WHERE clause (FromExpr.quals)
+    if !(*jointree).quals.is_null() && contains_or_expr((*jointree).quals) {
+        return true;
+    }
+    // Check JoinExpr quals in the fromlist (for explicit JOIN ... ON ... WHERE)
+    let from_list = PgList::<pg_sys::Node>::from_pg((*jointree).fromlist);
+    for node in from_list.iter_ptr() {
+        if has_or_in_join_tree(node) {
+            return true;
+        }
+    }
+    // Check joinrestrictinfo on cheapest path (PG may move OR there)
+    let path = input_rel.cheapest_total_path;
+    if !path.is_null() && has_or_in_path_recursive(path) {
+        return true;
+    }
+    false
 }
 
-unsafe fn has_cross_table_or_in_node(node: *mut pg_sys::Node, sources: &[JoinAggSource]) -> bool {
+/// Recursively walk a parse tree node (JoinExpr/RangeTblRef) for OR predicates.
+unsafe fn has_or_in_join_tree(node: *mut pg_sys::Node) -> bool {
     if node.is_null() {
         return false;
     }
-    let tag = (*node).type_;
-    if tag == pg_sys::NodeTag::T_BoolExpr {
-        let bexpr = node as *mut pg_sys::BoolExpr;
-        if (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR {
-            // Check if this OR references multiple tables
-            let mut rtis = std::collections::HashSet::new();
-            collect_rtis_in_node(node, &mut rtis);
-            let source_rtis: std::collections::HashSet<_> = sources.iter().map(|s| s.rti).collect();
-            // If the OR references more than one of our source tables, it's cross-table
-            let referenced = rtis.intersection(&source_rtis).count();
-            if referenced > 1 {
-                return true;
-            }
+    if (*node).type_ == pg_sys::NodeTag::T_JoinExpr {
+        let join = node as *mut pg_sys::JoinExpr;
+        if !(*join).quals.is_null() && contains_or_expr((*join).quals) {
+            return true;
         }
-        // Recurse into AND/OR children
-        let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
-        for arg in args.iter_ptr() {
-            if has_cross_table_or_in_node(arg, sources) {
-                return true;
-            }
+        if has_or_in_join_tree((*join).larg) || has_or_in_join_tree((*join).rarg) {
+            return true;
         }
     }
     false
 }
 
-unsafe fn collect_rtis_in_node(
-    node: *mut pg_sys::Node,
-    rtis: &mut std::collections::HashSet<pg_sys::Index>,
-) {
+unsafe fn has_or_in_path_recursive(path: *mut pg_sys::Path) -> bool {
+    if path.is_null() {
+        return false;
+    }
+    let tag = (*path).type_;
+    if matches!(
+        tag,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    ) {
+        let join_path = path as *mut pg_sys::JoinPath;
+        let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
+        for ri in restrict_list.iter_ptr() {
+            if contains_or_expr((*ri).clause as *mut pg_sys::Node) {
+                return true;
+            }
+        }
+        if has_or_in_path_recursive((*join_path).outerjoinpath)
+            || has_or_in_path_recursive((*join_path).innerjoinpath)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+unsafe fn contains_or_expr(node: *mut pg_sys::Node) -> bool {
     if node.is_null() {
-        return;
+        return false;
     }
     let tag = (*node).type_;
-    if tag == pg_sys::NodeTag::T_Var {
-        let var = node as *mut pg_sys::Var;
-        rtis.insert((*var).varno as pg_sys::Index);
-    } else if tag == pg_sys::NodeTag::T_OpExpr {
-        let op = node as *mut pg_sys::OpExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*op).args);
-        for arg in args.iter_ptr() {
-            collect_rtis_in_node(arg, rtis);
+    match tag {
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bexpr = node as *mut pg_sys::BoolExpr;
+            if (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR {
+                return true;
+            }
+            let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+            for arg in args.iter_ptr() {
+                if contains_or_expr(arg) {
+                    return true;
+                }
+            }
+            false
         }
-    } else if tag == pg_sys::NodeTag::T_BoolExpr {
-        let bexpr = node as *mut pg_sys::BoolExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
-        for arg in args.iter_ptr() {
-            collect_rtis_in_node(arg, rtis);
+        pg_sys::NodeTag::T_List => {
+            let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+            for item in list.iter_ptr() {
+                if contains_or_expr(item) {
+                    return true;
+                }
+            }
+            false
         }
-    } else if tag == pg_sys::NodeTag::T_FuncExpr {
-        let fexpr = node as *mut pg_sys::FuncExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*fexpr).args);
-        for arg in args.iter_ptr() {
-            collect_rtis_in_node(arg, rtis);
-        }
+        _ => false,
     }
 }
 

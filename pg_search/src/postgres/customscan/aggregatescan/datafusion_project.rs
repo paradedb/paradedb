@@ -194,6 +194,32 @@ fn arrow_value_to_datum(
             let val = col.as_any().downcast_ref::<BooleanArray>()?.value(row_idx);
             val.into_datum()
         }
+        DataType::Timestamp(_, _) => {
+            // Tantivy stores dates as TimestampNanosecond (i64 nanoseconds)
+            let val = col
+                .as_any()
+                .downcast_ref::<arrow_array::TimestampNanosecondArray>()?
+                .value(row_idx);
+            timestamp_nanos_to_datum(val, typoid)
+        }
+        DataType::Date32 => {
+            // Date32: days since epoch → convert to nanoseconds
+            let days = col
+                .as_any()
+                .downcast_ref::<arrow_array::Date32Array>()?
+                .value(row_idx);
+            let nanos = days as i64 * 86_400_000_000_000;
+            timestamp_nanos_to_datum(nanos, typoid)
+        }
+        DataType::Date64 => {
+            // Date64: milliseconds since epoch → convert to nanoseconds
+            let millis = col
+                .as_any()
+                .downcast_ref::<arrow_array::Date64Array>()?
+                .value(row_idx);
+            let nanos = millis * 1_000_000;
+            timestamp_nanos_to_datum(nanos, typoid)
+        }
         DataType::Decimal128(_, scale) => {
             let val = col
                 .as_any()
@@ -242,6 +268,49 @@ fn float64_to_datum(val: f64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
             numeric.into_datum()
         }
         _ => val.into_datum(), // Default to f64
+    }
+}
+
+/// Convert nanosecond timestamp to the appropriate Postgres date/time datum.
+fn timestamp_nanos_to_datum(nanos: i64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
+    use crate::postgres::types_arrow::ts_nanos_to_date_time;
+    use pgrx::datum;
+
+    let dt = ts_nanos_to_date_time(nanos);
+    let prim = dt.into_primitive();
+    let (h, m, s, micro) = prim.as_hms_micro();
+    let fractional_sec = s as f64 + (micro as f64 / 1_000_000.0);
+
+    match typoid {
+        pg_sys::TIMESTAMPTZOID => datum::TimestampWithTimeZone::with_timezone(
+            prim.year(),
+            prim.month().into(),
+            prim.day(),
+            h,
+            m,
+            fractional_sec,
+            "UTC",
+        )
+        .ok()?
+        .into_datum(),
+        pg_sys::TIMESTAMPOID => datum::Timestamp::new(
+            prim.year(),
+            prim.month().into(),
+            prim.day(),
+            h,
+            m,
+            fractional_sec,
+        )
+        .ok()?
+        .into_datum(),
+        pg_sys::DATEOID => datum::Date::new(prim.year(), prim.month().into(), prim.day())
+            .ok()?
+            .into_datum(),
+        _ => {
+            // Fallback: return as i64 microseconds
+            let micros = nanos / 1000;
+            micros.into_datum()
+        }
     }
 }
 

@@ -889,6 +889,19 @@ impl AggregateScan {
         let post_join_filters =
             unsafe { datafusion_build::extract_non_equi_join_quals(input_rel, &sources) };
 
+        // If any filter couldn't be translated (marked as LitNull), reject the path
+        // to avoid silently dropping predicates and returning wrong results.
+        if post_join_filters
+            .iter()
+            .any(|f| matches!(f.expr, privdat::FilterExpr::LitNull))
+        {
+            Self::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be translated to DataFusion filters",
+                "join".to_string(),
+            );
+            return Vec::new();
+        }
+
         // Build the custom path with DataFusion private data
         vec![builder.build(PrivateData::DataFusion {
             plan,

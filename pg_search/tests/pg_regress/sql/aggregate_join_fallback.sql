@@ -134,7 +134,7 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
 
--- Test 1g: 3-table with LEFT JOIN → falls back (3+ tables requires INNER)
+-- Test 1g: 3-table with LEFT JOIN → should use DataFusion backend
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM fb_products p

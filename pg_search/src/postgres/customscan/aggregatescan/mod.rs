@@ -880,16 +880,10 @@ impl AggregateScan {
             }
         };
 
-        // For 3+ table joins, only INNER JOINs are supported. Mixed
-        // LEFT/RIGHT/FULL with 3+ tables can produce empty RecordBatches
-        // in DataFusion's internal join processing.
-        if sources.len() > 2 && !plan.unsupported_join_types().is_empty() {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: 3+ table joins only support INNER JOIN",
-                "join".to_string(),
-            );
-            return Vec::new();
-        }
+        // Note: 3+ table joins with LEFT/RIGHT/FULL are supported since every
+        // source is guaranteed at least one Named fast field (safety fallback in
+        // populate_required_fields). This prevents empty RecordBatches in
+        // DataFusion's join processing.
 
         // Extract aggregate target list (GROUP BY + aggregates)
         let targetlist = match unsafe { extract_aggregate_targetlist(builder.args(), &sources) } {

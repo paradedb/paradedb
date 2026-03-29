@@ -170,7 +170,7 @@ ORDER BY t.tag_name;
  tech     |     2 |   9
 (3 rows)
 
--- Test 1g: 3-table with LEFT JOIN → falls back (3+ tables requires INNER)
+-- Test 1g: 3-table with LEFT JOIN → should use DataFusion backend
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM fb_products p
@@ -178,29 +178,14 @@ LEFT JOIN fb_tags t ON p.id = t.product_id
 LEFT JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: 3+ table joins only support INNER JOIN (table: join)
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: p.category
-   ->  Sort
-         Sort Key: p.category
-         ->  Nested Loop Left Join
-               Join Filter: (p.id = t.product_id)
-               ->  Hash Right Join
-                     Hash Cond: (r.product_id = p.id)
-                     ->  Seq Scan on fb_reviews r
-                     ->  Hash
-                           ->  Custom Scan (ParadeDB Base Scan) on fb_products p
-                                 Table: fb_products
-                                 Index: fb_products_idx
-                                 Exec Method: ColumnarExecState
-                                 Fast Fields: category, id
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-               ->  Materialize
-                     ->  Seq Scan on fb_tags t
-(19 rows)
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+   Group By: category
+   Aggregates: COUNT(*)(*), COUNT(rating)
+(5 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM fb_products p
@@ -209,7 +194,6 @@ LEFT JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: 3+ table joins only support INNER JOIN (table: join)
   category   | count | count 
 -------------+-------+-------
  Clothing    |     1 |     1

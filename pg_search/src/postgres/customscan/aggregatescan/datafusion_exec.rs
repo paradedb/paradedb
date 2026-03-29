@@ -51,8 +51,10 @@ use crate::scan::PgSearchTableProvider;
 // Re-export DataFusion aggregate helpers
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
-    avg, count, max, min, stddev, stddev_pop, sum, var_pop, var_sample,
+    array_agg, avg, bool_and, bool_or, count, max, min, stddev, stddev_pop, sum, var_pop,
+    var_sample,
 };
+use datafusion::functions_aggregate::string_agg::string_agg_udaf;
 
 /// Custom query planner that uses our LateMaterializePlanner extension.
 /// Same as JoinScan's PgSearchQueryPlanner.
@@ -201,6 +203,31 @@ pub async fn build_join_aggregate_plan(
                 AggKind::VarPop => {
                     let col_expr = agg_field_col(agg, plan);
                     var_pop(col_expr)
+                }
+                AggKind::BoolAnd => {
+                    let col_expr = agg_field_col(agg, plan);
+                    bool_and(col_expr)
+                }
+                AggKind::BoolOr => {
+                    let col_expr = agg_field_col(agg, plan);
+                    bool_or(col_expr)
+                }
+                AggKind::ArrayAgg => {
+                    let col_expr = agg_field_col(agg, plan);
+                    array_agg(col_expr)
+                }
+                AggKind::StringAgg(ref separator) => {
+                    let col_expr = agg_field_col(agg, plan);
+                    Expr::AggregateFunction(
+                        datafusion::logical_expr::expr::AggregateFunction::new_udf(
+                            string_agg_udaf(),
+                            vec![col_expr, lit(separator.clone())],
+                            false,  // distinct
+                            None,   // filter
+                            vec![], // order_by
+                            None,   // null_treatment
+                        ),
+                    )
                 }
             };
             // Alias for stable reference

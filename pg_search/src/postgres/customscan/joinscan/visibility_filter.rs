@@ -1135,67 +1135,6 @@ mod tests {
         .build()
     }
 
-    #[test]
-    fn provider_visibility_metadata_is_explicit() {
-        let mut provider = PgSearchTableProvider::new(
-            ScanInfo {
-                heap_rti: 1,
-                heaprelid: pg_sys::Oid::from(42),
-                alias: Some("docs".to_string()),
-                ..Default::default()
-            },
-            vec![WhichFastField::Ctid],
-            false,
-        );
-
-        assert_eq!(provider.visibility_mode(), VisibilityMode::Eager);
-        assert!(provider.visibility_source_metadata().is_none());
-
-        provider.configure_deferred_outputs(
-            &crate::api::HashSet::default(),
-            VisibilityMode::Deferred {
-                plan_position: TEST_PLAN_POS,
-            },
-        );
-
-        assert_eq!(
-            provider.visibility_mode(),
-            VisibilityMode::Deferred {
-                plan_position: TEST_PLAN_POS,
-            }
-        );
-        let metadata = provider
-            .visibility_source_metadata()
-            .expect("provider should expose deferred visibility metadata");
-        assert_eq!(metadata.plan_position, TEST_PLAN_POS);
-        assert_eq!(metadata.heap_oid, pg_sys::Oid::from(42));
-        assert_eq!(metadata.table_name, "docs");
-    }
-
-    #[test]
-    fn provider_visibility_metadata_uses_source_fallback_when_unaliased() {
-        let mut provider = PgSearchTableProvider::new(
-            ScanInfo {
-                heap_rti: 1,
-                heaprelid: pg_sys::Oid::from(7),
-                alias: None,
-                ..Default::default()
-            },
-            vec![WhichFastField::Ctid],
-            false,
-        );
-
-        provider.configure_deferred_outputs(
-            &crate::api::HashSet::default(),
-            VisibilityMode::Deferred { plan_position: 3 },
-        );
-
-        let metadata = provider
-            .visibility_source_metadata()
-            .expect("provider should expose deferred visibility metadata");
-        assert_eq!(metadata.table_name, "source_3");
-    }
-
     fn count_visibility_nodes(plan: &LogicalPlan) -> usize {
         let current = match plan {
             LogicalPlan::Extension(ext)

@@ -152,87 +152,7 @@ pub async fn build_join_aggregate_plan(
         .aggregates
         .iter()
         .enumerate()
-        .map(|(i, agg)| {
-            let agg_expr = match agg.agg_kind {
-                AggKind::CountStar => count(lit(1)),
-                AggKind::Count => {
-                    let col_expr = agg_field_col(agg, plan);
-                    count(col_expr)
-                }
-                AggKind::CountDistinct => {
-                    let col_expr = agg_field_col(agg, plan);
-                    Expr::AggregateFunction(
-                        datafusion::logical_expr::expr::AggregateFunction::new_udf(
-                            count_udaf(),
-                            vec![col_expr],
-                            true,   // distinct
-                            None,   // filter
-                            vec![], // order_by
-                            None,   // null_treatment
-                        ),
-                    )
-                }
-                AggKind::Sum => {
-                    let col_expr = agg_field_col(agg, plan);
-                    sum(col_expr)
-                }
-                AggKind::Avg => {
-                    let col_expr = agg_field_col(agg, plan);
-                    avg(col_expr)
-                }
-                AggKind::Min => {
-                    let col_expr = agg_field_col(agg, plan);
-                    min(col_expr)
-                }
-                AggKind::Max => {
-                    let col_expr = agg_field_col(agg, plan);
-                    max(col_expr)
-                }
-                AggKind::StddevSamp => {
-                    let col_expr = agg_field_col(agg, plan);
-                    stddev(col_expr)
-                }
-                AggKind::StddevPop => {
-                    let col_expr = agg_field_col(agg, plan);
-                    stddev_pop(col_expr)
-                }
-                AggKind::VarSamp => {
-                    let col_expr = agg_field_col(agg, plan);
-                    var_sample(col_expr)
-                }
-                AggKind::VarPop => {
-                    let col_expr = agg_field_col(agg, plan);
-                    var_pop(col_expr)
-                }
-                AggKind::BoolAnd => {
-                    let col_expr = agg_field_col(agg, plan);
-                    bool_and(col_expr)
-                }
-                AggKind::BoolOr => {
-                    let col_expr = agg_field_col(agg, plan);
-                    bool_or(col_expr)
-                }
-                AggKind::ArrayAgg => {
-                    let col_expr = agg_field_col(agg, plan);
-                    array_agg(col_expr)
-                }
-                AggKind::StringAgg(ref separator) => {
-                    let col_expr = agg_field_col(agg, plan);
-                    Expr::AggregateFunction(
-                        datafusion::logical_expr::expr::AggregateFunction::new_udf(
-                            string_agg_udaf(),
-                            vec![col_expr, lit(separator.clone())],
-                            false,  // distinct
-                            None,   // filter
-                            vec![], // order_by
-                            None,   // null_treatment
-                        ),
-                    )
-                }
-            };
-            // Alias for stable reference
-            agg_expr.alias(format!("agg_{}", i))
-        })
+        .map(|(i, agg)| build_agg_expr(agg, plan).alias(format!("agg_{}", i)))
         .collect();
 
     // Step 3b: Build HAVING-only aggregate expressions (hidden — not projected to output)
@@ -240,30 +160,7 @@ pub async fn build_join_aggregate_plan(
         .having_aggregates
         .iter()
         .enumerate()
-        .map(|(i, agg)| {
-            let agg_expr = match agg.agg_kind {
-                AggKind::CountStar => count(lit(1)),
-                _ => {
-                    let col_expr = agg_field_col(agg, plan);
-                    match agg.agg_kind {
-                        AggKind::Count => count(col_expr),
-                        AggKind::Sum => sum(col_expr),
-                        AggKind::Avg => avg(col_expr),
-                        AggKind::Min => min(col_expr),
-                        AggKind::Max => max(col_expr),
-                        AggKind::StddevSamp => stddev(col_expr),
-                        AggKind::StddevPop => stddev_pop(col_expr),
-                        AggKind::VarSamp => var_sample(col_expr),
-                        AggKind::VarPop => var_pop(col_expr),
-                        AggKind::BoolAnd => bool_and(col_expr),
-                        AggKind::BoolOr => bool_or(col_expr),
-                        AggKind::ArrayAgg => array_agg(col_expr),
-                        _ => count(lit(1)), // Fallback for unexpected kinds
-                    }
-                }
-            };
-            agg_expr.alias(format!("having_agg_{}", i))
-        })
+        .map(|(i, agg)| build_agg_expr(agg, plan).alias(format!("having_agg_{}", i)))
         .collect();
 
     // Combine visible + hidden aggregates for the DataFusion plan
@@ -704,4 +601,47 @@ fn agg_field_col(
     let source = plan.source_for_rti_in_subtree(*rti);
     let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
     make_col(&alias, field_name)
+}
+
+/// Build a DataFusion aggregate expression from an `AggKind` and entry.
+/// Shared between visible (SELECT) and hidden (HAVING-only) aggregate builders.
+fn build_agg_expr(
+    agg: &crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateEntry,
+    plan: &RelNode,
+) -> Expr {
+    match agg.agg_kind {
+        AggKind::CountStar => count(lit(1)),
+        AggKind::Count => count(agg_field_col(agg, plan)),
+        AggKind::CountDistinct => {
+            Expr::AggregateFunction(datafusion::logical_expr::expr::AggregateFunction::new_udf(
+                count_udaf(),
+                vec![agg_field_col(agg, plan)],
+                true,
+                None,
+                vec![],
+                None,
+            ))
+        }
+        AggKind::Sum => sum(agg_field_col(agg, plan)),
+        AggKind::Avg => avg(agg_field_col(agg, plan)),
+        AggKind::Min => min(agg_field_col(agg, plan)),
+        AggKind::Max => max(agg_field_col(agg, plan)),
+        AggKind::StddevSamp => stddev(agg_field_col(agg, plan)),
+        AggKind::StddevPop => stddev_pop(agg_field_col(agg, plan)),
+        AggKind::VarSamp => var_sample(agg_field_col(agg, plan)),
+        AggKind::VarPop => var_pop(agg_field_col(agg, plan)),
+        AggKind::BoolAnd => bool_and(agg_field_col(agg, plan)),
+        AggKind::BoolOr => bool_or(agg_field_col(agg, plan)),
+        AggKind::ArrayAgg => array_agg(agg_field_col(agg, plan)),
+        AggKind::StringAgg(ref separator) => {
+            Expr::AggregateFunction(datafusion::logical_expr::expr::AggregateFunction::new_udf(
+                string_agg_udaf(),
+                vec![agg_field_col(agg, plan), lit(separator.clone())],
+                false,
+                None,
+                vec![],
+                None,
+            ))
+        }
+    }
 }

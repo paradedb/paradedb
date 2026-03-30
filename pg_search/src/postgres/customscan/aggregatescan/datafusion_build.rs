@@ -739,24 +739,61 @@ pub unsafe fn translate_having_qual(
             let aggstar = (*aggref).aggstar;
             let has_distinct = !(*aggref).aggdistinct.is_null();
 
+            // Extract Var info from the Aggref args for precise matching.
+            // This distinguishes SUM(a.x) from SUM(b.x) which have the same func_oid.
+            let having_var_info: Option<(pg_sys::Index, pg_sys::AttrNumber)> = if !aggstar {
+                let args = PgList::<pg_sys::Node>::from_pg((*aggref).args);
+                args.get_ptr(0).and_then(|first_arg| {
+                    if (*first_arg).type_ == pg_sys::NodeTag::T_TargetEntry {
+                        let te = first_arg as *mut pg_sys::TargetEntry;
+                        let expr = (*te).expr as *mut pg_sys::Node;
+                        if (*expr).type_ == pg_sys::NodeTag::T_Var {
+                            let var = expr as *mut pg_sys::Var;
+                            Some(((*var).varno as pg_sys::Index, (*var).varattno))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            };
+
+            // Match helper: checks OID, aggstar, and field reference (RTI + attno)
+            let matches_agg = |agg: &JoinAggregateEntry| -> bool {
+                if agg.func_oid != aggfnoid {
+                    return false;
+                }
+                let is_count_star = agg.agg_kind
+                    == crate::postgres::customscan::aggregatescan::join_targetlist::AggKind::CountStar;
+                if aggstar != is_count_star {
+                    return false;
+                }
+                // For non-star aggregates, also compare the field reference
+                if !aggstar {
+                    match (&agg.field_ref, &having_var_info) {
+                        (Some((rti, attno, _)), Some((h_rti, h_attno))) => {
+                            *rti == *h_rti && *attno == *h_attno
+                        }
+                        _ => false,
+                    }
+                } else {
+                    true
+                }
+            };
+
             // First check if this aggregate is already in the SELECT list
             for (i, agg) in targetlist.aggregates.iter().enumerate() {
-                if agg.func_oid == aggfnoid
-                    && (aggstar
-                        == (agg.agg_kind
-                            == crate::postgres::customscan::aggregatescan::join_targetlist::AggKind::CountStar))
-                {
+                if matches_agg(agg) {
                     return Some(HavingExpr::AggRef(i));
                 }
             }
 
             // Check if already in having_aggregates
             for (i, agg) in targetlist.having_aggregates.iter().enumerate() {
-                if agg.func_oid == aggfnoid
-                    && (aggstar
-                        == (agg.agg_kind
-                            == crate::postgres::customscan::aggregatescan::join_targetlist::AggKind::CountStar))
-                {
+                if matches_agg(agg) {
                     return Some(HavingExpr::HavingAggRef(i));
                 }
             }

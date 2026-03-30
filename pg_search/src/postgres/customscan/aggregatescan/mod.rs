@@ -921,11 +921,9 @@ impl AggregateScan {
             return Vec::new();
         }
 
-        // TopK for join aggregates is disabled. Postgres cannot resolve pathkey
-        // items through scanrelid=0 CustomScans, causing "could not find pathkey
-        // item to sort" errors even with custom_scan_tlist set. The infrastructure
-        // (TopKAggregateRule + TopKAggregateExec) is ready — see #4493.
-        let topk = None::<privdat::DataFusionTopK>;
+        // Detect ORDER BY aggregate + LIMIT for TopK optimization.
+        // DataFusion handles sort+limit internally, avoiding a redundant PG Sort node.
+        let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
         // Extract non-equi join quals for post-join filtering (multi-table only).
         // These are applied as DataFusion filter expressions between join and aggregate.

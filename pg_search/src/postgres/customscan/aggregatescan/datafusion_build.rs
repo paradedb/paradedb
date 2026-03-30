@@ -15,10 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-// These functions are not yet called — they will be used by the planner
-// integration in #4485. Suppress dead_code until then.
-#![allow(dead_code)]
-
 //! Join tree extraction from the Postgres parse tree for AggregateScan.
 //!
 //! At the `UPPERREL_GROUP_AGG` stage the planner hook receives an `input_rel`
@@ -30,12 +26,10 @@
 
 use crate::nodecast;
 use crate::postgres::customscan::joinscan::build::{
-    JoinKeyPair, JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    PlannerRootId, RelNode,
+    JoinKeyPair, JoinNode, JoinSource, JoinSourceCandidate, JoinType, PlannerRootId, RelNode,
 };
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid, get_rte};
-use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
@@ -48,12 +42,6 @@ pub struct JoinAggSource {
     pub relid: pg_sys::Oid,
     pub alias: Option<String>,
     pub bm25_index: Option<PgSearchRelation>,
-}
-
-/// Collected search predicates from WHERE clause walking.
-pub struct CollectedPredicates {
-    pub predicates: Vec<JoinLevelSearchPredicate>,
-    pub has_any_search_predicate: bool,
 }
 
 /// Extract all tables participating in the join from `input_rel.relids` and look up
@@ -451,109 +439,6 @@ unsafe fn extract_equi_keys_from_quals(
     }
 
     Ok(())
-}
-
-/// Extract search predicates (`@@@` operator) from the WHERE clause for each
-/// table that has a BM25 index. Returns a list of predicates that can be
-/// stored in `JoinCSClause.join_level_predicates`.
-pub unsafe fn extract_search_predicates(
-    root: *mut pg_sys::PlannerInfo,
-    sources: &[JoinAggSource],
-) -> CollectedPredicates {
-    let mut predicates = Vec::new();
-    let mut has_any = false;
-
-    for source in sources {
-        let Some(ref bm25_index) = source.bm25_index else {
-            continue;
-        };
-
-        // Check baserestrictinfo for search predicates
-        let rel_array = (*root).simple_rel_array;
-        if rel_array.is_null() {
-            continue;
-        }
-        if (source.rti as isize) >= (*root).simple_rel_array_size as isize {
-            continue;
-        }
-
-        let rel = *rel_array.offset(source.rti as isize);
-        if rel.is_null() {
-            continue;
-        }
-
-        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
-        if baserestrictinfo.is_empty() {
-            continue;
-        }
-
-        let context = PlannerContext::from_planner(root);
-        let mut merged_query: Option<SearchQueryInput> = None;
-        let mut source_has_search = false;
-
-        for ri in baserestrictinfo.iter_ptr() {
-            let mut state = QualExtractState::default();
-            if let Some(qual) = extract_quals(
-                &context,
-                source.rti,
-                ri.cast(),
-                crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
-                bm25_index,
-                false,
-                &mut state,
-                true,
-            ) {
-                if state.uses_our_operator {
-                    source_has_search = true;
-                    has_any = true;
-                }
-
-                let query = SearchQueryInput::from(&qual);
-                merged_query = Some(match merged_query.take() {
-                    Some(existing) => SearchQueryInput::Boolean {
-                        must: vec![existing, query],
-                        should: vec![],
-                        must_not: vec![],
-                    },
-                    None => query,
-                });
-            }
-        }
-
-        if let Some(query) = merged_query {
-            // Deparse the first qualifying RestrictInfo for EXPLAIN display
-            let display_string = baserestrictinfo
-                .iter_ptr()
-                .next()
-                .map(|ri| {
-                    let expr = (*ri).clause as *mut pg_sys::Node;
-                    if !expr.is_null() {
-                        let context = PlannerContext::from_planner(root);
-                        let heaprel = PgSearchRelation::open(source.relid);
-                        deparse_expr(Some(&context), &heaprel, expr)
-                    } else {
-                        String::new()
-                    }
-                })
-                .unwrap_or_default();
-
-            predicates.push(JoinLevelSearchPredicate {
-                rti: source.rti,
-                indexrelid: bm25_index.oid(),
-                heaprelid: source.relid,
-                query,
-                display_string,
-            });
-        }
-
-        // We still track predicates even if not @@@ — they're relevant for the scan
-        let _ = source_has_search;
-    }
-
-    CollectedPredicates {
-        predicates,
-        has_any_search_predicate: has_any,
-    }
 }
 
 /// Extract equi-join keys from the `input_rel`'s cheapest path.

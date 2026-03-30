@@ -1080,7 +1080,7 @@ fn filter_batch(
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }
 
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(feature = "pg_test")]
 #[pgrx::pg_schema]
 mod tests {
     use std::collections::BTreeSet;

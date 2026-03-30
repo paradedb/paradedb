@@ -359,7 +359,7 @@ pub fn serialize_logical_plan(plan: &LogicalPlan) -> Result<bytes::Bytes> {
 }
 
 /// Deserializes a DataFusion `LogicalPlan` from bytes using the `PgSearchExtensionCodec`.
-#[cfg(any(test, feature = "pg_test"))]
+#[cfg(feature = "pg_test")]
 pub fn deserialize_logical_plan(
     bytes: &[u8],
     ctx: &datafusion::execution::TaskContext,

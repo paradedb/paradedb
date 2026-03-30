@@ -341,16 +341,15 @@ impl CustomScan for AggregateScan {
                 let datum = match (entry, row.is_empty()) {
                     (TargetListEntry::GroupingColumn(gc_idx), false) => {
                         let key = row.group_keys[*gc_idx].clone();
-                        // Check if this is a NULL sentinel (handles both MIN and MAX sentinels)
-                        // Note: U64/Bool use string sentinel for MIN (since 0 is valid).
-                        // Bool uses 2 as MAX sentinel (0=false, 1=true, 2=null).
+                        // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
+                        // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
+                        // Bool uses string sentinels for both MIN and MAX.
                         // DateTime columns don't have a missing sentinel (NULLs are excluded).
-                        let is_bool_type = expected_typoid == pg_sys::BOOLOID;
                         let is_datetime = is_datetime_type(expected_typoid);
                         let is_null_sentinel = match &key.0 {
                             OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
                             OwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
-                            OwnedValue::U64(v) => *v == u64::MAX || (is_bool_type && *v == 2),
+                            OwnedValue::U64(v) => *v == u64::MAX,
                             OwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
                             _ => false,
                         };

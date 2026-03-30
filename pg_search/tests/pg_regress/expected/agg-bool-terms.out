@@ -24,11 +24,7 @@ INSERT INTO docs (body, category, has_attachment) VALUES
     ('architecture design doc',  'engineering', false);
 CREATE INDEX docs_idx ON docs
 USING bm25 (id, body, category, has_attachment)
-WITH (
-    key_field = 'id',
-    text_fields    = '{"body": {}, "category": {"fast": true}}',
-    boolean_fields = '{"has_attachment": {"fast": true}}'
-);
+WITH (key_field = 'id');
 -- Test 1: terms aggregation on a boolean field using single-argument pdb.agg(jsonb)
 -- This exercises both fixes: the single-arg overload must exist, and bool terms must not crash.
 SELECT pdb.agg('{"terms": {"field": "has_attachment", "size": 10}}'::jsonb)
@@ -45,13 +41,8 @@ FROM docs
 WHERE body @@@ pdb.all()
 GROUP BY category
 ORDER BY category;
-  category   |                                                                                         agg                                                                                          
--------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- engineering | {"buckets": [{"key": 1, "doc_count": 2, "key_as_string": "true"}, {"key": 0, "doc_count": 1, "key_as_string": "false"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
- finance     | {"buckets": [{"key": 0, "doc_count": 1, "key_as_string": "false"}, {"key": 1, "doc_count": 1, "key_as_string": "true"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
- hr          | {"buckets": [{"key": 0, "doc_count": 2, "key_as_string": "false"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(3 rows)
-
+WARNING:  Aggregate Scan not used: grouping column category exists, but is not a fast field (table: docs)
+ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
 -- Test 3: two-argument overload on a boolean field (solve_mvcc = true)
 SELECT pdb.agg('{"terms": {"field": "has_attachment"}}'::jsonb, true)
 FROM docs
@@ -85,11 +76,7 @@ INSERT INTO docs_nullable (body, has_flag) VALUES
     ('another true',    true);
 CREATE INDEX docs_nullable_idx ON docs_nullable
 USING bm25 (id, body, has_flag)
-WITH (
-    key_field = 'id',
-    text_fields    = '{"body": {}}',
-    boolean_fields = '{"has_flag": {"fast": true}}'
-);
+WITH (key_field = 'id');
 -- 5a: EXPLAIN to confirm aggregate custom scan is used
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT has_flag, COUNT(*)

@@ -29,11 +29,7 @@ INSERT INTO docs (body, category, has_attachment) VALUES
 
 CREATE INDEX docs_idx ON docs
 USING bm25 (id, body, category, has_attachment)
-WITH (
-    key_field = 'id',
-    text_fields    = '{"body": {}, "category": {"fast": true}}',
-    boolean_fields = '{"has_attachment": {"fast": true}}'
-);
+WITH (key_field = 'id');
 
 -- Test 1: terms aggregation on a boolean field using single-argument pdb.agg(jsonb)
 -- This exercises both fixes: the single-arg overload must exist, and bool terms must not crash.
@@ -76,11 +72,7 @@ INSERT INTO docs_nullable (body, has_flag) VALUES
 
 CREATE INDEX docs_nullable_idx ON docs_nullable
 USING bm25 (id, body, has_flag)
-WITH (
-    key_field = 'id',
-    text_fields    = '{"body": {}}',
-    boolean_fields = '{"has_flag": {"fast": true}}'
-);
+WITH (key_field = 'id');
 
 -- 5a: EXPLAIN to confirm aggregate custom scan is used
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

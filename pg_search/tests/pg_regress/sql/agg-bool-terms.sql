@@ -1,10 +1,4 @@
 -- Regression test for pdb.agg() on boolean fields and single-argument overload.
---
--- Bug 1: pdb.agg(jsonb) terms aggregation on bool columns failed with:
---   "Missing value U64(2) for field ... is not supported for column type Bool"
---
--- Bug 2: pdb.agg(jsonb) single-argument overload was missing after
---   ALTER EXTENSION UPDATE through the 0.21.15→0.21.16 migration path.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -32,7 +26,6 @@ USING bm25 (id, body, category, has_attachment)
 WITH (key_field = 'id');
 
 -- Test 1: terms aggregation on a boolean field using single-argument pdb.agg(jsonb)
--- This exercises both fixes: the single-arg overload must exist, and bool terms must not crash.
 SELECT pdb.agg('{"terms": {"field": "has_attachment", "size": 10}}'::jsonb)
 FROM docs
 WHERE body @@@ pdb.all();

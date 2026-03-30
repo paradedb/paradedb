@@ -341,6 +341,10 @@ impl CustomScan for AggregateScan {
                 let datum = match (entry, row.is_empty()) {
                     (TargetListEntry::GroupingColumn(gc_idx), false) => {
                         let key = row.group_keys[*gc_idx].clone();
+                        // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
+                        // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
+                        // Bool uses string sentinels for both MIN and MAX.
+                        // DateTime columns don't have a missing sentinel (NULLs are excluded).
                         let is_datetime = is_datetime_type(expected_typoid);
                         let is_null_sentinel = match &key.0 {
                             OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,

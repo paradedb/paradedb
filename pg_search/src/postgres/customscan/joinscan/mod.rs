@@ -818,7 +818,7 @@ impl CustomScan for JoinScan {
                 }
             };
 
-            let plan = RelNode::Join(Box::new(build::JoinNode {
+            let mut plan = RelNode::Join(Box::new(build::JoinNode {
                 join_type: parsed_jointype,
                 left: outer_node,
                 right: inner_node,
@@ -835,6 +835,14 @@ impl CustomScan for JoinScan {
                         .iter()
                         .map(|t| t.to_string().to_uppercase())
                         .collect::<Vec<_>>(),
+                );
+                return Vec::new();
+            }
+
+            if !plan.rewrite_pruned_join_keys() {
+                Self::add_planner_warning(
+                    "JoinScan not used: a semi/anti join prunes columns required by an outer join key and no equivalent output-visible column was found",
+                    &aliases,
                 );
                 return Vec::new();
             }

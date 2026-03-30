@@ -678,6 +678,119 @@ impl RelNode {
         unsupported
     }
 
+    /// Rewrites equi-join keys that reference columns pruned by child semi/anti
+    /// joins so they instead reference output-visible equivalents.
+    ///
+    /// For example, given the tree `p SEMI (c SEMI d)` where the inner semi-join
+    /// has key `c.id = d.company_id`, if the outer semi-join's key is
+    /// `p.company_id = d.company_id` (derived by PostgreSQL's transitive closure),
+    /// `d.company_id` is pruned by the inner semi-join. This method rewrites
+    /// the outer key to `p.company_id = c.id` using the inner join's equivalence.
+    ///
+    /// Returns `true` if all keys are (or were made) valid. Returns `false` if
+    /// a pruned reference cannot be resolved to an output-visible equivalent.
+    pub fn rewrite_pruned_join_keys(&mut self) -> bool {
+        match self {
+            RelNode::Scan(_) => true,
+            RelNode::Join(j) => {
+                if !j.left.rewrite_pruned_join_keys() || !j.right.rewrite_pruned_join_keys() {
+                    return false;
+                }
+
+                let left_output_rtis = j.left.output_rtis();
+                let right_output_rtis = j.right.output_rtis();
+
+                let left_all_keys = j.left.join_keys();
+                let right_all_keys = j.right.join_keys();
+
+                for jk in &mut j.equi_keys {
+                    let forward_ok = left_output_rtis.contains(&jk.outer_rti)
+                        && right_output_rtis.contains(&jk.inner_rti);
+                    let reversed_ok = left_output_rtis.contains(&jk.inner_rti)
+                        && right_output_rtis.contains(&jk.outer_rti);
+                    if forward_ok || reversed_ok {
+                        continue;
+                    }
+
+                    // Try to substitute pruned references with output-visible equivalents.
+                    let outer_ok = left_output_rtis.contains(&jk.outer_rti)
+                        || right_output_rtis.contains(&jk.outer_rti);
+                    let inner_ok = left_output_rtis.contains(&jk.inner_rti)
+                        || right_output_rtis.contains(&jk.inner_rti);
+
+                    let all_child_keys: Vec<_> = left_all_keys
+                        .iter()
+                        .chain(right_all_keys.iter())
+                        .collect();
+                    let all_output_rtis: Vec<pg_sys::Index> = left_output_rtis
+                        .iter()
+                        .chain(right_output_rtis.iter())
+                        .copied()
+                        .collect();
+
+                    if !outer_ok
+                        && !Self::substitute_pruned_key_side(
+                            &all_child_keys,
+                            &all_output_rtis,
+                            jk.outer_rti,
+                            jk.outer_attno,
+                            &mut jk.outer_rti,
+                            &mut jk.outer_attno,
+                        )
+                    {
+                        return false;
+                    }
+                    if !inner_ok
+                        && !Self::substitute_pruned_key_side(
+                            &all_child_keys,
+                            &all_output_rtis,
+                            jk.inner_rti,
+                            jk.inner_attno,
+                            &mut jk.inner_rti,
+                            &mut jk.inner_attno,
+                        )
+                    {
+                        return false;
+                    }
+                }
+                true
+            }
+            RelNode::Filter(f) => f.input.rewrite_pruned_join_keys(),
+        }
+    }
+
+    /// Finds a child equi-key that maps `(pruned_rti, pruned_attno)` to an
+    /// output-visible `(rti, attno)` and writes the replacement into `out_rti`
+    /// and `out_attno`. Returns `true` on success.
+    fn substitute_pruned_key_side(
+        child_keys: &[&JoinKeyPair],
+        output_rtis: &[pg_sys::Index],
+        pruned_rti: pg_sys::Index,
+        pruned_attno: pg_sys::AttrNumber,
+        out_rti: &mut pg_sys::Index,
+        out_attno: &mut pg_sys::AttrNumber,
+    ) -> bool {
+        for k in child_keys {
+            if k.outer_rti == pruned_rti
+                && k.outer_attno == pruned_attno
+                && output_rtis.contains(&k.inner_rti)
+            {
+                *out_rti = k.inner_rti;
+                *out_attno = k.inner_attno;
+                return true;
+            }
+            if k.inner_rti == pruned_rti
+                && k.inner_attno == pruned_attno
+                && output_rtis.contains(&k.outer_rti)
+            {
+                *out_rti = k.outer_rti;
+                *out_attno = k.outer_attno;
+                return true;
+            }
+        }
+        false
+    }
+
     /// Returns true if the query tree contains a SEMI or ANTI join at any level.
     pub fn has_semi_or_anti(&self) -> bool {
         match self {

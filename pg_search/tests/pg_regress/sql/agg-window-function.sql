@@ -30,12 +30,22 @@ SELECT pdb.agg('{"terms": {"field": "category"}}'::jsonb)
 FROM items
 WHERE id @@@ pdb.all();
 
--- This fails: pdb.agg() OVER () as a window function to get facets alongside rows
+-- This fails: pdb.agg() OVER () without ORDER BY + LIMIT
 SELECT
     id,
     description,
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
 FROM items
 WHERE id @@@ pdb.all();
+
+-- This should work: pdb.agg() OVER () with ORDER BY + LIMIT (Top K facet pattern from docs)
+SELECT
+    id,
+    description,
+    pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM items
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
 
 DROP TABLE items CASCADE;

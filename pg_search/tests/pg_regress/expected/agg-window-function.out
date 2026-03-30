@@ -28,7 +28,7 @@ WHERE id @@@ pdb.all();
  {"buckets": [{"key": "apparel", "doc_count": 3}, {"key": "footwear", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
--- This fails: pdb.agg() OVER () as a window function to get facets alongside rows
+-- This fails: pdb.agg() OVER () without ORDER BY + LIMIT
 SELECT
     id,
     description,
@@ -36,4 +36,20 @@ SELECT
 FROM items
 WHERE id @@@ pdb.all();
 ERROR:  pdb.agg() window functions require a valid Top K query (ORDER BY and LIMIT) where all ORDER BY columns are indexed and sortable (fast fields). Ensure you are sorting by indexed columns of a single table with a BM25 index.
+-- This should work: pdb.agg() OVER () with ORDER BY + LIMIT (Top K facet pattern from docs)
+SELECT
+    id,
+    description,
+    pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM items
+WHERE id @@@ pdb.all()
+ORDER BY id
+LIMIT 3;
+ id | description  |                                                                        agg                                                                         
+----+--------------+----------------------------------------------------------------------------------------------------------------------------------------------------
+  1 | red shoes    | {"buckets": [{"key": "apparel", "doc_count": 3}, {"key": "footwear", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  2 | blue shoes   | {"buckets": [{"key": "apparel", "doc_count": 3}, {"key": "footwear", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | green jacket | {"buckets": [{"key": "apparel", "doc_count": 3}, {"key": "footwear", "doc_count": 2}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(3 rows)
+
 DROP TABLE items CASCADE;

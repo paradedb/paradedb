@@ -24,7 +24,7 @@
 
 use super::datafusion_build::JoinAggSource;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
-use crate::postgres::var::fieldname_from_var;
+use crate::postgres::var::{fieldname_from_var, find_one_aggref, find_one_var};
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -190,7 +190,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 field_name,
                 output_index: idx,
             });
-        } else if let Some(aggref) = find_aggref_in_expr(expr as *mut pg_sys::Node) {
+        } else if let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) {
             // Aggregate function (possibly wrapped in COALESCE, etc.)
             let aggfnoid = (*aggref).aggfnoid.to_u32();
 
@@ -259,7 +259,7 @@ unsafe fn extract_aggref_field_ref(
     let expr = (*first_arg).expr;
 
     // The argument may be a direct Var or wrapped in COALESCE / RelabelType
-    let var = find_var_in_expr(expr as *mut pg_sys::Node)
+    let var = find_one_var(expr as *mut pg_sys::Node)
         .ok_or("aggregate argument must reference a column (Var)")?;
 
     let rti = (*var).varno as pg_sys::Index;
@@ -282,86 +282,4 @@ unsafe fn extract_aggref_field_ref(
         .into_inner();
 
     Ok(Some((rti, attno, field_name)))
-}
-
-/// Find an `Aggref` node in an expression tree. Handles cases where the
-/// aggregate is wrapped in `COALESCE`, `NULLIF`, type coercion, etc.
-/// Returns the `Aggref` pointer if exactly one is found.
-unsafe fn find_aggref_in_expr(expr: *mut pg_sys::Node) -> Option<*mut pg_sys::Aggref> {
-    if expr.is_null() {
-        return None;
-    }
-
-    let tag = (*expr).type_;
-
-    // Direct Aggref
-    if tag == pg_sys::NodeTag::T_Aggref {
-        return Some(expr as *mut pg_sys::Aggref);
-    }
-
-    // Unwrap common wrappers: RelabelType, CoerceViaIO, FuncExpr (COALESCE, NULLIF)
-    if tag == pg_sys::NodeTag::T_RelabelType {
-        let relabel = expr as *mut pg_sys::RelabelType;
-        return find_aggref_in_expr((*relabel).arg as *mut pg_sys::Node);
-    }
-
-    if tag == pg_sys::NodeTag::T_CoerceViaIO {
-        let coerce = expr as *mut pg_sys::CoerceViaIO;
-        return find_aggref_in_expr((*coerce).arg as *mut pg_sys::Node);
-    }
-
-    if tag == pg_sys::NodeTag::T_CoalesceExpr {
-        let coalesce = expr as *mut pg_sys::CoalesceExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*coalesce).args);
-        // The aggregate is the first argument of COALESCE
-        if let Some(first) = args.get_ptr(0) {
-            return find_aggref_in_expr(first);
-        }
-    }
-
-    if tag == pg_sys::NodeTag::T_FuncExpr {
-        let func = expr as *mut pg_sys::FuncExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-        // Check each argument for an Aggref
-        for arg in args.iter_ptr() {
-            if let Some(aggref) = find_aggref_in_expr(arg) {
-                return Some(aggref);
-            }
-        }
-    }
-
-    None
-}
-
-/// Find a `Var` node in an expression tree, unwrapping common wrappers.
-unsafe fn find_var_in_expr(expr: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
-    if expr.is_null() {
-        return None;
-    }
-
-    let tag = (*expr).type_;
-
-    if tag == pg_sys::NodeTag::T_Var {
-        return Some(expr as *mut pg_sys::Var);
-    }
-
-    if tag == pg_sys::NodeTag::T_RelabelType {
-        let relabel = expr as *mut pg_sys::RelabelType;
-        return find_var_in_expr((*relabel).arg as *mut pg_sys::Node);
-    }
-
-    if tag == pg_sys::NodeTag::T_CoerceViaIO {
-        let coerce = expr as *mut pg_sys::CoerceViaIO;
-        return find_var_in_expr((*coerce).arg as *mut pg_sys::Node);
-    }
-
-    if tag == pg_sys::NodeTag::T_CoalesceExpr {
-        let coalesce = expr as *mut pg_sys::CoalesceExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*coalesce).args);
-        if let Some(first) = args.get_ptr(0) {
-            return find_var_in_expr(first);
-        }
-    }
-
-    None
 }

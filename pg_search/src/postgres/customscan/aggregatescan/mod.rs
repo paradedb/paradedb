@@ -869,11 +869,11 @@ impl AggregateScan {
     fn exec_datafusion_aggregate(
         state: &mut CustomScanStateWrapper<Self>,
     ) -> *mut pg_sys::TupleTableSlot {
-        use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-            build_aggregate_physical_plan, build_join_aggregate_plan,
-            create_aggregate_session_context,
-        };
+        use crate::postgres::customscan::aggregatescan::datafusion_exec::build_join_aggregate_plan;
         use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
+        use crate::postgres::customscan::joinscan::scan_state::{
+            build_joinscan_physical_plan, create_session_context,
+        };
         use std::sync::Arc;
 
         // Grab the scan_slot pointer before entering the mutable borrow
@@ -895,12 +895,12 @@ impl AggregateScan {
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            let ctx = create_aggregate_session_context();
+            let ctx = create_session_context();
 
             let physical_plan = runtime.block_on(async {
                 let logical =
                     build_join_aggregate_plan(&df_state.plan, &df_state.targetlist, &ctx).await?;
-                build_aggregate_physical_plan(&ctx, logical).await
+                build_joinscan_physical_plan(&ctx, logical).await
             });
 
             let physical_plan = match physical_plan {

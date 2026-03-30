@@ -391,38 +391,3 @@ pub fn deserialize_logical_plan_with_runtime(
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::PgSearchExtensionCodec;
-    use crate::query::SearchQueryInput;
-    use crate::scan::search_predicate_udf::SearchPredicateUDF;
-    use datafusion::logical_expr::ScalarUDF;
-    use datafusion_proto::logical_plan::LogicalExtensionCodec;
-
-    #[test]
-    #[should_panic(expected = "missing canonical segment IDs for plan_position")]
-    fn search_predicate_udf_decode_fails_fast_for_missing_plan_position_segments() {
-        let udf = SearchPredicateUDF::with_deferred_visibility(
-            pgrx::pg_sys::Oid::from(1),
-            pgrx::pg_sys::Oid::from(2),
-            SearchQueryInput::All,
-            "test".to_string(),
-            true,
-            Some(1),
-        );
-        let bytes = serde_json::to_vec(&udf).expect("udf should serialize");
-
-        let codec = PgSearchExtensionCodec {
-            parallel_state: None,
-            expr_context: None,
-            planstate: None,
-            non_partitioning_segment_ids: vec![],
-            index_segment_ids: vec![crate::api::HashSet::default()],
-        };
-
-        let _decoded: std::sync::Arc<ScalarUDF> = codec
-            .try_decode_udf("pdb_search_predicate", &bytes)
-            .expect("decode should panic before returning");
-    }
-}

@@ -121,7 +121,7 @@ impl MetaPage {
                 "Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community",
                 function_name!(),
             )
-            .set_detail("Please contact ParadeDB for rccess to ParadeDB Enterprise")
+            .set_detail("Please contact ParadeDB for access to ParadeDB Enterprise")
             .report(PgLogLevel::ERROR);
         }
 

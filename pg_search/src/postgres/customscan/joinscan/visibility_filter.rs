@@ -53,7 +53,8 @@ use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::arrow::compute::kernels::boolean::{and, is_not_null};
-use datafusion::common::tree_node::Transformed;
+use datafusion::catalog::default_table_source::DefaultTableSource;
+use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{DFSchemaRef, DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, SessionState, TaskContext};
 use datafusion::logical_expr::{Extension, LogicalPlan, UserDefinedLogicalNode};
@@ -71,12 +72,13 @@ use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
 use crate::index::fast_fields_helper::FFHelper;
-use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinType, RelNode};
+use crate::postgres::customscan::joinscan::build::{JoinType, RelNode};
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
+use crate::scan::table_provider::{PgSearchTableProvider, VisibilitySourceMetadata};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 use arrow_select::filter::filter_record_batch;
 
@@ -194,15 +196,56 @@ impl datafusion::logical_expr::UserDefinedLogicalNodeCore for VisibilityFilterNo
 
 /// Logical optimizer rule that inserts `VisibilityFilterNode` below barrier
 /// nodes and at lineage-drop points using per-relation verification state.
-#[derive(Debug)]
-pub struct VisibilityFilterOptimizerRule {
-    join_clause: JoinCSClause,
-}
+#[derive(Debug, Default)]
+pub struct VisibilityFilterOptimizerRule;
 
 impl VisibilityFilterOptimizerRule {
-    pub fn new(join_clause: JoinCSClause) -> Self {
-        Self { join_clause }
+    pub fn new() -> Self {
+        Self
     }
+}
+
+fn pg_search_provider_from_scan(
+    scan: &datafusion::logical_expr::TableScan,
+) -> Option<&PgSearchTableProvider> {
+    let source = scan.source.as_ref();
+    if let Some(default_source) = source.as_any().downcast_ref::<DefaultTableSource>() {
+        default_source
+            .table_provider
+            .as_any()
+            .downcast_ref::<PgSearchTableProvider>()
+    } else {
+        source.as_any().downcast_ref::<PgSearchTableProvider>()
+    }
+}
+
+fn collect_visibility_source_metadata(
+    plan: &LogicalPlan,
+) -> Result<BTreeMap<usize, VisibilitySourceMetadata>> {
+    let mut metadata = BTreeMap::new();
+
+    plan.apply(|node| {
+        if let LogicalPlan::TableScan(scan) = node {
+            if let Some(provider) = pg_search_provider_from_scan(scan) {
+                if let Some(source_metadata) = provider.visibility_source_metadata() {
+                    if let Some(prev_metadata) = metadata
+                        .insert(source_metadata.plan_position, source_metadata.clone())
+                    {
+                        if prev_metadata != source_metadata {
+                            return Err(DataFusionError::Internal(format!(
+                                "VisibilityFilterInjection: conflicting metadata for plan_position {}",
+                                source_metadata.plan_position,
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+
+    Ok(metadata)
 }
 
 impl OptimizerRule for VisibilityFilterOptimizerRule {
@@ -220,22 +263,13 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
         plan: LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>> {
-        let mut plan_pos_to_heap_oid = BTreeMap::<usize, pg_sys::Oid>::new();
-        let sources: Vec<_> = self.join_clause.plan.sources();
-        let mut plan_pos_names: Vec<Option<String>> = vec![None; sources.len()];
-        for source in &sources {
-            plan_pos_to_heap_oid.insert(source.plan_position, source.scan_info.heaprelid);
-            if source.plan_position < plan_pos_names.len() {
-                plan_pos_names[source.plan_position] = source.scan_info.alias.clone();
-            }
-        }
+        let plan_pos_metadata = collect_visibility_source_metadata(&plan)?;
 
-        if plan_pos_to_heap_oid.is_empty() {
+        if plan_pos_metadata.is_empty() {
             return Ok(Transformed::no(plan));
         }
 
-        let (result, final_state) =
-            analyze_and_inject(plan, &plan_pos_to_heap_oid, &plan_pos_names)?;
+        let (result, final_state) = analyze_and_inject(plan, &plan_pos_metadata)?;
 
         // Root boundary fallback: any plan_position still unverified must be checked here.
         let unverified: BTreeSet<usize> = final_state
@@ -248,12 +282,7 @@ impl OptimizerRule for VisibilityFilterOptimizerRule {
             return Ok(result);
         }
 
-        let wrapped = wrap_with_visibility_if_needed(
-            result.data,
-            &unverified,
-            &plan_pos_to_heap_oid,
-            &plan_pos_names,
-        )?;
+        let wrapped = wrap_with_visibility_if_needed(result.data, &unverified, &plan_pos_metadata)?;
         Ok(Transformed::new_transformed(
             wrapped.data,
             wrapped.transformed || result.transformed,
@@ -333,25 +362,19 @@ fn existing_visibility_plan_positions(plan: &LogicalPlan) -> Option<BTreeSet<usi
 fn wrap_with_visibility(
     input: LogicalPlan,
     plan_positions: &BTreeSet<usize>,
-    plan_pos_to_heap_oid: &BTreeMap<usize, pg_sys::Oid>,
-    plan_pos_names: &[Option<String>],
+    plan_pos_metadata: &BTreeMap<usize, VisibilitySourceMetadata>,
 ) -> Result<LogicalPlan> {
     let mut plan_pos_oids = Vec::with_capacity(plan_positions.len());
     let mut table_names = Vec::with_capacity(plan_positions.len());
     for &plan_pos in plan_positions {
-        let heap_oid = plan_pos_to_heap_oid.get(&plan_pos).ok_or_else(|| {
+        let metadata = plan_pos_metadata.get(&plan_pos).ok_or_else(|| {
             DataFusionError::Internal(format!(
-                "VisibilityFilterInjection: missing heap oid for plan_position {}",
+                "VisibilityFilterInjection: missing source metadata for plan_position {}",
                 plan_pos
             ))
         })?;
-        plan_pos_oids.push((plan_pos, *heap_oid));
-        table_names.push(
-            plan_pos_names
-                .get(plan_pos)
-                .and_then(|n| n.clone())
-                .unwrap_or_else(|| plan_pos.to_string()),
-        );
+        plan_pos_oids.push((plan_pos, metadata.heap_oid));
+        table_names.push(metadata.table_name.clone());
     }
 
     Ok(LogicalPlan::Extension(Extension {
@@ -362,8 +385,7 @@ fn wrap_with_visibility(
 fn wrap_with_visibility_if_needed(
     input: LogicalPlan,
     plan_positions: &BTreeSet<usize>,
-    plan_pos_to_heap_oid: &BTreeMap<usize, pg_sys::Oid>,
-    plan_pos_names: &[Option<String>],
+    plan_pos_metadata: &BTreeMap<usize, VisibilitySourceMetadata>,
 ) -> Result<Transformed<LogicalPlan>> {
     if plan_positions.is_empty() {
         return Ok(Transformed::no(input));
@@ -374,19 +396,17 @@ fn wrap_with_visibility_if_needed(
         if missing.is_empty() {
             return Ok(Transformed::no(input));
         }
-        let wrapped = wrap_with_visibility(input, &missing, plan_pos_to_heap_oid, plan_pos_names)?;
+        let wrapped = wrap_with_visibility(input, &missing, plan_pos_metadata)?;
         return Ok(Transformed::yes(wrapped));
     }
 
-    let wrapped =
-        wrap_with_visibility(input, plan_positions, plan_pos_to_heap_oid, plan_pos_names)?;
+    let wrapped = wrap_with_visibility(input, plan_positions, plan_pos_metadata)?;
     Ok(Transformed::yes(wrapped))
 }
 
 fn analyze_and_inject(
     plan: LogicalPlan,
-    plan_pos_to_heap_oid: &BTreeMap<usize, pg_sys::Oid>,
-    plan_pos_names: &[Option<String>],
+    plan_pos_metadata: &BTreeMap<usize, VisibilitySourceMetadata>,
 ) -> Result<(Transformed<LogicalPlan>, RelationStates)> {
     let children: Vec<LogicalPlan> = plan.inputs().into_iter().cloned().collect();
     let mut new_children = Vec::with_capacity(children.len());
@@ -394,7 +414,7 @@ fn analyze_and_inject(
     let mut any_modified = false;
 
     for child in children {
-        let (result, state) = analyze_and_inject(child, plan_pos_to_heap_oid, plan_pos_names)?;
+        let (result, state) = analyze_and_inject(child, plan_pos_metadata)?;
         any_modified |= result.transformed;
         new_children.push(result.data);
         child_states.push(state);
@@ -403,7 +423,7 @@ fn analyze_and_inject(
     if new_children.is_empty() {
         let mut leaf_state = RelationStates::new();
         for plan_pos in extract_ctid_lineage(plan.schema()) {
-            if plan_pos_to_heap_oid.contains_key(&plan_pos) {
+            if plan_pos_metadata.contains_key(&plan_pos) {
                 leaf_state.insert(plan_pos, VisibilityStatus::Unverified);
             }
         }
@@ -433,7 +453,7 @@ fn analyze_and_inject(
 
     let parent_lineage: BTreeSet<usize> = extract_ctid_lineage(plan.schema())
         .into_iter()
-        .filter(|plan_pos| plan_pos_to_heap_oid.contains_key(plan_pos))
+        .filter(|plan_pos| plan_pos_metadata.contains_key(plan_pos))
         .collect();
 
     // If lineage appears first at this node, mark it unverified.
@@ -480,12 +500,7 @@ fn analyze_and_inject(
                 if to_check.is_empty() {
                     Ok(Transformed::no(child))
                 } else {
-                    wrap_with_visibility_if_needed(
-                        child,
-                        &to_check,
-                        plan_pos_to_heap_oid,
-                        plan_pos_names,
-                    )
+                    wrap_with_visibility_if_needed(child, &to_check, plan_pos_metadata)
                 }
             })
             .collect::<Result<Vec<_>>>()?;
@@ -777,8 +792,11 @@ impl ExecutionPlan for VisibilityFilterExec {
             ));
         }
         // VisibilityFilterExec is unary and preserves its child's schema.
-        // We block ctid_* columns (packed DocAddresses below this node) and
-        // allow all other columns through for filter pushdown.
+        // JoinScan folds the execution alias into every ordinary field name
+        // (`<alias>__<field>`) before the plan reaches this node, so the
+        // DataFusion helper below does not see duplicate ordinary names here.
+        // We only need to block `ctid_*`, which remain synthetic per-source
+        // columns holding packed DocAddresses below this node.
         let schema = self.input.schema();
         let blocked_ctid_names: std::collections::HashSet<String> = self
             .plan_pos_oids
@@ -792,10 +810,6 @@ impl ExecutionPlan for VisibilityFilterExec {
             .filter(|(_, f)| !blocked_ctid_names.contains(f.name()))
             .map(|(i, _)| i)
             .collect();
-        // TODO: DataFusion remaps pushed columns by `child_schema.index_of(name)`,
-        // which is not safe for duplicate-name join schemas (for example self-joins
-        // with two `id` columns). This node should eventually use an index-preserving
-        // remapper or restore a duplicate-name bailout before forwarding filters.
         let child_desc = ChildFilterDescription::from_child_with_allowed_indices(
             &parent_filters,
             allowed_indices,
@@ -1075,42 +1089,114 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::Arc;
 
+    use datafusion::catalog::default_table_source::DefaultTableSource;
     use datafusion::common::Result;
-    use datafusion::logical_expr::{col, lit, LogicalPlan, LogicalPlanBuilder};
+    use datafusion::logical_expr::{col, LogicalPlan, LogicalPlanBuilder};
     use datafusion::optimizer::optimizer::OptimizerContext;
     use datafusion::optimizer::OptimizerRule;
     use pgrx::pg_sys;
     use pgrx::prelude::*;
 
-    use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource, RelNode};
+    use crate::index::fast_fields_helper::WhichFastField;
     use crate::postgres::customscan::joinscan::visibility_filter::{
         VisibilityFilterNode, VisibilityFilterOptimizerRule,
     };
     use crate::postgres::customscan::joinscan::CtidColumn;
-    use crate::scan::ScanInfo;
+    use crate::scan::{PgSearchTableProvider, ScanInfo, VisibilityMode};
 
     const TEST_PLAN_POS: usize = 0;
 
     fn make_rule() -> VisibilityFilterOptimizerRule {
-        let test_heap_oid = pg_sys::Oid::from(42);
-        let source = JoinSource {
-            plan_position: TEST_PLAN_POS,
-            root_id: None,
-            scan_info: ScanInfo {
-                heap_rti: 1,
-                heaprelid: test_heap_oid,
-                ..Default::default()
-            },
-        };
-        VisibilityFilterOptimizerRule::new(JoinCSClause::new(RelNode::Scan(Box::new(source))))
+        VisibilityFilterOptimizerRule::new()
     }
 
-    fn make_ctid_plan() -> Result<LogicalPlan> {
-        LogicalPlanBuilder::values(vec![vec![lit(1_u64)]])?
-            .project(vec![
-                col("column1").alias(CtidColumn::new(TEST_PLAN_POS).to_string())
-            ])?
-            .build()
+    fn make_ctid_plan(
+        plan_position: usize,
+        heap_oid: pg_sys::Oid,
+        alias: Option<&str>,
+    ) -> Result<LogicalPlan> {
+        let mut provider = PgSearchTableProvider::new(
+            ScanInfo {
+                heap_rti: 1,
+                heaprelid: heap_oid,
+                alias: alias.map(str::to_string),
+                ..Default::default()
+            },
+            vec![WhichFastField::Ctid],
+            false,
+        );
+        provider.configure_deferred_outputs(
+            &crate::api::HashSet::default(),
+            VisibilityMode::Deferred { plan_position },
+        );
+
+        LogicalPlanBuilder::scan(
+            alias.unwrap_or("test_table"),
+            Arc::new(DefaultTableSource::new(Arc::new(provider))),
+            None,
+        )?
+        .build()
+    }
+
+    #[test]
+    fn provider_visibility_metadata_is_explicit() {
+        let mut provider = PgSearchTableProvider::new(
+            ScanInfo {
+                heap_rti: 1,
+                heaprelid: pg_sys::Oid::from(42),
+                alias: Some("docs".to_string()),
+                ..Default::default()
+            },
+            vec![WhichFastField::Ctid],
+            false,
+        );
+
+        assert_eq!(provider.visibility_mode(), VisibilityMode::Eager);
+        assert!(provider.visibility_source_metadata().is_none());
+
+        provider.configure_deferred_outputs(
+            &crate::api::HashSet::default(),
+            VisibilityMode::Deferred {
+                plan_position: TEST_PLAN_POS,
+            },
+        );
+
+        assert_eq!(
+            provider.visibility_mode(),
+            VisibilityMode::Deferred {
+                plan_position: TEST_PLAN_POS,
+            }
+        );
+        let metadata = provider
+            .visibility_source_metadata()
+            .expect("provider should expose deferred visibility metadata");
+        assert_eq!(metadata.plan_position, TEST_PLAN_POS);
+        assert_eq!(metadata.heap_oid, pg_sys::Oid::from(42));
+        assert_eq!(metadata.table_name, "docs");
+    }
+
+    #[test]
+    fn provider_visibility_metadata_uses_source_fallback_when_unaliased() {
+        let mut provider = PgSearchTableProvider::new(
+            ScanInfo {
+                heap_rti: 1,
+                heaprelid: pg_sys::Oid::from(7),
+                alias: None,
+                ..Default::default()
+            },
+            vec![WhichFastField::Ctid],
+            false,
+        );
+
+        provider.configure_deferred_outputs(
+            &crate::api::HashSet::default(),
+            VisibilityMode::Deferred { plan_position: 3 },
+        );
+
+        let metadata = provider
+            .visibility_source_metadata()
+            .expect("provider should expose deferred visibility metadata");
+        assert_eq!(metadata.table_name, "source_3");
     }
 
     fn count_visibility_nodes(plan: &LogicalPlan) -> usize {
@@ -1186,7 +1272,7 @@ mod tests {
     fn root_injection_is_idempotent() -> Result<()> {
         let config = OptimizerContext::new();
         let rule = make_rule();
-        let plan = make_ctid_plan()?;
+        let plan = make_ctid_plan(TEST_PLAN_POS, pg_sys::Oid::from(42), Some("test_table"))?;
 
         let first = rule.rewrite(plan, &config)?;
         assert!(first.transformed);
@@ -1201,7 +1287,11 @@ mod tests {
 
     /// Builds a barrier plan, asserts injection + idempotency.
     fn assert_barrier(build: impl FnOnce(LogicalPlanBuilder) -> Result<LogicalPlan>) -> Result<()> {
-        let plan = build(LogicalPlanBuilder::from(make_ctid_plan()?))?;
+        let plan = build(LogicalPlanBuilder::from(make_ctid_plan(
+            TEST_PLAN_POS,
+            pg_sys::Oid::from(42),
+            Some("test_table"),
+        )?))?;
         assert_barrier_injection(plan)
     }
 
@@ -1209,9 +1299,13 @@ mod tests {
     fn inserts_visibility_below_limit_barrier() -> Result<()> {
         let config = OptimizerContext::new();
         let rule = make_rule();
-        let plan = LogicalPlanBuilder::from(make_ctid_plan()?)
-            .limit(0, Some(5))?
-            .build()?;
+        let plan = LogicalPlanBuilder::from(make_ctid_plan(
+            TEST_PLAN_POS,
+            pg_sys::Oid::from(42),
+            Some("test_table"),
+        )?)
+        .limit(0, Some(5))?
+        .build()?;
 
         let first = rule.rewrite(plan, &config)?;
         assert!(first.transformed);
@@ -1256,11 +1350,15 @@ mod tests {
     fn sort_without_fetch_is_not_barrier() -> Result<()> {
         let config = OptimizerContext::new();
         let rule = make_rule();
-        let plan = LogicalPlanBuilder::from(make_ctid_plan()?)
-            .sort(vec![
-                col(CtidColumn::new(TEST_PLAN_POS).to_string()).sort(true, false)
-            ])?
-            .build()?;
+        let plan = LogicalPlanBuilder::from(make_ctid_plan(
+            TEST_PLAN_POS,
+            pg_sys::Oid::from(42),
+            Some("test_table"),
+        )?)
+        .sort(vec![
+            col(CtidColumn::new(TEST_PLAN_POS).to_string()).sort(true, false)
+        ])?
+        .build()?;
 
         let result = rule.rewrite(plan, &config)?;
         assert!(result.transformed);
@@ -1278,48 +1376,11 @@ mod tests {
         let oid_a = pg_sys::Oid::from(42);
         let oid_b = pg_sys::Oid::from(43);
 
-        let source_a = JoinSource {
-            plan_position: POS_A,
-            root_id: None,
-            scan_info: ScanInfo {
-                heap_rti: 1,
-                heaprelid: oid_a,
-                ..Default::default()
-            },
-        };
-        let source_b = JoinSource {
-            plan_position: POS_B,
-            root_id: None,
-            scan_info: ScanInfo {
-                heap_rti: 2,
-                heaprelid: oid_b,
-                ..Default::default()
-            },
-        };
+        let rule = VisibilityFilterOptimizerRule::new();
 
-        let plan_node = RelNode::Join(Box::new(
-            crate::postgres::customscan::joinscan::build::JoinNode {
-                join_type: crate::postgres::customscan::joinscan::build::JoinType::Inner,
-                left: RelNode::Scan(Box::new(source_a)),
-                right: RelNode::Scan(Box::new(source_b)),
-                equi_keys: Vec::new(),
-                filter: None,
-            },
-        ));
-
-        let rule = VisibilityFilterOptimizerRule::new(JoinCSClause::new(plan_node));
-
-        // Build two leaf plans and join them (inner join = not a barrier).
-        let left = LogicalPlanBuilder::values(vec![vec![lit(1_u64)]])?
-            .project(vec![
-                col("column1").alias(CtidColumn::new(POS_A).to_string())
-            ])?
-            .build()?;
-        let right = LogicalPlanBuilder::values(vec![vec![lit(2_u64)]])?
-            .project(vec![
-                col("column1").alias(CtidColumn::new(POS_B).to_string())
-            ])?
-            .build()?;
+        // Build two leaf scans and join them (inner join = not a barrier).
+        let left = make_ctid_plan(POS_A, oid_a, Some("a"))?;
+        let right = make_ctid_plan(POS_B, oid_b, Some("b"))?;
 
         let plan = LogicalPlanBuilder::from(left).cross_join(right)?.build()?;
 
@@ -1357,47 +1418,10 @@ mod tests {
         let oid_a = pg_sys::Oid::from(42);
         let oid_b = pg_sys::Oid::from(43);
 
-        let source_a = JoinSource {
-            plan_position: POS_A,
-            root_id: None,
-            scan_info: ScanInfo {
-                heap_rti: 1,
-                heaprelid: oid_a,
-                ..Default::default()
-            },
-        };
-        let source_b = JoinSource {
-            plan_position: POS_B,
-            root_id: None,
-            scan_info: ScanInfo {
-                heap_rti: 2,
-                heaprelid: oid_b,
-                ..Default::default()
-            },
-        };
+        let rule = VisibilityFilterOptimizerRule::new();
 
-        let plan_node = RelNode::Join(Box::new(
-            crate::postgres::customscan::joinscan::build::JoinNode {
-                join_type: crate::postgres::customscan::joinscan::build::JoinType::Inner,
-                left: RelNode::Scan(Box::new(source_a)),
-                right: RelNode::Scan(Box::new(source_b)),
-                equi_keys: Vec::new(),
-                filter: None,
-            },
-        ));
-
-        let rule = VisibilityFilterOptimizerRule::new(JoinCSClause::new(plan_node));
-
-        let left = LogicalPlanBuilder::values(vec![vec![lit(1_u64)]])?
-            .project(vec![
-                col("column1").alias(CtidColumn::new(POS_A).to_string())
-            ])?
-            .build()?;
-        let right = LogicalPlanBuilder::values(vec![vec![lit(2_u64)]])?
-            .project(vec![
-                col("column1").alias(CtidColumn::new(POS_B).to_string())
-            ])?
-            .build()?;
+        let left = make_ctid_plan(POS_A, oid_a, Some("a"))?;
+        let right = make_ctid_plan(POS_B, oid_b, Some("b"))?;
 
         // LEFT join is a barrier — visibility must be injected per-side.
         let plan = LogicalPlanBuilder::from(left)
@@ -1430,54 +1454,17 @@ mod tests {
         let oid_a = pg_sys::Oid::from(42);
         let oid_b = pg_sys::Oid::from(43);
 
-        let source_a = JoinSource {
-            plan_position: POS_A,
-            root_id: None,
-            scan_info: ScanInfo {
-                heap_rti: 1,
-                heaprelid: oid_a,
-                ..Default::default()
-            },
-        };
-        let source_b = JoinSource {
-            plan_position: POS_B,
-            root_id: None,
-            scan_info: ScanInfo {
-                heap_rti: 2,
-                heaprelid: oid_b,
-                ..Default::default()
-            },
-        };
+        let rule = VisibilityFilterOptimizerRule::new();
 
-        let plan_node = RelNode::Join(Box::new(
-            crate::postgres::customscan::joinscan::build::JoinNode {
-                join_type: crate::postgres::customscan::joinscan::build::JoinType::Inner,
-                left: RelNode::Scan(Box::new(source_a)),
-                right: RelNode::Scan(Box::new(source_b)),
-                equi_keys: Vec::new(),
-                filter: None,
-            },
-        ));
-
-        let rule = VisibilityFilterOptimizerRule::new(JoinCSClause::new(plan_node));
-
-        let left_leaf = LogicalPlanBuilder::values(vec![vec![lit(1_u64)]])?
-            .project(vec![
-                col("column1").alias(CtidColumn::new(POS_A).to_string())
-            ])?
-            .build()?;
+        let left_leaf = make_ctid_plan(POS_A, oid_a, Some("a"))?;
         let left = LogicalPlan::Extension(datafusion::logical_expr::Extension {
             node: Arc::new(VisibilityFilterNode::new(
                 left_leaf,
                 vec![(POS_A, oid_a)],
-                vec![],
+                vec!["a".to_string()],
             )),
         });
-        let right = LogicalPlanBuilder::values(vec![vec![lit(2_u64)]])?
-            .project(vec![
-                col("column1").alias(CtidColumn::new(POS_B).to_string())
-            ])?
-            .build()?;
+        let right = make_ctid_plan(POS_B, oid_b, Some("b"))?;
 
         let plan = LogicalPlanBuilder::from(left)
             .join_on(
@@ -1526,7 +1513,7 @@ mod tests {
         use crate::scan::codec::{deserialize_logical_plan, serialize_logical_plan};
         use datafusion::execution::TaskContext;
 
-        let plan = make_ctid_plan()?;
+        let plan = make_ctid_plan(TEST_PLAN_POS, pg_sys::Oid::from(42), Some("test_table"))?;
         let wrapped = LogicalPlan::Extension(datafusion::logical_expr::Extension {
             node: std::sync::Arc::new(VisibilityFilterNode::new(
                 plan,
@@ -1538,7 +1525,7 @@ mod tests {
         let bytes =
             serialize_logical_plan(&wrapped).expect("VisibilityFilterNode should serialize");
         let ctx = TaskContext::default();
-        let decoded = deserialize_logical_plan(&bytes, &ctx, None, None, None)
+        let decoded = deserialize_logical_plan(&bytes, &ctx)
             .expect("VisibilityFilterNode should deserialize");
 
         let LogicalPlan::Extension(ext) = &decoded else {

@@ -115,12 +115,12 @@ pub struct PgSearchScanPlan {
     /// Shared FFHelper for deferred lookup and deferred visibility.
     ///
     /// A scan may participate in late materialization, deferred visibility, or both.
-    /// Callers gate usage based on `deferred_fields` / `deferred_ctid_alias`; cloning
-    /// the Arc is cheap, so this does not need separate role-specific accessors.
+    /// Callers decide whether they should use it by checking the deferred metadata,
+    /// and cloning the Arc is cheap.
     ffhelper: Option<Arc<FFHelper>>,
     pub indexrelid: u32,
-    /// The ctid column alias when visibility is deferred (e.g. "ctid_0").
-    deferred_ctid_alias: Option<String>,
+    /// The JoinScan source identity when visibility is deferred.
+    deferred_ctid_plan_position: Option<usize>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -149,8 +149,12 @@ impl PgSearchScanPlan {
         deferred_fields: Vec<DeferredField>,
         ffhelper: Option<Arc<FFHelper>>,
         indexrelid: u32,
-        deferred_ctid_alias: Option<String>,
+        deferred_ctid_plan_position: Option<usize>,
     ) -> Self {
+        let needs_ffhelper = !deferred_fields.is_empty() || deferred_ctid_plan_position.is_some();
+        if needs_ffhelper && ffhelper.is_none() {
+            panic!("deferred lookup/visibility requires an FFHelper, but ffhelper is None");
+        }
         // Ensure we always return at least one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
         // If states is empty, execute() will return an EmptyStream for this single partition.
@@ -188,7 +192,7 @@ impl PgSearchScanPlan {
             deferred_fields,
             ffhelper,
             indexrelid,
-            deferred_ctid_alias,
+            deferred_ctid_plan_position,
         }
     }
 
@@ -200,9 +204,8 @@ impl PgSearchScanPlan {
         self.ffhelper.clone()
     }
 
-    /// Returns the deferred ctid column alias, if visibility is deferred.
-    pub fn deferred_ctid_alias(&self) -> Option<&str> {
-        self.deferred_ctid_alias.as_deref()
+    pub fn deferred_ctid_plan_position(&self) -> Option<usize> {
+        self.deferred_ctid_plan_position
     }
 }
 
@@ -461,7 +464,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 deferred_fields: self.deferred_fields.clone(),
                 ffhelper: self.ffhelper.clone(),
                 indexrelid: self.indexrelid,
-                deferred_ctid_alias: self.deferred_ctid_alias.clone(),
+                deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
@@ -593,4 +596,34 @@ pub fn create_sorted_scan(
         ordering,
         segment_scan,
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_schema::{Schema, SchemaRef};
+
+    use crate::query::SearchQueryInput;
+
+    use super::PgSearchScanPlan;
+
+    fn empty_schema() -> SchemaRef {
+        Arc::new(Schema::empty())
+    }
+
+    #[test]
+    #[should_panic(expected = "deferred lookup/visibility requires an FFHelper")]
+    fn deferred_visibility_requires_ffhelper() {
+        let _ = PgSearchScanPlan::new(
+            vec![],
+            empty_schema(),
+            SearchQueryInput::All,
+            None,
+            Vec::new(),
+            None,
+            0,
+            Some(1),
+        );
+    }
 }

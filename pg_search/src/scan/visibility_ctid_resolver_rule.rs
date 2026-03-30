@@ -34,7 +34,6 @@ use datafusion::physical_plan::ExecutionPlan;
 
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
-use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::scan::execution_plan::PgSearchScanPlan;
 
 #[derive(Debug)]
@@ -65,12 +64,11 @@ impl PhysicalOptimizerRule for VisibilityCtidResolverRule {
 fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
     if let Some(vis_exec) = plan.as_any().downcast_ref::<VisibilityFilterExec>() {
         for &(plan_pos, _) in vis_exec.plan_pos_oids() {
-            let ctid_field_name = CtidColumn::new(plan_pos).to_string();
             let ffhelper =
-                find_ffhelper_for_ctid(plan.as_ref(), &ctid_field_name).ok_or_else(|| {
+                find_ffhelper_for_plan_position(plan.as_ref(), plan_pos).ok_or_else(|| {
                     DataFusionError::Internal(format!(
                         "VisibilityCtidResolverRule: no PgSearchScanPlan found \
-                         with deferred ctid field '{ctid_field_name}'"
+                     for deferred ctid plan_position {plan_pos}"
                     ))
                 })?;
             vis_exec.set_ctid_resolver(plan_pos, ffhelper);
@@ -83,23 +81,59 @@ fn walk_plan(plan: &Arc<dyn ExecutionPlan>) -> Result<()> {
     Ok(())
 }
 
-/// Search the subtree for a PgSearchScanPlan whose deferred ctid alias matches
-/// the given ctid field name. Returns its FFHelper if found.
-fn find_ffhelper_for_ctid(
+/// Search the subtree for a PgSearchScanPlan whose deferred ctid metadata matches
+/// the given plan position. Returns its FFHelper if found.
+fn find_ffhelper_for_plan_position(
     plan: &dyn ExecutionPlan,
-    ctid_field_name: &str,
+    plan_position: usize,
 ) -> Option<Arc<FFHelper>> {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
-        if scan.deferred_ctid_alias() == Some(ctid_field_name) {
+        if scan.deferred_ctid_plan_position() == Some(plan_position) {
             return scan.ffhelper();
         }
     }
 
     for child in plan.children() {
-        if let Some(helper) = find_ffhelper_for_ctid(child.as_ref(), ctid_field_name) {
+        if let Some(helper) = find_ffhelper_for_plan_position(child.as_ref(), plan_position) {
             return Some(helper);
         }
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_ffhelper_for_plan_position;
+    use std::sync::Arc;
+
+    use arrow_schema::{Schema, SchemaRef};
+
+    use crate::index::fast_fields_helper::FFHelper;
+    use crate::query::SearchQueryInput;
+    use crate::scan::execution_plan::PgSearchScanPlan;
+
+    fn empty_schema() -> SchemaRef {
+        Arc::new(Schema::empty())
+    }
+
+    #[test]
+    fn matches_scan_by_deferred_ctid_plan_position() {
+        let ffhelper = Arc::new(FFHelper::empty());
+        let scan = PgSearchScanPlan::new(
+            vec![],
+            empty_schema(),
+            SearchQueryInput::All,
+            None,
+            Vec::new(),
+            Some(ffhelper.clone()),
+            0,
+            Some(7),
+        );
+
+        let found = find_ffhelper_for_plan_position(&scan, 7)
+            .expect("matching plan_position should find ffhelper");
+        assert!(Arc::ptr_eq(&found, &ffhelper));
+        assert!(find_ffhelper_for_plan_position(&scan, 6).is_none());
+    }
 }

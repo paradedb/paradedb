@@ -38,8 +38,8 @@
 //!
 //! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: on)
 //!
-//! 2. **Join type**: Only `INNER JOIN` is currently supported
-//!    - LEFT, RIGHT, FULL, SEMI, and ANTI joins are planned for future work
+//! 2. **Join type**: INNER, SEMI, and ANTI joins are supported
+//!    - LEFT, RIGHT, and FULL joins are planned for future work
 //!
 //! 3. **LIMIT clause**: Query must have a LIMIT clause
 //!    - This ensures we only pay the cost of "late materialization" (random heap access)
@@ -162,7 +162,7 @@ use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
 
 use self::scan_state::{
-    build_joinscan_logical_plan, build_joinscan_physical_plan, create_execution_session_context,
+    build_joinscan_logical_plan, build_joinscan_physical_plan, create_session_context,
     JoinScanState,
 };
 use crate::api::OrderByFeature;
@@ -182,9 +182,7 @@ use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
-use crate::scan::codec::{
-    deserialize_logical_plan, deserialize_logical_plan_parallel, serialize_logical_plan,
-};
+use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
@@ -250,7 +248,7 @@ impl ParallelQueryCapable for JoinScan {
         }
 
         // Read the canonical non-partitioning segment ID sets from shared memory.
-        // The leader uses these in exec_custom_scan to inject them into the codec.
+        // The leader uses these in exec_custom_scan to populate the execution codec.
         let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
@@ -1139,20 +1137,22 @@ impl CustomScan for JoinScan {
                 );
                 return;
             }
-            // For plain EXPLAIN, reconstruct the plan using the execution context
-            // so that VisibilityFilterExec nodes appear in the displayed plan,
-            // matching what actually runs during EXPLAIN ANALYZE.
-            let ctx = create_execution_session_context();
+            // For plain EXPLAIN, reconstruct the plan using the same session
+            // configuration that execution uses so `VisibilityFilterExec`
+            // appears in the displayed plan, matching EXPLAIN ANALYZE.
+            let expr_context = crate::postgres::utils::ExprContextGuard::new();
+            let ctx = create_session_context();
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
-            let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let logical_plan = deserialize_logical_plan(
+            let logical_plan = deserialize_logical_plan_with_runtime(
                 logical_plan,
                 &ctx.task_ctx(),
                 None,
                 Some(expr_context.as_ptr()),
                 None,
+                vec![],
+                vec![],
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
@@ -1228,8 +1228,8 @@ impl CustomScan for JoinScan {
                 let index_segment_ids =
                     Self::build_index_segment_ids(state, &join_clause, &plan_sources);
 
-                let ctx = create_execution_session_context();
-                let logical_plan = deserialize_logical_plan_parallel(
+                let ctx = create_session_context();
+                let logical_plan = deserialize_logical_plan_with_runtime(
                     &plan_bytes,
                     &ctx.task_ctx(),
                     state.custom_state().parallel_state,

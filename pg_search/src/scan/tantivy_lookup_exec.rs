@@ -270,10 +270,10 @@ impl ExecutionPlan for TantivyLookupExec {
                 &self.children(),
             ));
         }
-        // TODO: `from_child` remaps by column name, so duplicate-name join schemas
-        // (for example self-joins with two `id` columns) can silently retarget a
-        // pushed filter to the wrong child column. This should use the same eventual
-        // index-preserving remapper as VisibilityFilterExec.
+        // For JoinScan inputs, ordinary fields have already been renamed to
+        // execution-qualified names (`<alias>__<field>`), so forwarding through
+        // DataFusion's standard child remapper remains unambiguous on the live
+        // path. Deferred columns are matched later by physical column index.
         let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?;
         Ok(FilterDescription::new().with_child(child_desc))
     }

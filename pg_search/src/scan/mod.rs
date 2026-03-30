@@ -37,3 +37,4 @@ pub use batch_scanner::Scanner;
 pub use info::ScanInfo;
 pub use search_predicate_udf::SearchPredicateUDF;
 pub use table_provider::PgSearchTableProvider;
+pub(crate) use table_provider::VisibilityMode;

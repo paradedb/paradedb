@@ -63,6 +63,7 @@ use datafusion::logical_expr::{
 use pgrx::pg_sys;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use tantivy::index::SegmentId;
 
 use crate::query::SearchQueryInput;
 
@@ -94,19 +95,20 @@ pub struct SearchPredicateUDF {
     #[serde(default)]
     deferred_visibility: bool,
     /// Position of the source this UDF targets in the join's `sources()` ordering.
-    /// Used by the codec to inject the correct canonical segment IDs in self-join
-    /// scenarios where multiple scans share the same `index_oid` but have different
-    /// segment sets (partitioned vs replicated).
+    /// Used by the deserialization codec to inject the correct canonical segment
+    /// IDs in self-join scenarios where multiple scans share the same
+    /// `index_oid` but have different segment sets (partitioned vs replicated).
     #[serde(default)]
     plan_position: Option<usize>,
-    /// Canonical segment IDs, injected by the codec during deserialization.
+    /// Canonical segment IDs injected during deserialization for execution-time
+    /// UDF evaluation. Skipped during serialization because they are backend-local.
     #[serde(skip)]
-    canonical_segment_ids: Option<crate::api::HashSet<tantivy::index::SegmentId>>,
+    canonical_segment_ids: Option<crate::api::HashSet<SegmentId>>,
     #[serde(skip, default = "SearchPredicateUDF::make_signature")]
     signature: Signature,
 }
 
-// Manual impls exclude runtime-only fields (canonical_segment_ids, signature)
+// Manual impls exclude runtime-only fields (signature)
 impl PartialEq for SearchPredicateUDF {
     fn eq(&self, other: &Self) -> bool {
         self.index_oid == other.index_oid
@@ -171,19 +173,6 @@ impl SearchPredicateUDF {
         strip_oids(&self.display_string)
     }
 
-    /// Returns the plan_position this UDF targets, if set.
-    pub fn plan_position(&self) -> Option<usize> {
-        self.plan_position
-    }
-
-    /// Inject canonical segment IDs so execute_search uses the same segments as the plan.
-    pub fn set_canonical_segment_ids(
-        &mut self,
-        ids: crate::api::HashSet<tantivy::index::SegmentId>,
-    ) {
-        self.canonical_segment_ids = Some(ids);
-    }
-
     fn make_signature() -> Signature {
         // Takes ctid column (UInt64)
         Signature::exact(vec![DataType::UInt64], Volatility::Immutable)
@@ -192,6 +181,14 @@ impl SearchPredicateUDF {
     /// Get the search query by deserializing from JSON
     pub fn query(&self) -> SearchQueryInput {
         serde_json::from_str(&self.query_json).expect("query_json should be valid SearchQueryInput")
+    }
+
+    pub(crate) fn plan_position(&self) -> Option<usize> {
+        self.plan_position
+    }
+
+    pub(crate) fn set_canonical_segment_ids(&mut self, ids: crate::api::HashSet<SegmentId>) {
+        self.canonical_segment_ids = Some(ids);
     }
 
     /// Create a DataFusion expression that calls this UDF
@@ -313,8 +310,8 @@ impl SearchPredicateUDF {
         // Use canonical segment IDs when available to ensure the same segment
         // set and ordering as the plan's table providers. This is critical for
         // deferred visibility where packed DocAddresses must be comparable.
-        let mvcc_style = if let Some(ref ids) = self.canonical_segment_ids {
-            MvccSatisfies::ParallelWorker(ids.clone())
+        let mvcc_style = if let Some(ids) = self.canonical_segment_ids.clone() {
+            MvccSatisfies::ParallelWorker(ids)
         } else {
             MvccSatisfies::Snapshot
         };

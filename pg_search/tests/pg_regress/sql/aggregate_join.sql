@@ -60,7 +60,7 @@ WITH (
 -- =====================================================================
 
 -- Test 1.1: COUNT(*) — verifies basic join + aggregate works
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -72,7 +72,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
 
 -- Test 1.2: Multiple aggregates (COUNT, SUM, AVG)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -84,7 +84,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
 
 -- Test 1.3: MIN/MAX
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -252,7 +252,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================
 
 -- Test 7.1: LEFT JOIN with COUNT — includes products with no tags
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(t.tag_name)
 FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
@@ -287,7 +287,7 @@ ORDER BY p.category;
 -- =====================================================================
 
 -- Test 8.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';

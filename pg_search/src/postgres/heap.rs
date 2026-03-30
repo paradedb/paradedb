@@ -75,10 +75,8 @@ impl VisibilityChecker {
     /// `relation` and `snapshot`
     pub fn with_rel_and_snap(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) -> Self {
         unsafe {
-            let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
-                heaprel.as_ptr(),
-                pg_sys::ForkNumber::MAIN_FORKNUM,
-            );
+            let nblocks =
+                pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), heaprel.fork_number());
             Self {
                 scan: pg_sys::table_index_fetch_begin(heaprel.as_ptr()),
                 snapshot,

@@ -69,7 +69,6 @@ impl BM25Page for pg_sys::Page {
 #[derive(Clone, Debug)]
 pub struct RelationBufferAccess {
     rel: PgSearchRelation,
-    fork: pg_sys::ForkNumber::Type,
 }
 
 unsafe impl Send for RelationBufferAccess {}
@@ -77,14 +76,7 @@ unsafe impl Sync for RelationBufferAccess {}
 
 impl RelationBufferAccess {
     pub fn open(rel: &PgSearchRelation) -> Self {
-        Self::open_fork(rel, pg_sys::ForkNumber::MAIN_FORKNUM)
-    }
-
-    pub fn open_fork(rel: &PgSearchRelation, fork: pg_sys::ForkNumber::Type) -> Self {
-        Self {
-            rel: rel.clone(),
-            fork,
-        }
+        Self { rel: rel.clone() }
     }
 
     pub fn rel(&self) -> &PgSearchRelation {
@@ -140,7 +132,7 @@ impl RelationBufferAccess {
             }
 
             let rel = self.rel.as_ptr();
-            let fork = self.fork;
+            let fork = self.rel.fork_number();
             let iter = (0..npages)
                 .step_by(MAX_BUFFERS_TO_EXTEND_BY)
                 .flat_map(move |i| {
@@ -176,7 +168,7 @@ impl RelationBufferAccess {
         unsafe {
             let pg_buffer = pg_sys::ReadBufferExtended(
                 self.rel.as_ptr(),
-                self.fork,
+                self.rel.fork_number(),
                 blockno,
                 pg_sys::ReadBufferMode::RBM_NORMAL,
                 std::ptr::null_mut(),
@@ -208,13 +200,14 @@ impl RelationBufferAccess {
         unsafe {
             let buffer = if blockno == pg_sys::InvalidBlockNumber {
                 pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
-                let buffer = extend_by_one_buffer(self.rel.as_ptr(), strategy, self.fork);
+                let buffer =
+                    extend_by_one_buffer(self.rel.as_ptr(), strategy, self.rel.fork_number());
                 pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
                 buffer
             } else {
                 pg_sys::ReadBufferExtended(
                     self.rel.as_ptr(),
-                    self.fork,
+                    self.rel.fork_number(),
                     blockno,
                     buffer_mode,
                     strategy,

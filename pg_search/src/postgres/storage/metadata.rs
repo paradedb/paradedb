@@ -18,7 +18,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{block_number_is_valid, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{
-    init_new_buffer, init_new_buffer_on_fork, Buffer, BufferManager, BufferMut, PinnedBuffer,
+    init_new_buffer, Buffer, BufferManager, BufferMut, PinnedBuffer,
 };
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
@@ -88,8 +88,8 @@ pub struct MetaPage {
 const METAPAGE: pg_sys::BlockNumber = 0;
 
 impl MetaPage {
-    pub unsafe fn init(indexrel: &PgSearchRelation, fork: pg_sys::ForkNumber::Type) {
-        let mut buffer = init_new_buffer_on_fork(indexrel, fork);
+    pub unsafe fn init(indexrel: &PgSearchRelation) {
+        let mut buffer = init_new_buffer(indexrel);
         assert_eq!(
             buffer.number(),
             0,
@@ -99,14 +99,14 @@ impl MetaPage {
         let metadata = page.contents_mut::<MetaPageData>();
 
         unsafe {
-            metadata.active_vacuum_list = init_new_buffer_on_fork(indexrel, fork).number();
-            metadata.ambulkdelete_sentinel = init_new_buffer_on_fork(indexrel, fork).number();
-            metadata.merge_lock = init_new_buffer_on_fork(indexrel, fork).number();
+            metadata.active_vacuum_list = init_new_buffer(indexrel).number();
+            metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
+            metadata.merge_lock = init_new_buffer(indexrel).number();
             metadata.v2_fsm = crate::postgres::storage::fsm::v2::V2FSM::create(indexrel);
             metadata.segment_meta_garbage =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
 
-            metadata.cleanup_lock = init_new_buffer_on_fork(indexrel, fork).number();
+            metadata.cleanup_lock = init_new_buffer(indexrel).number();
             metadata.schema_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =

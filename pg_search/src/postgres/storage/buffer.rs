@@ -949,19 +949,10 @@ impl BufferManager {
     }
 }
 
-/// Directly create a new buffer on the main fork in the specified relation via extension, bypassing the Free Space Map,
+/// Directly create a new buffer in the specified relation via extension, bypassing the Free Space Map,
 /// and initialize it as a new page.
 pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
-    init_new_buffer_on_fork(rel, pg_sys::ForkNumber::MAIN_FORKNUM)
-}
-
-/// Directly create a new buffer on the specified fork in the specified relation via extension, bypassing the Free Space Map,
-/// and initialize it as a new page,
-pub fn init_new_buffer_on_fork(
-    rel: &PgSearchRelation,
-    fork: pg_sys::ForkNumber::Type,
-) -> BufferMut {
-    let rbacc = RelationBufferAccess::open_fork(rel, fork);
+    let rbacc = RelationBufferAccess::open(rel);
     let pg_buffer = rbacc.new_buffer();
 
     let mut buffer = BufferMut {

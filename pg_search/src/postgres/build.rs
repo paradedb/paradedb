@@ -40,7 +40,7 @@ pub extern "C-unwind" fn ambuild(
     index_relation.set_is_create_index();
 
     unsafe {
-        build_empty(&index_relation, pg_sys::ForkNumber::MAIN_FORKNUM);
+        build_empty(&index_relation);
     }
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
@@ -84,15 +84,14 @@ pub extern "C-unwind" fn ambuild(
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
-    build_empty(
-        &PgSearchRelation::from_pg(index_relation),
-        pg_sys::ForkNumber::INIT_FORKNUM,
-    );
+    let mut relation = PgSearchRelation::from_pg(index_relation);
+    relation.set_fork_number(pg_sys::ForkNumber::INIT_FORKNUM);
+    build_empty(&relation);
 }
 
-unsafe fn build_empty(index_relation: &PgSearchRelation, fork: pg_sys::ForkNumber::Type) {
+unsafe fn build_empty(index_relation: &PgSearchRelation) {
     unsafe {
-        MetaPage::init(index_relation, fork);
+        MetaPage::init(index_relation);
     }
 
     validate_index_config(index_relation);

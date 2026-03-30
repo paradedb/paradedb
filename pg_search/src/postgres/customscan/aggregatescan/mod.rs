@@ -886,7 +886,6 @@ impl AggregateScan {
         // Postgres may add a redundant Sort above us, which is correct (just wasteful).
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
-
         // Build the custom path with DataFusion private data
         vec![builder.build(PrivateData::DataFusion {
             plan,

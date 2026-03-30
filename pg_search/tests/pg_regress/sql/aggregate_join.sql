@@ -215,9 +215,15 @@ DELETE FROM agg_join_products WHERE description = 'Orphan product no tags';
 -- SECTION 6: COUNT(DISTINCT) on JOIN
 -- =====================================================================
 
--- Test 6.1: COUNT(DISTINCT) — falls back to Postgres native because
--- DISTINCT aggregates change the UPPERREL_GROUP_AGG input structure,
--- causing join key extraction to fail. Results are still correct.
+-- Test 6.1: COUNT(DISTINCT) — should use DataFusion backend
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(DISTINCT t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
 SELECT p.category, COUNT(DISTINCT t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id

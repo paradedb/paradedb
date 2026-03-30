@@ -19,7 +19,7 @@ use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
-use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::rel::{PgSearchRelation, RELPersistence};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::{SearchFieldConfig, SearchFieldType, SearchIndexSchema};
@@ -88,6 +88,10 @@ pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
 }
 
 unsafe fn build_empty(index_relation: &PgSearchRelation) {
+    if matches!(index_relation.persistence(), RELPersistence::Unlogged) {
+        panic!("Unlogged tables are not supported.");
+    }
+
     unsafe {
         MetaPage::init(index_relation);
     }

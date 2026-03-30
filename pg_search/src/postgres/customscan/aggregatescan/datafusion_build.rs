@@ -503,6 +503,22 @@ pub unsafe fn translate_having_qual(
     }
     let tag = (*node).type_;
     match tag {
+        // Postgres wraps HAVING quals in a List node (even for a single qual).
+        // Treat it as an implicit AND of the list elements.
+        pg_sys::NodeTag::T_List => {
+            let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+            let children: Vec<_> = list
+                .iter_ptr()
+                .filter_map(|child| translate_having_qual(child, targetlist))
+                .collect();
+            if children.is_empty() {
+                None
+            } else if children.len() == 1 {
+                Some(children.into_iter().next().unwrap())
+            } else {
+                Some(HavingExpr::And(children))
+            }
+        }
         pg_sys::NodeTag::T_Aggref => {
             let aggref = node as *mut pg_sys::Aggref;
             let aggfnoid = (*aggref).aggfnoid.to_u32();

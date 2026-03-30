@@ -338,8 +338,11 @@ unsafe fn all_vars_are_fast_fields_recursive(
         for source in sources {
             if source.contains_rti(var_ref.rti) {
                 if let Some(base_info) = find_base_info_recursive(source, var_ref.rti) {
-                    let (heaprelid, indexrelid) = (base_info.heaprelid, base_info.indexrelid);
-                    if !is_column_fast_field(heaprelid, indexrelid, var_ref.attno) {
+                    let heaprel = PgSearchRelation::open(base_info.heaprelid);
+                    let indexrel = PgSearchRelation::open(base_info.indexrelid);
+                    if resolve_fast_field(var_ref.attno as i32, &heaprel.tuple_desc(), &indexrel)
+                        .is_none()
+                    {
                         return false;
                     }
                 } else {
@@ -355,21 +358,4 @@ unsafe fn all_vars_are_fast_fields_recursive(
     }
 
     true
-}
-
-/// Check if a specific column is available as a fast field in the relation's BM25 index.
-///
-/// Returns true if:
-/// - The column is explicitly marked as a fast field in the index schema, OR
-/// - The column is the key_field (which is implicitly stored as a fast field in Tantivy)
-pub(super) unsafe fn is_column_fast_field(
-    heaprelid: pg_sys::Oid,
-    indexrelid: pg_sys::Oid,
-    attno: pg_sys::AttrNumber,
-) -> bool {
-    let heaprel = PgSearchRelation::open(heaprelid);
-    let indexrel = PgSearchRelation::open(indexrelid);
-    let tupdesc = heaprel.tuple_desc();
-
-    resolve_fast_field(attno as i32, &tupdesc, &indexrel).is_some()
 }

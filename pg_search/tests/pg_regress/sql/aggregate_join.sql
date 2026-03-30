@@ -144,7 +144,7 @@ WHERE p.description @@@ 'laptop';
 -- =====================================================================
 
 -- Test 4.1: Single-column GROUP BY
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id

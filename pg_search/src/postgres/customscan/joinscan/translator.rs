@@ -309,6 +309,44 @@ pub fn make_col(relation: &str, name: &str) -> Expr {
     ))
 }
 
+/// Build equi-join filter expressions from a [`JoinNode`]'s key pairs.
+///
+/// Shared between JoinScan and AggregateScan `build_relnode_df` implementations.
+/// Each key pair is resolved against the join's left/right subtrees and converted
+/// to a `left_col = right_col` DataFusion expression.
+pub fn build_equi_join_exprs(
+    join: &super::build::JoinNode,
+) -> datafusion::common::Result<Vec<Expr>> {
+    use super::build::RelationAlias;
+    use datafusion::error::DataFusionError;
+
+    let mut on = Vec::with_capacity(join.equi_keys.len());
+    for jk in &join.equi_keys {
+        let ((left_source, left_attno), (right_source, right_attno)) =
+            jk.resolve_against(&join.left, &join.right).ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "Failed to resolve join key: outer_rti={}, inner_rti={}",
+                    jk.outer_rti, jk.inner_rti
+                ))
+            })?;
+
+        let left_alias = RelationAlias::new(left_source.scan_info.alias.as_deref())
+            .execution(left_source.plan_position);
+        let right_alias = RelationAlias::new(right_source.scan_info.alias.as_deref())
+            .execution(right_source.plan_position);
+
+        let left_col = left_source
+            .column_name(left_attno)
+            .ok_or_else(|| DataFusionError::Internal("Missing left join-key column".into()))?;
+        let right_col = right_source
+            .column_name(right_attno)
+            .ok_or_else(|| DataFusionError::Internal("Missing right join-key column".into()))?;
+
+        on.push(make_col(&left_alias, &left_col).eq(make_col(&right_alias, &right_col)));
+    }
+    Ok(on)
+}
+
 pub struct CombinedMapper<'a> {
     pub sources: &'a [&'a JoinSource],
     pub output_columns: &'a [OutputColumnInfo],

@@ -92,7 +92,21 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'nonexistent_term_xyz';
 
--- Test 5: Verify single-table aggregates still use Tantivy backend
+-- Test 5: GROUP BY + ORDER BY on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+GROUP BY p.category
+ORDER BY p.category;
+
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 6: Verify single-table aggregates still use Tantivy backend
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 

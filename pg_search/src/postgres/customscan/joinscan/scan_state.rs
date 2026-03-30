@@ -343,39 +343,7 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
-                let mut on: Vec<Expr> = Vec::new();
-                for jk in &join.equi_keys {
-                    // Resolve key sides against the CURRENT join node first.
-                    // This avoids binding to the wrong source when the same base table
-                    // appears multiple times in the overall plan.
-                    let ((left_source, left_attno), (right_source, right_attno)) = jk
-                        .resolve_against(&join.left, &join.right)
-                        .ok_or_else(|| {
-                            DataFusionError::Internal(format!(
-                                "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",
-                                jk.outer_rti, jk.inner_rti
-                            ))
-                        })?;
-
-                    let left_idx = left_source.plan_position;
-                    let right_idx = right_source.plan_position;
-
-                    let left_alias = RelationAlias::new(left_source.scan_info.alias.as_deref())
-                        .execution(left_idx);
-                    let right_alias = RelationAlias::new(right_source.scan_info.alias.as_deref())
-                        .execution(right_idx);
-
-                    let left_col_name = left_source
-                        .column_name(left_attno)
-                        .ok_or_else(|| DataFusionError::Internal("Missing column name".into()))?;
-                    let right_col_name = right_source
-                        .column_name(right_attno)
-                        .ok_or_else(|| DataFusionError::Internal("Missing column name".into()))?;
-
-                    let left_expr = make_col(&left_alias, &left_col_name);
-                    let right_expr = make_col(&right_alias, &right_col_name);
-                    on.push(left_expr.eq(right_expr));
-                }
+                let on = super::translator::build_equi_join_exprs(join)?;
 
                 let df_join_type = match join.join_type {
                     crate::postgres::customscan::joinscan::build::JoinType::Inner => {

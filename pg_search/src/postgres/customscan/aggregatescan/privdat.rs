@@ -46,32 +46,6 @@ pub enum PrivateData {
     },
 }
 
-impl PrivateData {
-    /// Helper to access Tantivy-specific fields. Panics if called on DataFusion variant.
-    pub fn as_tantivy(&self) -> (&pg_sys::Oid, &pg_sys::Index, &AggregateCSClause) {
-        match self {
-            PrivateData::Tantivy {
-                indexrelid,
-                heap_rti,
-                aggregate_clause,
-            } => (indexrelid, heap_rti, aggregate_clause),
-            PrivateData::DataFusion { .. } => {
-                panic!("called as_tantivy() on DataFusion PrivateData")
-            }
-        }
-    }
-
-    /// Returns true if this is the Tantivy backend path.
-    pub fn is_tantivy(&self) -> bool {
-        matches!(self, PrivateData::Tantivy { .. })
-    }
-
-    /// Returns true if this is the DataFusion backend path.
-    pub fn is_datafusion(&self) -> bool {
-        matches!(self, PrivateData::DataFusion { .. })
-    }
-}
-
 impl From<*mut pg_sys::List> for PrivateData {
     fn from(list: *mut pg_sys::List) -> Self {
         unsafe {

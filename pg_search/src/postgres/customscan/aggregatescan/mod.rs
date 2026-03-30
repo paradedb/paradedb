@@ -24,7 +24,6 @@ pub mod exec;
 pub mod filterquery;
 pub mod groupby;
 pub mod join_targetlist;
-pub mod joinscan_reexports;
 pub mod limit_offset;
 pub mod orderby;
 pub mod privdat;
@@ -342,6 +341,14 @@ impl CustomScan for AggregateScan {
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         state.custom_state_mut().state = ExecutionState::NotStarted;
+        // Reset DataFusion state so rescan rebuilds the plan and stream.
+        // Drop stream before runtime to avoid tokio panics.
+        if let Some(ref mut df_state) = state.custom_state_mut().datafusion_state {
+            df_state.stream = None;
+            df_state.current_batch = None;
+            df_state.batch_row_idx = 0;
+            df_state.runtime = None;
+        }
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
@@ -872,9 +879,12 @@ impl AggregateScan {
     ) -> *mut pg_sys::TupleTableSlot {
         use crate::postgres::customscan::aggregatescan::datafusion_exec::build_join_aggregate_plan;
         use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
+        use crate::postgres::customscan::joinscan::memory::create_memory_pool;
         use crate::postgres::customscan::joinscan::scan_state::{
             build_joinscan_physical_plan, create_session_context,
         };
+        use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+        use datafusion::execution::TaskContext;
         use std::sync::Arc;
 
         // Grab the scan_slot pointer before entering the mutable borrow
@@ -909,7 +919,22 @@ impl AggregateScan {
                 Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
             };
 
-            let task_ctx = Arc::new(datafusion::execution::TaskContext::default());
+            let memory_pool = create_memory_pool(
+                &physical_plan,
+                unsafe { pg_sys::work_mem as usize * 1024 },
+                unsafe { pg_sys::hash_mem_multiplier },
+            );
+
+            let task_ctx = Arc::new(
+                TaskContext::default()
+                    .with_session_config(ctx.state().config().clone())
+                    .with_runtime(Arc::new(
+                        RuntimeEnvBuilder::new()
+                            .with_memory_pool(memory_pool)
+                            .build()
+                            .expect("Failed to create RuntimeEnv"),
+                    )),
+            );
             let stream = match physical_plan.execute(0, task_ctx) {
                 Ok(s) => s,
                 Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),

@@ -26,20 +26,19 @@
 
 use std::sync::Arc;
 
+use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::aggregatescan::join_targetlist::{
+    AggKind, JoinAggregateEntry, JoinAggregateTargetList,
+};
+use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
+use crate::postgres::customscan::joinscan::translator::{build_equi_join_exprs, make_col};
+use crate::scan::info::RowEstimate;
+use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
+use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
-
-use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::aggregatescan::join_targetlist::{
-    AggKind, JoinAggregateTargetList,
-};
-use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
-use crate::postgres::customscan::joinscan::translator::make_col;
-use crate::scan::PgSearchTableProvider;
-
-use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
 /// scan(s) → join → aggregate.
@@ -69,32 +68,17 @@ pub async fn build_join_aggregate_plan(
         .enumerate()
         .map(|(i, agg)| {
             let agg_expr = match agg.agg_kind {
-                AggKind::CountStar => count(lit(1)),
-                AggKind::Count => {
-                    let col_expr = agg_field_col(agg, plan);
-                    count(col_expr)
-                }
-                AggKind::Sum => {
-                    let col_expr = agg_field_col(agg, plan);
-                    sum(col_expr)
-                }
-                AggKind::Avg => {
-                    let col_expr = agg_field_col(agg, plan);
-                    avg(col_expr)
-                }
-                AggKind::Min => {
-                    let col_expr = agg_field_col(agg, plan);
-                    min(col_expr)
-                }
-                AggKind::Max => {
-                    let col_expr = agg_field_col(agg, plan);
-                    max(col_expr)
-                }
-            };
+                AggKind::CountStar => Ok(count(lit(1))),
+                AggKind::Count => agg_field_col(agg, plan).map(count),
+                AggKind::Sum => agg_field_col(agg, plan).map(sum),
+                AggKind::Avg => agg_field_col(agg, plan).map(avg),
+                AggKind::Min => agg_field_col(agg, plan).map(min),
+                AggKind::Max => agg_field_col(agg, plan).map(max),
+            }?;
             // Alias for stable reference
-            agg_expr.alias(format!("agg_{}", i))
+            Ok(agg_expr.alias(format!("agg_{}", i)))
         })
-        .collect();
+        .collect::<Result<Vec<Expr>>>()?;
 
     // Step 4: Apply aggregate
     let df = df.aggregate(group_exprs, agg_exprs)?;
@@ -126,33 +110,7 @@ fn build_relnode_df<'a>(
                 let left_df = build_relnode_df(ctx, &join.left).await?;
                 let right_df = build_relnode_df(ctx, &join.right).await?;
 
-                // Build equi-join expressions
-                let mut on: Vec<Expr> = Vec::new();
-                for jk in &join.equi_keys {
-                    let ((left_source, left_attno), (right_source, right_attno)) =
-                        jk.resolve_against(&join.left, &join.right).ok_or_else(|| {
-                            DataFusionError::Internal(format!(
-                                "Failed to resolve join key: outer_rti={}, inner_rti={}",
-                                jk.outer_rti, jk.inner_rti
-                            ))
-                        })?;
-
-                    let left_alias = RelationAlias::new(left_source.scan_info.alias.as_deref())
-                        .execution(left_source.plan_position);
-                    let right_alias = RelationAlias::new(right_source.scan_info.alias.as_deref())
-                        .execution(right_source.plan_position);
-
-                    let left_col = left_source
-                        .column_name(left_attno)
-                        .ok_or_else(|| DataFusionError::Internal("Missing left column".into()))?;
-                    let right_col = right_source
-                        .column_name(right_attno)
-                        .ok_or_else(|| DataFusionError::Internal("Missing right column".into()))?;
-
-                    on.push(
-                        make_col(&left_alias, &left_col).eq(make_col(&right_alias, &right_col)),
-                    );
-                }
+                let on = build_equi_join_exprs(join)?;
 
                 let df_join_type = match join.join_type {
                     crate::postgres::customscan::joinscan::build::JoinType::Inner => {
@@ -201,8 +159,8 @@ async fn build_source_df(
     // single-threaded, so the per-worker estimate equals the total estimate.
     if scan_info.estimated_rows_per_worker.is_none() {
         scan_info.estimated_rows_per_worker = Some(match scan_info.estimate {
-            crate::scan::info::RowEstimate::Known(n) => n,
-            crate::scan::info::RowEstimate::Unknown => 1000, // conservative fallback
+            RowEstimate::Known(n) => n,
+            RowEstimate::Unknown => 1000, // conservative fallback
         });
     }
 
@@ -274,21 +232,21 @@ fn resolve_source_column(
             }
         }
         // Should not happen — the planner validated all RTIs
+        pgrx::warning!(
+            "resolve_source_column: RTI {} not found in plan sources",
+            rti
+        );
         (format!("unknown_rti_{}", rti), field_name.to_string())
     }
 }
 
 /// Build a DataFusion column expression for an aggregate's field reference.
-fn agg_field_col(
-    agg: &crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateEntry,
-    plan: &RelNode,
-) -> Expr {
-    let (rti, _attno, ref field_name) = agg
-        .field_ref
-        .as_ref()
-        .expect("non-COUNT(*) aggregate must have a field reference");
+fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
+    let (rti, _attno, ref field_name) = agg.field_ref.as_ref().ok_or_else(|| {
+        DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
+    })?;
 
     let source = plan.source_for_rti_in_subtree(*rti);
     let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
-    make_col(&alias, field_name)
+    Ok(make_col(&alias, field_name))
 }

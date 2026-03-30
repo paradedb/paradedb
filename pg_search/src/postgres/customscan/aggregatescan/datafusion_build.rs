@@ -24,10 +24,13 @@
 //! `JoinExpr` nodes, and reconstruct a [`RelNode`] tree that downstream code can
 //! lower into a DataFusion plan.
 
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
+use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
     JoinKeyPair, JoinNode, JoinSource, JoinSourceCandidate, JoinType, PlannerRootId, RelNode,
 };
+use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid, get_rte};
 use crate::postgres::rel::PgSearchRelation;
@@ -87,12 +90,24 @@ pub unsafe fn collect_join_agg_sources(
     sources
 }
 
-/// Build a [`RelNode`] tree by walking the Postgres parse tree's `jointree`
-/// and extracting equi-join keys from the `input_rel`'s cheapest path.
+/// Build a [`RelNode`] tree using two complementary sources of information:
 ///
-/// We use the parse tree for the join structure (FROM items, explicit JOINs)
-/// and the planner's path for equi-join keys (since the parser moves quals
-/// into restrictinfo lists during planning).
+/// 1. **Parse tree** (`root->parse->jointree`): provides the join **structure** —
+///    which tables participate, whether they use explicit `JOIN` syntax or
+///    comma-separated `FROM`, and the join type (INNER, LEFT, etc.). This is
+///    walked via [`build_relnode_from_fromexpr`] to produce the `RelNode` skeleton.
+///
+/// 2. **Cheapest path** (`input_rel.cheapest_total_path`): provides the equi-join
+///    **keys** (e.g., `a.id = b.id`). By the time we reach `UPPERREL_GROUP_AGG`,
+///    the planner has absorbed WHERE-clause quals into `RestrictInfo` lists on
+///    the planned `JoinPath` nodes — so `(*from).quals` can be null even for
+///    `SELECT ... FROM a, b WHERE a.id = b.id`. We recursively walk the path
+///    tree via [`extract_equi_keys_from_path`], inspecting each `JoinPath`'s
+///    `joinrestrictinfo` for `OpExpr` nodes with merge-joinable (equality)
+///    operators whose two sides reference different base relations.
+///
+/// The parse tree gives the skeleton, the path gives the keys, and
+/// [`inject_equi_keys`] attaches the keys to the topmost `JoinNode`.
 pub unsafe fn extract_join_tree_from_parse(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinAggSource],
@@ -244,7 +259,7 @@ unsafe fn build_scan_node(
                         &context,
                         rti,
                         ri.cast(),
-                        crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
+                        RestrictInfoType::BaseRelation,
                         bm25_index,
                         false,
                         &mut state,
@@ -441,12 +456,17 @@ unsafe fn extract_equi_keys_from_quals(
     Ok(())
 }
 
-/// Extract equi-join keys from the `input_rel`'s cheapest path.
+/// Extract equi-join keys from the `input_rel`'s cheapest planned path.
 ///
-/// At `UPPERREL_GROUP_AGG`, `input_rel` is a `RELOPT_JOINREL` whose `pathlist`
-/// contains planned join paths. We extract equi-keys from the cheapest path's
-/// `joinrestrictinfo` — specifically looking for `OpExpr` clauses with equality
-/// operators referencing two different base relations.
+/// At `UPPERREL_GROUP_AGG`, `input_rel` is a `RELOPT_JOINREL` whose cheapest
+/// path is a tree of `JoinPath` nodes (NestPath / MergePath / HashPath). Each
+/// `JoinPath` carries a `joinrestrictinfo` list of `RestrictInfo` nodes — these
+/// are the join conditions the planner collected from WHERE and ON clauses.
+///
+/// We recursively walk this path tree and, for each `RestrictInfo`, check if its
+/// clause is an `OpExpr` with a merge-joinable (equality) operator whose two
+/// `Var` arguments reference different base relations in our `sources`. If so,
+/// we extract a `JoinKeyPair` with the (rti, attno) from each side plus type info.
 unsafe fn extract_equi_keys_from_path(
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],
@@ -463,11 +483,13 @@ unsafe fn extract_equi_keys_from_path(
     keys
 }
 
-/// Check whether the join path has any non-equi-join quals (OR across tables,
-/// cross-table filters) that our DataFusion backend can't execute.
+/// Check whether the join path has non-equi-join quals that our DataFusion
+/// backend can't execute (e.g., cross-table OR conditions, inequality filters).
 ///
-/// Walks the cheapest path's joinrestrictinfo and counts entries that aren't
-/// equi-join keys. If any remain, the query has post-join filters we'd lose.
+/// Uses the same path-walking strategy as [`extract_equi_keys_from_path`] but
+/// counts total `RestrictInfo` entries vs. those that are equi-join keys. If
+/// `total > equi`, the remaining entries are post-join filters we'd silently
+/// drop, producing wrong results — so the caller rejects the DataFusion path.
 pub unsafe fn has_non_equi_join_quals(
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],
@@ -603,17 +625,24 @@ pub unsafe fn populate_required_fields(
     plan: &mut RelNode,
     targetlist: &super::join_targetlist::JoinAggregateTargetList,
 ) -> Result<(), String> {
-    use crate::postgres::customscan::pullup::resolve_fast_field;
-
+    let join_keys = plan.join_keys();
     let mut sources = plan.sources_mut();
 
-    for source in &mut sources {
-        let heaprel = PgSearchRelation::open(source.scan_info.heaprelid);
-        let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
+    // Open relations once per source and reuse throughout
+    let source_rels: Vec<_> = sources
+        .iter()
+        .map(|s| {
+            let heaprel = PgSearchRelation::open(s.scan_info.heaprelid);
+            let indexrel = PgSearchRelation::open(s.scan_info.indexrelid);
+            (heaprel, indexrel)
+        })
+        .collect();
+
+    for (idx, source) in sources.iter_mut().enumerate() {
+        let (heaprel, indexrel) = &source_rels[idx];
         let tupdesc = heaprel.tuple_desc();
 
         // Always add Ctid so the provider schema is never empty (needed for COUNT(*))
-        use crate::index::fast_fields_helper::WhichFastField;
         source.scan_info.add_field(
             pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
             WhichFastField::Ctid,
@@ -622,7 +651,7 @@ pub unsafe fn populate_required_fields(
         // Add fields referenced in GROUP BY
         for gc in &targetlist.group_columns {
             if source.contains_rti(gc.rti) {
-                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, &indexrel) {
+                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
                     source.scan_info.add_field(gc.attno, field);
                 }
             }
@@ -632,49 +661,32 @@ pub unsafe fn populate_required_fields(
         for agg in &targetlist.aggregates {
             if let Some((rti, attno, _)) = &agg.field_ref {
                 if source.contains_rti(*rti) {
-                    if let Some(field) = resolve_fast_field(*attno as i32, &tupdesc, &indexrel) {
+                    if let Some(field) = resolve_fast_field(*attno as i32, &tupdesc, indexrel) {
                         source.scan_info.add_field(*attno, field);
                     }
                 }
             }
         }
-    }
 
-    // Also add fields for join keys — these MUST be resolvable as fast fields
-    // because DataFusion reads them from the BM25 index. If a join key can't be
-    // resolved, the PgSearchTableProvider would have no data columns, producing
-    // empty RecordBatches that crash execution.
-    let join_keys = plan.join_keys();
-    let mut sources = plan.sources_mut();
-    for jk in &join_keys {
-        for source in &mut sources {
-            if source.contains_rti(jk.outer_rti) {
-                let heaprel = PgSearchRelation::open(source.scan_info.heaprelid);
-                let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
-                let tupdesc = heaprel.tuple_desc();
-                match resolve_fast_field(jk.outer_attno as i32, &tupdesc, &indexrel) {
-                    Some(field) => source.scan_info.add_field(jk.outer_attno, field),
-                    None => {
-                        return Err(format!(
-                            "join key (attno={}) is not a fast field on table {}",
-                            jk.outer_attno,
-                            source.scan_info.heaprelid.to_u32()
-                        ));
-                    }
-                }
-            }
-            if source.contains_rti(jk.inner_rti) {
-                let heaprel = PgSearchRelation::open(source.scan_info.heaprelid);
-                let indexrel = PgSearchRelation::open(source.scan_info.indexrelid);
-                let tupdesc = heaprel.tuple_desc();
-                match resolve_fast_field(jk.inner_attno as i32, &tupdesc, &indexrel) {
-                    Some(field) => source.scan_info.add_field(jk.inner_attno, field),
-                    None => {
-                        return Err(format!(
-                            "join key (attno={}) is not a fast field on table {}",
-                            jk.inner_attno,
-                            source.scan_info.heaprelid.to_u32()
-                        ));
+        // Add join key fields — these MUST be resolvable as fast fields because
+        // DataFusion reads them from the BM25 index. If a join key can't be
+        // resolved, the PgSearchTableProvider would have no data columns, producing
+        // empty RecordBatches that crash execution.
+        for jk in &join_keys {
+            for &(rti, attno) in &[
+                (jk.outer_rti, jk.outer_attno),
+                (jk.inner_rti, jk.inner_attno),
+            ] {
+                if source.contains_rti(rti) {
+                    match resolve_fast_field(attno as i32, &tupdesc, indexrel) {
+                        Some(field) => source.scan_info.add_field(attno, field),
+                        None => {
+                            return Err(format!(
+                                "join key (attno={}) is not a fast field on table {}",
+                                attno,
+                                source.scan_info.heaprelid.to_u32()
+                            ));
+                        }
                     }
                 }
             }

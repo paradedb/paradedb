@@ -23,10 +23,9 @@
 //! - The aggregate result schema directly maps to the SQL output
 //! - Type conversion is limited to aggregate-relevant types
 
+use super::join_targetlist::{AggKind, JoinAggregateTargetList};
 use arrow_array::{Array, ArrayRef, RecordBatch};
 use pgrx::{pg_sys, IntoDatum};
-
-use super::join_targetlist::{AggKind, JoinAggregateTargetList};
 
 /// Project a single row from an aggregate `RecordBatch` into a Postgres `TupleTableSlot`.
 ///
@@ -162,7 +161,11 @@ fn arrow_value_to_datum(
         }
         DataType::UInt64 => {
             let val = col.as_any().downcast_ref::<UInt64Array>()?.value(row_idx);
-            int64_to_datum(val as i64, typoid)
+            // Use checked conversion to avoid silent overflow for values > i64::MAX
+            match i64::try_from(val) {
+                Ok(i_val) => int64_to_datum(i_val, typoid),
+                Err(_) => float64_to_datum(val as f64, typoid),
+            }
         }
         DataType::Float64 => {
             let val = col.as_any().downcast_ref::<Float64Array>()?.value(row_idx);
@@ -200,10 +203,24 @@ fn arrow_value_to_datum(
                 .downcast_ref::<Decimal128Array>()?
                 .value(row_idx);
             let scale = *scale as u32;
-            // Convert Decimal128 to f64 for Postgres
-            let divisor = 10_f64.powi(scale as i32);
-            let f_val = val as f64 / divisor;
-            float64_to_datum(f_val, typoid)
+            if typoid == pg_sys::NUMERICOID {
+                // Convert via string to preserve precision for NUMERIC targets
+                use pgrx::AnyNumeric;
+                let s = if scale == 0 {
+                    format!("{}", val)
+                } else {
+                    let divisor = 10i128.pow(scale);
+                    let whole = val / divisor;
+                    let frac = (val % divisor).unsigned_abs();
+                    format!("{}.{:0>width$}", whole, frac, width = scale as usize)
+                };
+                let numeric = AnyNumeric::try_from(s.as_str()).ok()?;
+                numeric.into_datum()
+            } else {
+                let divisor = 10_f64.powi(scale as i32);
+                let f_val = val as f64 / divisor;
+                float64_to_datum(f_val, typoid)
+            }
         }
         _ => {
             pgrx::warning!(

@@ -133,7 +133,39 @@ WHERE p.description @@@ 'nonexistent_term_xyz';
      0
 (1 row)
 
--- Test 5: Verify single-table aggregates still use Tantivy backend
+-- Test 5: GROUP BY + ORDER BY on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+GROUP BY p.category
+ORDER BY p.category;
+                                                     QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.category, (pdb.agg_fn('COUNT(*)'::text)), (pdb.agg_fn('SUM'::text))
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
+         Backend: DataFusion
+         Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+         Group By: category
+         Aggregates: COUNT(*)(*), SUM(price)
+(9 rows)
+
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count |   sum
+-------------+-------+---------
+ Clothing    |     1 |  129.99
+ Electronics |     4 | 4599.96
+ Sports      |     2 |  179.98
+(3 rows)
+
+-- Test 6: Verify single-table aggregates still use Tantivy backend
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
                                                                       QUERY PLAN                                                                       

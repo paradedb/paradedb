@@ -260,6 +260,7 @@ impl From<&Qual> for SearchQueryInput {
             // We decode the array and convert it to a Boolean query (should/must).
             Qual::OpExpr {
                 val,
+                opno,
                 scalar_array_use_or,
                 ..
             } => unsafe {
@@ -291,8 +292,17 @@ impl From<&Qual> for SearchQueryInput {
                         }
                     }
                 } else {
-                    SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
-                        .expect("rhs of @@@ operator Qual must not be null")
+                    match SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull) {
+                        Some(input) => input,
+                        None => {
+                            let op_name = crate::api::operator::operator_name_from_oid(*opno);
+                            panic!(
+                                "query is incompatible with pg_search's `{}` operator: \
+                                the right-hand side could not be converted to a search query",
+                                op_name
+                            );
+                        }
+                    }
                 }
             },
             // Convert to SearchQueryInput::PostgresExpression, which will be solved by

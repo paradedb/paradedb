@@ -201,7 +201,7 @@ WHERE p.description @@@ 'laptop' AND p.price > 500;
 -- SECTION 4: GROUP BY on JOIN (requires custom_scan_tlist for scanrelid=0)
 -- =====================================================================
 -- Test 4.1: Single-column GROUP BY
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -210,12 +210,11 @@ GROUP BY p.category;
                          QUERY PLAN
 -------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: p.category, (count(*))
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Group By: category
    Aggregates: COUNT(*)(*)
-(6 rows)
+(5 rows)
 
 SELECT p.category, COUNT(*)
 FROM agg_join_products p

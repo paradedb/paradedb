@@ -15,9 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-// These types are not yet called — they will be used by the planner integration in #4485.
-#![allow(dead_code)]
-
 //! Aggregate target list extraction for join aggregates.
 //!
 //! Parses `output_rel.reltarget.exprs` at the `UPPERREL_GROUP_AGG` stage to

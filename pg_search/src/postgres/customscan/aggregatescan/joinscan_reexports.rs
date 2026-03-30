@@ -45,9 +45,6 @@ pub use crate::postgres::customscan::joinscan::scan_state::create_session_contex
 // -- Memory pool --
 pub use crate::postgres::customscan::joinscan::memory::create_memory_pool;
 
-// -- Predicate utilities --
-pub use crate::postgres::customscan::joinscan::predicate::is_column_fast_field;
-
 // -- Expression translation --
 pub use crate::postgres::customscan::joinscan::translator::make_col;
 pub use crate::postgres::customscan::joinscan::translator::PredicateTranslator;

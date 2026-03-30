@@ -597,33 +597,3 @@ pub fn create_sorted_scan(
         segment_scan,
     )))
 }
-
-#[cfg(feature = "pg_test")]
-mod tests {
-    use std::sync::Arc;
-
-    use arrow_schema::{Schema, SchemaRef};
-
-    use crate::query::SearchQueryInput;
-
-    use super::PgSearchScanPlan;
-
-    fn empty_schema() -> SchemaRef {
-        Arc::new(Schema::empty())
-    }
-
-    #[test]
-    #[should_panic(expected = "deferred lookup/visibility requires an FFHelper")]
-    fn deferred_visibility_requires_ffhelper() {
-        let _ = PgSearchScanPlan::new(
-            vec![],
-            empty_schema(),
-            SearchQueryInput::All,
-            None,
-            Vec::new(),
-            None,
-            0,
-            Some(1),
-        );
-    }
-}

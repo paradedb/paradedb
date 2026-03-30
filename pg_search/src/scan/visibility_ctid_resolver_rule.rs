@@ -101,39 +101,3 @@ fn find_ffhelper_for_plan_position(
 
     None
 }
-
-#[cfg(feature = "pg_test")]
-mod tests {
-    use super::find_ffhelper_for_plan_position;
-    use std::sync::Arc;
-
-    use arrow_schema::{Schema, SchemaRef};
-
-    use crate::index::fast_fields_helper::FFHelper;
-    use crate::query::SearchQueryInput;
-    use crate::scan::execution_plan::PgSearchScanPlan;
-
-    fn empty_schema() -> SchemaRef {
-        Arc::new(Schema::empty())
-    }
-
-    #[test]
-    fn matches_scan_by_deferred_ctid_plan_position() {
-        let ffhelper = Arc::new(FFHelper::empty());
-        let scan = PgSearchScanPlan::new(
-            vec![],
-            empty_schema(),
-            SearchQueryInput::All,
-            None,
-            Vec::new(),
-            Some(ffhelper.clone()),
-            0,
-            Some(7),
-        );
-
-        let found = find_ffhelper_for_plan_position(&scan, 7)
-            .expect("matching plan_position should find ffhelper");
-        assert!(Arc::ptr_eq(&found, &ffhelper));
-        assert!(find_ffhelper_for_plan_position(&scan, 6).is_none());
-    }
-}

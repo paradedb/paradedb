@@ -250,28 +250,7 @@ fn float64_to_datum(val: f64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
 mod tests {
     use super::*;
     use arrow_array::*;
-    use arrow_schema::{DataType, Field, Schema};
     use std::sync::Arc;
-
-    /// Build a test RecordBatch with known values for projection testing.
-    #[allow(dead_code)]
-    fn make_test_batch() -> RecordBatch {
-        let schema = Schema::new(vec![
-            Field::new("category", DataType::Utf8, false),
-            Field::new("agg_0", DataType::Int64, false),
-            Field::new("agg_1", DataType::Float64, true),
-        ]);
-
-        RecordBatch::try_new(
-            Arc::new(schema),
-            vec![
-                Arc::new(StringArray::from(vec!["electronics", "sports"])),
-                Arc::new(Int64Array::from(vec![5, 3])),
-                Arc::new(Float64Array::from(vec![Some(99.5), None])),
-            ],
-        )
-        .unwrap()
-    }
 
     #[pgrx::pg_test]
     fn test_agg_project_arrow_int64() {

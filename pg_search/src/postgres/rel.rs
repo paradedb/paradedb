@@ -64,28 +64,6 @@ impl Display for SchemaError {
 
 impl Error for SchemaError {}
 
-const RELPERSISTENCE_PERMANENT_I8: i8 = pg_sys::RELPERSISTENCE_PERMANENT as i8;
-const RELPERSISTENCE_UNLOGGED_I8: i8 = pg_sys::RELPERSISTENCE_UNLOGGED as i8;
-const RELPERSISTENCE_TEMP_I8: i8 = pg_sys::RELPERSISTENCE_TEMP as i8;
-
-pub enum RELPersistence {
-    Permanent,
-    Unlogged,
-    Temp,
-}
-impl TryFrom<i8> for RELPersistence {
-    type Error = anyhow::Error;
-
-    fn try_from(value: i8) -> Result<Self, Self::Error> {
-        match value {
-            RELPERSISTENCE_PERMANENT_I8 => Ok(Self::Permanent),
-            RELPERSISTENCE_UNLOGGED_I8 => Ok(Self::Unlogged),
-            RELPERSISTENCE_TEMP_I8 => Ok(Self::Temp),
-            _ => Err(anyhow::anyhow!("Unknown relpersistence value provided.")),
-        }
-    }
-}
-
 /// Represents an opened Postgres relation to be used by pg_search.
 ///
 /// [`PgSearchRelation`] is reference counted and will close the underlying
@@ -258,11 +236,6 @@ impl PgSearchRelation {
 
     pub fn name(&self) -> &str {
         unsafe { name_data_to_str(&(*self.rd_rel).relname) }
-    }
-
-    pub fn persistence(&self) -> RELPersistence {
-        let v = unsafe { (*self.rd_rel).relpersistence };
-        RELPersistence::try_from(v).expect("Should always have a valid persistence value")
     }
 
     pub fn namespace(&self) -> &str {

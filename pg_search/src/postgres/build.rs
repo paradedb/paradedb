@@ -19,7 +19,7 @@ use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
-use crate::postgres::rel::{PgSearchRelation, RELPersistence};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::{SearchFieldConfig, SearchFieldType, SearchIndexSchema};
@@ -40,7 +40,7 @@ pub extern "C-unwind" fn ambuild(
     index_relation.set_is_create_index();
 
     unsafe {
-        build_empty(&index_relation);
+        build_empty(&index_relation, pg_sys::ForkNumber::MAIN_FORKNUM);
     }
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
@@ -84,16 +84,15 @@ pub extern "C-unwind" fn ambuild(
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
-    build_empty(&PgSearchRelation::from_pg(index_relation));
+    build_empty(
+        &PgSearchRelation::from_pg(index_relation),
+        pg_sys::ForkNumber::INIT_FORKNUM,
+    );
 }
 
-unsafe fn build_empty(index_relation: &PgSearchRelation) {
-    if matches!(index_relation.persistence(), RELPersistence::Unlogged) {
-        panic!("Unlogged tables are not supported.");
-    }
-
+unsafe fn build_empty(index_relation: &PgSearchRelation, fork: pg_sys::ForkNumber::Type) {
     unsafe {
-        MetaPage::init(index_relation);
+        MetaPage::init(index_relation, fork);
     }
 
     validate_index_config(index_relation);

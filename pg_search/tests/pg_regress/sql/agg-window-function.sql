@@ -38,7 +38,7 @@ SELECT
 FROM items
 WHERE id @@@ pdb.all();
 
--- This should work: pdb.agg() OVER () with ORDER BY + LIMIT (Top K facet pattern from docs)
+-- This works: pdb.agg() OVER () with ORDER BY indexed column + LIMIT
 SELECT
     id,
     description,
@@ -46,6 +46,29 @@ SELECT
 FROM items
 WHERE id @@@ pdb.all()
 ORDER BY id
+LIMIT 3;
+
+-- This fails: pdb.agg() OVER () with ORDER BY pdb.score() + LIMIT
+-- This is the most natural search pattern (top results by relevance + facets)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+    id,
+    description,
+    pdb.score(id) as score,
+    pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM items
+WHERE description @@@ pdb.all()
+ORDER BY pdb.score(id) DESC
+LIMIT 3;
+
+SELECT
+    id,
+    description,
+    pdb.score(id) as score,
+    pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER ()
+FROM items
+WHERE description @@@ pdb.all()
+ORDER BY pdb.score(id) DESC
 LIMIT 3;
 
 DROP TABLE items CASCADE;

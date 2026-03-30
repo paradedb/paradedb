@@ -27,83 +27,19 @@
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, JoinType, Result};
-use datafusion::execution::context::{QueryPlanner, SessionState};
-use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::logical_expr::{lit, Expr};
-use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
-use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
-use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
-use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
+use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
-
-use async_trait::async_trait;
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateTargetList,
 };
 use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
-use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use crate::postgres::customscan::joinscan::translator::make_col;
 use crate::scan::PgSearchTableProvider;
 
-// Re-export DataFusion aggregate helpers
 use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
-
-/// Custom query planner that uses our LateMaterializePlanner extension.
-/// Same as JoinScan's PgSearchQueryPlanner.
-#[derive(Debug)]
-struct AggQueryPlanner;
-
-#[async_trait]
-impl QueryPlanner for AggQueryPlanner {
-    async fn create_physical_plan(
-        &self,
-        logical_plan: &datafusion::logical_expr::LogicalPlan,
-        session_state: &SessionState,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        let physical_planner = DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(
-            crate::scan::late_materialization::LateMaterializePlanner {},
-        )]);
-        physical_planner
-            .create_physical_plan(logical_plan, session_state)
-            .await
-    }
-}
-
-/// Create a DataFusion [`SessionContext`] for aggregate workloads.
-///
-/// Similar to JoinScan's `create_session_context()` but without
-/// `SegmentedTopKRule` (row-level TopK doesn't apply to aggregates).
-pub fn create_aggregate_session_context() -> SessionContext {
-    let config = SessionConfig::new().with_target_partitions(1);
-
-    let mut builder = SessionStateBuilder::new().with_config(config);
-
-    // SortMergeJoinEnforcer: converts HashJoinExec → SortMergeJoinExec when inputs are sorted
-    if crate::gucs::is_columnar_sort_enabled() {
-        builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
-        builder =
-            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-    }
-
-    // LateMaterializationRule: defer string column reads during join phase
-    builder = builder.with_optimizer_rule(Arc::new(
-        crate::scan::late_materialization::LateMaterializationRule,
-    ));
-
-    // Our custom query planner
-    builder = builder.with_query_planner(Arc::new(AggQueryPlanner {}));
-
-    // Skip SegmentedTopKRule — not applicable to aggregates (M2 will add TopKAggregateRule)
-
-    // FilterPushdown: push filters to PgSearchTableProvider
-    builder =
-        builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-
-    SessionContext::new_with_state(builder.build())
-}
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
 /// scan(s) → join → aggregate.
@@ -164,24 +100,6 @@ pub async fn build_join_aggregate_plan(
     let df = df.aggregate(group_exprs, agg_exprs)?;
 
     df.into_optimized_plan()
-}
-
-/// Build a DataFusion physical plan from a logical plan.
-pub async fn build_aggregate_physical_plan(
-    ctx: &SessionContext,
-    logical_plan: datafusion::logical_expr::LogicalPlan,
-) -> Result<Arc<dyn ExecutionPlan>> {
-    let state = ctx.state();
-    let plan = state
-        .query_planner()
-        .create_physical_plan(&logical_plan, &state)
-        .await?;
-
-    if plan.output_partitioning().partition_count() > 1 {
-        Ok(Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>)
-    } else {
-        Ok(plan)
-    }
 }
 
 /// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].

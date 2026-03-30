@@ -235,8 +235,43 @@ pub async fn build_join_aggregate_plan(
         })
         .collect();
 
+    // Step 3b: Build HAVING-only aggregate expressions (hidden — not projected to output)
+    let having_agg_exprs: Vec<Expr> = targetlist
+        .having_aggregates
+        .iter()
+        .enumerate()
+        .map(|(i, agg)| {
+            let agg_expr = match agg.agg_kind {
+                AggKind::CountStar => count(lit(1)),
+                _ => {
+                    let col_expr = agg_field_col(agg, plan);
+                    match agg.agg_kind {
+                        AggKind::Count => count(col_expr),
+                        AggKind::Sum => sum(col_expr),
+                        AggKind::Avg => avg(col_expr),
+                        AggKind::Min => min(col_expr),
+                        AggKind::Max => max(col_expr),
+                        AggKind::StddevSamp => stddev(col_expr),
+                        AggKind::StddevPop => stddev_pop(col_expr),
+                        AggKind::VarSamp => var_sample(col_expr),
+                        AggKind::VarPop => var_pop(col_expr),
+                        AggKind::BoolAnd => bool_and(col_expr),
+                        AggKind::BoolOr => bool_or(col_expr),
+                        AggKind::ArrayAgg => array_agg(col_expr),
+                        _ => count(lit(1)), // Fallback for unexpected kinds
+                    }
+                }
+            };
+            agg_expr.alias(format!("having_agg_{}", i))
+        })
+        .collect();
+
+    // Combine visible + hidden aggregates for the DataFusion plan
+    let mut all_agg_exprs = agg_exprs;
+    all_agg_exprs.extend(having_agg_exprs);
+
     // Step 4: Apply aggregate
-    let mut df = df.aggregate(group_exprs, agg_exprs)?;
+    let mut df = df.aggregate(group_exprs, all_agg_exprs)?;
 
     // Step 4.5: Apply HAVING filter (post-aggregate)
     if let Some(having) = having_filter {
@@ -401,6 +436,13 @@ fn having_expr_to_datafusion(
         HavingExpr::AggRef(idx) => {
             if *idx < targetlist.aggregates.len() {
                 Some(datafusion::prelude::col(format!("agg_{}", idx)))
+            } else {
+                None
+            }
+        }
+        HavingExpr::HavingAggRef(idx) => {
+            if *idx < targetlist.having_aggregates.len() {
+                Some(datafusion::prelude::col(format!("having_agg_{}", idx)))
             } else {
                 None
             }

@@ -203,6 +203,69 @@ HAVING COUNT(*) > 0
 ORDER BY p.category;
 
 -- =====================================================================
+-- Test 4: HAVING with aggregate NOT in SELECT list (hidden aggregate)
+-- The HAVING clause's COUNT(*) is not in the SELECT list — it should
+-- be computed as a hidden aggregate by DataFusion, not cause fallback.
+-- =====================================================================
+
+-- Test 4a: SELECT SUM, HAVING COUNT > 1
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, SUM(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 1;
+
+SELECT p.category, SUM(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 1
+ORDER BY p.category;
+
+-- Test 4b: Parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, SUM(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 1
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 4c: HAVING with threshold that filters everything
+SELECT p.category, AVG(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 100
+ORDER BY p.category;
+
+-- Test 4d: Multiple hidden aggregates — HAVING with AND
+SELECT p.category, MIN(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 1 AND SUM(r.rating) > 5
+ORDER BY p.category;
+
+-- Test 4d parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, MIN(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 1 AND SUM(r.rating) > 5
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE fb_reviews;

@@ -886,7 +886,8 @@ impl AggregateScan {
         // DataFusion's join processing.
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let targetlist = match unsafe { extract_aggregate_targetlist(builder.args(), &sources) } {
+        let mut targetlist = match unsafe { extract_aggregate_targetlist(builder.args(), &sources) }
+        {
             Ok(tl) => tl,
             Err(e) => {
                 Self::add_planner_warning(
@@ -949,17 +950,19 @@ impl AggregateScan {
         };
 
         // Extract HAVING clause for post-aggregate filtering.
-        // If the HAVING clause exists but can't be translated (e.g., it references
-        // an aggregate not in the SELECT list), fall back to Postgres native.
+        // Aggregates referenced only in HAVING (not in SELECT) are automatically
+        // added to targetlist.having_aggregates as hidden aggregates.
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
-                let result =
-                    datafusion_build::translate_having_qual((*parse).havingQual, &targetlist);
+                let result = datafusion_build::translate_having_qual(
+                    (*parse).havingQual,
+                    &mut targetlist,
+                    &sources,
+                );
                 if result.is_none() {
                     Self::add_planner_warning(
-                        "Aggregate Scan (DataFusion) not used: HAVING clause references \
-                         aggregates not in the SELECT list",
+                        "Aggregate Scan (DataFusion) not used: could not translate HAVING clause",
                         "join".to_string(),
                     );
                     return Vec::new();

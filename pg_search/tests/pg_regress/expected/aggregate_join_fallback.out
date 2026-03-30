@@ -298,6 +298,96 @@ ORDER BY p.category;
 (3 rows)
 
 -- =====================================================================
+-- Test 4: HAVING with aggregate NOT in SELECT list (hidden aggregate)
+-- The HAVING clause's COUNT(*) is not in the SELECT list — it should
+-- be computed as a hidden aggregate by DataFusion, not cause fallback.
+-- =====================================================================
+-- Test 4a: SELECT SUM, HAVING COUNT > 1
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, SUM(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 1;
+                     QUERY PLAN                     
+----------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: p.category, (sum(r.rating))
+   Backend: DataFusion
+   Indexes: fb_products_idx (p), fb_reviews_idx (r)
+   Group By: category
+   Aggregates: SUM(rating)
+(6 rows)
+
+SELECT p.category, SUM(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 1
+ORDER BY p.category;
+  category   | sum 
+-------------+-----
+ Electronics |   9
+(1 row)
+
+-- Test 4b: Parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, SUM(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 1
+ORDER BY p.category;
+  category   | sum 
+-------------+-----
+ Electronics |   9
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test 4c: HAVING with threshold that filters everything
+SELECT p.category, AVG(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 100
+ORDER BY p.category;
+ category | avg 
+----------+-----
+(0 rows)
+
+-- Test 4d: Multiple hidden aggregates — HAVING with AND
+SELECT p.category, MIN(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 1 AND SUM(r.rating) > 5
+ORDER BY p.category;
+  category   | min 
+-------------+-----
+ Electronics |   4
+(1 row)
+
+-- Test 4d parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, MIN(r.rating)
+FROM fb_products p
+JOIN fb_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+HAVING COUNT(*) > 1 AND SUM(r.rating) > 5
+ORDER BY p.category;
+  category   | min 
+-------------+-----
+ Electronics |   4
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE fb_reviews;

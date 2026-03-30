@@ -697,11 +697,20 @@ unsafe fn contains_or_expr(node: *mut pg_sys::Node) -> bool {
 }
 
 /// Translate a HAVING qual into a serializable `HavingExpr`.
+///
+/// When the HAVING clause references aggregates not in the SELECT list,
+/// they are automatically added to `targetlist.having_aggregates` as hidden
+/// aggregates (computed by DataFusion but not projected to Postgres output).
 pub unsafe fn translate_having_qual(
     node: *mut pg_sys::Node,
-    targetlist: &crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList,
+    targetlist: &mut crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList,
+    sources: &[JoinAggSource],
 ) -> Option<crate::postgres::customscan::aggregatescan::privdat::HavingExpr> {
+    use crate::postgres::customscan::aggregatescan::join_targetlist::{
+        classify_aggregate_by_name, classify_aggregate_oid, JoinAggregateEntry,
+    };
     use crate::postgres::customscan::aggregatescan::privdat::{FilterOp, HavingExpr};
+    use crate::postgres::var::fieldname_from_var;
 
     if node.is_null() {
         return None;
@@ -714,7 +723,7 @@ pub unsafe fn translate_having_qual(
             let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
             let children: Vec<_> = list
                 .iter_ptr()
-                .filter_map(|child| translate_having_qual(child, targetlist))
+                .filter_map(|child| translate_having_qual(child, targetlist, sources))
                 .collect();
             if children.is_empty() {
                 None
@@ -728,6 +737,9 @@ pub unsafe fn translate_having_qual(
             let aggref = node as *mut pg_sys::Aggref;
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let aggstar = (*aggref).aggstar;
+            let has_distinct = !(*aggref).aggdistinct.is_null();
+
+            // First check if this aggregate is already in the SELECT list
             for (i, agg) in targetlist.aggregates.iter().enumerate() {
                 if agg.func_oid == aggfnoid
                     && (aggstar
@@ -737,7 +749,67 @@ pub unsafe fn translate_having_qual(
                     return Some(HavingExpr::AggRef(i));
                 }
             }
-            None
+
+            // Check if already in having_aggregates
+            for (i, agg) in targetlist.having_aggregates.iter().enumerate() {
+                if agg.func_oid == aggfnoid
+                    && (aggstar
+                        == (agg.agg_kind
+                            == crate::postgres::customscan::aggregatescan::join_targetlist::AggKind::CountStar))
+                {
+                    return Some(HavingExpr::HavingAggRef(i));
+                }
+            }
+
+            // Not found — classify and add as a hidden HAVING aggregate
+            let agg_kind = classify_aggregate_oid(aggfnoid, aggstar, has_distinct)
+                .or_else(|| classify_aggregate_by_name(aggfnoid))?;
+
+            // Extract field reference for non-star aggregates
+            let field_ref = if !aggstar {
+                let args = PgList::<pg_sys::Node>::from_pg((*aggref).args);
+                if let Some(first_arg) = args.get_ptr(0) {
+                    if (*first_arg).type_ == pg_sys::NodeTag::T_TargetEntry {
+                        let te = first_arg as *mut pg_sys::TargetEntry;
+                        let expr = (*te).expr as *mut pg_sys::Node;
+                        if (*expr).type_ == pg_sys::NodeTag::T_Var {
+                            let var = expr as *mut pg_sys::Var;
+                            let rti = (*var).varno as pg_sys::Index;
+                            let attno = (*var).varattno;
+                            // Resolve field name via the source's heaprelid
+                            let source = sources.iter().find(|s| s.rti == rti);
+                            source.and_then(|s| {
+                                fieldname_from_var(s.relid, var, attno)
+                                    .map(|name| (rti, attno, name.to_string()))
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // For non-star aggregates, field_ref is required
+            if !aggstar && field_ref.is_none() {
+                return None;
+            }
+
+            let idx = targetlist.having_aggregates.len();
+            targetlist.having_aggregates.push(JoinAggregateEntry {
+                func_oid: aggfnoid,
+                agg_kind,
+                field_ref,
+                output_index: usize::MAX, // Not projected to output
+                result_type_oid: (*aggref).aggtype,
+            });
+
+            Some(HavingExpr::HavingAggRef(idx))
         }
         pg_sys::NodeTag::T_Const => {
             let c = node as *mut pg_sys::Const;
@@ -770,8 +842,8 @@ pub unsafe fn translate_having_qual(
             if args.len() != 2 {
                 return None;
             }
-            let left = translate_having_qual(args.get_ptr(0)?, targetlist)?;
-            let right = translate_having_qual(args.get_ptr(1)?, targetlist)?;
+            let left = translate_having_qual(args.get_ptr(0)?, targetlist, sources)?;
+            let right = translate_having_qual(args.get_ptr(1)?, targetlist, sources)?;
             let opname_ptr = pg_sys::get_opname((*op).opno);
             if opname_ptr.is_null() {
                 return None;
@@ -797,7 +869,7 @@ pub unsafe fn translate_having_qual(
             let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
             let children: Vec<_> = args
                 .iter_ptr()
-                .filter_map(|a| translate_having_qual(a, targetlist))
+                .filter_map(|a| translate_having_qual(a, targetlist, sources))
                 .collect();
             if children.is_empty() {
                 return None;

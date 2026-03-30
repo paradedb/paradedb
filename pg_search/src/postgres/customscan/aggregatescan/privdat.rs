@@ -71,6 +71,8 @@ pub struct PostJoinFilter {
 pub enum HavingExpr {
     /// Reference to an aggregate result: index into targetlist.aggregates
     AggRef(usize),
+    /// Reference to a HAVING-only aggregate: index into targetlist.having_aggregates
+    HavingAggRef(usize),
     /// Reference to a GROUP BY column: index into targetlist.group_columns
     GroupRef(usize),
     /// Literal values

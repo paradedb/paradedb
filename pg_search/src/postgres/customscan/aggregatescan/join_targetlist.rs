@@ -117,12 +117,16 @@ pub struct JoinAggregateEntry {
 pub struct JoinAggregateTargetList {
     pub group_columns: Vec<JoinGroupColumn>,
     pub aggregates: Vec<JoinAggregateEntry>,
+    /// Aggregates referenced only in HAVING clauses (not in SELECT list).
+    /// These are computed by DataFusion but not projected to Postgres output.
+    #[serde(default)]
+    pub having_aggregates: Vec<JoinAggregateEntry>,
 }
 
 /// Classify an aggregate function OID into an [`AggKind`].
 ///
 /// Returns `None` for unsupported or unknown OIDs (including `pdb.agg()`).
-fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> Option<AggKind> {
+pub fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> Option<AggKind> {
     if aggfnoid == F_COUNT_ && aggstar {
         return Some(AggKind::CountStar);
     }
@@ -150,7 +154,7 @@ fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> O
 /// Fallback classification by looking up the function name from the catalog.
 /// Handles aggregate functions whose OIDs aren't exposed as constants in pg_sys
 /// (e.g., STDDEV, VARIANCE and their variants).
-fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
+pub fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
     let name = unsafe {
         let name_ptr = pg_sys::get_func_name(pg_sys::Oid::from(aggfnoid));
         if name_ptr.is_null() {
@@ -278,6 +282,7 @@ pub unsafe fn extract_aggregate_targetlist(
     Ok(JoinAggregateTargetList {
         group_columns,
         aggregates,
+        having_aggregates: Vec::new(),
     })
 }
 

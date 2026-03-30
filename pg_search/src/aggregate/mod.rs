@@ -611,11 +611,11 @@ fn set_missing_on_terms(
                         }
                     }
                     Some(SearchFieldType::Bool(_)) => {
-                        // Bool fields: Tantivy's terms aggregation doesn't accept any Key
-                        // variant for Bool columns (Bool has no numerical_type()). We skip
-                        // setting a missing value, so NULL bools are excluded from GROUP BY
-                        // results rather than appearing as a separate group.
-                        continue;
+                        if use_min {
+                            Key::Str(NULL_SENTINEL_MIN.to_string())
+                        } else {
+                            Key::Str(NULL_SENTINEL_MAX.to_string())
+                        }
                     }
                     _ => {
                         // Default for text/json/etc - string sentinels are safe here

@@ -70,5 +70,81 @@ WHERE body @@@ pdb.all();
  {"buckets": [{"key": 0, "doc_count": 4, "key_as_string": "false"}, {"key": 1, "doc_count": 3, "key_as_string": "true"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
+-- Test 5: NULL bool values should form their own group (standard SQL behavior)
+DROP TABLE IF EXISTS docs_nullable CASCADE;
+CREATE TABLE docs_nullable (
+    id SERIAL PRIMARY KEY,
+    body TEXT,
+    has_flag BOOLEAN
+);
+INSERT INTO docs_nullable (body, has_flag) VALUES
+    ('doc with true',   true),
+    ('doc with false',  false),
+    ('doc with null 1', NULL),
+    ('doc with null 2', NULL),
+    ('another true',    true);
+CREATE INDEX docs_nullable_idx ON docs_nullable
+USING bm25 (id, body, has_flag)
+WITH (
+    key_field = 'id',
+    text_fields    = '{"body": {}}',
+    boolean_fields = '{"has_flag": {"fast": true}}'
+);
+-- 5a: EXPLAIN to confirm aggregate custom scan is used
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT has_flag, COUNT(*)
+FROM docs_nullable
+WHERE body @@@ pdb.all()
+GROUP BY has_flag
+ORDER BY has_flag;
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.docs_nullable
+   Output: has_flag, pdb.agg_fn('COUNT(*)'::text)
+   Index: docs_nullable_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"body"}}}}
+     Applies to Aggregates: COUNT(*)
+     Group By: has_flag
+     Aggregate Definition: {"grouped":{"terms":{"field":"has_flag","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+-- 5b: GROUP BY nullable bool — expect three groups: true, false, NULL
+SELECT has_flag, COUNT(*)
+FROM docs_nullable
+WHERE body @@@ pdb.all()
+GROUP BY has_flag
+ORDER BY has_flag;
+ has_flag | count 
+----------+-------
+          |     2
+ f        |     1
+ t        |     2
+(3 rows)
+
+-- 5c: EXPLAIN to confirm aggregate custom scan for pdb.agg on nullable bool
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
+FROM docs_nullable
+WHERE body @@@ pdb.all();
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.docs_nullable
+   Output: pdb.agg_fn('pdb.agg'::text)
+   Index: docs_nullable_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"body"}}}}
+     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"has_flag"}})
+     Aggregate Definition: {"0":{"terms":{"field":"has_flag"}}}
+(6 rows)
+
+-- 5d: Verify pdb.agg terms on nullable bool includes all docs
+SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
+FROM docs_nullable
+WHERE body @@@ pdb.all();
+                                                                                                              agg                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": 1, "doc_count": 2, "key_as_string": "true"}, {"key": "__PDB_NULL__", "doc_count": 2}, {"key": 0, "doc_count": 1, "key_as_string": "false"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(1 row)
+
+DROP TABLE docs_nullable CASCADE;
 -- Cleanup
 DROP TABLE docs CASCADE;

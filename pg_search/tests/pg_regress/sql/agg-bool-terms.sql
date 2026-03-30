@@ -58,5 +58,57 @@ SELECT pdb.agg('{"terms": {"field": "has_attachment"}}'::jsonb, false)
 FROM docs
 WHERE body @@@ pdb.all();
 
+-- Test 5: NULL bool values should form their own group (standard SQL behavior)
+DROP TABLE IF EXISTS docs_nullable CASCADE;
+
+CREATE TABLE docs_nullable (
+    id SERIAL PRIMARY KEY,
+    body TEXT,
+    has_flag BOOLEAN
+);
+
+INSERT INTO docs_nullable (body, has_flag) VALUES
+    ('doc with true',   true),
+    ('doc with false',  false),
+    ('doc with null 1', NULL),
+    ('doc with null 2', NULL),
+    ('another true',    true);
+
+CREATE INDEX docs_nullable_idx ON docs_nullable
+USING bm25 (id, body, has_flag)
+WITH (
+    key_field = 'id',
+    text_fields    = '{"body": {}}',
+    boolean_fields = '{"has_flag": {"fast": true}}'
+);
+
+-- 5a: EXPLAIN to confirm aggregate custom scan is used
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT has_flag, COUNT(*)
+FROM docs_nullable
+WHERE body @@@ pdb.all()
+GROUP BY has_flag
+ORDER BY has_flag;
+
+-- 5b: GROUP BY nullable bool — expect three groups: true, false, NULL
+SELECT has_flag, COUNT(*)
+FROM docs_nullable
+WHERE body @@@ pdb.all()
+GROUP BY has_flag
+ORDER BY has_flag;
+
+-- 5c: EXPLAIN to confirm aggregate custom scan for pdb.agg on nullable bool
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
+FROM docs_nullable
+WHERE body @@@ pdb.all();
+
+-- 5d: Verify pdb.agg terms on nullable bool includes all docs
+SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
+FROM docs_nullable
+WHERE body @@@ pdb.all();
+
+DROP TABLE docs_nullable CASCADE;
+
 -- Cleanup
 DROP TABLE docs CASCADE;

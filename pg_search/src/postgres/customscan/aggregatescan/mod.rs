@@ -392,6 +392,14 @@ impl CustomScan for AggregateScan {
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         state.custom_state_mut().state = ExecutionState::NotStarted;
+        // Reset DataFusion state so rescan rebuilds the plan and stream.
+        // Drop stream before runtime to avoid tokio panics.
+        if let Some(ref mut df_state) = state.custom_state_mut().datafusion_state {
+            df_state.stream = None;
+            df_state.current_batch = None;
+            df_state.batch_row_idx = 0;
+            df_state.runtime = None;
+        }
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {

@@ -721,10 +721,12 @@ pub unsafe fn translate_having_qual(
         // Treat it as an implicit AND of the list elements.
         pg_sys::NodeTag::T_List => {
             let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
-            let children: Vec<_> = list
+            // All children must translate — if any fails, the entire HAVING is rejected
+            let children: Option<Vec<_>> = list
                 .iter_ptr()
-                .filter_map(|child| translate_having_qual(child, targetlist, sources))
+                .map(|child| translate_having_qual(child, targetlist, sources))
                 .collect();
+            let children = children?;
             if children.is_empty() {
                 None
             } else if children.len() == 1 {
@@ -904,16 +906,27 @@ pub unsafe fn translate_having_qual(
         pg_sys::NodeTag::T_BoolExpr => {
             let bexpr = node as *mut pg_sys::BoolExpr;
             let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
-            let children: Vec<_> = args
+            // All children must translate — partial translation would weaken the filter
+            let children: Option<Vec<_>> = args
                 .iter_ptr()
-                .filter_map(|a| translate_having_qual(a, targetlist, sources))
+                .map(|a| translate_having_qual(a, targetlist, sources))
                 .collect();
+            let children = children?;
             if children.is_empty() {
                 return None;
             }
             match (*bexpr).boolop {
                 pg_sys::BoolExprType::AND_EXPR => Some(HavingExpr::And(children)),
                 pg_sys::BoolExprType::OR_EXPR => Some(HavingExpr::Or(children)),
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    if children.len() == 1 {
+                        Some(HavingExpr::Not(Box::new(
+                            children.into_iter().next().unwrap(),
+                        )))
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             }
         }

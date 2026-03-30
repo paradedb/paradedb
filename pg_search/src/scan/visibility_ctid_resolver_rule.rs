@@ -102,7 +102,7 @@ fn find_ffhelper_for_plan_position(
     None
 }
 
-#[cfg(test)]
+#[cfg(feature = "pg_test")]
 mod tests {
     use super::find_ffhelper_for_plan_position;
     use std::sync::Arc;

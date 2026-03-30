@@ -598,7 +598,7 @@ pub fn create_sorted_scan(
     )))
 }
 
-#[cfg(test)]
+#[cfg(feature = "pg_test")]
 mod tests {
     use std::sync::Arc;
 

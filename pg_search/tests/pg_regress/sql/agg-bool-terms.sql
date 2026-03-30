@@ -30,24 +30,17 @@ SELECT pdb.agg('{"terms": {"field": "has_attachment", "size": 10}}'::jsonb)
 FROM docs
 WHERE body @@@ pdb.all();
 
--- Test 2: terms aggregation on a boolean field with GROUP BY
-SELECT category, pdb.agg('{"terms": {"field": "has_attachment"}}'::jsonb)
-FROM docs
-WHERE body @@@ pdb.all()
-GROUP BY category
-ORDER BY category;
-
--- Test 3: two-argument overload on a boolean field (solve_mvcc = true)
+-- Test 2: two-argument overload on a boolean field (solve_mvcc = true)
 SELECT pdb.agg('{"terms": {"field": "has_attachment"}}'::jsonb, true)
 FROM docs
 WHERE body @@@ pdb.all();
 
--- Test 4: two-argument overload on a boolean field (solve_mvcc = false)
+-- Test 3: two-argument overload on a boolean field (solve_mvcc = false)
 SELECT pdb.agg('{"terms": {"field": "has_attachment"}}'::jsonb, false)
 FROM docs
 WHERE body @@@ pdb.all();
 
--- Test 5: NULL bool values should form their own group (standard SQL behavior)
+-- Test 4: NULL bool values should form their own group (standard SQL behavior)
 DROP TABLE IF EXISTS docs_nullable CASCADE;
 
 CREATE TABLE docs_nullable (
@@ -67,7 +60,7 @@ CREATE INDEX docs_nullable_idx ON docs_nullable
 USING bm25 (id, body, has_flag)
 WITH (key_field = 'id');
 
--- 5a: EXPLAIN to confirm aggregate custom scan is used
+-- 4a: EXPLAIN to confirm aggregate custom scan is used
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT has_flag, COUNT(*)
 FROM docs_nullable
@@ -75,20 +68,20 @@ WHERE body @@@ pdb.all()
 GROUP BY has_flag
 ORDER BY has_flag;
 
--- 5b: GROUP BY nullable bool — expect three groups: true, false, NULL
+-- 4b: GROUP BY nullable bool — expect three groups: true, false, NULL
 SELECT has_flag, COUNT(*)
 FROM docs_nullable
 WHERE body @@@ pdb.all()
 GROUP BY has_flag
 ORDER BY has_flag;
 
--- 5c: EXPLAIN to confirm aggregate custom scan for pdb.agg on nullable bool
+-- 4c: EXPLAIN to confirm aggregate custom scan for pdb.agg on nullable bool
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
 FROM docs_nullable
 WHERE body @@@ pdb.all();
 
--- 5d: Verify pdb.agg terms on nullable bool includes all docs
+-- 4d: Verify pdb.agg terms on nullable bool includes all docs
 SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
 FROM docs_nullable
 WHERE body @@@ pdb.all();

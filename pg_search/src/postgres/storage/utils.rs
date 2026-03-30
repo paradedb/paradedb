@@ -310,7 +310,7 @@ unsafe fn bulk_extend_relation(
                 };
                 pg_sys::ExtendBufferedRelBy(
                     bmr,
-                    pg_sys::ForkNumber::MAIN_FORKNUM,
+                    fork,
                     BAS_BULKWRITE.0,
                     // failure to clear the size cache, which is attached to `self.rel.rd_smgr` can cause
                     // future reads from the relation to fail complaining that the block number returned

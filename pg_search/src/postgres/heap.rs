@@ -284,10 +284,8 @@ impl HeapFetchState {
         unsafe {
             let scan = pg_sys::table_index_fetch_begin(heaprel.as_ptr());
             let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
-            let nblocks = pg_sys::RelationGetNumberOfBlocksInFork(
-                heaprel.as_ptr(),
-                pg_sys::ForkNumber::MAIN_FORKNUM,
-            );
+            let nblocks =
+                pg_sys::RelationGetNumberOfBlocksInFork(heaprel.as_ptr(), heaprel.fork_number());
             Self {
                 scan,
                 slot: slot.cast(),

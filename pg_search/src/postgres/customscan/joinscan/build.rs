@@ -75,12 +75,6 @@ impl<'a> RelationAlias<'a> {
     }
 }
 
-/// Build a physical DataFusion field name that remains unique after relation
-/// qualifiers are erased from Arrow schemas.
-pub fn execution_field_name(execution_alias: &str, field_name: &str) -> String {
-    format!("{execution_alias}__{field_name}")
-}
-
 /// DataFusion-facing synthetic CTID column name helper.
 ///
 /// JoinScan exposes per-source CTID columns into DataFusion so rows can be

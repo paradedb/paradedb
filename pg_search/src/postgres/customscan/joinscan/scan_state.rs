@@ -74,7 +74,7 @@ use tantivy::index::SegmentId;
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::build::{
-    execution_field_name, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
+    CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -97,12 +97,12 @@ use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 
 fn make_source_col(source: &JoinSource, plan_position: usize, field_name: &str) -> Expr {
     let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
-    let execution_field = execution_field_name(&alias, field_name);
-    make_col(&alias, &execution_field)
+    make_col(&alias, field_name)
 }
 
 fn make_source_score_col(source: &JoinSource, plan_position: usize) -> Expr {
-    make_source_col(source, plan_position, SCORE_COL_NAME)
+    let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+    make_col(&alias, SCORE_COL_NAME)
 }
 
 /// Query planner that lowers JoinScan's custom logical nodes
@@ -859,21 +859,16 @@ fn build_source_df<'a>(
         let mut exprs = Vec::new();
         for df_field in df.schema().fields().iter() {
             let name = df_field.name();
-            let expr = if name == "ctid" {
-                make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
-            } else if CtidColumn::try_from(name.as_str()).is_ok() {
-                make_col(alias.as_str(), name).alias(name.clone())
-            } else {
-                // NOTE: Matching on WhichFastField::Ctid specifically will fail if
-                // the field list order doesn't match the DataFrame schema field order,
-                // or if the provider has already rewritten ctid to `ctid_<n>`.
-                match fields.iter().find(|w| w.name() == *name) {
-                    // Physical Arrow schemas drop relation qualifiers, so fold the
-                    // execution alias into every non-ctid field name up front.
-                    Some(WhichFastField::Score) => make_col(alias.as_str(), name)
-                        .alias(execution_field_name(&alias, SCORE_COL_NAME)),
-                    _ => make_col(alias.as_str(), name).alias(execution_field_name(&alias, name)),
+            // NOTE: Matching on WhichFastField::Ctid specifically will fail if
+            // the field list order doesn't match the DataFrame schema field order.
+            let expr = match fields.iter().find(|w| w.name() == *name) {
+                Some(WhichFastField::Ctid) => {
+                    make_col(alias.as_str(), name).alias(CtidColumn::new(plan_position).to_string())
                 }
+                // Normalize score fast-field column name so all score references resolve
+                // through `<execution_alias>.score`.
+                Some(WhichFastField::Score) => make_col(alias.as_str(), name).alias(SCORE_COL_NAME),
+                _ => make_col(alias.as_str(), name),
             };
 
             exprs.push(expr);

@@ -270,10 +270,6 @@ impl ExecutionPlan for TantivyLookupExec {
                 &self.children(),
             ));
         }
-        // For JoinScan inputs, ordinary fields have already been renamed to
-        // execution-qualified names (`<alias>__<field>`), so forwarding through
-        // DataFusion's standard child remapper remains unambiguous on the live
-        // path. Deferred columns are matched later by physical column index.
         let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?;
         Ok(FilterDescription::new().with_child(child_desc))
     }

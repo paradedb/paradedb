@@ -792,11 +792,8 @@ impl ExecutionPlan for VisibilityFilterExec {
             ));
         }
         // VisibilityFilterExec is unary and preserves its child's schema.
-        // JoinScan folds the execution alias into every ordinary field name
-        // (`<alias>__<field>`) before the plan reaches this node, so the
-        // DataFusion helper below does not see duplicate ordinary names here.
-        // We only need to block `ctid_*`, which remain synthetic per-source
-        // columns holding packed DocAddresses below this node.
+        // We block ctid_* columns (packed DocAddresses below this node) and
+        // allow all other columns through for filter pushdown.
         let schema = self.input.schema();
         let blocked_ctid_names: std::collections::HashSet<String> = self
             .plan_pos_oids

@@ -21,7 +21,7 @@ use pgrx::{pg_sys, PgList};
 
 use crate::api::HashMap;
 use crate::postgres::customscan::joinscan::build::{
-    execution_field_name, JoinLevelExpr, JoinLevelSearchPredicate, JoinSource, RelationAlias,
+    JoinLevelExpr, JoinLevelSearchPredicate, JoinSource, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
 use crate::postgres::customscan::opexpr::lookup_operator;
@@ -364,20 +364,17 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             // Try to resolve score via map_var(rti, 0) first (for nested joins)
             if let Some(col_idx) = source.map_var(rti, 0) {
                 if let Some(name) = source.column_name(col_idx) {
-                    let execution_field = execution_field_name(&alias, &name);
-                    return Some(make_col(&alias, &execution_field));
+                    return Some(make_col(&alias, &name));
                 }
             }
             // Default to alias-specific score alias
-            let execution_score = execution_field_name(&alias, SCORE_COL_NAME);
-            return Some(make_col(&alias, &execution_score));
+            return Some(make_col(&alias, SCORE_COL_NAME));
         }
 
         // Normal column
         // We need to map the rti/attno to the source's output attno
         let mapped_attno = source.map_var(rti, attno)?;
         let col_name = source.column_name(mapped_attno)?;
-        let execution_field = execution_field_name(&alias, &col_name);
-        Some(make_col(&alias, &execution_field))
+        Some(make_col(&alias, &col_name))
     }
 }

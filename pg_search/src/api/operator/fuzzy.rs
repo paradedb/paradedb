@@ -43,9 +43,6 @@ mod sql_datum_support {
     use crate::query::pdb_query::pdb;
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
-    use pgrx::pgrx_sql_entity_graph::metadata::{
-        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
-    };
     use pgrx::{pg_sys, FromDatum, IntoDatum};
 
     impl From<FuzzyType> for pdb::Query {
@@ -74,15 +71,7 @@ mod sql_datum_support {
         }
     }
 
-    unsafe impl SqlTranslatable for FuzzyType {
-        fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("pdb.fuzzy".into()))
-        }
-
-        fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("pdb.fuzzy".into())))
-        }
-    }
+    impl_sql_translatable!(FuzzyType, "pdb.fuzzy");
 
     unsafe impl BoxRet for FuzzyType {
         unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> pgrx::datum::Datum<'fcx> {

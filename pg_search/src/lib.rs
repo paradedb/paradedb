@@ -16,6 +16,51 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![recursion_limit = "512"]
 
+/// Implements `SqlTranslatable` for a type with a fixed SQL name.
+///
+/// The type is marked as `External` (not defined by this extension's schema graph).
+/// pgrx uses these constants for SQL generation in function signatures.
+macro_rules! impl_sql_translatable {
+    // Standard: same SQL type for arguments and returns
+    ($ty:ty, $sql:literal) => {
+        unsafe impl ::pgrx::pgrx_sql_entity_graph::metadata::SqlTranslatable for $ty {
+            const TYPE_IDENT: &'static str = concat!(module_path!(), "::", stringify!($ty));
+            const TYPE_ORIGIN: ::pgrx::pgrx_sql_entity_graph::metadata::TypeOrigin =
+                ::pgrx::pgrx_sql_entity_graph::metadata::TypeOrigin::External;
+            const ARGUMENT_SQL: Result<
+                ::pgrx::pgrx_sql_entity_graph::metadata::SqlMappingRef,
+                ::pgrx::pgrx_sql_entity_graph::metadata::ArgumentError,
+            > = Ok(::pgrx::pgrx_sql_entity_graph::metadata::SqlMappingRef::As(
+                $sql,
+            ));
+            const RETURN_SQL: Result<
+                ::pgrx::pgrx_sql_entity_graph::metadata::ReturnsRef,
+                ::pgrx::pgrx_sql_entity_graph::metadata::ReturnsError,
+            > = Ok(::pgrx::pgrx_sql_entity_graph::metadata::ReturnsRef::One(
+                ::pgrx::pgrx_sql_entity_graph::metadata::SqlMappingRef::As($sql),
+            ));
+        }
+    };
+    // Argument-only: return type is not valid (used for pseudo-type wrappers)
+    ($ty:ty, arg_only = $sql:literal) => {
+        unsafe impl ::pgrx::pgrx_sql_entity_graph::metadata::SqlTranslatable for $ty {
+            const TYPE_IDENT: &'static str = concat!(module_path!(), "::", stringify!($ty));
+            const TYPE_ORIGIN: ::pgrx::pgrx_sql_entity_graph::metadata::TypeOrigin =
+                ::pgrx::pgrx_sql_entity_graph::metadata::TypeOrigin::External;
+            const ARGUMENT_SQL: Result<
+                ::pgrx::pgrx_sql_entity_graph::metadata::SqlMappingRef,
+                ::pgrx::pgrx_sql_entity_graph::metadata::ArgumentError,
+            > = Ok(::pgrx::pgrx_sql_entity_graph::metadata::SqlMappingRef::As(
+                $sql,
+            ));
+            const RETURN_SQL: Result<
+                ::pgrx::pgrx_sql_entity_graph::metadata::ReturnsRef,
+                ::pgrx::pgrx_sql_entity_graph::metadata::ReturnsError,
+            > = Err(::pgrx::pgrx_sql_entity_graph::metadata::ReturnsError::Datum);
+        }
+    };
+}
+
 mod aggregate;
 mod api;
 mod bootstrap;

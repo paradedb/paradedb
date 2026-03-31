@@ -28,7 +28,7 @@ use crate::query::SearchQueryInput;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
 use pgrx::callconv::{Arg, ArgAbi};
 use pgrx::pgrx_sql_entity_graph::metadata::{
-    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+    ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys,
@@ -101,15 +101,7 @@ unsafe impl<'fcx> ArgAbi<'fcx> for FakeAnyElement {
     }
 }
 
-unsafe impl SqlTranslatable for FakeAnyElement {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("anyelement".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Err(ReturnsError::Datum)
-    }
-}
+impl_sql_translatable!(FakeAnyElement, arg_only = "anyelement");
 
 unsafe impl<'fcx> ArgAbi<'fcx> for FakeSearchQueryInput {
     unsafe fn unbox_arg_unchecked(_arg: Arg<'_, 'fcx>) -> Self {
@@ -118,13 +110,13 @@ unsafe impl<'fcx> ArgAbi<'fcx> for FakeSearchQueryInput {
 }
 
 unsafe impl SqlTranslatable for FakeSearchQueryInput {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("SearchQueryInput".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Err(ReturnsError::Datum)
-    }
+    // Reference the real SearchQueryInput type so pgrx creates proper ordering
+    // edges in the schema graph (this function must be emitted after the type).
+    const TYPE_IDENT: &'static str = "pg_search::query::SearchQueryInput";
+    const TYPE_ORIGIN: TypeOrigin = TypeOrigin::ThisExtension;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        Ok(SqlMappingRef::As("SearchQueryInput"));
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
 }
 
 #[allow(unused_variables)]

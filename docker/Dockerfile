@@ -46,11 +46,24 @@ ENV PATH="/usr/local/bin:/root/.cargo/bin:$PATH" \
 COPY Cargo.toml /tmp/
 WORKDIR /tmp/
 
-# Extract version from Cargo.toml (handles 'pgrx = "=0.17.0"')
-# This replaces `cargo tree` to avoid needing the full source tree
-RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -d '=') && \
-    echo "PGRX_VERSION=$PGRX_VERSION" && \
-    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
+# Install cargo-pgrx from the same source as the workspace dependency.
+# Supports both version-based (pgrx = "=0.17.0") and git-based
+# (pgrx = { git = "...", branch = "..." }) dependencies.
+RUN PGRX_LINE=$(grep 'pgrx =' Cargo.toml | head -n 1) && \
+    if echo "$PGRX_LINE" | grep -q 'git ='; then \
+        PGRX_GIT=$(echo "$PGRX_LINE" | sed -n 's/.*git = "\([^"]*\)".*/\1/p') && \
+        PGRX_BRANCH=$(echo "$PGRX_LINE" | sed -n 's/.*branch = "\([^"]*\)".*/\1/p') && \
+        echo "Installing cargo-pgrx from git: $PGRX_GIT branch: $PGRX_BRANCH" && \
+        if [ -n "$PGRX_BRANCH" ]; then \
+            cargo install --locked cargo-pgrx --git "$PGRX_GIT" --branch "$PGRX_BRANCH"; \
+        else \
+            cargo install --locked cargo-pgrx --git "$PGRX_GIT"; \
+        fi; \
+    else \
+        PGRX_VERSION=$(echo "$PGRX_LINE" | cut -d '"' -f 2 | tr -d '=') && \
+        echo "Installing cargo-pgrx version: $PGRX_VERSION" && \
+        cargo install --locked cargo-pgrx --version "$PGRX_VERSION"; \
+    fi && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################

@@ -43,9 +43,6 @@ mod sql_datum_support {
     use crate::query::pdb_query::pdb;
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
-    use pgrx::pgrx_sql_entity_graph::metadata::{
-        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
-    };
     use pgrx::{pg_sys, FromDatum, IntoDatum};
 
     impl From<SlopType> for pdb::Query {
@@ -74,15 +71,7 @@ mod sql_datum_support {
         }
     }
 
-    unsafe impl SqlTranslatable for SlopType {
-        fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("pdb.slop".into()))
-        }
-
-        fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("pdb.slop".into())))
-        }
-    }
+    impl_sql_translatable!(SlopType, "pdb.slop");
 
     unsafe impl BoxRet for SlopType {
         unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> pgrx::datum::Datum<'fcx> {

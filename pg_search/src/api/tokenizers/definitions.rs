@@ -30,9 +30,6 @@ pub(crate) mod pdb {
     use paste::paste;
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
-    use pgrx::pgrx_sql_entity_graph::metadata::{
-        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
-    };
     use pgrx::{extension_sql, pg_extern, pg_sys, FromDatum, IntoDatum};
     use std::ffi::CString;
     use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
@@ -231,15 +228,7 @@ pub(crate) mod pdb {
                 }
             }
 
-            unsafe impl SqlTranslatable for $rust_name {
-                fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-                    Ok(SqlMapping::As(format!("pdb.{}", $sql_name)))
-                }
-
-                fn return_sql() -> Result<Returns, ReturnsError> {
-                    Ok(Returns::One(SqlMapping::As(format!("pdb.{}", $sql_name))))
-                }
-            }
+            impl_sql_translatable!($rust_name, $sql_name);
 
             #[pg_extern(immutable, parallel_safe)]
             fn $cast_name(s: $rust_name, fcinfo: pg_sys::FunctionCallInfo) -> Vec<String> {

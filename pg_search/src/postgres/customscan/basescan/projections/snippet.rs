@@ -176,9 +176,6 @@ struct Context<'a> {
 pub mod pdb {
     use pgrx::callconv::{BoxRet, FcInfo};
     use pgrx::datum::Datum;
-    use pgrx::pgrx_sql_entity_graph::metadata::{
-        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
-    };
     use pgrx::{default, pg_extern, pg_sys, AnyElement, IntoDatum};
 
     // Newtype wrapper for Vec<Vec<i32>> to implement custom IntoDatum
@@ -241,15 +238,7 @@ pub mod pdb {
         }
     }
 
-    unsafe impl SqlTranslatable for IntArray2D {
-        fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As(String::from("integer[]")))
-        }
-
-        fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As(String::from("integer[]"))))
-        }
-    }
+    impl_sql_translatable!(IntArray2D, "integer[]");
 
     unsafe impl BoxRet for IntArray2D {
         unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> Datum<'fcx> {

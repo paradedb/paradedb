@@ -59,9 +59,6 @@ use crate::scan::info::RowEstimate;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::pgrx_sql_entity_graph::metadata::{
-    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
-};
 use pgrx::*;
 use std::ptr::NonNull;
 
@@ -87,15 +84,7 @@ unsafe impl BoxRet for ReturnedNodePointer {
     }
 }
 
-unsafe impl SqlTranslatable for ReturnedNodePointer {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("internal".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Ok(Returns::One(SqlMapping::As("internal".into())))
-    }
-}
+impl_sql_translatable!(ReturnedNodePointer, "internal");
 
 pub fn with_index_procoid() -> pg_sys::Oid {
     unsafe {

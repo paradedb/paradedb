@@ -47,8 +47,19 @@ jobs:
         id: pgrx
         working-directory: pg_search/
         run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo "version=$version" >> $GITHUB_OUTPUT
+          PGRX_LINE=$(grep '^pgrx ' ../Cargo.toml | head -n 1)
+          if echo "$PGRX_LINE" | grep -q 'git ='; then
+            PGRX_GIT=$(echo "$PGRX_LINE" | sed -n 's/.*git = "\([^"]*\)".*/\1/p')
+            PGRX_BRANCH=$(echo "$PGRX_LINE" | sed -n 's/.*branch = "\([^"]*\)".*/\1/p')
+            install_args="--git $PGRX_GIT"
+            if [ -n "$PGRX_BRANCH" ]; then
+              install_args="$install_args --branch $PGRX_BRANCH"
+            fi
+          else
+            version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+            install_args="--version $version"
+          fi
+          echo "install_args=$install_args" >> $GITHUB_OUTPUT
 
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
@@ -66,7 +77,7 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        run: cargo install --locked cargo-pgrx ${{ steps.pgrx.outputs.install_args }} --debug
 
       - name: Initialize pgrx for Current PostgreSQL Version
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config

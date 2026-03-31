@@ -127,7 +127,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -138,7 +138,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2563,7 +2563,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2852,7 +2852,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4051,7 +4051,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5164,7 +5164,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
@@ -5392,8 +5392,7 @@ dependencies = [
 [[package]]
 name = "pgrx"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd42eed31a68e3e6d7cec284cdaacd8ffa9b2b3ebb3f1df9ec2fd3558834c6e7"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?branch=wip-one-compile-please#b93010d696a9e47c231c25fd4fb64d5f277c060e"
 dependencies = [
  "bitflags 2.11.0",
  "bitvec",
@@ -5413,8 +5412,7 @@ dependencies = [
 [[package]]
 name = "pgrx-bindgen"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d30fa3688ab1cb6429ca46725eb32d5d9f186806c0f0aa6419f86e418b8a81ab"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?branch=wip-one-compile-please#b93010d696a9e47c231c25fd4fb64d5f277c060e"
 dependencies = [
  "bindgen",
  "cc",
@@ -5432,8 +5430,7 @@ dependencies = [
 [[package]]
 name = "pgrx-macros"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ca7cc537daa4cc004f12ad1d31756b506358aa900251a82c3280e719da88fa4"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?branch=wip-one-compile-please#b93010d696a9e47c231c25fd4fb64d5f277c060e"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -5462,8 +5459,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-config"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cd8670ad408093a83615fc68071929d7677b40021a475649a626319c464f0a3"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?branch=wip-one-compile-please#b93010d696a9e47c231c25fd4fb64d5f277c060e"
 dependencies = [
  "cargo_toml 0.22.3",
  "codepage",
@@ -5482,8 +5478,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-sys"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9f81faae87d533b573156261b17521c0c7f66f5ca5dab2b9e6ddbf5a63dbd14"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?branch=wip-one-compile-please#b93010d696a9e47c231c25fd4fb64d5f277c060e"
 dependencies = [
  "cee-scape",
  "libc",
@@ -5496,8 +5491,7 @@ dependencies = [
 [[package]]
 name = "pgrx-sql-entity-graph"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4800fa91a481a83d3c1aaffd1324fcd2e587df0ed342c71d6a66d0899027e505"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?branch=wip-one-compile-please#b93010d696a9e47c231c25fd4fb64d5f277c060e"
 dependencies = [
  "convert_case 0.8.0",
  "eyre",
@@ -5512,23 +5506,18 @@ dependencies = [
 [[package]]
 name = "pgrx-tests"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d8026b55f3782cc227b32dcd1de61163b50175c98705d888f03e7095d371c41"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?branch=wip-one-compile-please#b93010d696a9e47c231c25fd4fb64d5f277c060e"
 dependencies = [
  "clap-cargo",
  "eyre",
  "libc",
  "owo-colors",
- "paste",
  "pgrx",
  "pgrx-macros",
  "pgrx-pg-config 0.17.0",
  "postgres",
- "proptest",
  "rand 0.9.2",
  "regex",
- "serde",
- "serde_json",
  "shlex",
  "sysinfo 0.34.2",
  "tempfile",
@@ -6836,7 +6825,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6893,7 +6882,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7291,7 +7280,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7913,7 +7902,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8921,7 +8910,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

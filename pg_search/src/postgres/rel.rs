@@ -36,13 +36,29 @@ impl Default for IsCreateIndex {
         Self(Rc::new(RefCell::new(false)))
     }
 }
-
 impl IsCreateIndex {
     fn set(&self, value: bool) {
         self.0.replace(value);
     }
 
     fn get(&self) -> bool {
+        *self.0.borrow()
+    }
+}
+
+#[repr(transparent)]
+struct ForkNumber(Rc<RefCell<pg_sys::ForkNumber::Type>>);
+impl Default for ForkNumber {
+    fn default() -> Self {
+        Self(Rc::new(RefCell::new(pg_sys::ForkNumber::MAIN_FORKNUM)))
+    }
+}
+impl ForkNumber {
+    fn set(&self, value: pg_sys::ForkNumber::Type) {
+        self.0.replace(value);
+    }
+
+    fn get(&self) -> pg_sys::ForkNumber::Type {
         *self.0.borrow()
     }
 }
@@ -83,6 +99,7 @@ pub struct PgSearchRelation(
             RefCell<Option<Result<SearchIndexSchema, SchemaError>>>,
             BM25IndexOptions,
             IsCreateIndex,
+            ForkNumber,
         )>,
     >,
 );
@@ -136,6 +153,7 @@ impl PgSearchRelation {
             Default::default(),
             BM25IndexOptions::from_relation(relation),
             IsCreateIndex::default(),
+            ForkNumber::default(),
         ))))
     }
 
@@ -158,6 +176,7 @@ impl PgSearchRelation {
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
                 IsCreateIndex::default(),
+                ForkNumber::default(),
             ))))
         }
     }
@@ -179,6 +198,7 @@ impl PgSearchRelation {
                     Default::default(),
                     BM25IndexOptions::from_relation(relation),
                     IsCreateIndex::default(),
+                    ForkNumber::default(),
                 )))))
             }
         }
@@ -198,6 +218,7 @@ impl PgSearchRelation {
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
                 IsCreateIndex::default(),
+                ForkNumber::default(),
             ))))
         }
     }
@@ -208,6 +229,14 @@ impl PgSearchRelation {
 
     pub fn is_create_index(&self) -> bool {
         self.0.as_ref().unwrap().5.get()
+    }
+
+    pub fn set_fork_number(&mut self, fork_number: pg_sys::ForkNumber::Type) {
+        self.0.as_ref().unwrap().6.set(fork_number);
+    }
+
+    pub fn fork_number(&self) -> pg_sys::ForkNumber::Type {
+        self.0.as_ref().unwrap().6.get()
     }
 
     /// Returns false if in the middle of a `REINDEX CONCURRENTLY`

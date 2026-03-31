@@ -779,7 +779,7 @@ mod plan {
             let npages = unsafe {
                 pg_sys::RelationGetNumberOfBlocksInFork(
                     heap_relation.as_ptr(),
-                    pg_sys::ForkNumber::MAIN_FORKNUM,
+                    heap_relation.fork_number(),
                 )
             };
 
@@ -802,7 +802,7 @@ mod plan {
         let npages = unsafe {
             pg_sys::RelationGetNumberOfBlocksInFork(
                 heap_relation.as_ptr(),
-                pg_sys::ForkNumber::MAIN_FORKNUM,
+                heap_relation.fork_number(),
             )
         };
 

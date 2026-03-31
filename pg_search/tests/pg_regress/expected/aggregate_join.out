@@ -149,9 +149,9 @@ SELECT SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'nonexistent_term_xyz';
- sum | avg
+ sum | avg 
 -----+-----
-     |
+     |    
 (1 row)
 
 -- Test 2.3: MIN/MAX on empty result — should return NULL
@@ -159,9 +159,9 @@ SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'nonexistent_term_xyz';
- min | max
+ min | max 
 -----+-----
-     |
+     |    
 (1 row)
 
 -- =====================================================================
@@ -172,7 +172,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy';
- count
+ count 
 -------
      9
 (1 row)
@@ -182,7 +182,7 @@ SELECT COUNT(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
- count
+ count 
 -------
      6
 (1 row)

@@ -139,6 +139,12 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
 
+-- Test 3.3: Filter on non-search column (@@@ combined with scalar predicate)
+SELECT COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop' AND p.price > 500;
+
 -- =====================================================================
 -- SECTION 4: GROUP BY on JOIN (requires custom_scan_tlist for scanrelid=0)
 -- =====================================================================

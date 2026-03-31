@@ -139,3 +139,172 @@ fn snippet_from_join(mut conn: PgConnection) -> Result<(), sqlx::Error> {
 
     Ok(())
 }
+
+#[rstest]
+fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sqlx::Error> {
+    r#"
+    SET paradedb.enable_custom_scan = on;
+    SET paradedb.enable_join_custom_scan = on;
+    SET max_parallel_workers_per_gather = 0;
+    SET enable_indexscan = off;
+
+    DROP TABLE IF EXISTS dup_items;
+    CREATE TABLE dup_items (
+        id integer PRIMARY KEY,
+        grp integer,
+        body text,
+        side text,
+        ord text
+    );
+
+    INSERT INTO dup_items (id, grp, body, side, ord) VALUES
+        (100, 1, 'left token', 'a', 'z100'),
+        (200, 1, 'left token', 'a', 'z200'),
+        (300, 1, 'left token', 'a', 'z300'),
+        (1,   1, 'right token', 'b', 'a001'),
+        (2,   1, 'right token', 'b', 'a002'),
+        (3,   1, 'right token', 'b', 'a003'),
+        (400, 2, 'left token', 'a', 'z400'),
+        (500, 2, 'left token', 'a', 'z500'),
+        (4,   2, 'right token', 'b', 'a004'),
+        (5,   2, 'right token', 'b', 'a005');
+
+    CREATE INDEX dup_items_idx ON dup_items USING bm25 (id, grp, body, ord, side)
+    WITH (
+        key_field = 'id',
+        numeric_fields = '{"grp": {"fast": true}}',
+        text_fields = '{"ord": {"fast": true}, "side": {"fast": true}}'
+    );
+
+    ANALYZE dup_items;
+    "#
+    .execute(&mut conn);
+
+    let query = r#"
+        SELECT a.ord AS a_ord, b.ord AS b_ord, a.id AS a_id, b.id AS b_id
+        FROM dup_items a
+        JOIN dup_items b ON a.grp = b.grp
+        WHERE a.body @@@ 'left'
+          AND b.body @@@ 'right'
+        ORDER BY b.ord ASC, a.id ASC
+        LIMIT 3
+    "#;
+
+    let explain_lines: Vec<String> =
+        format!("EXPLAIN (COSTS OFF, VERBOSE) {query}").fetch_scalar(&mut conn);
+    let explain = explain_lines.join("\n");
+
+    assert!(
+        explain.contains("Custom Scan (ParadeDB Join Scan)"),
+        "{explain}"
+    );
+    assert!(explain.contains("VisibilityFilterExec"), "{explain}");
+    assert!(explain.contains("TantivyLookupExec"), "{explain}");
+    assert!(explain.contains("SegmentedTopKExec"), "{explain}");
+
+    type Row = (String, String, i32, i32);
+
+    "SET paradedb.enable_join_custom_scan = on;".execute(&mut conn);
+    let joinscan_rows = query.fetch_result::<Row>(&mut conn)?;
+
+    "SET paradedb.enable_join_custom_scan = off;".execute(&mut conn);
+    let fallback_rows = query.fetch_result::<Row>(&mut conn)?;
+
+    assert_eq!(joinscan_rows, fallback_rows);
+    assert_eq!(
+        joinscan_rows,
+        vec![
+            ("z100".into(), "a001".into(), 100, 1),
+            ("z200".into(), "a001".into(), 200, 1),
+            ("z300".into(), "a001".into(), 300, 1),
+        ]
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[ignore = "known issue: duplicate-name sort keys above JoinScan can diverge from fallback ordering"]
+fn joinscan_self_join_duplicate_name_sort_matches_fallback(
+    mut conn: PgConnection,
+) -> Result<(), sqlx::Error> {
+    r#"
+    SET paradedb.enable_custom_scan = on;
+    SET paradedb.enable_join_custom_scan = on;
+    SET max_parallel_workers_per_gather = 0;
+    SET enable_indexscan = off;
+
+    DROP TABLE IF EXISTS dup_items;
+    CREATE TABLE dup_items (
+        id integer PRIMARY KEY,
+        grp integer,
+        body text,
+        side text,
+        ord text
+    );
+
+    INSERT INTO dup_items (id, grp, body, side, ord) VALUES
+        (100, 1, 'left token', 'a', 'z100'),
+        (200, 1, 'left token', 'a', 'z200'),
+        (300, 1, 'left token', 'a', 'z300'),
+        (1,   1, 'right token', 'b', 'a001'),
+        (2,   1, 'right token', 'b', 'a002'),
+        (3,   1, 'right token', 'b', 'a003'),
+        (400, 2, 'left token', 'a', 'z400'),
+        (500, 2, 'left token', 'a', 'z500'),
+        (4,   2, 'right token', 'b', 'a004'),
+        (5,   2, 'right token', 'b', 'a005');
+
+    CREATE INDEX dup_items_idx ON dup_items USING bm25 (id, grp, body, ord, side)
+    WITH (
+        key_field = 'id',
+        numeric_fields = '{"grp": {"fast": true}}',
+        text_fields = '{"ord": {"fast": true}, "side": {"fast": true}}'
+    );
+
+    ANALYZE dup_items;
+    "#
+    .execute(&mut conn);
+
+    let query = r#"
+        SELECT a.ord AS a_ord, b.ord AS b_ord, a.id AS a_id, b.id AS b_id
+        FROM dup_items a
+        JOIN dup_items b ON a.grp = b.grp
+        WHERE a.body @@@ 'left'
+          AND b.body @@@ 'right'
+        ORDER BY a.ord ASC, b.ord ASC
+        LIMIT 3
+    "#;
+
+    let explain_lines: Vec<String> =
+        format!("EXPLAIN (COSTS OFF, VERBOSE) {query}").fetch_scalar(&mut conn);
+    let explain = explain_lines.join("\n");
+
+    assert!(
+        explain.contains("Custom Scan (ParadeDB Join Scan)"),
+        "{explain}"
+    );
+    assert!(explain.contains("VisibilityFilterExec"), "{explain}");
+    assert!(explain.contains("TantivyLookupExec"), "{explain}");
+    assert!(explain.contains("SegmentedTopKExec"), "{explain}");
+
+    type Row = (String, String, i32, i32);
+
+    "SET paradedb.enable_join_custom_scan = on;".execute(&mut conn);
+    let joinscan_rows = query.fetch_result::<Row>(&mut conn)?;
+
+    "SET paradedb.enable_join_custom_scan = off;".execute(&mut conn);
+    let fallback_rows = query.fetch_result::<Row>(&mut conn)?;
+
+    assert_eq!(joinscan_rows, fallback_rows);
+    assert_eq!(
+        fallback_rows,
+        vec![
+            ("z100".into(), "a001".into(), 100, 1),
+            ("z100".into(), "a002".into(), 100, 2),
+            ("z100".into(), "a003".into(), 100, 3),
+        ]
+    );
+
+    Ok(())
+}

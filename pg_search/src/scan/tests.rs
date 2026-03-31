@@ -102,6 +102,7 @@ mod tests {
             Vec::new(),
             None,
             0,
+            None,
         );
 
         let task_ctx = Arc::new(TaskContext::default());
@@ -313,7 +314,7 @@ mod tests {
                 scan_info.add_field(i as pg_sys::AttrNumber, field.clone());
             }
 
-            Arc::new(PgSearchTableProvider::new(scan_info, fields, None, false))
+            Arc::new(PgSearchTableProvider::new(scan_info, fields, false))
         }
 
         /// Assert all filters get Exact pushdown

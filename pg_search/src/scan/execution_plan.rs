@@ -112,8 +112,15 @@ pub struct PgSearchScanPlan {
     /// Metrics for EXPLAIN ANALYZE.
     metrics: ExecutionPlanMetricsSet,
     deferred_fields: Vec<DeferredField>,
-    ffhelper_for_lookup: Option<Arc<FFHelper>>,
+    /// Shared FFHelper for deferred lookup and deferred visibility.
+    ///
+    /// A scan may participate in late materialization, deferred visibility, or both.
+    /// Callers decide whether they should use it by checking the deferred metadata,
+    /// and cloning the Arc is cheap.
+    ffhelper: Option<Arc<FFHelper>>,
     pub indexrelid: u32,
+    /// The JoinScan source identity when visibility is deferred.
+    deferred_ctid_plan_position: Option<usize>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -133,15 +140,21 @@ impl PgSearchScanPlan {
     /// * `schema` - Arrow schema for the output
     /// * `query_for_display` - Search query for EXPLAIN
     /// * `sort_order` - Optional sort order declaration for equivalence properties
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         states: Vec<ScanState>,
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         sort_order: Option<&SortByField>,
         deferred_fields: Vec<DeferredField>,
-        ffhelper_for_lookup: Option<Arc<FFHelper>>,
+        ffhelper: Option<Arc<FFHelper>>,
         indexrelid: u32,
+        deferred_ctid_plan_position: Option<usize>,
     ) -> Self {
+        let needs_ffhelper = !deferred_fields.is_empty() || deferred_ctid_plan_position.is_some();
+        if needs_ffhelper && ffhelper.is_none() {
+            panic!("deferred lookup/visibility requires an FFHelper, but ffhelper is None");
+        }
         // Ensure we always return at least one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
         // If states is empty, execute() will return an EmptyStream for this single partition.
@@ -177,13 +190,22 @@ impl PgSearchScanPlan {
             dynamic_filters: Vec::new(),
             metrics: ExecutionPlanMetricsSet::new(),
             deferred_fields,
-            ffhelper_for_lookup,
+            ffhelper,
             indexrelid,
+            deferred_ctid_plan_position,
         }
     }
 
-    pub fn ffhelper_if_deferred(&self) -> Option<&Arc<FFHelper>> {
-        self.ffhelper_for_lookup.as_ref()
+    pub fn has_deferred_fields(&self) -> bool {
+        !self.deferred_fields.is_empty()
+    }
+
+    pub fn ffhelper(&self) -> Option<Arc<FFHelper>> {
+        self.ffhelper.clone()
+    }
+
+    pub fn deferred_ctid_plan_position(&self) -> Option<usize> {
+        self.deferred_ctid_plan_position
     }
 }
 
@@ -440,8 +462,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filters,
                 metrics: self.metrics.clone(),
                 deferred_fields: self.deferred_fields.clone(),
-                ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
+                ffhelper: self.ffhelper.clone(),
                 indexrelid: self.indexrelid,
+                deferred_ctid_plan_position: self.deferred_ctid_plan_position,
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
@@ -547,6 +570,7 @@ pub fn create_sorted_scan(
         Vec::new(),
         None,
         0,
+        None,
     ));
 
     // For a single segment, no merging is needed
@@ -572,4 +596,36 @@ pub fn create_sorted_scan(
         ordering,
         segment_scan,
     )))
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_schema::{Schema, SchemaRef};
+    use pgrx::prelude::*;
+
+    use crate::query::SearchQueryInput;
+
+    use super::PgSearchScanPlan;
+
+    fn empty_schema() -> SchemaRef {
+        Arc::new(Schema::empty())
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "deferred lookup/visibility requires an FFHelper")]
+    fn deferred_visibility_requires_ffhelper() {
+        let _ = PgSearchScanPlan::new(
+            vec![],
+            empty_schema(),
+            SearchQueryInput::All,
+            None,
+            Vec::new(),
+            None,
+            0,
+            Some(1),
+        );
+    }
 }

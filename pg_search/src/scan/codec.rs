@@ -26,6 +26,7 @@ use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use tantivy::index::SegmentId;
 
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
 
@@ -35,18 +36,16 @@ use crate::scan::table_provider::PgSearchTableProvider;
 #[derive(Debug, Default)]
 struct PgSearchExtensionCodec {
     /// Shared state for parallel scans, containing the list of segments to be processed.
-    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
-    /// Postgres expression context, needed for heap filtering.
-    pub expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    /// Postgres expression context, needed for heap filtering and runtime parameters.
+    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
     /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
-    pub planstate: Option<*mut pgrx::pg_sys::PlanState>,
+    planstate: Option<*mut pgrx::pg_sys::PlanState>,
     /// Canonical segment ID sets for non-partitioning sources, indexed by position in the
-    /// non-partitioning source list (same order as `JoinScanState::non_partitioning_segments`).
-    ///
-    /// Injected into providers whose `non_partitioning_index` is `Some(i)` during
-    /// `try_decode_table_provider`, ensuring both the leader and all workers open each
-    /// replicated index with the same frozen segment set.
-    pub non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    /// non-partitioning source list.
+    non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    /// Canonical segment ID sets for all join sources, indexed by plan_position.
+    index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -167,6 +166,35 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             return Ok(Extension { node });
         }
 
+        if tag == 2 {
+            if inputs.len() != 1 {
+                return Err(DataFusionError::Internal(
+                    "VisibilityFilterNode requires exactly one input".into(),
+                ));
+            }
+            let input_plan = inputs[0].clone();
+            let payload_len_bytes = buf.get(1..5).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: missing visibility length".into())
+            })?;
+            let payload_len = u32::from_le_bytes(payload_len_bytes.try_into().unwrap()) as usize;
+            let payload = buf.get(5..5 + payload_len).ok_or_else(|| {
+                DataFusionError::Internal("truncated buffer: incomplete visibility payload".into())
+            })?;
+            let (plan_pos_oids, table_names): (Vec<(usize, pgrx::pg_sys::Oid)>, Vec<String>) =
+                serde_json::from_slice(payload).map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to deserialize visibility payload: {e}"
+                    ))
+                })?;
+            return Ok(Extension {
+                node: Arc::new(VisibilityFilterNode::new(
+                    input_plan,
+                    plan_pos_oids,
+                    table_names,
+                )),
+            });
+        }
+
         Err(DataFusionError::NotImplemented(format!(
             "Extension node decoding not implemented for tag {}",
             tag
@@ -198,6 +226,20 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             return Ok(());
         }
 
+        if let Some(vis_node) = node.node.as_any().downcast_ref::<VisibilityFilterNode>() {
+            let payload: (&[(usize, pgrx::pg_sys::Oid)], &[String]) =
+                (&vis_node.plan_pos_oids, &vis_node.table_names);
+            let bytes = serde_json::to_vec(&payload).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "Failed to serialize visibility plan positions: {e}"
+                ))
+            })?;
+            buf.push(2);
+            buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&bytes);
+            return Ok(());
+        }
+
         Err(DataFusionError::NotImplemented(format!(
             "Extension node encoding not implemented for {:?}",
             node.node.name()
@@ -214,20 +256,10 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        // Only inject parallel state if this provider is explicitly marked as parallel.
-        // In a JoinScan, only the partitioning source is marked parallel and dynamically
-        // claims segments from `parallel_state`; all other sources are fully replicated.
         if provider.is_parallel() {
             provider.set_parallel_state(self.parallel_state);
         }
-        // Inject canonical segment IDs for non-partitioning (replicated-parallel) sources.
-        // When present, scan() will use MvccSatisfies::ParallelWorker(ids) so that every
-        // participant (leader and workers) opens the same frozen set of segments, preventing
-        // DocAddress mismatches caused by per-worker snapshot divergence.
         if let Some(np_idx) = provider.non_partitioning_index() {
-            // non_partitioning_segment_ids is empty only in codecs constructed without
-            // parallel state (e.g. EXPLAIN paths). In that case, skip injection.
-            // When IDs are present (actual parallel scan), they must exist for np_idx.
             if !self.non_partitioning_segment_ids.is_empty() {
                 let ids = self
                     .non_partitioning_segment_ids
@@ -289,11 +321,21 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
         match name {
             "pdb_search_predicate" => {
-                let udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
+                let mut udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
                     DataFusionError::Internal(format!(
                         "Failed to deserialize SearchPredicateUDF: {e}"
                     ))
                 })?;
+                if let Some(plan_position) = udf.plan_position() {
+                    if !self.index_segment_ids.is_empty() {
+                        let ids = self
+                            .index_segment_ids
+                            .get(plan_position)
+                            .cloned()
+                            .expect("missing canonical segment IDs for plan_position");
+                        udf.set_canonical_segment_ids(ids);
+                    }
+                }
                 Ok(Arc::new(ScalarUDF::new_from_impl(udf)))
             }
             _ => Err(DataFusionError::NotImplemented(format!(
@@ -317,38 +359,35 @@ pub fn serialize_logical_plan(plan: &LogicalPlan) -> Result<bytes::Bytes> {
 }
 
 /// Deserializes a DataFusion `LogicalPlan` from bytes using the `PgSearchExtensionCodec`.
+#[cfg(any(test, feature = "pg_test"))]
 pub fn deserialize_logical_plan(
     bytes: &[u8],
     ctx: &datafusion::execution::TaskContext,
-    parallel_state: Option<*mut crate::postgres::ParallelScanState>,
-    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
-    planstate: Option<*mut pgrx::pg_sys::PlanState>,
 ) -> Result<LogicalPlan> {
-    let codec = PgSearchExtensionCodec {
-        parallel_state,
-        expr_context,
-        planstate,
-        non_partitioning_segment_ids: vec![],
-    };
-    datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
+    datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(
+        bytes,
+        ctx,
+        &PgSearchExtensionCodec::default(),
+    )
 }
 
-/// Deserializes a DataFusion `LogicalPlan` with canonical segment IDs for non-partitioning
-/// (replicated-parallel) sources. Used in the parallel exec path where workers must open
-/// each non-partitioning index with the same frozen segment set.
-pub fn deserialize_logical_plan_parallel(
+/// Deserializes a DataFusion `LogicalPlan` using a codec populated with the
+/// runtime state required by execution.
+pub fn deserialize_logical_plan_with_runtime(
     bytes: &[u8],
     ctx: &datafusion::execution::TaskContext,
     parallel_state: Option<*mut crate::postgres::ParallelScanState>,
     expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
     planstate: Option<*mut pgrx::pg_sys::PlanState>,
     non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
         expr_context,
         planstate,
         non_partitioning_segment_ids,
+        index_segment_ids,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
 }

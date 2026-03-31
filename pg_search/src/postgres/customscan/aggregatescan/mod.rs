@@ -926,7 +926,6 @@ impl AggregateScan {
         // redundant Sort above us, which is correct (just wasteful on K rows).
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
-
         // Extract non-equi join quals for post-join filtering.
         // These are applied as DataFusion filter expressions between join and aggregate.
         let post_join_filters =

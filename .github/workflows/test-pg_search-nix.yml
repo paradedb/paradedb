@@ -69,7 +69,8 @@ jobs:
             git add nix/pg_search.nix
             git commit -m "fix: update nix cargoHash for changed Cargo.lock"
             git push
-            echo "Pushed updated cargoHash"
+            echo "::error::cargoHash was outdated and has been auto-fixed. CI will re-run on the updated commit."
+            exit 1
           else
             echo "cargoHash is correct"
           fi

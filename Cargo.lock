@@ -3439,9 +3439,15 @@ checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
 name = "hyper"
+<<<<<<< HEAD
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb3aa54a13a0dfe7fbe3a59e0c76093041720fdc77b110cc0fc260fafb4dc51e"
+=======
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6299f016b246a94207e63da54dbe807655bf9e00044f73ded42c3ac5305fbcca"
+>>>>>>> 8736f813e (fix: build fix (#4599))
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -3452,7 +3458,6 @@ dependencies = [
  "httparse",
  "itoa",
  "pin-project-lite",
- "pin-utils",
  "smallvec",
  "tokio",
  "want",
@@ -4014,9 +4019,15 @@ checksum = "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
 
 [[package]]
 name = "js-sys"
+<<<<<<< HEAD
 version = "0.3.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "852f13bec5eba4ba9afbeb93fd7c13fe56147f055939ae21c43a29a0ecb2702e"
+=======
+version = "0.3.93"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "797146bb2677299a1eb6b7b50a890f4c361b29ef967addf5b2fa45dae1bb6d7d"
+>>>>>>> 8736f813e (fix: build fix (#4599))
 dependencies = [
  "once_cell",
  "wasm-bindgen",
@@ -8267,9 +8278,15 @@ checksum = "b8dad83b4f25e74f184f64c43b150b91efe7647395b42289f38e50566d82855b"
 
 [[package]]
 name = "wasm-bindgen"
+<<<<<<< HEAD
 version = "0.2.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab10a69fbd0a177f5f649ad4d8d3305499c42bab9aef2f7ff592d0ec8f833819"
+=======
+version = "0.2.116"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dc0882f7b5bb01ae8c5215a1230832694481c1a4be062fd410e12ea3da5b631"
+>>>>>>> 8736f813e (fix: build fix (#4599))
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -8279,10 +8296,37 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "wasm-bindgen-backend"
 version = "0.2.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bb702423545a6007bbc368fde243ba47ca275e549c8a28617f56f6ba53b1d1c"
+=======
+name = "wasm-bindgen-futures"
+version = "0.4.66"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19280959e2844181895ef62f065c63e0ca07ece4771b53d89bfdb967d97cbf05"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "wasm-bindgen-macro"
+version = "0.2.116"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75973d3066e01d035dbedaad2864c398df42f8dd7b1ea057c35b8407c015b537"
+dependencies = [
+ "quote",
+ "wasm-bindgen-macro-support",
+]
+
+[[package]]
+name = "wasm-bindgen-macro-support"
+version = "0.2.116"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91af5e4be765819e0bcfee7322c14374dc821e35e72fa663a830bbc7dc199eac"
+>>>>>>> 8736f813e (fix: build fix (#4599))
 dependencies = [
  "bumpalo",
  "log",
@@ -8293,6 +8337,7 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "wasm-bindgen-futures"
 version = "0.4.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8333,6 +8378,12 @@ name = "wasm-bindgen-shared"
 version = "0.2.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "293c37f4efa430ca14db3721dfbe48d8c33308096bd44d80ebaa775ab71ba1cf"
+=======
+name = "wasm-bindgen-shared"
+version = "0.2.116"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9bf0406a78f02f336bf1e451799cca198e8acde4ffa278f0fb20487b150a633"
+>>>>>>> 8736f813e (fix: build fix (#4599))
 dependencies = [
  "unicode-ident",
 ]
@@ -8373,9 +8424,15 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
+<<<<<<< HEAD
 version = "0.3.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbe734895e869dc429d78c4b433f8d17d95f8d05317440b4fad5ab2d33e596dc"
+=======
+version = "0.3.93"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "749466a37ee189057f54748b200186b59a03417a117267baf3fd89cecc9fb837"
+>>>>>>> 8736f813e (fix: build fix (#4599))
 dependencies = [
  "js-sys",
  "wasm-bindgen",

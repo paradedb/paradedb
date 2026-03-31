@@ -726,7 +726,7 @@ impl RelNode {
                         || right_output_rtis.contains(&jk.inner_rti);
 
                     if !outer_ok
-                        && !Self::substitute_pruned_key_side(
+                        && !substitute_pruned_key_side(
                             &all_child_keys,
                             &all_output_rtis,
                             jk.outer_rti,
@@ -738,7 +738,7 @@ impl RelNode {
                         return false;
                     }
                     if !inner_ok
-                        && !Self::substitute_pruned_key_side(
+                        && !substitute_pruned_key_side(
                             &all_child_keys,
                             &all_output_rtis,
                             jk.inner_rti,
@@ -754,43 +754,6 @@ impl RelNode {
             }
             RelNode::Filter(f) => f.input.rewrite_pruned_join_keys(),
         }
-    }
-
-    /// Finds a child equi-key that maps `(pruned_rti, pruned_attno)` to an
-    /// output-visible `(rti, attno)` and writes the replacement into `out_rti`
-    /// and `out_attno`. Returns `true` on success.
-    ///
-    /// NOTE: This only follows a single equivalence hop (e.g. `d.x → c.y`).
-    /// Multi-hop chains (e.g. `d.x → c.y → b.z`) are not resolved. In practice
-    /// PostgreSQL's planner picks the shortest available equivalence, so
-    /// single-hop resolution has been sufficient.
-    fn substitute_pruned_key_side(
-        child_keys: &[&JoinKeyPair],
-        output_rtis: &[pg_sys::Index],
-        pruned_rti: pg_sys::Index,
-        pruned_attno: pg_sys::AttrNumber,
-        out_rti: &mut pg_sys::Index,
-        out_attno: &mut pg_sys::AttrNumber,
-    ) -> bool {
-        for k in child_keys {
-            if k.outer_rti == pruned_rti
-                && k.outer_attno == pruned_attno
-                && output_rtis.contains(&k.inner_rti)
-            {
-                *out_rti = k.inner_rti;
-                *out_attno = k.inner_attno;
-                return true;
-            }
-            if k.inner_rti == pruned_rti
-                && k.inner_attno == pruned_attno
-                && output_rtis.contains(&k.outer_rti)
-            {
-                *out_rti = k.outer_rti;
-                *out_attno = k.outer_attno;
-                return true;
-            }
-        }
-        false
     }
 
     /// Returns true if the query tree contains a SEMI or ANTI join at any level.
@@ -973,6 +936,44 @@ impl RelNode {
             RelNode::Filter(f) => f.input.explain_internal(is_root),
         }
     }
+}
+
+/// Finds a child equi-key that maps `(pruned_rti, pruned_attno)` to an
+/// output-visible `(rti, attno)` and writes the replacement into `out_rti`
+/// and `out_attno`. Returns `true` on success.
+///
+/// NOTE: This only follows a single equivalence hop (e.g. `d.x → c.y`).
+/// Multi-hop chains (e.g. `d.x → c.y → b.z`) are not resolved. In practice
+/// PostgreSQL's planner picks the shortest available equivalence, so
+/// single-hop resolution has been sufficient.
+#[inline]
+fn substitute_pruned_key_side(
+    child_keys: &[&JoinKeyPair],
+    output_rtis: &[pg_sys::Index],
+    pruned_rti: pg_sys::Index,
+    pruned_attno: pg_sys::AttrNumber,
+    out_rti: &mut pg_sys::Index,
+    out_attno: &mut pg_sys::AttrNumber,
+) -> bool {
+    for k in child_keys {
+        if k.outer_rti == pruned_rti
+            && k.outer_attno == pruned_attno
+            && output_rtis.contains(&k.inner_rti)
+        {
+            *out_rti = k.inner_rti;
+            *out_attno = k.inner_attno;
+            return true;
+        }
+        if k.inner_rti == pruned_rti
+            && k.inner_attno == pruned_attno
+            && output_rtis.contains(&k.outer_rti)
+        {
+            *out_rti = k.outer_rti;
+            *out_attno = k.outer_attno;
+            return true;
+        }
+    }
+    false
 }
 
 impl Default for RelNode {

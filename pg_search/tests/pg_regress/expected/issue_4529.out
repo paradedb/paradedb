@@ -58,15 +58,14 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
                  :   AggregateExec: mode=Single, gby=[name@1 as col_1], aggr=[ctid_0, ctid_1]
-                 :     ProjectionExec: expr=[ctid_0@1 as ctid_0, name@2 as name, ctid_1@0 as ctid_1]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_1@0, ctid_0@2, name@4]
-                 :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id]
+                 :     VisibilityFilterExec: tables=[s, p]
+                 :       ProjectionExec: expr=[ctid_0@1 as ctid_0, name@2 as name, ctid_1@0 as ctid_1]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_1@0, ctid_0@2, name@4]
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"description","value":"widget","is_datetime":false}}}}
-                 :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, name@2 as name]
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(19 rows)
+(18 rows)
 
 SELECT DISTINCT s.name
 FROM typmod_products p

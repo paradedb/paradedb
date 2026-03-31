@@ -27,7 +27,6 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   nix-cargo-hash-check:
@@ -41,7 +40,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.head_ref }}
-          token: ${{ secrets.GHA_CREATE_PR_PAT || github.token }}
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
       - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@main
@@ -53,8 +52,10 @@ jobs:
       # Build only cargo deps to surface cargoHash mismatches quickly, without
       # compiling pg_search for every Postgres variant. If the hash is stale,
       # compute the correct one and push a fix commit to the PR branch.
+      # The push uses PARADEDB_BOT_GITHUB_TOKEN (a PAT) so that GitHub fires a
+      # synchronize event, which re-triggers all CI workflows on the new HEAD.
+      # Pushes made with the default GITHUB_TOKEN do not fire events.
       - name: Verify Nix Cargo Hash
-        id: hash-check
         run: |
           if ! nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps" 2>/dev/null; then
             echo "cargoHash mismatch detected, computing correct hash..."
@@ -71,21 +72,8 @@ jobs:
             git add nix/pg_search.nix
             git commit -m "fix: update nix cargoHash for changed Cargo.lock"
             git push
-            echo "pushed=true" >> "$GITHUB_OUTPUT"
             echo "::error::cargoHash was outdated and has been auto-fixed. CI will re-run on the updated commit."
             exit 1
           else
             echo "cargoHash is correct"
           fi
-
-      # When the fix commit is pushed with GITHUB_TOKEN, GitHub does not fire a
-      # synchronize event, so other CI workflows never re-run on the new HEAD.
-      # Closing and reopening the PR forces a "reopened" event that triggers a
-      # full CI run on the corrected commit.
-      - name: Re-trigger CI on updated HEAD
-        if: always() && steps.hash-check.outputs.pushed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GHA_CREATE_PR_PAT || github.token }}
-        run: |
-          gh pr close "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}"
-          gh pr reopen "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}"

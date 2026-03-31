@@ -633,6 +633,15 @@ impl CustomScan for AggregateScan {
     fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Explicitly drop DataFusion resources (runtime, stream, batches) at the
+        // intended lifecycle boundary rather than relying on Postgres to drop the
+        // state wrapper later. Mirrors JoinScan::end_custom_scan.
+        if let Some(mut df_state) = state.custom_state_mut().datafusion_state.take() {
+            df_state.stream = None;
+            df_state.current_batch = None;
+            df_state.runtime = None;
+        }
+
         // Clean up the reusable scan slot
         if let Some(slot) = state.custom_state().scan_slot {
             unsafe {
@@ -853,6 +862,10 @@ impl AggregateScan {
         // Reject CROSS JOINs (no equi-join keys). Without join keys the
         // second table's PgSearchTableProvider has no Named fields, producing
         // empty RecordBatches.
+        // NOTE: For single-table RELOPT_BASEREL overflow, sources.len() == 1
+        // and the plan is a RelNode::Scan with no join keys. This guard
+        // currently also rejects that path; a later PR wraps this check in
+        // `if sources.len() > 1` to allow single-table DataFusion fallback.
         if plan.join_keys().is_empty() {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",

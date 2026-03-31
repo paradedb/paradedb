@@ -199,6 +199,14 @@ pub unsafe fn extract_aggregate_targetlist(
                 return Err("DISTINCT aggregates are not supported on joins".into());
             }
 
+            // Reject FILTER (WHERE ...) clauses on aggregates — DataFusion's
+            // aggregate plan doesn't propagate per-aggregate filter predicates.
+            if !(*aggref).aggfilter.is_null() {
+                return Err(
+                    "FILTER clauses on aggregates are not supported for aggregate-on-join".into(),
+                );
+            }
+
             // Reject pdb.agg()
             let pdb_agg_oid = crate::api::agg_funcoid().to_u32();
             let pdb_agg_mvcc_oid = crate::api::agg_with_solve_mvcc_funcoid().to_u32();

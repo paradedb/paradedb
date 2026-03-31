@@ -270,7 +270,6 @@ impl ExecutionPlan for TantivyLookupExec {
                 &self.children(),
             ));
         }
-        // ChildFilterDescription::from_child automatically reassigns indices if names match
         let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?;
         Ok(FilterDescription::new().with_child(child_desc))
     }

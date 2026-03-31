@@ -39,11 +39,15 @@
 //!
 //! ## SAFETY WARNING
 //!
-//! This strategy is **ONLY CORRECT** for:
+//! This strategy is partitioning-correct for:
 //! 1.  **Inner Joins**: `JOIN_INNER`
 //! 2.  **Left Outer Joins** (where the Left/Outer table is partitioned)
 //! 3.  **Semi Joins** (where the Left table is partitioned)
 //! 4.  **Anti Joins** (where the Left table is partitioned)
+//!
+//! The current JoinScan planner is more conservative and only enables `INNER`,
+//! `SEMI`, and `ANTI` joins. `LEFT` is listed here to document the partitioning
+//! constraint for future work, not current planner support.
 //!
 //! It is **INCORRECT** and will produce duplicate or wrong results for:
 //! 1.  **Right Outer Joins**: Unmatched rows from the replicated Right table would be emitted
@@ -84,14 +88,32 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
-use crate::scan::PgSearchTableProvider;
+use crate::scan::{PgSearchTableProvider, VisibilityMode};
 use async_trait::async_trait;
 use datafusion::execution::context::{QueryPlanner, SessionState};
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::min;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 
-#[derive(Debug)]
+fn make_source_col(source: &JoinSource, plan_position: usize, field_name: &str) -> Expr {
+    let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+    make_col(&alias, field_name)
+}
+
+fn make_source_score_col(source: &JoinSource, plan_position: usize) -> Expr {
+    let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+    make_col(&alias, SCORE_COL_NAME)
+}
+
+/// Query planner that lowers JoinScan's custom logical nodes
+/// (`LateMaterializeNode`, `VisibilityFilterNode`) into executable plans.
+///
+/// JoinScan uses one `SessionContext` configuration for both logical planning
+/// and execution. The optimized logical plan is still serialized between those
+/// steps so EXPLAIN, the leader, and workers can all reconstruct the same
+/// canonical plan. Execution-only bindings are still injected separately during
+/// deserialization.
+#[derive(Debug, Default)]
 struct PgSearchQueryPlanner;
 
 #[async_trait]
@@ -101,9 +123,15 @@ impl QueryPlanner for PgSearchQueryPlanner {
         logical_plan: &datafusion::logical_expr::LogicalPlan,
         session_state: &SessionState,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let physical_planner = DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(
+        let mut extension_planners: Vec<
+            Arc<dyn datafusion::physical_planner::ExtensionPlanner + Send + Sync>,
+        > = vec![Arc::new(
             crate::scan::late_materialization::LateMaterializePlanner {},
-        )]);
+        )];
+        extension_planners.push(Arc::new(
+            super::visibility_filter::VisibilityExtensionPlanner::new(),
+        ));
+        let physical_planner = DefaultPhysicalPlanner::with_extension_planners(extension_planners);
         physical_planner
             .create_physical_plan(logical_plan, session_state)
             .await
@@ -159,7 +187,7 @@ pub struct JoinScanState {
     /// sources appear in `join_clause.plan.sources()` (partitioning source excluded).
     ///
     /// Populated by `initialize_dsm_custom_scan` (leader) or `initialize_worker_custom_scan`
-    /// (worker) and injected into `PgSearchExtensionCodec` at execution time so that
+    /// (worker) and injected during deserialization so that
     /// non-partitioning `PgSearchTableProvider`s open each index with
     /// `MvccSatisfies::ParallelWorker`, ensuring all workers see identical segments.
     pub non_partitioning_segments: Vec<crate::api::HashSet<SegmentId>>,
@@ -193,52 +221,69 @@ impl CustomScanState for JoinScanState {
     }
 }
 
-/// Creates a DataFusion SessionContext with our custom SortMergeJoinEnforcer physical optimizer rule.
-///
-/// We set `target_partitions = 1` to ensure deterministic EXPLAIN output.
-/// The `SortMergeJoinEnforcer` rule runs after the initial execution plan is built
-/// and replaces `HashJoinExec` with `SortMergeJoinExec` if the inputs are already sorted
-/// in a compatible way.
-pub fn create_session_context() -> SessionContext {
+/// Base session config shared by all contexts.
+fn base_session_config() -> SessionConfig {
     let mut config = SessionConfig::new().with_target_partitions(1);
     config
         .options_mut()
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
+    config
+}
 
-    let mut builder = SessionStateBuilder::new().with_config(config);
+/// Adds SegmentedTopK plus the final post-optimization FilterPushdown pass.
+///
+/// This second `FilterPushdown(Post)` run is intentional: `SegmentedTopKRule`
+/// can inject new `DynamicFilterPhysicalExpr`s that did not exist during the
+/// earlier post-optimization pass.
+fn add_tail_physical_rules(builder: SessionStateBuilder) -> SessionStateBuilder {
+    builder
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::segmented_topk_rule::SegmentedTopKRule,
+        ))
+        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()))
+}
+
+/// Creates the shared DataFusion SessionContext used for both JoinScan logical
+/// planning and execution.
+///
+/// The same context configuration is used to:
+/// 1. run logical optimization and produce the canonical serialized plan
+/// 2. lower that deserialized logical plan into a physical plan at execution
+pub fn create_session_context() -> SessionContext {
+    use super::visibility_filter::VisibilityFilterOptimizerRule;
+    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
+
+    let mut builder = SessionStateBuilder::new().with_config(base_session_config());
+
+    // Inject visibility before late materialization so ctid lineage is analyzed
+    // while DeferredCtid columns are still present in the logical plan.
+    builder = builder
+        .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new()))
+        .with_optimizer_rule(Arc::new(
+            crate::scan::late_materialization::LateMaterializationRule,
+        ));
 
     if crate::gucs::is_columnar_sort_enabled() {
-        let rule = Arc::new(SortMergeJoinEnforcer::new());
-        builder = builder.with_physical_optimizer_rule(rule);
-        // Re-run dynamic filter pushdown after the enforcer. The enforcer's
-        // transform_up causes `with_new_children` on ancestor nodes, which in
-        // SortExec's case creates a new DynamicFilterPhysicalExpr that hasn't
-        // been pushed to PgSearchScan yet. This second pass establishes the
-        // connection.
-        //
-        // NOTE: Inserting the enforcer before the default FilterPushdown(Post)
-        // rule (rather than appending a second pass) was considered, but the
-        // enforcer relies on detecting CoalescePartitionsExec on HashJoin
-        // children — the plan structure at that earlier pipeline point differs,
-        // causing missing SortPreservingMergeExec and incorrect join results.
+        builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
+    }
+
+    builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
+
+    // VisibilityExtensionPlanner already places visibility below any immediate
+    // TantivyLookupExec chain, so only resolver wiring remains here before the
+    // first post-optimization FilterPushdown pass. That pass reconnects dynamic
+    // filters after SortMergeJoin rewrites; the final pass in
+    // `add_tail_physical_rules` handles any new filters introduced by
+    // SegmentedTopKRule later in the pipeline.
+    builder = builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
+    if crate::gucs::is_columnar_sort_enabled() {
         builder =
             builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
     }
-    builder = builder.with_optimizer_rule(Arc::new(
-        crate::scan::late_materialization::LateMaterializationRule,
-    ));
-    builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner {}));
-    builder = builder.with_physical_optimizer_rule(Arc::new(
-        crate::scan::segmented_topk_rule::SegmentedTopKRule,
-    ));
-    // Run a second FilterPushdown(Post) pass so that filters from nodes injected
-    // by SegmentedTopKRule (e.g. SegmentedTopKExec's DynamicFilterPhysicalExpr)
-    // are pushed down through TantivyLookupExec to PgSearchScan.
-    builder =
-        builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-    let state = builder.build();
-    SessionContext::new_with_state(state)
+    builder = add_tail_physical_rules(builder);
+
+    SessionContext::new_with_state(builder.build())
 }
 
 /// Build the DataFusion logical plan for the join.
@@ -254,6 +299,11 @@ pub async fn build_joinscan_logical_plan(
 }
 
 /// Convert a LogicalPlan to an ExecutionPlan.
+///
+/// The input logical plan is already fully optimized (visibility + late materialization
+/// nodes injected at planning time). Physical planning reuses the shared
+/// `SessionContext` configuration and lowers the stored plan after execution
+/// has injected whatever runtime-only bindings are required during decode.
 pub async fn build_joinscan_physical_plan(
     ctx: &SessionContext,
     plan: datafusion::logical_expr::LogicalPlan,
@@ -297,8 +347,8 @@ fn build_relnode_df<'a>(
                 let is_parallel = source.scan_info.heap_rti == partitioning_rti;
                 let plan_position = source.plan_position;
 
-                // Compute the position of this source among non-partitioning sources so that
-                // PgSearchExtensionCodec can inject the correct canonical segment IDs.
+                // Compute the position of this source among non-partitioning sources so execution
+                // can retrieve the correct canonical segment IDs during decode.
                 let np_idx = if !is_parallel {
                     let partitioning_plan_idx = join_clause.partitioning_source_index();
                     // Count non-partitioning sources that appear before this one in plan order.
@@ -360,11 +410,6 @@ fn build_relnode_df<'a>(
                     let left_idx = left_source.plan_position;
                     let right_idx = right_source.plan_position;
 
-                    let left_alias = RelationAlias::new(left_source.scan_info.alias.as_deref())
-                        .execution(left_idx);
-                    let right_alias = RelationAlias::new(right_source.scan_info.alias.as_deref())
-                        .execution(right_idx);
-
                     let left_col_name = left_source
                         .column_name(left_attno)
                         .ok_or_else(|| DataFusionError::Internal("Missing column name".into()))?;
@@ -372,8 +417,8 @@ fn build_relnode_df<'a>(
                         .column_name(right_attno)
                         .ok_or_else(|| DataFusionError::Internal("Missing column name".into()))?;
 
-                    let left_expr = make_col(&left_alias, &left_col_name);
-                    let right_expr = make_col(&right_alias, &right_col_name);
+                    let left_expr = make_source_col(left_source, left_idx, &left_col_name);
+                    let right_expr = make_source_col(right_source, right_idx, &right_col_name);
                     on.push(left_expr.eq(right_expr));
                 }
 
@@ -428,12 +473,21 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
+                // Compute per-plan_position deferred visibility. A plan_position's
+                // ctid is "deferred" (packed DocAddress) if it flows only through
+                // inner joins from the leaf scan. Non-inner joins (semi, anti, etc.)
+                // trigger per-child visibility barriers that resolve ctids to real
+                // heap TIDs. In mixed trees like (A INNER B) INNER (C SEMI D),
+                // ctid_A and ctid_B are still packed while ctid_C is resolved.
+                let deferred_positions =
+                    super::visibility_filter::deferred_plan_positions(&filter.input);
                 let filter_expr = unsafe {
                     crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
                         translated_exprs,
                         ctid_map,
                         &join_clause.join_level_predicates,
+                        &deferred_positions,
                     )
                 }
                 .ok_or_else(|| {
@@ -601,12 +655,7 @@ fn build_clause_df<'a>(
                                 .iter()
                                 .enumerate()
                                 .find(|(_, s)| s.scan_info.heap_rti == *rti)
-                                .map(|(idx, source)| {
-                                    let alias =
-                                        RelationAlias::new(source.scan_info.alias.as_deref())
-                                            .execution(idx);
-                                    make_col(&alias, SCORE_COL_NAME)
-                                })
+                                .map(|(idx, source)| make_source_score_col(source, idx))
                                 .unwrap_or_else(|| col("unknown_score"))
                         }
                     }
@@ -616,11 +665,7 @@ fn build_clause_df<'a>(
                         .iter()
                         .enumerate()
                         .find(|(_, s)| s.contains_rti(*rti))
-                        .map(|(idx, source)| {
-                            let alias = RelationAlias::new(source.scan_info.alias.as_deref())
-                                .execution(idx);
-                            make_col(&alias, name.as_ref())
-                        })
+                        .map(|(idx, source)| make_source_col(source, idx, name.as_ref()))
                         .unwrap_or_else(|| {
                             pgrx::warning!("JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'");
                             col(name.as_ref())
@@ -637,10 +682,7 @@ fn build_clause_df<'a>(
                                 .find_map(|(i, source)| {
                                     let mapped = source.map_var(*rti, *attno)?;
                                     let field = source.column_name(mapped)?;
-                                    let alias =
-                                        RelationAlias::new(source.scan_info.alias.as_deref())
-                                            .execution(i);
-                                    Some(make_col(&alias, &field))
+                                    Some(make_source_col(source, i, &field))
                                 })
                                 .unwrap_or_else(|| col("unknown_col"))
                         }
@@ -709,21 +751,19 @@ fn build_projection_expr(
 ) -> Expr {
     let plan_sources = join_clause.plan.sources();
     for (i, source) in plan_sources.iter().enumerate() {
-        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(i);
-
         if proj.is_score {
             if let Some(attno) = source.map_var(proj.rti, 0) {
                 if let Some(name) = source.column_name(attno) {
-                    return make_col(&alias, &name);
+                    return make_source_col(source, i, &name);
                 } else {
-                    return make_col(&alias, SCORE_COL_NAME);
+                    return make_source_score_col(source, i);
                 }
             } else if source.contains_rti(proj.rti) {
-                return make_col(&alias, SCORE_COL_NAME);
+                return make_source_score_col(source, i);
             }
         } else if let Some(attno) = source.map_var(proj.rti, proj.attno) {
             if let Some(field_name) = source.column_name(attno) {
-                return make_col(&alias, &field_name);
+                return make_source_col(source, i, &field_name);
             }
         }
     }
@@ -768,10 +808,10 @@ fn build_source_df<'a>(
         }
 
         let mut provider =
-            PgSearchTableProvider::new(scan_info.clone(), fields.clone(), None, is_parallel);
+            PgSearchTableProvider::new(scan_info.clone(), fields.clone(), is_parallel);
 
-        // Mark non-partitioning sources so the PgSearchExtensionCodec can inject the
-        // correct canonical segment IDs when the logical plan is deserialized in workers.
+        // Mark non-partitioning sources so execution can retrieve the correct
+        // canonical segment IDs during decode.
         if let Some(idx) = np_idx {
             provider.set_non_partitioning_index(idx);
         }
@@ -805,7 +845,10 @@ fn build_source_df<'a>(
             }
         }
 
-        provider.try_enable_late_materialization(&required_early);
+        provider.configure_deferred_outputs(
+            &required_early,
+            VisibilityMode::Deferred { plan_position },
+        );
 
         let provider = Arc::new(provider);
         ctx.register_table(alias.as_str(), provider)?;

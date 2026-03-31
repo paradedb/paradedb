@@ -56,11 +56,18 @@ impl<'a> PredicateTranslator<'a> {
     /// This creates `SearchPredicateUDF` expressions for single-table predicates,
     /// which can be pushed down to `PgSearchTableProvider` via DataFusion's
     /// filter pushdown mechanism.
+    /// Translate a `JoinLevelExpr` tree to a DataFusion `Expr`.
+    ///
+    /// `deferred_positions` contains plan_positions whose ctid columns still hold
+    /// packed DocAddresses at this point in the plan. Each `SingleTablePredicate`
+    /// checks whether its `plan_position` is in the set to determine whether its
+    /// `SearchPredicateUDF` should emit packed DocAddresses or real ctids.
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
         ctid_map: &HashMap<pg_sys::Index, Expr>,
         predicates: &[JoinLevelSearchPredicate],
+        deferred_positions: &crate::api::HashSet<usize>,
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
@@ -69,13 +76,14 @@ impl<'a> PredicateTranslator<'a> {
             } => {
                 let predicate = predicates.get(*predicate_idx)?;
                 let col = ctid_map.get(&(*plan_position as pg_sys::Index))?;
-                // Create a SearchPredicateUDF that carries the search query.
-                // This will be pushed down to PgSearchTableProvider via filter pushdown.
-                let udf = SearchPredicateUDF::new(
+                let deferred = deferred_positions.contains(plan_position);
+                let udf = SearchPredicateUDF::with_deferred_visibility(
                     predicate.indexrelid,
                     predicate.heaprelid,
                     predicate.query.clone(),
                     predicate.display_string.clone(),
+                    deferred,
+                    Some(*plan_position),
                 );
                 Some(udf.into_expr(col.clone()))
             }
@@ -91,10 +99,16 @@ impl<'a> PredicateTranslator<'a> {
                     custom_exprs,
                     ctid_map,
                     predicates,
+                    deferred_positions,
                 )?;
                 for child in &children[1..] {
-                    let right =
-                        Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        ctid_map,
+                        predicates,
+                        deferred_positions,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::And,
@@ -112,10 +126,16 @@ impl<'a> PredicateTranslator<'a> {
                     custom_exprs,
                     ctid_map,
                     predicates,
+                    deferred_positions,
                 )?;
                 for child in &children[1..] {
-                    let right =
-                        Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        ctid_map,
+                        predicates,
+                        deferred_positions,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::Or,
@@ -125,8 +145,13 @@ impl<'a> PredicateTranslator<'a> {
                 Some(result)
             }
             JoinLevelExpr::Not(child) => {
-                let inner =
-                    Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                let inner = Self::translate_join_level_expr(
+                    child,
+                    custom_exprs,
+                    ctid_map,
+                    predicates,
+                    deferred_positions,
+                )?;
                 Some(Expr::Not(Box::new(inner)))
             }
         }

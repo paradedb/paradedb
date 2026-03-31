@@ -329,4 +329,144 @@ mod tests {
         let datum = arrow_value_to_datum(&arr, 0, pg_sys::TEXTOID);
         assert!(datum.is_some());
     }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_int32() {
+        let arr: ArrayRef = Arc::new(Int32Array::from(vec![42]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT4OID);
+        assert!(datum.is_some());
+
+        // Int32 → INT8OID (widening)
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT8OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_int16() {
+        let arr: ArrayRef = Arc::new(Int16Array::from(vec![7]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT2OID);
+        assert!(datum.is_some());
+
+        // Int16 → INT4OID (widening)
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT4OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_uint64() {
+        let arr: ArrayRef = Arc::new(UInt64Array::from(vec![100u64]));
+        // Within i64 range → int64_to_datum
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT8OID);
+        assert!(datum.is_some());
+
+        // Above i64::MAX → float64_to_datum fallback
+        let arr: ArrayRef = Arc::new(UInt64Array::from(vec![u64::MAX]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT8OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_float32() {
+        let arr: ArrayRef = Arc::new(Float32Array::from(vec![1.23f32]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT4OID);
+        assert!(datum.is_some());
+
+        // Float32 → FLOAT8OID (widening)
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT8OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_large_utf8() {
+        let arr: ArrayRef = Arc::new(LargeStringArray::from(vec!["large string"]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::TEXTOID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_decimal128() {
+        // Decimal128 with scale=2 → NUMERICOID
+        let arr: ArrayRef = Arc::new(
+            Decimal128Array::from(vec![12345i128])
+                .with_precision_and_scale(10, 2)
+                .unwrap(),
+        );
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::NUMERICOID);
+        assert!(datum.is_some());
+
+        // Decimal128 with scale=0 → NUMERICOID (integer-like)
+        let arr: ArrayRef = Arc::new(
+            Decimal128Array::from(vec![999i128])
+                .with_precision_and_scale(10, 0)
+                .unwrap(),
+        );
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::NUMERICOID);
+        assert!(datum.is_some());
+
+        // Decimal128 → FLOAT8OID (non-NUMERIC target)
+        let arr: ArrayRef = Arc::new(
+            Decimal128Array::from(vec![12345i128])
+                .with_precision_and_scale(10, 2)
+                .unwrap(),
+        );
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT8OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_int64_to_numeric() {
+        // int64_to_datum with NUMERICOID — the SUM(bigint) crash fix
+        let arr: ArrayRef = Arc::new(Int64Array::from(vec![9999i64]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::NUMERICOID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_int64_to_float() {
+        // int64_to_datum with FLOAT8OID and FLOAT4OID
+        let arr: ArrayRef = Arc::new(Int64Array::from(vec![42i64]));
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT8OID);
+        assert!(datum.is_some());
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT4OID);
+        assert!(datum.is_some());
+
+        // INT2OID (narrowing)
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT2OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_float64_to_numeric() {
+        // float64_to_datum with NUMERICOID
+        let arr: ArrayRef = Arc::new(Float64Array::from(vec![123.456]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::NUMERICOID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_float64_to_int() {
+        // float64_to_datum with integer targets
+        let arr: ArrayRef = Arc::new(Float64Array::from(vec![42.0]));
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT8OID);
+        assert!(datum.is_some());
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT4OID);
+        assert!(datum.is_some());
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT2OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_unsupported_type() {
+        // Unsupported Arrow type should return None
+        let arr: ArrayRef = Arc::new(arrow_array::TimestampNanosecondArray::from(vec![
+            1_000_000_000i64,
+        ]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(datum.is_none());
+    }
 }

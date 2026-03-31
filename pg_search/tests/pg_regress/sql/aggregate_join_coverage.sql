@@ -188,6 +188,79 @@ WHERE o.description @@@ 'laptop OR shoes';
 SET client_min_messages TO warning;
 
 -- =====================================================================
+-- Test 11: REAL (float4) and SMALLINT columns — exercises Float4/Int2
+-- fast field storage and aggregate projection
+-- =====================================================================
+CREATE TABLE cov_sensors (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    reading REAL,
+    priority SMALLINT
+);
+
+CREATE TABLE cov_logs (
+    id SERIAL PRIMARY KEY,
+    sensor_id INTEGER,
+    log_type TEXT
+);
+
+INSERT INTO cov_sensors (description, reading, priority) VALUES
+    ('Temperature sensor high', 98.6, 1),
+    ('Temperature sensor low', 32.0, 2),
+    ('Pressure sensor main', 14.7, 1),
+    ('Humidity sensor room', 55.5, 3);
+
+INSERT INTO cov_logs (sensor_id, log_type) VALUES
+    (1, 'alert'), (1, 'info'),
+    (2, 'info'),
+    (3, 'alert'), (3, 'info'), (3, 'debug'),
+    (4, 'info');
+
+CREATE INDEX cov_sensors_idx ON cov_sensors
+USING bm25 (id, description, reading, priority)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}}',
+    numeric_fields='{"reading": {"fast": true}, "priority": {"fast": true}}'
+);
+
+CREATE INDEX cov_logs_idx ON cov_logs
+USING bm25 (id, sensor_id, log_type)
+WITH (
+    key_field='id',
+    numeric_fields='{"sensor_id": {"fast": true}}',
+    text_fields='{"log_type": {"fast": true}}'
+);
+
+-- Test 11a: SUM/AVG/MIN/MAX on REAL column
+SELECT COUNT(*), SUM(s.reading), AVG(s.reading), MIN(s.reading), MAX(s.reading)
+FROM cov_sensors s
+JOIN cov_logs l ON s.id = l.sensor_id
+WHERE s.description @@@ 'sensor';
+
+-- Test 11b: SUM/MIN/MAX on SMALLINT column
+SELECT SUM(s.priority), MIN(s.priority), MAX(s.priority)
+FROM cov_sensors s
+JOIN cov_logs l ON s.id = l.sensor_id
+WHERE s.description @@@ 'sensor';
+
+-- Test 11c: Parity — REAL aggregates
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*), SUM(s.reading), MIN(s.reading), MAX(s.reading)
+FROM cov_sensors s
+JOIN cov_logs l ON s.id = l.sensor_id
+WHERE s.description @@@ 'temperature';
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT COUNT(*), SUM(s.reading), MIN(s.reading), MAX(s.reading)
+FROM cov_sensors s
+JOIN cov_logs l ON s.id = l.sensor_id
+WHERE s.description @@@ 'temperature';
+
+DROP TABLE cov_logs;
+DROP TABLE cov_sensors;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE cov_items;

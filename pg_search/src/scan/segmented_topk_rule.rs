@@ -55,7 +55,7 @@ use datafusion::physical_plan::ExecutionPlan;
 
 use crate::gucs;
 use crate::scan::filter_passthrough_exec::FilterPassthroughExec;
-use crate::scan::segmented_topk_exec::SegmentedTopKExec;
+use crate::scan::segmented_topk_exec::{SegmentedTopKExec, SegmentedTopKMode};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 
 #[derive(Debug)]
@@ -161,11 +161,6 @@ fn try_inject_below_lookup(
 
             if has_deferred_sort_col {
                 let lookup_child = &lookup.children()[0];
-                // Wrap blocking nodes (e.g. SortPreservingMergeExec) so that
-                // the second FilterPushdown(Post) pass can push
-                // SegmentedTopKExec's DynamicFilterPhysicalExpr down to PgSearchScan.
-                let lookup_child = &wrap_blocking_nodes(Arc::clone(lookup_child))?;
-                let input_schema = lookup_child.schema();
 
                 // Collect all deferred columns found in the sort expressions.
                 let mut deferred_columns = Vec::new();
@@ -186,29 +181,43 @@ fn try_inject_below_lookup(
                     }
                 }
 
-                // If the sort requires deferred columns from multiple different indexes (tables),
-                // we cannot push the threshold down, because a single segment scanner cannot evaluate
-                // the threshold across multiple tables (it only sees its own base table).
-                // E.g. `ORDER BY f.title ASC, d.category DESC` is a multi-dimensional bound that
-                // spans across the HashJoin. We must gracefully fall back to a standard SortExec.
-                // TODO: Add support for SegmentedTopK executing the TopK, but without pushing down
-                // thresholds: see https://github.com/paradedb/paradedb/issues/4347
-                let first_indexrelid = deferred_columns.first().map(|d| d.canonical.indexrelid);
-                if let Some(id) = first_indexrelid {
-                    if deferred_columns
-                        .iter()
-                        .any(|d| d.canonical.indexrelid != id)
-                    {
-                        pgrx::warning!("SegmentedTopK: ORDER BY includes string columns from multiple tables, which is not currently supported. Falling back to default execution.");
-                        return Ok(None);
+                // Determine if this is a single-index or multi-index sort.
+                let unique_indexrelids: std::collections::HashSet<u32> = deferred_columns
+                    .iter()
+                    .map(|d| d.canonical.indexrelid)
+                    .collect();
+
+                let is_multi_index = unique_indexrelids.len() > 1;
+
+                // Collect FFHelpers for ALL involved indexes.
+                let mut ff_helpers = crate::api::HashMap::default();
+                for &oid in &unique_indexrelids {
+                    match lookup.ffhelper(oid) {
+                        Some(helper) => {
+                            ff_helpers.insert(oid, Arc::clone(helper));
+                        }
+                        None => {
+                            // If any index is missing FFHelpers, we can't proceed.
+                            return Ok(None);
+                        }
                     }
                 }
 
-                let target_indexrelid = first_indexrelid.unwrap_or(0);
-                let ffhelper = match lookup.ffhelper(target_indexrelid) {
-                    Some(helper) => Arc::clone(helper),
-                    None => return Ok(None),
+                let mode = if is_multi_index {
+                    SegmentedTopKMode::MultiIndex
+                } else {
+                    SegmentedTopKMode::SingleIndex
                 };
+
+                // Only wrap blocking nodes for single-index mode (needed for
+                // threshold pushdown propagation). Multi-index mode doesn't push
+                // down thresholds, so wrapping is unnecessary.
+                let lookup_child = if mode == SegmentedTopKMode::SingleIndex {
+                    &wrap_blocking_nodes(Arc::clone(lookup_child))?
+                } else {
+                    lookup_child
+                };
+                let input_schema = lookup_child.schema();
 
                 // The sort_exprs were extracted from SortExec, which is evaluated against
                 // a schema further up the plan (often after a ProjectionExec or AggregateExec).
@@ -240,7 +249,8 @@ fn try_inject_below_lookup(
                     Arc::clone(lookup_child),
                     rewritten_lex_ordering,
                     deferred_columns.clone(),
-                    Arc::clone(&ffhelper),
+                    ff_helpers,
+                    mode,
                     k,
                 ));
 

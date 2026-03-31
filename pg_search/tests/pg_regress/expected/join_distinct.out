@@ -160,7 +160,7 @@ ORDER BY s.name
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   TantivyLookupExec: decode=[name]
-           :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=20
+           :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=20, mode=single_index
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id, name@2 as name]
            :           CooperativeExec
@@ -482,7 +482,7 @@ ORDER BY p.name
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[name]
-           :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
+           :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10, mode=single_index
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :           CooperativeExec
@@ -518,7 +518,7 @@ ORDER BY p.name
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[name]
-           :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
+           :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10, mode=single_index
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
            :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :           CooperativeExec

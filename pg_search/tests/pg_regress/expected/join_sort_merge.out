@@ -335,7 +335,7 @@ LIMIT 10;
            : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10
            :     TantivyLookupExec: decode=[val]
-           :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10
+           :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, mode=single_index
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val]
            :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
            :             SortPreservingMergeExec: [t1_id@1 ASC]
@@ -368,7 +368,7 @@ LIMIT 10;
            : ProjectionExec: expr=[val@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10, metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
            :     TantivyLookupExec: decode=[val], metrics=[output_rows=10, output_bytes=320.0 B, output_batches=1]
-           :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, metrics=[rows_input=20.00 K, rows_output=10, segments_seen=2]
+           :       SegmentedTopKExec: expr=[val@2 ASC NULLS LAST], k=10, mode=single_index, metrics=[rows_input=20.00 K, rows_output=10, segments_seen=2]
            :         ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, val@4 as val], metrics=[output_rows=20.00 K, output_bytes=1184.8 KB, output_batches=3]
            :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=20.00 K, output_bytes=1568.8 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=40.00 K, peak_mem_used=1.20 M]
            :             SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
@@ -458,7 +458,7 @@ LIMIT 25;
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [val@3 DESC, id@2 ASC NULLS LAST], fetch=25
            :     TantivyLookupExec: decode=[val]
-           :       SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25
+           :       SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, mode=single_index
            :         ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
            :           ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0]
            :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]
@@ -489,7 +489,7 @@ LIMIT 25;
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :   SortPreservingMergeExec: [val@3 DESC, id@2 ASC NULLS LAST], fetch=25, metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :     TantivyLookupExec: decode=[val], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
-           :       SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, metrics=[rows_input=16.62 K, rows_output=25, segments_seen=2]
+           :       SegmentedTopKExec: expr=[val@3 DESC, id@2 ASC NULLS LAST], k=25, mode=single_index, metrics=[rows_input=16.62 K, rows_output=25, segments_seen=2]
            :         ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=16.62 K, output_bytes=1292.9 KB, output_batches=3]
            :           ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0], metrics=[output_rows=16.62 K, output_bytes=1292.9 KB, output_batches=3]
            :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], metrics=[output_rows=16.62 K, output_bytes=1472.6 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=36.62 K, peak_mem_used=524.9 K]
@@ -563,7 +563,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@2 as col_1, val@3 as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortPreservingMergeExec: [val@3 ASC NULLS LAST], fetch=10
            :     TantivyLookupExec: decode=[val]
-           :       SegmentedTopKExec: expr=[val@3 ASC NULLS LAST], k=10
+           :       SegmentedTopKExec: expr=[val@3 ASC NULLS LAST], k=10, mode=single_index
            :         ProjectionExec: expr=[ctid_0@3 as ctid_0, ctid_1@0 as ctid_1, id@1 as id, val@2 as val]
            :           ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_0@3 as ctid_0]
            :             SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)]

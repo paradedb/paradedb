@@ -46,7 +46,7 @@ use crate::postgres::customscan::aggregatescan::datafusion_build::{
 };
 use crate::postgres::customscan::aggregatescan::datafusion_exec::build_join_aggregate_plan;
 use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-    build_aggregate_physical_plan, create_aggregate_session_context,
+    build_aggregate_physical_plan, build_aggregate_task_context, create_aggregate_session_context,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
 use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
@@ -60,7 +60,6 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::joinscan::memory::create_memory_pool;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
@@ -69,11 +68,8 @@ use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use chrono::{DateTime as ChronoDateTime, Utc};
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::execution::TaskContext;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
-use std::sync::Arc;
 use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
@@ -918,7 +914,9 @@ impl AggregateScan {
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            let ctx = create_aggregate_session_context();
+            let target_partitions = gucs::aggregate_target_partitions();
+
+            let ctx = create_aggregate_session_context(target_partitions);
 
             let physical_plan = runtime.block_on(async {
                 let logical = build_join_aggregate_plan(
@@ -936,25 +934,15 @@ impl AggregateScan {
                 Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
             };
 
-            let memory_pool = create_memory_pool(
-                &physical_plan,
-                unsafe { pg_sys::work_mem as usize * 1024 },
-                unsafe { pg_sys::hash_mem_multiplier },
-            );
-
-            let task_ctx = Arc::new(
-                TaskContext::default()
-                    .with_session_config(ctx.state().config().clone())
-                    .with_runtime(Arc::new(
-                        RuntimeEnvBuilder::new()
-                            .with_memory_pool(memory_pool)
-                            .build()
-                            .expect("Failed to create RuntimeEnv"),
-                    )),
-            );
-            let stream = match physical_plan.execute(0, task_ctx) {
-                Ok(s) => s,
-                Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+            let task_ctx = build_aggregate_task_context(&ctx, &physical_plan);
+            // Enter the runtime context so CoalescePartitionsExec (used when
+            // target_partitions > 1) can spawn tokio tasks.
+            let stream = {
+                let _guard = runtime.enter();
+                match physical_plan.execute(0, task_ctx) {
+                    Ok(s) => s,
+                    Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+                }
             };
 
             df_state.runtime = Some(runtime);

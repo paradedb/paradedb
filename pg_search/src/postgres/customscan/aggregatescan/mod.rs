@@ -41,8 +41,14 @@ use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
 use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::postgres::customscan::aggregatescan::datafusion_build::{
+    all_have_bm25_index, collect_join_agg_sources, extract_join_tree_from_parse, has_any_bm25_index,
+};
+use crate::postgres::customscan::aggregatescan::datafusion_exec::build_join_aggregate_plan;
+use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
 use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
+use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
@@ -51,6 +57,10 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::joinscan::memory::create_memory_pool;
+use crate::postgres::customscan::joinscan::scan_state::{
+    build_joinscan_physical_plan, create_session_context,
+};
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
@@ -58,10 +68,12 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
-
 use chrono::{DateTime as ChronoDateTime, Utc};
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::execution::TaskContext;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
+use std::sync::Arc;
 use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
@@ -229,7 +241,7 @@ impl CustomScan for AggregateScan {
                         let alias = s.scan_info.alias.as_deref().unwrap_or("unknown");
                         format!(
                             "{} ({})",
-                            crate::postgres::PgSearchRelation::open(s.scan_info.indexrelid).name(),
+                            PgSearchRelation::open(s.scan_info.indexrelid).name(),
                             alias
                         )
                     })
@@ -767,12 +779,6 @@ impl AggregateScan {
     fn build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
     ) -> Vec<pg_sys::CustomPath> {
-        use crate::postgres::customscan::aggregatescan::datafusion_build::{
-            all_have_bm25_index, collect_join_agg_sources, extract_join_tree_from_parse,
-            has_any_bm25_index,
-        };
-        use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
-
         let root = builder.args().root;
         let input_rel = builder.args().input_rel();
 
@@ -876,16 +882,6 @@ impl AggregateScan {
     fn exec_datafusion_aggregate(
         state: &mut CustomScanStateWrapper<Self>,
     ) -> *mut pg_sys::TupleTableSlot {
-        use crate::postgres::customscan::aggregatescan::datafusion_exec::build_join_aggregate_plan;
-        use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
-        use crate::postgres::customscan::joinscan::memory::create_memory_pool;
-        use crate::postgres::customscan::joinscan::scan_state::{
-            build_joinscan_physical_plan, create_session_context,
-        };
-        use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-        use datafusion::execution::TaskContext;
-        use std::sync::Arc;
-
         // Grab the scan_slot pointer before entering the mutable borrow
         let scan_slot = state
             .custom_state()

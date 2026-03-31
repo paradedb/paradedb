@@ -140,8 +140,8 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 GROUP BY p.category
 ORDER BY p.category;
-                                                     QUERY PLAN
----------------------------------------------------------------------------------------------------------------------
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
  Sort
    Output: p.category, (pdb.agg_fn('COUNT(*)'::text)), (pdb.agg_fn('SUM'::text))
    Sort Key: p.category
@@ -158,7 +158,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 GROUP BY p.category
 ORDER BY p.category;
-  category   | count |   sum
+  category   | count |   sum   
 -------------+-------+---------
  Clothing    |     1 |  129.99
  Electronics |     4 | 4599.96

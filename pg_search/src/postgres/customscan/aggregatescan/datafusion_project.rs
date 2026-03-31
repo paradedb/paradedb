@@ -233,6 +233,10 @@ fn arrow_value_to_datum(
 }
 
 /// Convert an i64 value to the appropriate Postgres integer datum.
+///
+/// Handles NUMERICOID explicitly because NUMERIC is pass-by-reference in
+/// Postgres — returning a raw i64 for a NUMERIC slot would be interpreted
+/// as a pointer, causing a segfault.
 fn int64_to_datum(val: i64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
     match typoid {
         pg_sys::INT8OID => val.into_datum(),
@@ -240,6 +244,11 @@ fn int64_to_datum(val: i64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
         pg_sys::INT2OID => (val as i16).into_datum(),
         pg_sys::FLOAT8OID => (val as f64).into_datum(),
         pg_sys::FLOAT4OID => (val as f32).into_datum(),
+        pg_sys::NUMERICOID => {
+            use pgrx::AnyNumeric;
+            let numeric = AnyNumeric::try_from(val as f64).ok()?;
+            numeric.into_datum()
+        }
         _ => val.into_datum(), // Default to i64
     }
 }

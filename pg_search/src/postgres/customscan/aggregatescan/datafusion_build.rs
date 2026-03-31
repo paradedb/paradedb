@@ -24,7 +24,6 @@
 //! `JoinExpr` nodes, and reconstruct a [`RelNode`] tree that downstream code can
 //! lower into a DataFusion plan.
 
-use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{

@@ -268,9 +268,13 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
 /// Returns `true` if the block referenced by `ctid` (u64-packed form) exists
 /// in `rel`. A `false` result means VACUUM has truncated the page.
 #[inline(always)]
-pub unsafe fn ctid_satisfies_nblocks(ctid: u64, rel: pg_sys::Relation) -> bool {
+pub unsafe fn ctid_satisfies_nblocks(
+    ctid: u64,
+    rel: pg_sys::Relation,
+    fork: pg_sys::ForkNumber::Type,
+) -> bool {
     let blockno = (ctid >> 16) as pg_sys::BlockNumber;
-    blockno < pg_sys::RelationGetNumberOfBlocksInFork(rel, pg_sys::ForkNumber::MAIN_FORKNUM)
+    blockno < pg_sys::RelationGetNumberOfBlocksInFork(rel, fork)
 }
 
 #[derive(Copy, Clone, Debug)]

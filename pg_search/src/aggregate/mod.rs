@@ -611,11 +611,10 @@ fn set_missing_on_terms(
                         }
                     }
                     Some(SearchFieldType::Bool(_)) => {
-                        // For bool: 0=false, 1=true. Use string for MIN to avoid conflicts
                         if use_min {
                             Key::Str(NULL_SENTINEL_MIN.to_string())
                         } else {
-                            Key::U64(2) // sorts after true (1)
+                            Key::Str(NULL_SENTINEL_MAX.to_string())
                         }
                     }
                     _ => {

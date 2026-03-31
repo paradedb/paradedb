@@ -1,0 +1,64 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+-- Test: create bm25 index on unlogged table
+CREATE UNLOGGED TABLE test_unlogged (
+    id SERIAL PRIMARY KEY,
+    description TEXT
+);
+INSERT INTO test_unlogged (description) VALUES
+    ('keyboard'), ('mouse'), ('monitor');
+CREATE INDEX ON test_unlogged
+USING bm25 (id, description)
+WITH (key_field='id');
+-- Test: search on unlogged table
+SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:keyboard' ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+-- Test: insert after index creation
+INSERT INTO test_unlogged (description) VALUES ('headphones');
+SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:headphones' ORDER BY id;
+ id 
+----
+  4
+(1 row)
+
+-- Test: update
+UPDATE test_unlogged SET description = 'trackpad' WHERE description = 'mouse';
+SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:mouse' ORDER BY id;
+ id 
+----
+(0 rows)
+
+SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:trackpad' ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+-- Test: delete
+DELETE FROM test_unlogged WHERE description = 'trackpad';
+SELECT id FROM test_unlogged WHERE test_unlogged @@@ 'description:trackpad' ORDER BY id;
+ id 
+----
+(0 rows)
+
+-- Cleanup
+DROP TABLE test_unlogged;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

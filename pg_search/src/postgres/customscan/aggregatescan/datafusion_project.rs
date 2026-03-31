@@ -245,8 +245,10 @@ fn int64_to_datum(val: i64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
         pg_sys::FLOAT8OID => (val as f64).into_datum(),
         pg_sys::FLOAT4OID => (val as f32).into_datum(),
         pg_sys::NUMERICOID => {
+            // Convert via string to preserve full i64 precision.
+            // `val as f64` would lose precision for values above 2^53.
             use pgrx::AnyNumeric;
-            let numeric = AnyNumeric::try_from(val as f64).ok()?;
+            let numeric = AnyNumeric::try_from(val.to_string().as_str()).ok()?;
             numeric.into_datum()
         }
         _ => val.into_datum(), // Default to i64

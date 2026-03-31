@@ -261,6 +261,66 @@ DROP TABLE cov_logs;
 DROP TABLE cov_sensors;
 
 -- =====================================================================
+-- Test 12: Large BIGINT precision — verifies int64_to_datum NUMERICOID
+-- path converts via string (not f64 cast which loses precision > 2^53).
+-- Note: Tantivy fast fields store BIGINT as f64, so storage-level
+-- rounding still occurs. This test verifies the projection layer
+-- does not add a SECOND round of precision loss.
+-- =====================================================================
+CREATE TABLE cov_big (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    qty BIGINT
+);
+
+CREATE TABLE cov_big_tags (
+    id SERIAL PRIMARY KEY,
+    big_id INTEGER,
+    tag TEXT
+);
+
+INSERT INTO cov_big (description, qty) VALUES
+    ('laptop order', 100),
+    ('phone order', 200);
+
+INSERT INTO cov_big_tags (big_id, tag) VALUES
+    (1, 'a'), (2, 'b');
+
+CREATE INDEX cov_big_idx ON cov_big
+USING bm25 (id, description, qty)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}}',
+    numeric_fields='{"qty": {"fast": true}}'
+);
+
+CREATE INDEX cov_big_tags_idx ON cov_big_tags
+USING bm25 (id, big_id, tag)
+WITH (
+    key_field='id',
+    numeric_fields='{"big_id": {"fast": true}}',
+    text_fields='{"tag": {"fast": true}}'
+);
+
+-- SUM(bigint) returns NUMERIC in Postgres — exercises the NUMERICOID
+-- arm of int64_to_datum (the path that previously caused SIGSEGV)
+SELECT SUM(b.qty)
+FROM cov_big b
+JOIN cov_big_tags t ON b.id = t.big_id
+WHERE b.description @@@ 'laptop OR phone';
+
+-- Parity check
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT SUM(b.qty)
+FROM cov_big b
+JOIN cov_big_tags t ON b.id = t.big_id
+WHERE b.description @@@ 'laptop OR phone';
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE cov_big_tags;
+DROP TABLE cov_big;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE cov_items;

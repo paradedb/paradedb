@@ -179,7 +179,7 @@ unsafe fn build_relnode_from_fromexpr(
 
     // Extract equi-join keys from WHERE quals and attach to join nodes
     if !(*from).quals.is_null() {
-        extract_equi_keys_from_quals(root, (*from).quals, sources, &mut result)?;
+        extract_equi_keys_from_quals((*from).quals, sources, &mut result)?;
     }
 
     Ok(result)
@@ -314,7 +314,7 @@ unsafe fn build_join_node(
 
     // Extract equi-join keys from ON clause (join.quals)
     let equi_keys = if !join.quals.is_null() {
-        extract_equi_keys_from_expr(root, join.quals, sources)?
+        extract_equi_keys_from_expr(join.quals, sources)?
     } else {
         Vec::new()
     };
@@ -333,7 +333,6 @@ unsafe fn build_join_node(
 /// Looks for `OpExpr` nodes where the operator is `=` and the arguments are `Var`
 /// nodes referencing different tables that have BM25 indexes.
 unsafe fn extract_equi_keys_from_expr(
-    _root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
     sources: &[JoinAggSource],
 ) -> Result<Vec<JoinKeyPair>, String> {
@@ -355,7 +354,7 @@ unsafe fn extract_equi_keys_from_expr(
         if (*bool_expr).boolop == pg_sys::BoolExprType::AND_EXPR {
             let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
             for arg in args.iter_ptr() {
-                keys.extend(extract_equi_keys_from_expr(_root, arg, sources)?);
+                keys.extend(extract_equi_keys_from_expr(arg, sources)?);
             }
         }
     }
@@ -400,9 +399,9 @@ unsafe fn try_extract_one_equi_key(
         return None;
     }
 
-    // Both tables must be in our sources
-    let _left_source = sources.iter().find(|s| s.rti == left_rti)?;
-    let _right_source = sources.iter().find(|s| s.rti == right_rti)?;
+    // Both tables must be in our sources (early-return None if not)
+    sources.iter().find(|s| s.rti == left_rti)?;
+    sources.iter().find(|s| s.rti == right_rti)?;
 
     let left_attno = (*left_var).varattno;
     let right_attno = (*right_var).varattno;
@@ -433,12 +432,11 @@ unsafe fn try_extract_one_equi_key(
 /// rather than in an ON clause. This function extracts them and pushes them into the
 /// `equi_keys` of the topmost `JoinNode`.
 unsafe fn extract_equi_keys_from_quals(
-    root: *mut pg_sys::PlannerInfo,
     quals: *mut pg_sys::Node,
     sources: &[JoinAggSource],
     plan: &mut RelNode,
 ) -> Result<(), String> {
-    let keys = extract_equi_keys_from_expr(root, quals, sources)?;
+    let keys = extract_equi_keys_from_expr(quals, sources)?;
     if keys.is_empty() {
         return Ok(());
     }

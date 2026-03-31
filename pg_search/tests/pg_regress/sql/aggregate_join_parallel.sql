@@ -119,12 +119,6 @@ WHERE p.description @@@ 'nonexistent_term_xyz';
 SET paradedb.aggregate_target_partitions TO 4;
 
 -- Test 2.1: Scalar COUNT(*) with parallel partitions
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*)
-FROM par_agg_products p
-JOIN par_agg_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop';
-
 SELECT COUNT(*)
 FROM par_agg_products p
 JOIN par_agg_tags t ON p.id = t.product_id

@@ -178,7 +178,8 @@ async fn build_source_df(
             WhichFastField::Ctid
             | WhichFastField::Score
             | WhichFastField::Junk(_)
-            | WhichFastField::TableOid => None,
+            | WhichFastField::TableOid
+            | WhichFastField::DeferredCtid(_) => None,
         })
         .collect();
 
@@ -187,7 +188,7 @@ async fn build_source_df(
         fields.push(WhichFastField::Ctid);
     }
 
-    let provider = PgSearchTableProvider::new(scan_info, fields, None, false);
+    let provider = PgSearchTableProvider::new(scan_info, fields, false);
     let provider = Arc::new(provider);
     ctx.register_table(alias.as_str(), provider)?;
 

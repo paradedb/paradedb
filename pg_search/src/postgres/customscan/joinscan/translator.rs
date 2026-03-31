@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use datafusion::common::{Column, ScalarValue, TableReference};
+use datafusion::error::DataFusionError;
 use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
 use pgrx::{pg_sys, PgList};
 
@@ -56,11 +57,18 @@ impl<'a> PredicateTranslator<'a> {
     /// This creates `SearchPredicateUDF` expressions for single-table predicates,
     /// which can be pushed down to `PgSearchTableProvider` via DataFusion's
     /// filter pushdown mechanism.
+    /// Translate a `JoinLevelExpr` tree to a DataFusion `Expr`.
+    ///
+    /// `deferred_positions` contains plan_positions whose ctid columns still hold
+    /// packed DocAddresses at this point in the plan. Each `SingleTablePredicate`
+    /// checks whether its `plan_position` is in the set to determine whether its
+    /// `SearchPredicateUDF` should emit packed DocAddresses or real ctids.
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
         ctid_map: &HashMap<pg_sys::Index, Expr>,
         predicates: &[JoinLevelSearchPredicate],
+        deferred_positions: &crate::api::HashSet<usize>,
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
@@ -69,13 +77,14 @@ impl<'a> PredicateTranslator<'a> {
             } => {
                 let predicate = predicates.get(*predicate_idx)?;
                 let col = ctid_map.get(&(*plan_position as pg_sys::Index))?;
-                // Create a SearchPredicateUDF that carries the search query.
-                // This will be pushed down to PgSearchTableProvider via filter pushdown.
-                let udf = SearchPredicateUDF::new(
+                let deferred = deferred_positions.contains(plan_position);
+                let udf = SearchPredicateUDF::with_deferred_visibility(
                     predicate.indexrelid,
                     predicate.heaprelid,
                     predicate.query.clone(),
                     predicate.display_string.clone(),
+                    deferred,
+                    Some(*plan_position),
                 );
                 Some(udf.into_expr(col.clone()))
             }
@@ -91,10 +100,16 @@ impl<'a> PredicateTranslator<'a> {
                     custom_exprs,
                     ctid_map,
                     predicates,
+                    deferred_positions,
                 )?;
                 for child in &children[1..] {
-                    let right =
-                        Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        ctid_map,
+                        predicates,
+                        deferred_positions,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::And,
@@ -112,10 +127,16 @@ impl<'a> PredicateTranslator<'a> {
                     custom_exprs,
                     ctid_map,
                     predicates,
+                    deferred_positions,
                 )?;
                 for child in &children[1..] {
-                    let right =
-                        Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        ctid_map,
+                        predicates,
+                        deferred_positions,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::Or,
@@ -125,8 +146,13 @@ impl<'a> PredicateTranslator<'a> {
                 Some(result)
             }
             JoinLevelExpr::Not(child) => {
-                let inner =
-                    Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                let inner = Self::translate_join_level_expr(
+                    child,
+                    custom_exprs,
+                    ctid_map,
+                    predicates,
+                    deferred_positions,
+                )?;
                 Some(Expr::Not(Box::new(inner)))
             }
         }
@@ -317,34 +343,34 @@ pub fn make_col(relation: &str, name: &str) -> Expr {
 pub fn build_equi_join_exprs(
     join: &super::build::JoinNode,
 ) -> datafusion::common::Result<Vec<Expr>> {
-    use super::build::RelationAlias;
-    use datafusion::error::DataFusionError;
-
     let mut on = Vec::with_capacity(join.equi_keys.len());
     for jk in &join.equi_keys {
         let ((left_source, left_attno), (right_source, right_attno)) =
             jk.resolve_against(&join.left, &join.right).ok_or_else(|| {
                 DataFusionError::Internal(format!(
-                    "Failed to resolve join key: outer_rti={}, inner_rti={}",
+                    "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",
                     jk.outer_rti, jk.inner_rti
                 ))
             })?;
 
-        let left_alias = RelationAlias::new(left_source.scan_info.alias.as_deref())
-            .execution(left_source.plan_position);
-        let right_alias = RelationAlias::new(right_source.scan_info.alias.as_deref())
-            .execution(right_source.plan_position);
-
-        let left_col = left_source
+        let left_col_name = left_source
             .column_name(left_attno)
             .ok_or_else(|| DataFusionError::Internal("Missing left join-key column".into()))?;
-        let right_col = right_source
+        let right_col_name = right_source
             .column_name(right_attno)
             .ok_or_else(|| DataFusionError::Internal("Missing right join-key column".into()))?;
 
-        on.push(make_col(&left_alias, &left_col).eq(make_col(&right_alias, &right_col)));
+        let left_expr = make_source_col(left_source, &left_col_name);
+        let right_expr = make_source_col(right_source, &right_col_name);
+        on.push(left_expr.eq(right_expr));
     }
     Ok(on)
+}
+
+fn make_source_col(source: &JoinSource, field_name: &str) -> Expr {
+    let alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    make_col(&alias, field_name)
 }
 
 pub struct CombinedMapper<'a> {

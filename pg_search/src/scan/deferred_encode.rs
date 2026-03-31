@@ -42,6 +42,9 @@ pub fn term_ordinal_type() -> DataType {
 }
 
 /// Packs segment ordinals and doc IDs into a single 64-bit integer array.
+///
+/// This preserves enough Tantivy row identity to resolve a surviving row back to a
+/// real ctid later, without paying heap-access costs up front.
 pub fn pack_doc_addresses(segment_ord: SegmentOrdinal, doc_ids: &[DocId]) -> UInt64Array {
     let mut b = arrow_array::builder::UInt64Builder::with_capacity(doc_ids.len());
     for doc_id in doc_ids {
@@ -188,4 +191,94 @@ pub fn extract_materialized_type_from_union(
         .1
         .data_type()
         .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow_array::{Array, StringViewArray};
+
+    #[test]
+    fn pack_unpack_roundtrip() {
+        let packed = pack_doc_addresses(3, &[10, 20, 30]);
+        assert_eq!(packed.len(), 3);
+        assert_eq!(unpack_doc_address(packed.value(0)), (3, 10));
+        assert_eq!(unpack_doc_address(packed.value(1)), (3, 20));
+        assert_eq!(unpack_doc_address(packed.value(2)), (3, 30));
+    }
+
+    #[test]
+    fn pack_unpack_boundary_values() {
+        let packed_max = ((u32::MAX as u64) << 32) | (u32::MAX as u64);
+        assert_eq!(unpack_doc_address(packed_max), (u32::MAX, u32::MAX));
+        assert_eq!(unpack_doc_address(0), (0, 0));
+    }
+
+    #[test]
+    fn pack_doc_addresses_empty() {
+        let packed = pack_doc_addresses(0, &[]);
+        assert_eq!(packed.len(), 0);
+    }
+
+    #[test]
+    fn build_state_doc_address_creates_state_0() {
+        let array = build_state_doc_address(1, &[5, 10], false);
+        let union_array = array.as_any().downcast_ref::<UnionArray>().unwrap();
+        assert_eq!(union_array.len(), 2);
+        assert!(union_array.type_ids().iter().all(|&id| id == 0));
+        let child = union_array.child(0);
+        let uint64_child = child.as_any().downcast_ref::<UInt64Array>().unwrap();
+        assert_eq!(unpack_doc_address(uint64_child.value(0)), (1, 5));
+        assert_eq!(unpack_doc_address(uint64_child.value(1)), (1, 10));
+    }
+
+    #[test]
+    fn build_state_term_ordinals_creates_state_1() {
+        let ordinals: ArrayRef = Arc::new(UInt64Array::from(vec![Some(100), Some(200)]));
+        let array = build_state_term_ordinals(2, ordinals, false);
+        let union_array = array.as_any().downcast_ref::<UnionArray>().unwrap();
+        assert_eq!(union_array.len(), 2);
+        assert!(union_array.type_ids().iter().all(|&id| id == 1));
+        let child = union_array.child(1);
+        let struct_array = child.as_any().downcast_ref::<StructArray>().unwrap();
+        let seg_ords = struct_array
+            .column(0)
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .unwrap();
+        assert_eq!(seg_ords.value(0), 2);
+        assert_eq!(seg_ords.value(1), 2);
+        let term_ords = struct_array
+            .column(1)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap();
+        assert_eq!(term_ords.value(0), 100);
+        assert_eq!(term_ords.value(1), 200);
+    }
+
+    #[test]
+    fn build_state_hydrated_creates_state_2() {
+        let strings: ArrayRef = Arc::new(StringViewArray::from(vec!["hello", "world"]));
+        let array = build_state_hydrated(strings, false);
+        let union_array = array.as_any().downcast_ref::<UnionArray>().unwrap();
+        assert_eq!(union_array.len(), 2);
+        assert!(union_array.type_ids().iter().all(|&id| id == 2));
+        let child = union_array.child(2);
+        let string_array = child.as_any().downcast_ref::<StringViewArray>().unwrap();
+        assert_eq!(string_array.value(0), "hello");
+        assert_eq!(string_array.value(1), "world");
+    }
+
+    #[test]
+    fn deferred_union_fields_text_vs_bytes() {
+        let text_fields = deferred_union_fields(false);
+        let bytes_fields = deferred_union_fields(true);
+        // Fields 0 and 1 are identical
+        assert_eq!(text_fields[0].1.data_type(), bytes_fields[0].1.data_type());
+        assert_eq!(text_fields[1].1.data_type(), bytes_fields[1].1.data_type());
+        // Field 2 differs: Utf8View for text, BinaryView for bytes
+        assert_eq!(*text_fields[2].1.data_type(), DataType::Utf8View);
+        assert_eq!(*bytes_fields[2].1.data_type(), DataType::BinaryView);
+    }
 }

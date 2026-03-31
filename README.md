@@ -24,7 +24,7 @@
 
 ---
 
-## How to Install
+## Installation
 
 ```bash
 curl -fsSL https://paradedb.com/install.sh | sh
@@ -80,8 +80,8 @@ ParadeDB integrates with the tools you already use, with more on the way.
 
 ### PaaS & Cloud Platforms
 
-- [Render](https://docs.paradedb.com/deploy/cloud-platforms/render)
 - [Railway](https://docs.paradedb.com/deploy/cloud-platforms/railway)
+- [Render](https://docs.paradedb.com/deploy/cloud-platforms/render)
 - [DigitalOcean](https://docs.paradedb.com/deploy/cloud-platforms/digitalocean)
 - More coming (Heroku, and others)
 

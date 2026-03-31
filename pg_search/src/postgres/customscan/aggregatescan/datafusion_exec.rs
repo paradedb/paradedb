@@ -37,7 +37,6 @@ use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::execution::context::{QueryPlanner, SessionState};
 use datafusion::execution::session_state::SessionStateBuilder;
-use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};

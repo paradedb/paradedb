@@ -104,6 +104,41 @@ use std::sync::Arc;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
+/// Controls whether SegmentedTopKExec operates in full mode (with threshold
+/// pushdown) or degraded mode (heaps only, no pushdown).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SegmentedTopKMode {
+    /// Single-index sort: full optimization with threshold pushdown.
+    SingleIndex,
+    /// Multi-index sort: heaps and late materialization only, no threshold pushdown.
+    MultiIndex,
+}
+
+/// A composite key identifying the specific segment combination from which
+/// a row's deferred columns originate. Each entry is (indexrelid, segment_ordinal).
+/// Ordinals are only comparable within rows sharing the same CompositeSegmentKey.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CompositeSegmentKey {
+    /// Sorted list of (indexrelid, segment_ordinal) pairs.
+    /// Sorting ensures consistent hashing regardless of column order.
+    segments: Vec<(u32, u32)>,
+}
+
+impl CompositeSegmentKey {
+    pub fn new(mut segments: Vec<(u32, u32)>) -> Self {
+        segments.sort_by_key(|(oid, _)| *oid);
+        Self { segments }
+    }
+
+    /// Create a single-index key (backward compatible).
+    #[allow(dead_code)]
+    pub fn single(indexrelid: u32, segment_ord: u32) -> Self {
+        Self {
+            segments: vec![(indexrelid, segment_ord)],
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DeferredSortColumn {
     pub sort_col_idx: usize,
@@ -116,8 +151,13 @@ pub struct SegmentedTopKExec {
     sort_exprs: LexOrdering,
     /// The deferred string/bytes columns that are part of the Top K order.
     deferred_columns: Vec<DeferredSortColumn>,
-    /// FFHelper for Tantivy fast field access (shared with TantivyLookupExec).
-    ffhelper: Arc<FFHelper>,
+    /// FFHelpers for Tantivy fast field access, keyed by indexrelid.
+    /// For single-index sorts, this contains one entry.
+    /// For multi-index sorts, one entry per index involved in the sort.
+    ff_helpers: HashMap<u32, Arc<FFHelper>>,
+    /// Execution mode: SingleIndex (full with threshold pushdown) or
+    /// MultiIndex (heaps only, no threshold pushdown).
+    mode: SegmentedTopKMode,
     /// Maximum rows to keep per segment.
     k: usize,
     /// Dynamic filter pushed down through DataFusion's standard filter pushdown
@@ -151,7 +191,8 @@ impl SegmentedTopKExec {
         input: Arc<dyn ExecutionPlan>,
         sort_exprs: LexOrdering,
         deferred_columns: Vec<DeferredSortColumn>,
-        ffhelper: Arc<FFHelper>,
+        ff_helpers: HashMap<u32, Arc<FFHelper>>,
+        mode: SegmentedTopKMode,
         k: usize,
     ) -> Self {
         use datafusion::physical_expr::expressions::lit;
@@ -176,7 +217,8 @@ impl SegmentedTopKExec {
             input,
             sort_exprs,
             deferred_columns,
-            ffhelper,
+            ff_helpers,
+            mode,
             k,
             dynamic_filter,
             properties,
@@ -184,10 +226,36 @@ impl SegmentedTopKExec {
         }
     }
 
+    /// Backward-compatible constructor for single-index case.
+    #[allow(dead_code)]
+    pub fn new_single_index(
+        input: Arc<dyn ExecutionPlan>,
+        sort_exprs: LexOrdering,
+        deferred_columns: Vec<DeferredSortColumn>,
+        ffhelper: Arc<FFHelper>,
+        k: usize,
+    ) -> Self {
+        let indexrelid = deferred_columns
+            .first()
+            .map(|d| d.canonical.indexrelid)
+            .expect("SegmentedTopKExec requires at least one deferred column");
+        let mut ff_helpers = HashMap::default();
+        ff_helpers.insert(indexrelid, ffhelper);
+
+        Self::new(
+            input,
+            sort_exprs,
+            deferred_columns,
+            ff_helpers,
+            SegmentedTopKMode::SingleIndex,
+            k,
+        )
+    }
+
     fn create_mat_row_converter(
         sort_exprs: &LexOrdering,
         deferred_columns: &[DeferredSortColumn],
-        ffhelper: &FFHelper,
+        ff_helpers: &HashMap<u32, Arc<FFHelper>>,
         schema: &arrow_schema::Schema,
     ) -> Result<RowConverter> {
         let materialized_sort_fields: Vec<SortField> = sort_exprs
@@ -203,6 +271,10 @@ impl SegmentedTopKExec {
                             .find(|d| d.sort_col_idx == c.index())
                     });
                 let data_type = if let Some(deferred) = is_deferred {
+                    let ffhelper = ff_helpers
+                        .get(&deferred.canonical.indexrelid)
+                        .or_else(|| ff_helpers.values().next())
+                        .expect("SegmentedTopKExec: no FFHelper available");
                     let col = ffhelper.column(0, deferred.canonical.ff_index);
                     match col {
                         FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
@@ -229,10 +301,14 @@ impl DisplayAs for SegmentedTopKExec {
             .map(|e| e.to_string())
             .collect::<Vec<_>>()
             .join(", ");
+        let mode_str = match self.mode {
+            SegmentedTopKMode::SingleIndex => "single_index",
+            SegmentedTopKMode::MultiIndex => "multi_index",
+        };
         write!(
             f,
-            "SegmentedTopKExec: expr=[{}], k={}",
-            sort_exprs_str, self.k
+            "SegmentedTopKExec: expr=[{}], k={}, mode={}",
+            sort_exprs_str, self.k, mode_str
         )
     }
 }
@@ -262,7 +338,8 @@ impl ExecutionPlan for SegmentedTopKExec {
             children.remove(0),
             self.sort_exprs.clone(),
             self.deferred_columns.clone(),
-            Arc::clone(&self.ffhelper),
+            self.ff_helpers.clone(),
+            self.mode,
             self.k,
         );
         // Preserve the existing dynamic filter so that filter pushdown
@@ -312,14 +389,15 @@ impl ExecutionPlan for SegmentedTopKExec {
         let mat_row_converter = Self::create_mat_row_converter(
             &self.sort_exprs,
             &self.deferred_columns,
-            &self.ffhelper,
+            &self.ff_helpers,
             self.properties.eq_properties.schema(),
         )?;
 
         let mut state = SegmentedTopKState {
             sort_exprs: self.sort_exprs.clone(),
             deferred_columns: self.deferred_columns.clone(),
-            ffhelper: Arc::clone(&self.ffhelper),
+            ff_helpers: self.ff_helpers.clone(),
+            mode: self.mode,
             k: self.k,
             schema: self.properties.eq_properties.schema().clone(),
             row_converter,
@@ -384,6 +462,16 @@ impl ExecutionPlan for SegmentedTopKExec {
             ));
         }
 
+        // Multi-index mode: skip threshold pushdown entirely.
+        // We can't push a threshold across a join because the scanners
+        // on each side only see their own base table.
+        if self.mode == SegmentedTopKMode::MultiIndex {
+            return Ok(FilterDescription::all_unsupported(
+                &parent_filters,
+                &self.children(),
+            ));
+        }
+
         // Route parent filters to our child based on column compatibility,
         // and add our own dynamic filter as a self-filter.
         Ok(FilterDescription::new().with_child(
@@ -406,22 +494,23 @@ impl ExecutionPlan for SegmentedTopKExec {
 struct SegmentedTopKState {
     sort_exprs: LexOrdering,
     deferred_columns: Vec<DeferredSortColumn>,
-    ffhelper: Arc<FFHelper>,
+    ff_helpers: HashMap<u32, Arc<FFHelper>>,
+    mode: SegmentedTopKMode,
     k: usize,
     schema: SchemaRef,
     row_converter: RowConverter,
     /// Per-segment max-heaps of comparable Rows. We maintain max heaps so that
-    /// the 'worst' element (the boundary) is always at the root. We also store the
-    /// `(batch_idx, row_idx)` to allow for compaction.
-    segment_heaps: HashMap<SegmentOrdinal, BinaryHeap<OwnedRow>>,
+    /// the 'worst' element (the boundary) is always at the root.
+    /// Keyed by CompositeSegmentKey for multi-index support.
+    segment_heaps: HashMap<CompositeSegmentKey, BinaryHeap<OwnedRow>>,
     /// Dynamic filter updated with global thresholds (materialized strings).
     /// Pushed down through DataFusion's standard filter pushdown to the scanner.
     dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
     /// Buffered batches during the collection phase.
     batches: Vec<RecordBatch>,
     /// Keeps track of the heap rows for compaction.
-    /// (batch_idx, row_idx, seg_ord, row_data)
-    row_ordinals: Vec<(usize, usize, SegmentOrdinal, OwnedRow)>,
+    /// (batch_idx, row_idx, composite_key, row_data)
+    row_ordinals: Vec<(usize, usize, CompositeSegmentKey, OwnedRow)>,
     /// Buffered pass-through rows (State 2 and NULL ordinals) that bypass
     /// ordinal comparison. These are included in the final sort + limit.
     pass_through_rows: Vec<(usize, usize)>,
@@ -430,7 +519,7 @@ struct SegmentedTopKState {
     /// of its current worst row (the root of the heap).
     /// Tuple: (local ordinal OwnedRow, materialized ScalarValues, materialized OwnedRow)
     last_segment_cutoffs:
-        HashMap<SegmentOrdinal, (OwnedRow, Vec<datafusion::common::ScalarValue>, OwnedRow)>,
+        HashMap<CompositeSegmentKey, (OwnedRow, Vec<datafusion::common::ScalarValue>, OwnedRow)>,
 
     /// Row converter for materialized sorts, used to compare resolved thresholds lexicographically.
     mat_row_converter: RowConverter,
@@ -468,10 +557,13 @@ impl SegmentedTopKState {
     fn collect_batch(&mut self, batch: &RecordBatch, batch_idx: usize) -> Result<()> {
         let num_rows = batch.num_rows();
         let mut pass_through = vec![false; num_rows];
-        let mut row_to_seg = vec![None; num_rows];
+        // Per-column segment ordinal tracking for composite key construction.
+        let mut per_col_seg: Vec<Vec<Option<SegmentOrdinal>>> =
+            Vec::with_capacity(self.deferred_columns.len());
         let mut deferred_ords: HashMap<usize, Vec<Option<TermOrdinal>>> = HashMap::default();
 
         for deferred_col in &self.deferred_columns {
+            let mut row_to_seg = vec![None; num_rows];
             let global_term_ords = self.extract_deferred_ordinals(
                 batch,
                 deferred_col,
@@ -480,6 +572,7 @@ impl SegmentedTopKState {
                 &mut row_to_seg,
             )?;
             deferred_ords.insert(deferred_col.sort_col_idx, global_term_ords);
+            per_col_seg.push(row_to_seg);
         }
 
         // Build the evaluation arrays for the RowConverter
@@ -507,20 +600,28 @@ impl SegmentedTopKState {
             if pass_through[row_idx] {
                 continue;
             }
-            if let Some(seg_ord) = row_to_seg[row_idx] {
-                if !self.segment_heaps.contains_key(&seg_ord) {
-                    self.segments_seen.add(1);
-                }
-                let heap = self.segment_heaps.entry(seg_ord).or_default();
-
-                let heap_val = converted_rows.row(row_idx).owned();
-                Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
-                self.row_ordinals
-                    .push((batch_idx, row_idx, seg_ord, heap_val));
+            // Build the composite segment key from all deferred columns.
+            let composite_key = self.build_composite_key(row_idx, &per_col_seg);
+            if composite_key.is_none() {
+                continue;
             }
+            let composite_key = composite_key.unwrap();
+
+            if !self.segment_heaps.contains_key(&composite_key) {
+                self.segments_seen.add(1);
+            }
+            let heap = self.segment_heaps.entry(composite_key.clone()).or_default();
+
+            let heap_val = converted_rows.row(row_idx).owned();
+            Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
+            self.row_ordinals
+                .push((batch_idx, row_idx, composite_key, heap_val));
         }
 
-        self.publish_global_threshold()?;
+        // Only publish threshold in single-index mode.
+        if self.mode == SegmentedTopKMode::SingleIndex {
+            self.publish_global_threshold()?;
+        }
 
         // Buffer pass-through rows (State 2 + NULL ordinals) for the final sort.
         for (row_idx, &is_pt) in pass_through.iter().enumerate() {
@@ -530,6 +631,20 @@ impl SegmentedTopKState {
         }
 
         Ok(())
+    }
+
+    /// Build a CompositeSegmentKey for a given row from per-column segment ordinals.
+    fn build_composite_key(
+        &self,
+        row_idx: usize,
+        per_col_seg: &[Vec<Option<SegmentOrdinal>>],
+    ) -> Option<CompositeSegmentKey> {
+        let mut segments = Vec::with_capacity(self.deferred_columns.len());
+        for (col_idx, deferred_col) in self.deferred_columns.iter().enumerate() {
+            let seg_ord = per_col_seg[col_idx][row_idx]?;
+            segments.push((deferred_col.canonical.indexrelid, seg_ord));
+        }
+        Some(CompositeSegmentKey::new(segments))
     }
 
     /// Helper to extract term ordinals from a deferred UnionArray.
@@ -642,13 +757,21 @@ impl SegmentedTopKState {
         }
 
         // Bulk-fetch term ordinals for State 0 rows via FFHelper
+        let ffhelper = self
+            .ff_helpers
+            .get(&deferred_col.canonical.indexrelid)
+            .or_else(|| self.ff_helpers.values().next())
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "SegmentedTopKExec: no FFHelper for indexrelid {}",
+                    deferred_col.canonical.indexrelid
+                ))
+            })?;
         for (seg_ord, rows) in state0_by_seg {
             let doc_ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
             let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; doc_ids.len()];
 
-            let col = self
-                .ffhelper
-                .column(seg_ord, deferred_col.canonical.ff_index);
+            let col = ffhelper.column(seg_ord, deferred_col.canonical.ff_index);
             match col {
                 FFType::Text(str_col) => {
                     str_col.ords().first_vals(&doc_ids, &mut term_ords);
@@ -758,13 +881,13 @@ impl SegmentedTopKState {
     }
 
     /// Build the set of all survivors across all segments. A row survives if
-    /// its `OwnedRow` is <= the cutoff (worst heap entry) for its segment.
+    /// its `OwnedRow` is <= the cutoff (worst heap entry) for its composite segment key.
     fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
         let mut survivors = crate::api::HashSet::default();
-        for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+        for (batch_idx, row_idx, composite_key, heap_val) in &self.row_ordinals {
             let dominated = self
                 .segment_heaps
-                .get(seg_ord)
+                .get(composite_key)
                 .and_then(|h| h.peek())
                 .is_some_and(|cutoff| heap_val <= cutoff);
             if dominated {
@@ -781,22 +904,27 @@ impl SegmentedTopKState {
     /// by finding the "best of the worst" materialized cutoff among all full segments.
     /// By only resolving the worst entry of each segment rather than every row, it
     /// minimizes the overhead of translating segment-local ordinals into global strings.
+    ///
+    /// Only called in SingleIndex mode — multi-index mode skips threshold pushdown.
     fn publish_global_threshold(&mut self) -> Result<()> {
+        debug_assert_eq!(self.mode, SegmentedTopKMode::SingleIndex);
+
         let mut best_worst_mat_row: Option<OwnedRow> = None;
         let mut best_worst_values: Option<Vec<datafusion::common::ScalarValue>> = None;
 
         // 1. Examine the "worst" row (the root of the heap) for each segment that
         //    has reached size `K`.
-        let full_segment_heaps: Vec<(SegmentOrdinal, OwnedRow)> = self
+        let full_segment_heaps: Vec<(CompositeSegmentKey, OwnedRow)> = self
             .segment_heaps
             .iter()
             .filter(|(_, heap)| heap.len() >= self.k)
-            .filter_map(|(&seg_ord, heap)| heap.peek().map(|row| (seg_ord, row.clone())))
+            .filter_map(|(key, heap)| heap.peek().map(|row| (key.clone(), row.clone())))
             .collect();
 
-        for (seg_ord, worst_local) in full_segment_heaps {
+        for (composite_key, worst_local) in full_segment_heaps {
             // 2. Resolve the local ordinal threshold into a materialized row.
-            let (mat_values, mat_row) = self.resolve_segment_cutoff(seg_ord, &worst_local)?;
+            let (mat_values, mat_row) =
+                self.resolve_segment_cutoff(&composite_key, &worst_local)?;
 
             // 3. Find the "best of the worst" (minimum of maximums) among all segments'
             //    thresholds. If we use a bound greater than any full segment's local cutoff,
@@ -846,14 +974,14 @@ impl SegmentedTopKState {
     /// `FFHelper::ord_to_str` and then constructs a materialized `OwnedRow`.
     fn resolve_segment_cutoff(
         &mut self,
-        seg_ord: SegmentOrdinal,
+        composite_key: &CompositeSegmentKey,
         worst_local: &OwnedRow,
     ) -> Result<(Vec<datafusion::common::ScalarValue>, OwnedRow)> {
         // a. Compare this local threshold with a cached version from the previous
         //    batch. If the threshold hasn't changed, reuse the materialized string
         //    values. If it has changed, pay the cost to resolve the segment-local
         //    ordinals into global string/bytes values via `resolve_global_threshold_values`.
-        if let Some((cached_local, vals, row)) = self.last_segment_cutoffs.get(&seg_ord) {
+        if let Some((cached_local, vals, row)) = self.last_segment_cutoffs.get(composite_key) {
             if cached_local == worst_local {
                 return Ok((vals.clone(), row.clone()));
             }
@@ -863,7 +991,7 @@ impl SegmentedTopKState {
             .row_converter
             .convert_rows(std::iter::once(worst_local.row()))?;
 
-        let values = self.resolve_global_threshold_values(&arrays, seg_ord)?;
+        let values = self.resolve_global_threshold_values(&arrays, composite_key)?;
 
         let val_arrays = values
             .iter()
@@ -877,7 +1005,7 @@ impl SegmentedTopKState {
 
         let mat_row = converted.row(0).owned();
         self.last_segment_cutoffs.insert(
-            seg_ord,
+            composite_key.clone(),
             (worst_local.clone(), values.clone(), mat_row.clone()),
         );
         Ok((values, mat_row))
@@ -887,11 +1015,11 @@ impl SegmentedTopKState {
     ///
     /// For deferred columns, converts ordinals back to materialized strings
     /// via `FFHelper::ord_to_str`. For non-deferred columns, reads the scalar
-    /// directly from the array. Returns `None` if any conversion fails.
+    /// directly from the array.
     fn resolve_global_threshold_values(
         &self,
         arrays: &[ArrayRef],
-        seg_ord: SegmentOrdinal,
+        composite_key: &CompositeSegmentKey,
     ) -> Result<Vec<datafusion::common::ScalarValue>> {
         use datafusion::common::ScalarValue;
 
@@ -917,7 +1045,25 @@ impl SegmentedTopKState {
                         )
                     })?
                     .value(0);
-                let col = self.ffhelper.column(seg_ord, deferred.canonical.ff_index);
+                // Look up the segment ordinal for this deferred column's index
+                // from the composite key, and use the correct FFHelper.
+                let seg_ord = composite_key
+                    .segments
+                    .iter()
+                    .find(|(oid, _)| *oid == deferred.canonical.indexrelid)
+                    .map(|(_, seg)| *seg)
+                    .unwrap_or(0);
+                let ffhelper = self
+                    .ff_helpers
+                    .get(&deferred.canonical.indexrelid)
+                    .or_else(|| self.ff_helpers.values().next())
+                    .ok_or_else(|| {
+                        datafusion::error::DataFusionError::Internal(format!(
+                            "No FFHelper for indexrelid {}",
+                            deferred.canonical.indexrelid
+                        ))
+                    })?;
+                let col = ffhelper.column(seg_ord, deferred.canonical.ff_index);
                 match col {
                     FFType::Text(str_col) => {
                         let mut s = String::new();
@@ -968,14 +1114,19 @@ impl SegmentedTopKState {
         let mut survivors = crate::api::HashSet::default();
 
         // Use take() so we own row_ordinals and can move the OwnedRows.
-        for (batch_idx, row_idx, seg_ord, heap_val) in std::mem::take(&mut self.row_ordinals) {
-            let keep = match self.segment_heaps.get(&seg_ord).and_then(|h| h.peek()) {
+        for (batch_idx, row_idx, composite_key, heap_val) in std::mem::take(&mut self.row_ordinals)
+        {
+            let keep = match self
+                .segment_heaps
+                .get(&composite_key)
+                .and_then(|h| h.peek())
+            {
                 Some(cutoff_val) => &heap_val <= cutoff_val,
                 None => true,
             };
             if keep {
                 survivors.insert((batch_idx, row_idx));
-                new_row_ordinals.push((batch_idx, row_idx, seg_ord, heap_val));
+                new_row_ordinals.push((batch_idx, row_idx, composite_key, heap_val));
             }
         }
 
@@ -1059,14 +1210,18 @@ impl SegmentedTopKState {
         let ordinal_survivors = self.build_survivors();
 
         // 2. Collect all candidates: ordinal survivors + pass-through rows.
-        //    Each candidate is (batch_idx, row_idx, Option<(SegmentOrdinal, OwnedRow)>).
+        //    Each candidate is (batch_idx, row_idx, Option<(CompositeSegmentKey, OwnedRow)>).
         //    The OwnedRow is the ordinal-based row for ordinal survivors; None for pass-through.
-        type Candidate = (usize, usize, Option<(SegmentOrdinal, OwnedRow)>);
+        type Candidate = (usize, usize, Option<(CompositeSegmentKey, OwnedRow)>);
         let mut candidates: Vec<Candidate> = Vec::new();
 
-        for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+        for (batch_idx, row_idx, composite_key, heap_val) in &self.row_ordinals {
             if ordinal_survivors.contains(&(*batch_idx, *row_idx)) {
-                candidates.push((*batch_idx, *row_idx, Some((*seg_ord, heap_val.clone()))));
+                candidates.push((
+                    *batch_idx,
+                    *row_idx,
+                    Some((composite_key.clone(), heap_val.clone())),
+                ));
             }
         }
         for &(batch_idx, row_idx) in &self.pass_through_rows {
@@ -1094,7 +1249,12 @@ impl SegmentedTopKState {
                             .find(|d| d.sort_col_idx == c.index())
                     });
                 let data_type = if let Some(deferred) = is_deferred {
-                    let col = self.ffhelper.column(0, deferred.canonical.ff_index);
+                    let ffhelper = self
+                        .ff_helpers
+                        .get(&deferred.canonical.indexrelid)
+                        .or_else(|| self.ff_helpers.values().next())
+                        .expect("SegmentedTopKExec: no FFHelper available");
+                    let col = ffhelper.column(0, deferred.canonical.ff_index);
                     match col {
                         FFType::Bytes(_) => arrow_schema::DataType::BinaryView,
                         _ => arrow_schema::DataType::Utf8View,
@@ -1128,7 +1288,7 @@ impl SegmentedTopKState {
                     });
 
                 let value = if let Some(deferred) = is_deferred {
-                    if let Some((seg_ord, ord_row)) = ord_info {
+                    if let Some((composite_key, ord_row)) = ord_info {
                         // Ordinal survivor: convert ordinal back to string.
                         let arrays = self
                             .row_converter
@@ -1139,7 +1299,20 @@ impl SegmentedTopKState {
                             .downcast_ref::<UInt64Array>()
                             .map(|a| a.value(0));
                         if let Some(term_ord) = term_ord {
-                            let col = self.ffhelper.column(*seg_ord, deferred.canonical.ff_index);
+                            // Look up the segment ordinal for this deferred column
+                            // from the composite key, and use the correct FFHelper.
+                            let seg_ord = composite_key
+                                .segments
+                                .iter()
+                                .find(|(oid, _)| *oid == deferred.canonical.indexrelid)
+                                .map(|(_, seg)| *seg)
+                                .unwrap_or(0);
+                            let ffhelper = self
+                                .ff_helpers
+                                .get(&deferred.canonical.indexrelid)
+                                .or_else(|| self.ff_helpers.values().next())
+                                .expect("SegmentedTopKExec: no FFHelper available");
+                            let col = ffhelper.column(seg_ord, deferred.canonical.ff_index);
                             match col {
                                 FFType::Text(str_col) => {
                                     let mut s = String::new();
@@ -1450,7 +1623,7 @@ mod tests {
                 }
             ];
 
-            let topk_exec = SegmentedTopKExec::new(
+            let topk_exec = SegmentedTopKExec::new_single_index(
                 memory_exec,
                 sort_exprs,
                 deferred_columns,

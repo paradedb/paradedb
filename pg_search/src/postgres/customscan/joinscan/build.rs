@@ -666,6 +666,14 @@ impl RelNode {
                 let left_all_keys = j.left.join_keys();
                 let right_all_keys = j.right.join_keys();
 
+                let all_child_keys: Vec<_> =
+                    left_all_keys.iter().chain(right_all_keys.iter()).collect();
+                let all_output_rtis: Vec<pg_sys::Index> = left_output_rtis
+                    .iter()
+                    .chain(right_output_rtis.iter())
+                    .copied()
+                    .collect();
+
                 for jk in &mut j.equi_keys {
                     let forward_ok = left_output_rtis.contains(&jk.outer_rti)
                         && right_output_rtis.contains(&jk.inner_rti);
@@ -675,21 +683,10 @@ impl RelNode {
                         continue;
                     }
 
-                    // Try to substitute pruned references with output-visible equivalents.
                     let outer_ok = left_output_rtis.contains(&jk.outer_rti)
                         || right_output_rtis.contains(&jk.outer_rti);
                     let inner_ok = left_output_rtis.contains(&jk.inner_rti)
                         || right_output_rtis.contains(&jk.inner_rti);
-
-                    let all_child_keys: Vec<_> = left_all_keys
-                        .iter()
-                        .chain(right_all_keys.iter())
-                        .collect();
-                    let all_output_rtis: Vec<pg_sys::Index> = left_output_rtis
-                        .iter()
-                        .chain(right_output_rtis.iter())
-                        .copied()
-                        .collect();
 
                     if !outer_ok
                         && !Self::substitute_pruned_key_side(
@@ -725,6 +722,11 @@ impl RelNode {
     /// Finds a child equi-key that maps `(pruned_rti, pruned_attno)` to an
     /// output-visible `(rti, attno)` and writes the replacement into `out_rti`
     /// and `out_attno`. Returns `true` on success.
+    ///
+    /// NOTE: This only follows a single equivalence hop (e.g. `d.x → c.y`).
+    /// Multi-hop chains (e.g. `d.x → c.y → b.z`) are not resolved. In practice
+    /// PostgreSQL's planner picks the shortest available equivalence, so
+    /// single-hop resolution has been sufficient.
     fn substitute_pruned_key_side(
         child_keys: &[&JoinKeyPair],
         output_rtis: &[pg_sys::Index],

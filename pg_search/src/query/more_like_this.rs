@@ -176,7 +176,10 @@ impl MoreLikeThisQueryBuilder {
                         }
 
                         if search_field.is_json() {
-                            panic!("json fields are not supported for more_like_this");
+                            panic!(
+                                "field '{}' is JSON; more_like_this does not support JSON fields in the `fields` argument. Remove it from `fields` and use a non-JSON field instead",
+                                search_field.field_name()
+                            );
                         }
                     }
 

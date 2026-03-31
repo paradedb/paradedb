@@ -493,6 +493,42 @@ fn more_like_this_text(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn more_like_this_json_field_error(mut conn: PgConnection) {
+    r#"
+    DROP TABLE IF EXISTS test_mlt_json_field_error CASCADE;
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'test_mlt_json_field_error'
+    );
+
+    CREATE INDEX test_mlt_json_field_error_idx ON test_mlt_json_field_error
+    USING bm25 (id, description, metadata)
+    WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    match r#"
+    SELECT id FROM test_mlt_json_field_error
+    WHERE id @@@ pdb.more_like_this(
+      key_value => 3,
+      fields => ARRAY['metadata']
+    );
+    "#
+    .fetch_result::<()>(&mut conn)
+    {
+        Err(err) => {
+            assert!(
+                err.to_string().contains(
+                    "field 'metadata' is JSON; more_like_this does not support JSON fields"
+                ),
+                "actual error: {err}"
+            );
+        }
+        _ => panic!("JSON field validation should have failed"),
+    }
+}
+
+#[rstest]
 fn more_like_this_boolean_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_more_like_this_table (

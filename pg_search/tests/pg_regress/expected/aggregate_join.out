@@ -196,22 +196,27 @@ SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
-                         QUERY PLAN                          
--------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan)
-   Output: p.category, pdb.agg_fn('COUNT(*)'::text)
-   Backend: DataFusion
-   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-   Group By: category
-   Aggregates: COUNT(*)(*)
-(6 rows)
+GROUP BY p.category
+ORDER BY p.category;
+                            QUERY PLAN                             
+-------------------------------------------------------------------
+ Sort
+   Output: p.category, (pdb.agg_fn('COUNT(*)'::text))
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: p.category, pdb.agg_fn('COUNT(*)'::text)
+         Backend: DataFusion
+         Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+         Group By: category
+         Aggregates: COUNT(*)(*)
+(9 rows)
 
 SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
+GROUP BY p.category
+ORDER BY p.category;
   category   | count 
 -------------+-------
  Electronics |     4
@@ -224,7 +229,8 @@ SELECT p.category, COUNT(*), SUM(p.price), AVG(p.rating), MIN(p.price), MAX(p.pr
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
+GROUP BY p.category
+ORDER BY p.category;
   category   | count |   sum   | avg |  min   |   max   
 -------------+-------+---------+-----+--------+---------
  Electronics |     4 | 4599.96 |   5 | 999.99 | 1299.99
@@ -237,16 +243,17 @@ SELECT p.category, t.tag_name, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category, t.tag_name;
+GROUP BY p.category, t.tag_name
+ORDER BY p.category, t.tag_name;
   category   | tag_name | count 
 -------------+----------+-------
- Electronics | tech     |     2
  Electronics | computer |     1
  Electronics | gaming   |     1
+ Electronics | tech     |     2
  Sports      | fitness  |     1
  Sports      | running  |     1
- Toys        | tech     |     1
  Toys        | kids     |     1
+ Toys        | tech     |     1
 (7 rows)
 
 -- Test 4.4: GROUP BY parity — DataFusion vs Postgres
@@ -269,7 +276,8 @@ SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
+GROUP BY p.category
+ORDER BY p.category;
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96

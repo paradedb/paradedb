@@ -227,8 +227,8 @@ fn test_join_aggregate_after_insert(mut conn: PgConnection) {
     r#"
         INSERT INTO products (description, category, price, rating) VALUES
             ('Budget laptop cheap', 'Electronics', 299.99, 3);
-        INSERT INTO tags (product_id, tag_name) VALUES
-            (6, 'budget');
+        INSERT INTO tags (product_id, tag_name)
+            SELECT MAX(id), 'budget' FROM products;
     "#
     .execute(&mut conn);
 

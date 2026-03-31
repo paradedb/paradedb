@@ -149,27 +149,31 @@ SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
+GROUP BY p.category
+ORDER BY p.category;
 
 SELECT p.category, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
+GROUP BY p.category
+ORDER BY p.category;
 
 -- Test 4.2: GROUP BY with multiple aggregates
 SELECT p.category, COUNT(*), SUM(p.price), AVG(p.rating), MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
+GROUP BY p.category
+ORDER BY p.category;
 
 -- Test 4.3: Multi-column GROUP BY
 SELECT p.category, t.tag_name, COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category, t.tag_name;
+GROUP BY p.category, t.tag_name
+ORDER BY p.category, t.tag_name;
 
 -- Test 4.4: GROUP BY parity — DataFusion vs Postgres
 SET paradedb.enable_aggregate_custom_scan TO off;
@@ -185,7 +189,8 @@ SELECT p.category, COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
+GROUP BY p.category
+ORDER BY p.category;
 
 -- =====================================================================
 -- SECTION 5: NULL handling in aggregates

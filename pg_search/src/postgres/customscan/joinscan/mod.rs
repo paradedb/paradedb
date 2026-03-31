@@ -138,15 +138,15 @@
 //! - [`privdat`]: Private data serialization between planning and execution.
 //! - [`explain`]: EXPLAIN output formatting.
 
-mod build;
+pub mod build;
 mod explain;
-mod memory;
-mod planner;
+pub mod memory;
+pub mod planner;
 mod planning;
-mod predicate;
+pub mod predicate;
 mod privdat;
-mod scan_state;
-mod translator;
+pub mod scan_state;
+pub mod translator;
 pub mod visibility_filter;
 
 pub use self::build::CtidColumn;

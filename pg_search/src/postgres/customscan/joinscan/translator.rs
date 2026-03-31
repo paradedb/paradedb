@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use datafusion::common::{Column, ScalarValue, TableReference};
+use datafusion::error::DataFusionError;
 use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
 use pgrx::{pg_sys, PgList};
 
@@ -27,13 +28,13 @@ use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::scan::SearchPredicateUDF;
 
-pub(super) trait ColumnMapper {
+pub trait ColumnMapper {
     /// Map a PostgreSQL variable to a DataFusion Column expression
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr>;
 }
 
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
-pub(super) struct PredicateTranslator<'a> {
+pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
     mapper: Option<Box<dyn ColumnMapper + 'a>>,
 }
@@ -325,7 +326,7 @@ impl<'a> PredicateTranslator<'a> {
 
 /// Creates a DataFusion column expression with a bare table reference.
 /// This is preferred over `datafusion::logical_expr::col()` because `col()` parses the input string,
-pub(super) fn make_col(relation: &str, name: &str) -> Expr {
+pub fn make_col(relation: &str, name: &str) -> Expr {
     Expr::Column(Column::new(
         Some(TableReference::Bare {
             table: relation.into(),
@@ -334,7 +335,45 @@ pub(super) fn make_col(relation: &str, name: &str) -> Expr {
     ))
 }
 
-pub(super) struct CombinedMapper<'a> {
+/// Build equi-join filter expressions from a [`JoinNode`]'s key pairs.
+///
+/// Shared between JoinScan and AggregateScan `build_relnode_df` implementations.
+/// Each key pair is resolved against the join's left/right subtrees and converted
+/// to a `left_col = right_col` DataFusion expression.
+pub fn build_equi_join_exprs(
+    join: &super::build::JoinNode,
+) -> datafusion::common::Result<Vec<Expr>> {
+    let mut on = Vec::with_capacity(join.equi_keys.len());
+    for jk in &join.equi_keys {
+        let ((left_source, left_attno), (right_source, right_attno)) =
+            jk.resolve_against(&join.left, &join.right).ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",
+                    jk.outer_rti, jk.inner_rti
+                ))
+            })?;
+
+        let left_col_name = left_source
+            .column_name(left_attno)
+            .ok_or_else(|| DataFusionError::Internal("Missing left join-key column".into()))?;
+        let right_col_name = right_source
+            .column_name(right_attno)
+            .ok_or_else(|| DataFusionError::Internal("Missing right join-key column".into()))?;
+
+        let left_expr = make_source_col(left_source, &left_col_name);
+        let right_expr = make_source_col(right_source, &right_col_name);
+        on.push(left_expr.eq(right_expr));
+    }
+    Ok(on)
+}
+
+fn make_source_col(source: &JoinSource, field_name: &str) -> Expr {
+    let alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    make_col(&alias, field_name)
+}
+
+pub struct CombinedMapper<'a> {
     pub sources: &'a [&'a JoinSource],
     pub output_columns: &'a [OutputColumnInfo],
 }

@@ -86,11 +86,9 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page5', 'file3', 2, 'Page 2 of Receipt with transaction ID'),
 ('page6', 'file4', 1, 'Page 1 of Contract Document with terms and conditions');
 \echo '==========================================';
-==========================================;
 \echo 'Test 1: Basic correlated subquery with COUNT(*)';
 Test 1: Basic correlated subquery with COUNT(*);
 \echo '==========================================';
-==========================================;
 -- EXPLAIN to verify aggregate custom scan is used
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.title,
@@ -140,11 +138,9 @@ ORDER BY d.id;
 (2 rows)
 
 \echo '==========================================';
-==========================================;
 \echo 'Test 2: Verify correctness - compare with aggregate scan disabled';
 Test 2: Verify correctness - compare with aggregate scan disabled;
 \echo '==========================================';
-==========================================;
 -- Temporarily disable aggregate custom scan to get baseline results
 SET paradedb.enable_aggregate_custom_scan = false;
 SELECT d.id, d.title,
@@ -181,11 +177,9 @@ ORDER BY d.id;
 (2 rows)
 
 \echo '==========================================';
-==========================================;
 \echo 'Test 3: Correlated subquery with non-indexed field';
 Test 3: Correlated subquery with non-indexed field;
 \echo '==========================================';
-==========================================;
 -- EXPLAIN with correlation using equality on non-indexed field
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT d.id, d.title,
@@ -234,11 +228,9 @@ ORDER BY d.id;
 (2 rows)
 
 \echo '==========================================';
-==========================================;
 \echo 'Test 4: Empty result case';
 Test 4: Empty result case;
 \echo '==========================================';
-==========================================;
 -- Query that should return 0 for all documents
 SELECT d.id, d.title,
     (
@@ -256,11 +248,9 @@ ORDER BY d.id;
 (2 rows)
 
 \echo '==========================================';
-==========================================;
 \echo 'Test 5: NULL handling in correlation';
 Test 5: NULL handling in correlation;
 \echo '==========================================';
-==========================================;
 -- Query where some documents might not have matching files
 SELECT d.id, d.title,
     (

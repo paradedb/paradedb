@@ -645,8 +645,10 @@ fn extract_ff_helper(
     helpers: &mut crate::api::HashMap<u32, Arc<FFHelper>>,
 ) {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
-        if let Some(ff) = scan.ffhelper_if_deferred() {
-            helpers.insert(scan.indexrelid, ff.clone());
+        if scan.has_deferred_fields() {
+            if let Some(ff) = scan.ffhelper() {
+                helpers.insert(scan.indexrelid, ff);
+            }
         }
     }
 

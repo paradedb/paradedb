@@ -573,7 +573,11 @@ fn verify_heap_references(
 
             // Guard against stale ctids referencing heap blocks truncated by VACUUM.
             if !unsafe {
-                crate::postgres::utils::ctid_satisfies_nblocks(ctid_u64, heap_rel.as_ptr())
+                crate::postgres::utils::ctid_satisfies_nblocks(
+                    ctid_u64,
+                    heap_rel.as_ptr(),
+                    heap_rel.fork_number(),
+                )
             } {
                 let mut tid = pg_sys::ItemPointerData::default();
                 u64_to_item_pointer(ctid_u64, &mut tid);

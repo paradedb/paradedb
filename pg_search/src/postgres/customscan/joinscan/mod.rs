@@ -158,8 +158,9 @@ use self::planning::{
     expr_uses_scores_from_source, extract_join_conditions, extract_orderby, get_score_func_rti,
     order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
-use self::predicate::{extract_join_level_conditions, is_column_fast_field};
+use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
+use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{
     build_joinscan_logical_plan, build_joinscan_physical_plan, create_session_context,
@@ -575,15 +576,23 @@ impl CustomScan for JoinScan {
 
                 match (outer_source, inner_source) {
                     (Some(outer), Some(inner)) => {
-                        if !is_column_fast_field(
-                            outer.scan_info.heaprelid,
-                            outer.scan_info.indexrelid,
-                            jk.outer_attno,
-                        ) || !is_column_fast_field(
-                            inner.scan_info.heaprelid,
-                            inner.scan_info.indexrelid,
-                            jk.inner_attno,
-                        ) {
+                        let outer_hr = PgSearchRelation::open(outer.scan_info.heaprelid);
+                        let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
+                        let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
+                        let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
+                        if resolve_fast_field(
+                            jk.outer_attno as i32,
+                            &outer_hr.tuple_desc(),
+                            &outer_ir,
+                        )
+                        .is_none()
+                            || resolve_fast_field(
+                                jk.inner_attno as i32,
+                                &inner_hr.tuple_desc(),
+                                &inner_ir,
+                            )
+                            .is_none()
+                        {
                             Self::add_planner_warning(
                                 "JoinScan not used: join key columns must be fast fields",
                                 &aliases,

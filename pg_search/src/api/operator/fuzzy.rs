@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::boost::{query_to_boost, BoostType};
+use crate::api::operator::const_score::{query_to_const, ConstType};
 use crate::query::pdb_query::pdb;
 use pgrx::{extension_sql, pg_cast, pg_extern};
 
@@ -233,6 +234,11 @@ fn fuzzy_to_boost(input: FuzzyType, typmod: i32, is_explicit: bool) -> BoostType
     query_to_boost(input.0, typmod, is_explicit)
 }
 
+#[pg_extern(immutable, parallel_safe)]
+fn fuzzy_to_const(input: FuzzyType, typmod: i32, is_explicit: bool) -> ConstType {
+    query_to_const(input.0, typmod, is_explicit)
+}
+
 /// SQL `CAST` function used by Postgres to apply the `typmod` value after the type has been constructed
 ///
 /// One would think the type's input function, which also allows for a `typmod` argument would be
@@ -257,12 +263,14 @@ extension_sql!(
         CREATE CAST (text[] AS pdb.fuzzy) WITH FUNCTION text_array_to_fuzzy(text[], integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.query AS pdb.fuzzy) WITH FUNCTION query_to_fuzzy(pdb.query, integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.fuzzy AS pdb.boost) WITH FUNCTION fuzzy_to_boost(pdb.fuzzy, integer, boolean) AS IMPLICIT;
+        CREATE CAST (pdb.fuzzy AS pdb.const) WITH FUNCTION fuzzy_to_const(pdb.fuzzy, integer, boolean) AS IMPLICIT;
         CREATE CAST (pdb.fuzzy AS pdb.fuzzy) WITH FUNCTION fuzzy_to_fuzzy(pdb.fuzzy, integer, boolean) AS IMPLICIT;
     "#,
     name = "cast_to_fuzzy",
     requires = [
         query_to_fuzzy,
         fuzzy_to_boost,
+        fuzzy_to_const,
         fuzzy_to_fuzzy,
         text_array_to_fuzzy,
         "FuzzyType_final"

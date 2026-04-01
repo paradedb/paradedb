@@ -170,3 +170,60 @@ LIMIT 3;
 
 DROP TABLE mock_items;
 
+-- ================================================================
+-- Test 10: NULL aggregate parity — SUM/MIN/MAX on all-NULL groups
+-- Tantivy must return NULL (not 0) for SUM when all values in a
+-- group are NULL, matching Postgres semantics. Refs #4621.
+-- ================================================================
+CREATE TABLE agg_null_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    score INT
+);
+
+CREATE INDEX idx_agg_null_test ON agg_null_test
+USING bm25 (id, category, score)
+WITH (
+    key_field='id',
+    text_fields='{"category": {"fast": true}}',
+    numeric_fields='{"score": {"fast": true}}'
+);
+
+INSERT INTO agg_null_test (category, score) VALUES
+    ('null_grp', NULL),
+    ('null_grp', NULL),
+    ('ten_grp', 10),
+    ('nine_grp', 9);
+
+-- Native Postgres baseline
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, SUM(score) AS s
+FROM agg_null_test
+WHERE agg_null_test @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+
+-- Custom scan must match: null_grp SUM should be NULL, not 0
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT category, SUM(score) AS s
+FROM agg_null_test
+WHERE agg_null_test @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+
+-- Also verify MIN and MAX return NULL for all-NULL groups
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, MIN(score), MAX(score)
+FROM agg_null_test
+WHERE agg_null_test @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT category, MIN(score), MAX(score)
+FROM agg_null_test
+WHERE agg_null_test @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+
+DROP TABLE agg_null_test;

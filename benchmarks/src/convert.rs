@@ -57,28 +57,25 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
 
-    // Validation phase: verify all tables have parquet files before doing any work.
+    // Validation phase: check that each table has at least one parquet file.
     println!("Validating input paths...");
-    let mut table_files: Vec<(String, Vec<String>)> = Vec::new();
     let mut missing_tables: Vec<String> = Vec::new();
 
     for table in &args.tables {
         let glob_pattern = format!("{input}/{table}/*.parquet");
-        let mut stmt = conn
-            .prepare(&format!("SELECT filename FROM glob('{glob_pattern}')"))
-            .with_context(|| format!("Failed to list parquet files for table '{table}'"))?;
+        let exists: bool = conn
+            .query_row(
+                &format!("SELECT count(*) > 0 FROM (SELECT filename FROM glob('{glob_pattern}') LIMIT 1)"),
+                [],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("Failed to check parquet files for table '{table}'"))?;
 
-        let files: Vec<String> = stmt
-            .query_map([], |row| row.get(0))?
-            .collect::<std::result::Result<Vec<String>, _>>()
-            .with_context(|| format!("Failed to collect file listing for table '{table}'"))?;
-
-        if files.is_empty() {
+        if exists {
+            println!("  {table}: ok");
+        } else {
             println!("  {table}: no parquet files found at '{glob_pattern}'");
             missing_tables.push(table.clone());
-        } else {
-            println!("  {table}: found {} parquet file(s)", files.len());
-            table_files.push((table.clone(), files));
         }
     }
 
@@ -92,9 +89,17 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
 
     if args.dry_run {
         println!("\nDry run: listing planned conversions...");
-        for (table, files) in &table_files {
+        for table in &args.tables {
+            let glob_pattern = format!("{input}/{table}/*.parquet");
+            let mut stmt = conn
+                .prepare(&format!("SELECT filename FROM glob('{glob_pattern}')"))
+                .with_context(|| format!("Failed to list parquet files for table '{table}'"))?;
+            let files: Vec<String> = stmt
+                .query_map([], |row| row.get(0))?
+                .collect::<std::result::Result<Vec<String>, _>>()
+                .with_context(|| format!("Failed to collect file listing for table '{table}'"))?;
             println!("  Table '{table}' ({} file(s)):", files.len());
-            for file_path in files {
+            for file_path in &files {
                 let parquet_filename = file_path.rsplit('/').next().unwrap_or(file_path);
                 let csv_filename = parquet_filename.replace(".parquet", ".csv");
                 println!("    {parquet_filename} -> {output}/{table}/{csv_filename}");
@@ -106,10 +111,19 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
 
     // Conversion phase: convert each parquet file to CSV.
     println!("\nConverting parquet to CSV...");
-    for (table, files) in &table_files {
+    for table in &args.tables {
+        let glob_pattern = format!("{input}/{table}/*.parquet");
+        let mut stmt = conn
+            .prepare(&format!("SELECT filename FROM glob('{glob_pattern}')"))
+            .with_context(|| format!("Failed to list parquet files for table '{table}'"))?;
+        let files: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<String>, _>>()
+            .with_context(|| format!("Failed to collect file listing for table '{table}'"))?;
+
         println!("  Converting table '{table}' ({} file(s))...", files.len());
 
-        for file_path in files {
+        for file_path in &files {
             let parquet_filename = file_path.rsplit('/').next().unwrap_or(file_path);
             let csv_filename = parquet_filename.replace(".parquet", ".csv");
             let output_path = format!("{output}/{table}/{csv_filename}");

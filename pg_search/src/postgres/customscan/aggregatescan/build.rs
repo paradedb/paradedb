@@ -66,13 +66,25 @@ impl AggregationKey for FilterSentinelKey {
     const NAME: &'static str = "filter_sentinel";
 }
 
+/// Identifies which aggregate metric the ORDER BY targets.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum AggregateMetricTarget {
+    /// COUNT(*) — uses `OrderTarget::Count`. Cannot produce NULLs,
+    /// so the `size=K` optimization is always safe.
+    Count,
+    /// A non-COUNT metric (SUM, AVG, MIN, MAX, etc.) at the given
+    /// sub-aggregation position. Can produce NULLs when all grouped
+    /// values are NULL, which means `size=K` may prune NULL groups
+    /// that Postgres's NULLS FIRST/LAST would include — so the
+    /// `size=K` limit is disabled for this variant.
+    Metric(usize),
+}
+
 /// ORDER BY on an aggregate metric for TopK optimization.
 /// Allows pushing LIMIT into Tantivy's TermsAggregation.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregateOrderBy {
-    /// For COUNT(*): None (uses OrderTarget::Count).
-    /// For other aggregates: Some(key) where key is the sub-aggregation position.
-    pub metric_key: Option<String>,
+    pub target: AggregateMetricTarget,
     pub direction: SortDirection,
 }
 
@@ -403,16 +415,16 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
                 SortDirection::DescNullsFirst | SortDirection::DescNullsLast => "DESC",
                 _ => "ASC",
             };
-            let target_name = match &agg_order.metric_key {
-                None => "COUNT(*)".to_string(),
-                Some(key) => {
+            let target_name = match &agg_order.target {
+                AggregateMetricTarget::Count => "COUNT(*)".to_string(),
+                AggregateMetricTarget::Metric(key) => {
                     let mut idx = 0usize;
                     let mut name = format!("metric_{}", key);
                     for agg in self.targetlist.aggregates() {
                         if agg.can_use_doc_count() {
                             continue;
                         }
-                        if idx.to_string() == *key {
+                        if idx == *key {
                             name = agg.to_string();
                             break;
                         }
@@ -596,7 +608,7 @@ unsafe fn detect_aggregate_orderby(
     // COUNT(*) without filter uses doc_count
     if agg.can_use_doc_count() {
         return Some(AggregateOrderBy {
-            metric_key: None,
+            target: AggregateMetricTarget::Count,
             direction,
         });
     }
@@ -606,7 +618,7 @@ unsafe fn detect_aggregate_orderby(
     for (i, entry) in targetlist.entries().enumerate() {
         if i == pos {
             return Some(AggregateOrderBy {
-                metric_key: Some(metric_idx.to_string()),
+                target: AggregateMetricTarget::Metric(metric_idx),
                 direction,
             });
         }
@@ -643,9 +655,22 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
 
             // We can use LIMIT-based size optimization when:
             // 1. There's exactly one grouping column (multiple columns need all combinations)
-            // 2. Either no ORDER BY, or ORDER BY targets an aggregate metric
+            // 2. Either no ORDER BY, or ORDER BY targets a COUNT aggregate
+            //
+            // We intentionally exclude Metric targets (SUM, AVG, MIN, MAX) from
+            // size=K: these can produce NULL when all values in a group are NULL.
+            // Tantivy may prune NULL groups from the top-K, but Postgres's NULLS
+            // FIRST (default for DESC) would rank them first. Keeping size=max_buckets
+            // ensures NULL groups are always returned to Postgres for correct ordering.
             let can_limit_buckets = grouping_columns.len() == 1
-                && (!self.orderby.has_orderby() || self.aggregate_orderby.is_some());
+                && (!self.orderby.has_orderby()
+                    || matches!(
+                        self.aggregate_orderby,
+                        Some(AggregateOrderBy {
+                            target: AggregateMetricTarget::Count,
+                            ..
+                        })
+                    ));
 
             if can_limit_buckets {
                 if let Some(limit) = limit {
@@ -694,9 +719,11 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
                 // sorts NULLs according to its own rules (not Postgres's NULLS
                 // FIRST/LAST), but since Postgres adds a Sort node above us the
                 // final NULL ordering is determined by Postgres, not Tantivy.
-                let target = match &agg_order.metric_key {
-                    None => OrderTarget::Count,
-                    Some(key) => OrderTarget::SubAggregation(key.clone()),
+                let target = match &agg_order.target {
+                    AggregateMetricTarget::Count => OrderTarget::Count,
+                    AggregateMetricTarget::Metric(idx) => {
+                        OrderTarget::SubAggregation(idx.to_string())
+                    }
                 };
                 terms_agg.order = Some(CustomOrder {
                     target,

@@ -41,8 +41,6 @@ use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
-use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
-use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 
@@ -116,24 +114,6 @@ pub async fn build_join_aggregate_plan(
     }
 
     df.into_optimized_plan()
-}
-
-/// Build a DataFusion physical plan from a logical plan.
-pub async fn build_aggregate_physical_plan(
-    ctx: &SessionContext,
-    logical_plan: datafusion::logical_expr::LogicalPlan,
-) -> Result<Arc<dyn ExecutionPlan>> {
-    let state = ctx.state();
-    let plan = state
-        .query_planner()
-        .create_physical_plan(&logical_plan, &state)
-        .await?;
-
-    if plan.output_partitioning().partition_count() > 1 {
-        Ok(Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>)
-    } else {
-        Ok(plan)
-    }
 }
 
 /// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].

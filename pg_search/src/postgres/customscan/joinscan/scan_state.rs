@@ -316,7 +316,11 @@ pub async fn build_joinscan_logical_plan(
 /// nodes injected at planning time). Physical planning reuses the shared
 /// `SessionContext` configuration and lowers the stored plan after execution
 /// has injected whatever runtime-only bindings are required during decode.
-pub async fn build_joinscan_physical_plan(
+/// Build a DataFusion physical plan from a logical plan.
+///
+/// Uses the session context's query planner and wraps multi-partition
+/// output with `CoalescePartitionsExec`. Shared by JoinScan and AggregateScan.
+pub async fn build_physical_plan(
     ctx: &SessionContext,
     plan: datafusion::logical_expr::LogicalPlan,
 ) -> Result<Arc<dyn ExecutionPlan>> {

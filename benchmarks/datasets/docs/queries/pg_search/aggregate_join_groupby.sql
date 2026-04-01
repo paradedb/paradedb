@@ -13,7 +13,7 @@ GROUP BY f.title
 ORDER BY f.title;
 
 -- DataFusion aggregate scan
-SET paradedb.enable_aggregate_custom_scan TO on; SELECT f.title, COUNT(*), SUM(p."sizeInBytes")
+SET work_mem TO '64MB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT f.title, COUNT(*), SUM(p."sizeInBytes")
 FROM files f
 JOIN pages p ON f.id = p."fileId"
 WHERE f.content @@@ 'Section'

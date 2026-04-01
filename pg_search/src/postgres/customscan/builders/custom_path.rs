@@ -122,7 +122,7 @@ pub enum ExecMethodType {
     },
     Columnar {
         which_fast_fields: HashSet<WhichFastField>,
-        limit: Option<usize>,
+        limit: Option<Limit>,
         sort_order: Option<SortByField>,
     },
 }

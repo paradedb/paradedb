@@ -1805,10 +1805,12 @@ fn choose_exec_method(
     if is_capable {
         let mut methods = Vec::new();
 
+        let limit = privdata.limit().clone();
+
         // Always create the Unsorted variant
         methods.push(ExecMethodType::Columnar {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            limit: privdata.static_limit(),
+            limit: limit.clone(),
             sort_order: None,
         });
 
@@ -1826,7 +1828,7 @@ fn choose_exec_method(
             if let Some(sort_order) = sort_order {
                 methods.push(ExecMethodType::Columnar {
                     which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-                    limit: privdata.static_limit(),
+                    limit,
                     sort_order: Some(sort_order),
                 });
             }
@@ -1941,7 +1943,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                     exec_methods::fast_fields::columnar::ColumnarExecState::new(
                         which_fast_fields,
                         extra_fast_fields,
-                        limit,
+                        limit.as_ref().and_then(Limit::static_value),
                         effective_sort_order,
                     ),
                     None,

@@ -554,8 +554,13 @@ unsafe fn detect_aggregate_orderby(
     let sort_clause_ptr = sort_clauses.get_ptr(0)?;
     let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
 
-    // Check if the sort expression contains an aggregate
-    find_single_aggref_in_expr(sort_expr)?;
+    // The sort expression must BE an aggregate — not merely contain one.
+    // e.g. ORDER BY COUNT(*) DESC is safe, but ORDER BY ABS(SUM(score)) DESC
+    // is not: ABS() breaks monotonicity, so Tantivy's ordering wouldn't match.
+    let aggref = find_single_aggref_in_expr(sort_expr)?;
+    if aggref as *mut pg_sys::Node != sort_expr {
+        return None;
+    }
 
     // Determine sort direction; bail out if the operator is unrecognized
     // so we fall back to the un-optimized path rather than risk wrong results.
@@ -627,6 +632,11 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
         // segment_size = max_buckets so every segment contributes accurate
         // counts — setting segment_size = K causes per-segment approximation
         // errors where groups distributed across segments get undercounted.
+        //
+        // With segment_size = max_buckets, correctness is the same as the
+        // non-TopK path: exact counts as long as distinct groups ≤ max_buckets.
+        // The only optimization is `size = K` limiting the merged output.
+        // Postgres still adds Sort + Limit above us for final ordering.
         let size = {
             let limit = self.limit_offset.limit();
             let offset = self.limit_offset.offset();

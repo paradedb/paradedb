@@ -83,7 +83,7 @@ impl PhysicalOptimizerRule for TopKAggregateRule {
 
                     if let Some(sort_exec) = child.as_any().downcast_ref::<SortExec>() {
                         let sort_input = sort_exec.input();
-                        if has_aggregate_in_subtree(sort_input) {
+                        if has_aggregate_as_child(sort_input) {
                             let sort_exprs = sort_exec.expr().clone();
                             let topk =
                                 TopKAggregateExec::new(Arc::clone(sort_input), sort_exprs, total_k);
@@ -105,7 +105,7 @@ impl PhysicalOptimizerRule for TopKAggregateRule {
             if let Some(sort_exec) = node.as_any().downcast_ref::<SortExec>() {
                 if let Some(k) = sort_exec.fetch() {
                     let sort_input = sort_exec.input();
-                    if has_aggregate_in_subtree(sort_input) {
+                    if has_aggregate_as_child(sort_input) {
                         let sort_exprs = sort_exec.expr().clone();
                         let topk = TopKAggregateExec::new(Arc::clone(sort_input), sort_exprs, k);
                         return Ok(Transformed::yes(Arc::new(topk) as Arc<dyn ExecutionPlan>));
@@ -119,10 +119,26 @@ impl PhysicalOptimizerRule for TopKAggregateRule {
     }
 }
 
-/// Check if any node in the subtree is an `AggregateExec`.
-fn has_aggregate_in_subtree(plan: &Arc<dyn ExecutionPlan>) -> bool {
+/// Check if the immediate child (or child behind a CoalescePartitionsExec) is an `AggregateExec`.
+///
+/// Only matches direct parent-child relationships to avoid incorrectly fusing
+/// a sort+limit with an aggregate deep inside a join or subquery.
+fn has_aggregate_as_child(plan: &Arc<dyn ExecutionPlan>) -> bool {
     if plan.as_any().downcast_ref::<AggregateExec>().is_some() {
         return true;
     }
-    plan.children().iter().any(|c| has_aggregate_in_subtree(c))
+    // Look through CoalescePartitionsExec which DataFusion inserts between
+    // partitioned AggregateExec and the sort.
+    if plan
+        .as_any()
+        .downcast_ref::<datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec>()
+        .is_some()
+    {
+        return plan
+            .children()
+            .first()
+            .map(|c| c.as_any().downcast_ref::<AggregateExec>().is_some())
+            .unwrap_or(false);
+    }
+    false
 }

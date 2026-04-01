@@ -83,8 +83,6 @@ pub fn create_aggregate_session_context() -> SessionContext {
     // SortMergeJoinEnforcer: converts HashJoinExec → SortMergeJoinExec when inputs are sorted
     if crate::gucs::is_columnar_sort_enabled() {
         builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
-        builder =
-            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
     }
 
     // LateMaterializationRule: defer string column reads during join phase

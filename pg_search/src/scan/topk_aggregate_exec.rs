@@ -19,7 +19,7 @@
 //!
 //! Replaces `SortExec → GlobalLimitExec` (or `SortExec(fetch=K)`) with a
 //! single node that consumes all aggregate output and emits only the top-K
-//! rows using a bounded heap, avoiding a full sort.
+//! rows using partial sort, avoiding a full sort of all rows.
 //!
 //! # Plan Transformation
 //!
@@ -53,8 +53,8 @@ use crate::scan::execution_plan::UnsafeSendStream;
 
 /// Fused TopK selection for aggregate output.
 ///
-/// Consumes all input batches, maintains a bounded heap of K rows
-/// (using `RowConverter` for comparison), and emits the top-K rows
+/// Consumes all input batches, selects the top-K rows using partial sort
+/// (via `select_nth_unstable_by` + sort of the K winners), and emits them
 /// in sorted order as a single RecordBatch.
 #[derive(Debug)]
 pub struct TopKAggregateExec {
@@ -132,7 +132,12 @@ impl ExecutionPlan for TopKAggregateExec {
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        assert_eq!(children.len(), 1);
+        if children.len() != 1 {
+            return Err(datafusion::common::DataFusionError::Internal(format!(
+                "TopKAggregateExec expects 1 child, got {}",
+                children.len()
+            )));
+        }
         Ok(Arc::new(TopKAggregateExec::new(
             children[0].clone(),
             self.sort_exprs.clone(),
@@ -215,10 +220,13 @@ impl ExecutionPlan for TopKAggregateExec {
                 .convert_columns(&sort_arrays)
                 .map_err(|e| datafusion::common::DataFusionError::ArrowError(Box::new(e), None))?;
 
-            // Sort indices by row ordering and truncate to K
+            // Select top-K indices using partial sort: O(N + K log K) instead of O(N log N)
             let mut indices: Vec<usize> = (0..total_rows).collect();
+            if effective_k < total_rows {
+                indices.select_nth_unstable_by(effective_k, |&a, &b| rows.row(a).cmp(&rows.row(b)));
+                indices.truncate(effective_k);
+            }
             indices.sort_by(|&a, &b| rows.row(a).cmp(&rows.row(b)));
-            indices.truncate(effective_k);
 
             // Build output batch using arrow_select::take
             let index_array = UInt32Array::from(

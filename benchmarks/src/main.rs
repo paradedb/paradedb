@@ -102,17 +102,13 @@ struct BenchmarkArgs {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Benchmark(args) => run_benchmark(args).await,
-        Commands::Convert(args) => {
-            if let Err(e) = convert::run_convert(args) {
-                eprintln!("Error: {e:#}");
-                std::process::exit(1);
-            }
-        }
+        Commands::Convert(args) => convert::run_convert(args)?,
     }
+    Ok(())
 }
 
 async fn run_benchmark(args: BenchmarkArgs) {

@@ -125,8 +125,8 @@ ORDER BY COUNT(*) DESC
 LIMIT 3;
   category   | count 
 -------------+-------
- Electronics |     4
  Sports      |     4
+ Electronics |     4
  Toys        |     4
 (3 rows)
 
@@ -231,8 +231,8 @@ ORDER BY COUNT(*) DESC
 LIMIT 3;
   category   | count |   sum   
 -------------+-------+---------
- Electronics |     4 | 4599.96
  Sports      |     4 |  419.96
+ Electronics |     4 | 4599.96
  Toys        |     4 | 1039.96
 (3 rows)
 
@@ -298,8 +298,8 @@ ORDER BY COUNT(*) DESC
 LIMIT 100;
   category   | count 
 -------------+-------
- Electronics |     4
  Sports      |     4
+ Electronics |     4
  Toys        |     4
  Clothing    |     2
  Books       |     1
@@ -315,10 +315,10 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 2 OFFSET 1;
- category | count 
-----------+-------
- Sports   |     4
- Toys     |     4
+  category   | count 
+-------------+-------
+ Electronics |     4
+ Toys        |     4
 (2 rows)
 
 -- =====================================================================
@@ -349,8 +349,8 @@ ORDER BY COUNT(*) DESC
 LIMIT 3;
   category   | count 
 -------------+-------
- Electronics |     4
  Sports      |     4
+ Electronics |     4
  Toys        |     4
 (3 rows)
 

@@ -905,11 +905,12 @@ impl AggregateScan {
             return Vec::new();
         }
 
-        // TopK for join aggregates is disabled. Postgres cannot resolve pathkey
-        // items through scanrelid=0 CustomScans, causing "could not find pathkey
-        // item to sort" errors even with custom_scan_tlist set. DataFusion's
-        // built-in SortExec(fetch=K) handles TopK internally — see #4493.
-        let topk = None::<privdat::DataFusionTopK>;
+        // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
+        // DataFusion's SortExec(fetch=K) uses a bounded TopK heap internally.
+        // We do NOT declare pathkeys to Postgres because scanrelid=0 CustomScans
+        // cannot resolve pathkey items through setrefs.c. Postgres may add a
+        // redundant Sort above us, which is correct (just wasteful on K rows).
+        let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
         // Build the custom path with DataFusion private data
         vec![builder.build(PrivateData::DataFusion {
@@ -1038,7 +1039,6 @@ impl AggregateScan {
 /// Detects ORDER BY on aggregate + LIMIT for join aggregate queries.
 /// Returns `Some(DataFusionTopK)` when the sort clause targets a single aggregate
 /// that can be pushed down into the DataFusion plan as sort + limit.
-#[allow(dead_code)] // Will be used when TopK for join aggregates is re-enabled (#4493)
 unsafe fn detect_join_aggregate_topk(
     args: &CreateUpperPathsHookArgs,
     targetlist: &join_targetlist::JoinAggregateTargetList,

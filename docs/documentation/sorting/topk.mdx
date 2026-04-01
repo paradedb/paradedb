@@ -172,17 +172,6 @@ MockItem.objects.filter(
 ).order_by(Lower('description')).values('description', 'rating', 'category')[:5]
 ```
 
-```ruby Rails
-description = MockItem.arel_table[:description]
-lower_description = Arel::Nodes::NamedFunction.new("LOWER", [description])
-
-MockItem.search(:description)
-        .matching_any("sleek running shoes")
-        .order(Arel::Nodes::Ascending.new(lower_description))
-        .select(:description, :rating, :category)
-        .limit(5)
-```
-
 ```python SQLAlchemy
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session

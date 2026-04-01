@@ -717,7 +717,7 @@ LIMIT 10;
                  Group By: category
                  Limit: 10
                  TopK Order: COUNT(*) DESC
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":10,"size":10}}}
+                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":65000,"size":10}}}
 (14 rows)
 
 SELECT category
@@ -915,7 +915,7 @@ LIMIT 2;
                  Group By: category
                  Limit: 2
                  TopK Order: COUNT(*) DESC
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":2,"size":2}}}
+                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":65000,"size":2}}}
 (14 rows)
 
 SELECT category, COUNT(*) as product_count
@@ -956,7 +956,7 @@ LIMIT 10;
                  Group By: category
                  Limit: 10
                  TopK Order: COUNT(*) DESC
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":10,"size":10}}}
+                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":65000,"size":10}}}
 (14 rows)
 
 SELECT category, COUNT(*) as pcount

@@ -120,8 +120,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (pdb.agg_fn('COUNT(*)'::text))
@@ -132,7 +132,7 @@ LIMIT 5;
                  Group By: rating
                  Limit: 5
                  TopK Order: COUNT(*) ASC
-                 Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_count":"asc"},"segment_size":5,"size":5}}}
+                 Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_count":"asc"},"segment_size":65000,"size":5}}}
 (11 rows)
 
 SELECT rating, COUNT(*) FROM products

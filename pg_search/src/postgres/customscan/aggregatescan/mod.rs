@@ -1057,7 +1057,7 @@ unsafe fn detect_join_aggregate_topk(
     // Check if the sort expression contains an aggregate
     targetlist::find_single_aggref_in_expr(sort_expr)?;
 
-    let descending = build::is_sort_descending((*sort_clause_ptr).sortop);
+    let direction = build::sort_direction_from_op((*sort_clause_ptr).sortop)?;
 
     // Find matching position in output_rel target using structural equality
     let reltarget = args.output_rel().reltarget;
@@ -1092,7 +1092,7 @@ unsafe fn detect_join_aggregate_topk(
 
     Some(privdat::DataFusionTopK {
         sort_agg_idx: agg_idx,
-        descending,
+        direction,
         k,
     })
 }

@@ -59,6 +59,15 @@ use crate::scan::execution_plan::UnsafeSendStream;
 /// Consumes all input batches, selects the top-K rows using partial sort
 /// (via `select_nth_unstable_by` + sort of the K winners), and emits them
 /// in sorted order as a single RecordBatch.
+///
+/// # TODO: streaming BinaryHeap approach
+///
+/// The current implementation materializes all input into a single RecordBatch
+/// before selecting the top-K rows, holding O(N) memory. For high-cardinality
+/// GROUP BY queries with small K, a streaming `BinaryHeap<K>` that processes
+/// rows batch-by-batch would reduce memory to O(K) and time to O(N log K).
+/// This is acceptable while the DataFusion TopK path is disabled (see #4493),
+/// but should be revisited before enabling it for production workloads.
 #[derive(Debug)]
 pub struct TopKAggregateExec {
     input: Arc<dyn ExecutionPlan>,
@@ -193,9 +202,10 @@ impl ExecutionPlan for TopKAggregateExec {
                 return;
             }
 
-            // Concatenate into a single batch
+            // Concatenate into a single batch and drop originals to free memory
             let combined = arrow_select::concat::concat_batches(&schema, &batches)
                 .map_err(|e| datafusion::common::DataFusionError::ArrowError(Box::new(e), None))?;
+            drop(batches);
 
             let total_rows = combined.num_rows();
             if total_rows == 0 {

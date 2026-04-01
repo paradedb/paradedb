@@ -29,8 +29,7 @@ use pgrx::PgList;
 pub struct DataFusionTopK {
     /// Index into `JoinAggregateTargetList.aggregates` for the sort target.
     pub sort_agg_idx: usize,
-    /// Sort direction: true = DESC, false = ASC.
-    pub descending: bool,
+    pub direction: crate::api::SortDirection,
     /// Maximum number of rows to return (LIMIT + OFFSET).
     pub k: usize,
 }

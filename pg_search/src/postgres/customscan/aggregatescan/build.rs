@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::SortDirection;
 use crate::api::{FieldName, HashSet, OrderByFeature};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
@@ -43,7 +44,7 @@ use pgrx::pg_sys;
 use pgrx::PgList;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
-use tantivy::aggregation::bucket::{CustomOrder, Order, OrderTarget, TermsAggregation};
+use tantivy::aggregation::bucket::{CustomOrder, OrderTarget, TermsAggregation};
 use tantivy::aggregation::metric::CountAggregation;
 
 pub trait AggregationKey {
@@ -72,8 +73,7 @@ pub struct AggregateOrderBy {
     /// For COUNT(*): None (uses OrderTarget::Count).
     /// For other aggregates: Some(key) where key is the sub-aggregation position.
     pub metric_key: Option<String>,
-    /// true = DESC, false = ASC
-    pub descending: bool,
+    pub direction: SortDirection,
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -399,7 +399,10 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         let topk_output: Vec<(String, String)> = if let (true, Some(ref agg_order)) =
             (self.limit_offset.limit().is_some(), &self.aggregate_orderby)
         {
-            let dir = if agg_order.descending { "DESC" } else { "ASC" };
+            let dir = match agg_order.direction {
+                SortDirection::DescNullsFirst | SortDirection::DescNullsLast => "DESC",
+                _ => "ASC",
+            };
             let target_name = match &agg_order.metric_key {
                 None => "COUNT(*)".to_string(),
                 Some(key) => {
@@ -487,27 +490,39 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
 }
 
 /// Determines sort direction from a Postgres sort operator OID.
+///
+/// Returns `None` if the operator properties cannot be resolved (should not
+/// happen for valid `SortGroupClause` operators). Callers should bail out
+/// of the TopK optimization rather than guessing a direction.
 #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-pub(super) unsafe fn is_sort_descending(sortop: pg_sys::Oid) -> bool {
+pub(super) unsafe fn sort_direction_from_op(sortop: pg_sys::Oid) -> Option<SortDirection> {
     let mut opfamily = pg_sys::InvalidOid;
     let mut opcintype = pg_sys::InvalidOid;
     let mut strategy: i16 = 0;
     if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut strategy) {
-        strategy as u32 == pg_sys::BTGreaterStrategyNumber
+        if strategy as u32 == pg_sys::BTGreaterStrategyNumber {
+            Some(SortDirection::DescNullsFirst)
+        } else {
+            Some(SortDirection::AscNullsLast)
+        }
     } else {
-        false
+        None
     }
 }
 
 #[cfg(feature = "pg18")]
-pub(super) unsafe fn is_sort_descending(sortop: pg_sys::Oid) -> bool {
+pub(super) unsafe fn sort_direction_from_op(sortop: pg_sys::Oid) -> Option<SortDirection> {
     let mut opfamily = pg_sys::InvalidOid;
     let mut opcintype = pg_sys::InvalidOid;
     let mut cmptype = pg_sys::CompareType::COMPARE_LT;
     if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut cmptype) {
-        cmptype == pg_sys::CompareType::COMPARE_GT
+        if cmptype == pg_sys::CompareType::COMPARE_GT {
+            Some(SortDirection::DescNullsFirst)
+        } else {
+            Some(SortDirection::AscNullsLast)
+        }
     } else {
-        false
+        None
     }
 }
 
@@ -542,7 +557,9 @@ unsafe fn detect_aggregate_orderby(
     // Check if the sort expression contains an aggregate
     find_single_aggref_in_expr(sort_expr)?;
 
-    let descending = is_sort_descending((*sort_clause_ptr).sortop);
+    // Determine sort direction; bail out if the operator is unrecognized
+    // so we fall back to the un-optimized path rather than risk wrong results.
+    let direction = sort_direction_from_op((*sort_clause_ptr).sortop)?;
 
     // Find matching position in output_rel target using structural equality
     let reltarget = args.output_rel().reltarget;
@@ -575,7 +592,7 @@ unsafe fn detect_aggregate_orderby(
     if agg.can_use_doc_count() {
         return Some(AggregateOrderBy {
             metric_key: None,
-            descending,
+            direction,
         });
     }
 
@@ -585,7 +602,7 @@ unsafe fn detect_aggregate_orderby(
         if i == pos {
             return Some(AggregateOrderBy {
                 metric_key: Some(metric_idx.to_string()),
-                descending,
+                direction,
             });
         }
         if let TargetListEntry::Aggregate(a) = entry {
@@ -603,10 +620,16 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
         let orderby_info = self.orderby.orderby_info();
         let grouping_columns = self.targetlist.grouping_columns();
 
+        let max_buckets = gucs::max_term_agg_buckets() as u32;
+
+        // `size` controls how many buckets the final merge returns.
+        // `segment_size` controls per-segment collection. We always keep
+        // segment_size = max_buckets so every segment contributes accurate
+        // counts — setting segment_size = K causes per-segment approximation
+        // errors where groups distributed across segments get undercounted.
         let size = {
             let limit = self.limit_offset.limit();
             let offset = self.limit_offset.offset();
-            let max_buckets = gucs::max_term_agg_buckets() as u32;
 
             // We can use LIMIT-based size optimization when:
             // 1. There's exactly one grouping column (multiple columns need all combinations)
@@ -647,23 +670,27 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
             let mut terms_agg = TermsAggregation {
                 field: column.field_name.clone(),
                 size: Some(size),
-                segment_size: Some(size),
+                // Always collect all buckets per segment for accurate counts.
+                // Only the final merge output is limited to `size`.
+                segment_size: Some(max_buckets),
                 ..Default::default()
             };
 
             if let Some(ref agg_order) = aggregate_orderby {
-                // ORDER BY on aggregate metric — use Count or SubAggregation target
+                // ORDER BY on aggregate metric — use Count or SubAggregation target.
+                //
+                // NULL handling: when all values in a group are NULL, aggregates
+                // like SUM/AVG/MIN/MAX produce NULL. Tantivy's TermsAggregation
+                // sorts NULLs according to its own rules (not Postgres's NULLS
+                // FIRST/LAST), but since Postgres adds a Sort node above us the
+                // final NULL ordering is determined by Postgres, not Tantivy.
                 let target = match &agg_order.metric_key {
                     None => OrderTarget::Count,
                     Some(key) => OrderTarget::SubAggregation(key.clone()),
                 };
                 terms_agg.order = Some(CustomOrder {
                     target,
-                    order: if agg_order.descending {
-                        Order::Desc
-                    } else {
-                        Order::Asc
-                    },
+                    order: agg_order.direction.into(),
                 });
             } else if let Some(orderby) = orderby {
                 terms_agg.order = Some(CustomOrder {

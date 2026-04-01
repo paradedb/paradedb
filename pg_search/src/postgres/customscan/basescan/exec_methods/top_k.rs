@@ -25,6 +25,7 @@ use crate::index::reader::index::{
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -298,7 +299,7 @@ impl ExecMethod for TopKScanExecState {
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
         // Resolve parameterized limit from executor params if needed
         if self.limit.is_none() {
-            if let Some(param_id) = state.limit_param_id {
+            if let Some(param_id) = state.limit.as_ref().and_then(Limit::param_id) {
                 unsafe {
                     let estate = (*cstate).ss.ps.state;
                     self.resolve_limit_from_param(param_id, estate);

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{AsCStr, Cardinality, FieldName, HashMap, HashSet, OrderByInfo, Varno};
+use crate::api::{AsCStr, FieldName, HashMap, HashSet, OrderByInfo, Varno};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::ExecMethodType;
@@ -26,13 +26,35 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Limit {
+    Static(usize),
+    Parameterized { limit_param_id: i32 },
+}
+
+impl Limit {
+    pub fn static_value(&self) -> Option<usize> {
+        match self {
+            Limit::Static(n) => Some(*n),
+            Limit::Parameterized { .. } => None,
+        }
+    }
+
+    pub fn param_id(&self) -> Option<i32> {
+        match self {
+            Limit::Parameterized { limit_param_id } => Some(*limit_param_id),
+            Limit::Static(_) => None,
+        }
+    }
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
     range_table_index: Option<pg_sys::Index>,
     query: Option<SearchQueryInput>,
-    limit: Option<usize>,
+    limit: Option<Limit>,
     // ORDER-BY info that will be used iff the appropriate ExecMethodType is chosen.
     maybe_orderby_info: Option<Vec<OrderByInfo>>,
     #[serde(with = "var_attname_lookup_serializer")]
@@ -56,8 +78,6 @@ pub struct PrivateData {
     // Whether this path was chosen as a sorted path (declares pathkeys for index's sort_by field).
     // When true, the execution should use the sorted merge path for segment scanning.
     use_sorted_path: bool,
-    has_parameterized_limit: bool,
-    limit_param_id: Option<i32>,
 }
 
 mod var_attname_lookup_serializer {
@@ -178,8 +198,8 @@ impl PrivateData {
         self.query = Some(query);
     }
 
-    pub fn set_limit(&mut self, limit: Option<Cardinality>) {
-        self.limit = limit.map(|l| l.round() as usize);
+    pub fn set_limit(&mut self, limit: Option<Limit>) {
+        self.limit = limit;
     }
 
     pub fn set_maybe_orderby_info(&mut self, style: Option<&Vec<OrderByStyle>>) {
@@ -235,14 +255,6 @@ impl PrivateData {
     pub fn set_use_sorted_path(&mut self, use_sorted: bool) {
         self.use_sorted_path = use_sorted;
     }
-
-    pub fn set_has_parameterized_limit(&mut self, has: bool) {
-        self.has_parameterized_limit = has;
-    }
-
-    pub fn set_limit_param_id(&mut self, param_id: Option<i32>) {
-        self.limit_param_id = param_id;
-    }
 }
 
 //
@@ -266,8 +278,12 @@ impl PrivateData {
         &self.query
     }
 
-    pub fn limit(&self) -> Option<usize> {
-        self.limit
+    pub fn limit(&self) -> &Option<Limit> {
+        &self.limit
+    }
+
+    pub fn static_limit(&self) -> Option<usize> {
+        self.limit.as_ref().and_then(Limit::static_value)
     }
 
     pub fn maybe_orderby_info(&self) -> &Option<Vec<OrderByInfo>> {
@@ -317,13 +333,5 @@ impl PrivateData {
 
     pub fn use_sorted_path(&self) -> bool {
         self.use_sorted_path
-    }
-
-    pub fn has_parameterized_limit(&self) -> bool {
-        self.has_parameterized_limit
-    }
-
-    pub fn limit_param_id(&self) -> Option<i32> {
-        self.limit_param_id
     }
 }

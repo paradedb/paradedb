@@ -21,6 +21,7 @@ use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
+use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
@@ -88,7 +89,7 @@ pub struct BaseScanState {
     pub join_predicates: Option<SearchQueryInput>,
 
     pub exec_method_type: ExecMethodType,
-    pub limit_param_id: Option<i32>,
+    pub limit: Option<Limit>,
     pub ambulkdelete_epoch: u32,
 
     pub doc_from_heap_state: Option<HeapFetchState>,

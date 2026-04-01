@@ -18,7 +18,7 @@
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
 pub mod exec_methods;
 pub mod parallel;
-mod privdat;
+pub(crate) mod privdat;
 pub mod projections;
 mod scan_state;
 
@@ -36,7 +36,7 @@ use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
-use crate::postgres::customscan::basescan::privdat::PrivateData;
+use crate::postgres::customscan::basescan::privdat::{Limit, PrivateData};
 use crate::postgres::customscan::basescan::projections::score::uses_scores;
 use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
@@ -669,14 +669,17 @@ impl CustomScan for BaseScan {
                 maybe_limit_from_parse(builder.args().root)
             };
 
-            let limit_param_id = if limit.is_none() && !(*builder.args().root).parse.is_null() {
-                find_extern_param_id((*(*builder.args().root).parse).limitCount)
+            let limit = if let Some(l) = limit {
+                Some(Limit::Static(l.round() as usize))
+            } else if !(*builder.args().root).parse.is_null() {
+                find_extern_param_id((*(*builder.args().root).parse).limitCount).map(|param_id| {
+                    Limit::Parameterized {
+                        limit_param_id: param_id,
+                    }
+                })
             } else {
                 None
             };
-            let has_parameterized_limit = limit_param_id.is_some();
-            custom_private.set_has_parameterized_limit(has_parameterized_limit);
-            custom_private.set_limit_param_id(limit_param_id);
 
             // Get all columns referenced by this RTE throughout the entire query
             let referenced_columns = collect_maybe_fast_field_referenced_columns(rti, rel);
@@ -684,7 +687,7 @@ impl CustomScan for BaseScan {
             // Save the count of referenced columns for decision-making
             custom_private.set_referenced_columns_count(referenced_columns.len());
 
-            let has_any_limit = limit.is_some() || has_parameterized_limit;
+            let has_any_limit = limit.is_some();
             let is_maybe_topk = has_any_limit && topk_pathkey_info.is_usable();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
@@ -724,6 +727,11 @@ impl CustomScan for BaseScan {
             } else {
                 // ask the index
                 estimate_selectivity(&bm25_index, query.clone()).unwrap_or(UNKNOWN_SELECTIVITY)
+            };
+
+            let float_limit = match &limit {
+                Some(Limit::Static(n)) => Some(*n as f64),
+                _ => None,
             };
 
             custom_private.set_heaprelid(table.oid());
@@ -768,10 +776,12 @@ impl CustomScan for BaseScan {
                 _ => RowEstimate::Unknown,
             };
             let base_result_rows = match row_estimate {
-                RowEstimate::Known(rows) => (rows as f64).min(limit.unwrap_or(f64::MAX)).max(1.0),
+                RowEstimate::Known(rows) => {
+                    (rows as f64).min(float_limit.unwrap_or(f64::MAX)).max(1.0)
+                }
                 RowEstimate::Unknown => {
                     // For unknown row counts, use 1.0 as a conservative estimate for costing
-                    limit.unwrap_or(1.0).max(1.0)
+                    float_limit.unwrap_or(1.0).max(1.0)
                 }
             };
 
@@ -828,7 +838,7 @@ impl CustomScan for BaseScan {
 
                     compute_nworkers(
                         is_sorted,
-                        limit,
+                        float_limit,
                         row_estimate,
                         segment_count,
                         quals.contains_external_var(),
@@ -1078,7 +1088,7 @@ impl CustomScan for BaseScan {
 
             builder.custom_state().exec_method_type =
                 builder.custom_private().exec_method_type().clone();
-            builder.custom_state().limit_param_id = builder.custom_private().limit_param_id();
+            builder.custom_state().limit = builder.custom_private().limit().clone();
 
             builder.custom_state().targetlist_len = builder.target_list().len();
 
@@ -1653,12 +1663,12 @@ fn validate_topk_expectation(
     }
 
     // Check if this query should be using Top K
-    let has_limit = privdata.limit().is_some();
+    let has_static_limit = privdata.static_limit().is_some();
     let has_search_query = privdata.query().is_some();
     let no_group_by = privdata.window_aggregates().is_empty();
 
     // Top K is expected when we have: explicit LIMIT + search query + no GROUP BY
-    let should_use_topk = has_limit && limit_is_explicit && has_search_query && no_group_by;
+    let should_use_topk = has_static_limit && limit_is_explicit && has_search_query && no_group_by;
 
     // Check if we actually got Top K
     let is_using_topk = matches!(chosen_method, ExecMethodType::TopK { .. });
@@ -1669,7 +1679,7 @@ fn validate_topk_expectation(
     }
 
     // At this point: should_use_topk is true AND we're not using Top K - emit warning
-    let limit = privdata.limit().unwrap();
+    let limit = privdata.static_limit().unwrap();
     let method_name = match chosen_method {
         ExecMethodType::Normal => "Normal",
         ExecMethodType::Columnar { .. } => "Columnar",
@@ -1760,13 +1770,13 @@ fn choose_exec_method(
 ) -> Vec<ExecMethodType> {
     // See if we can use Top K.
     // A known limit value or a parameterized limit (value resolved at execution time) both qualify.
-    let limit = privdata.limit();
-    let has_any_limit = limit.is_some() || privdata.has_parameterized_limit();
+    let static_limit = privdata.static_limit();
+    let has_any_limit = privdata.limit().is_some();
     if has_any_limit {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
             let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit,
+                limit: static_limit,
                 orderby_info: Some(orderby_info.clone()),
                 window_aggregates: privdata.window_aggregates().clone(),
             };
@@ -1782,7 +1792,7 @@ fn choose_exec_method(
         if matches!(topk_pathkey_info, PathKeyInfo::None) {
             let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit,
+                limit: static_limit,
                 orderby_info: None,
                 window_aggregates: privdata.window_aggregates().clone(),
             };
@@ -1805,7 +1815,7 @@ fn choose_exec_method(
         // Always create the Unsorted variant
         methods.push(ExecMethodType::Columnar {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            limit: privdata.limit(),
+            limit: privdata.static_limit(),
             sort_order: None,
         });
 
@@ -1823,7 +1833,7 @@ fn choose_exec_method(
             if let Some(sort_order) = sort_order {
                 methods.push(ExecMethodType::Columnar {
                     which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-                    limit: privdata.limit(),
+                    limit: privdata.static_limit(),
                     sort_order: Some(sort_order),
                 });
             }

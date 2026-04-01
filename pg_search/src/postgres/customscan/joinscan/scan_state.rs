@@ -244,17 +244,18 @@ fn add_tail_physical_rules(builder: SessionStateBuilder) -> SessionStateBuilder 
         .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()))
 }
 
-/// Creates the shared DataFusion SessionContext used for both JoinScan logical
-/// planning and execution.
+/// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
+/// - Visibility filtering (logical + physical)
+/// - Late materialization
+/// - SortMergeJoinEnforcer (when columnar sort enabled)
+/// - `PgSearchQueryPlanner`
 ///
-/// The same context configuration is used to:
-/// 1. run logical optimization and produce the canonical serialized plan
-/// 2. lower that deserialized logical plan into a physical plan at execution
-pub fn create_session_context() -> SessionContext {
+/// Callers append their own TopK rule and FilterPushdown passes.
+pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
-    let mut builder = SessionStateBuilder::new().with_config(base_session_config());
+    let mut builder = SessionStateBuilder::new().with_config(config);
 
     // Inject visibility before late materialization so ctid lineage is analyzed
     // while DeferredCtid columns are still present in the logical plan.
@@ -270,13 +271,24 @@ pub fn create_session_context() -> SessionContext {
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
+    builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+}
+
+/// Creates the shared DataFusion SessionContext used for both JoinScan logical
+/// planning and execution.
+///
+/// The same context configuration is used to:
+/// 1. run logical optimization and produce the canonical serialized plan
+/// 2. lower that deserialized logical plan into a physical plan at execution
+pub fn create_session_context() -> SessionContext {
+    let mut builder = build_base_session(base_session_config());
+
     // VisibilityExtensionPlanner already places visibility below any immediate
     // TantivyLookupExec chain, so only resolver wiring remains here before the
     // first post-optimization FilterPushdown pass. That pass reconnects dynamic
     // filters after SortMergeJoin rewrites; the final pass in
     // `add_tail_physical_rules` handles any new filters introduced by
     // SegmentedTopKRule later in the pipeline.
-    builder = builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
     if crate::gucs::is_columnar_sort_enabled() {
         builder =
             builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));

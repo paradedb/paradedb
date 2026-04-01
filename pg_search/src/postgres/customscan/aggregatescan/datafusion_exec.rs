@@ -35,7 +35,6 @@ use crate::postgres::customscan::joinscan::translator::{build_equi_join_exprs, m
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
-use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -45,51 +44,22 @@ use futures::future::{FutureExt, LocalBoxFuture};
 
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
-use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
-use crate::postgres::customscan::joinscan::scan_state::PgSearchQueryPlanner;
-
-/// Create a DataFusion [`SessionContext`] for aggregate workloads.
+/// Creates a DataFusion [`SessionContext`] for aggregate workloads.
 ///
-/// Similar to JoinScan's `create_session_context()` but replaces
-/// `SegmentedTopKRule` (row-level TopK) with `TopKAggregateRule`
-/// (aggregate-level TopK). All other rules — including MVCC visibility
-/// filtering — are preserved.
+/// Shares the base session setup with JoinScan (visibility, late
+/// materialization, sort-merge join) via [`build_base_session`], then
+/// appends `TopKAggregateRule` instead of `SegmentedTopKRule`.
 pub fn create_aggregate_session_context() -> SessionContext {
-    use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterOptimizerRule;
-    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
+    use crate::postgres::customscan::joinscan::scan_state::build_base_session;
 
     let config = SessionConfig::new().with_target_partitions(1);
-
-    let mut builder = SessionStateBuilder::new().with_config(config);
-
-    // Inject visibility before late materialization so ctid lineage is analyzed
-    // while DeferredCtid columns are still present in the logical plan.
-    builder = builder
-        .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new()))
-        .with_optimizer_rule(Arc::new(
-            crate::scan::late_materialization::LateMaterializationRule,
-        ));
-
-    // SortMergeJoinEnforcer: converts HashJoinExec → SortMergeJoinExec when inputs are sorted
-    if crate::gucs::is_columnar_sort_enabled() {
-        builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
-    }
-
-    // Reuse JoinScan's query planner (includes VisibilityExtensionPlanner
-    // and LateMaterializePlanner)
-    builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
-
-    // VisibilityCtidResolverRule: wire ctid resolvers for visibility checks
-    builder = builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
-
-    // TopKAggregateRule: fuse sort + limit into TopK selection for aggregate output
-    builder = builder.with_physical_optimizer_rule(Arc::new(
-        crate::scan::topk_aggregate_rule::TopKAggregateRule,
-    ));
-
-    // FilterPushdown: push filters to PgSearchTableProvider
-    builder =
-        builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+    let builder = build_base_session(config)
+        // TopKAggregateRule: fuse sort + limit into TopK selection for aggregate output
+        .with_physical_optimizer_rule(Arc::new(
+            crate::scan::topk_aggregate_rule::TopKAggregateRule,
+        ))
+        // FilterPushdown: push filters to PgSearchTableProvider
+        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
 
     SessionContext::new_with_state(builder.build())
 }

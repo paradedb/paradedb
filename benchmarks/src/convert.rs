@@ -41,18 +41,23 @@ pub struct ConvertArgs {
     pub dry_run: bool,
 }
 
-pub fn run_convert(args: ConvertArgs) -> Result<()> {
+fn open_duckdb_conn() -> Result<Connection> {
     let config = Config::default()
         .access_mode(AccessMode::Automatic)?
         .enable_autoload_extension(true)?;
     let conn = Connection::open_in_memory_with_flags(config)
         .context("Failed to open DuckDB in-memory connection")?;
 
-    // Configure S3 credentials using the AWS default credential provider chain.
     conn.execute_batch(
         "CREATE OR REPLACE SECRET secret (TYPE s3, PROVIDER credential_chain);",
     )
     .context("Failed to configure S3 credentials. Ensure AWS credentials are available via environment variables, ~/.aws/credentials, or instance metadata.")?;
+
+    Ok(conn)
+}
+
+pub fn run_convert(args: ConvertArgs) -> Result<()> {
+    let conn = open_duckdb_conn()?;
 
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
@@ -109,36 +114,19 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
         return Ok(());
     }
 
-    // Conversion phase: convert each parquet file to CSV.
+    // Conversion phase: one COPY per table, DuckDB handles parallelism internally.
     println!("\nConverting parquet to CSV...");
     for table in &args.tables {
-        let glob_pattern = format!("{input}/{table}/*.parquet");
-        let mut stmt = conn
-            .prepare(&format!("SELECT filename FROM glob('{glob_pattern}')"))
-            .with_context(|| format!("Failed to list parquet files for table '{table}'"))?;
-        let files: Vec<String> = stmt
-            .query_map([], |row| row.get(0))?
-            .collect::<std::result::Result<Vec<String>, _>>()
-            .with_context(|| format!("Failed to collect file listing for table '{table}'"))?;
+        println!("  Converting table '{table}'...");
+        let sql = format!(
+            "COPY (SELECT * FROM read_parquet('{input}/{table}/*.parquet')) \
+             TO '{output}/{table}/' (FORMAT CSV, HEADER true, PER_THREAD_OUTPUT true);"
+        );
 
-        println!("  Converting table '{table}' ({} file(s))...", files.len());
+        conn.execute_batch(&sql)
+            .with_context(|| format!("Failed to convert table '{table}'"))?;
 
-        for file_path in &files {
-            let parquet_filename = file_path.rsplit('/').next().unwrap_or(file_path);
-            let csv_filename = parquet_filename.replace(".parquet", ".csv");
-            let output_path = format!("{output}/{table}/{csv_filename}");
-
-            let sql = format!(
-                "COPY (SELECT * FROM read_parquet('{file_path}')) \
-                 TO '{output_path}' (FORMAT CSV, HEADER true);"
-            );
-
-            conn.execute_batch(&sql).with_context(|| {
-                format!("Failed to convert '{parquet_filename}' in table '{table}'")
-            })?;
-
-            println!("    {parquet_filename} -> {csv_filename}");
-        }
+        println!("  {table}: done");
     }
 
     println!("\nConversion complete.");

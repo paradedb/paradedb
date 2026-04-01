@@ -60,6 +60,7 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
     // Validation phase: verify all tables have parquet files before doing any work.
     println!("Validating input paths...");
     let mut table_files: Vec<(String, Vec<String>)> = Vec::new();
+    let mut missing_tables: Vec<String> = Vec::new();
 
     for table in &args.tables {
         let glob_pattern = format!("{input}/{table}/*.parquet");
@@ -73,14 +74,20 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
             .with_context(|| format!("Failed to collect file listing for table '{table}'"))?;
 
         if files.is_empty() {
-            bail!(
-                "No parquet files found for table '{table}' at '{glob_pattern}'. \
-                 Aborting before any conversion work."
-            );
+            println!("  {table}: no parquet files found at '{glob_pattern}'");
+            missing_tables.push(table.clone());
+        } else {
+            println!("  {table}: found {} parquet file(s)", files.len());
+            table_files.push((table.clone(), files));
         }
+    }
 
-        println!("  {table}: found {} parquet file(s)", files.len());
-        table_files.push((table.clone(), files));
+    if !missing_tables.is_empty() {
+        bail!(
+            "No parquet files found for {} table(s): {}. Aborting before any conversion work.",
+            missing_tables.len(),
+            missing_tables.join(", ")
+        );
     }
 
     if args.dry_run {

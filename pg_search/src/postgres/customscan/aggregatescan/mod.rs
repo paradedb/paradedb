@@ -977,9 +977,12 @@ impl AggregateScan {
                             .expect("Failed to create RuntimeEnv"),
                     )),
             );
-            let stream = match physical_plan.execute(0, task_ctx) {
-                Ok(s) => s,
-                Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+            let stream = {
+                let _guard = runtime.enter();
+                match physical_plan.execute(0, task_ctx) {
+                    Ok(s) => s,
+                    Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+                }
             };
 
             df_state.runtime = Some(runtime);

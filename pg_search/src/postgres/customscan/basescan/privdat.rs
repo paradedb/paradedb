@@ -33,13 +33,6 @@ pub enum Limit {
 }
 
 impl Limit {
-    pub fn static_value(&self) -> Option<usize> {
-        match self {
-            Limit::Static(n) => Some(*n),
-            Limit::Parameterized { .. } => None,
-        }
-    }
-
     pub unsafe fn from_param(node: *mut pg_sys::Node) -> Option<Self> {
         use crate::nodecast;
 
@@ -78,6 +71,13 @@ impl Limit {
         match self {
             Limit::Parameterized { limit_param_id } => Some(*limit_param_id),
             Limit::Static(_) => None,
+        }
+    }
+
+    pub fn static_value(&self) -> Option<usize> {
+        match self {
+            Limit::Static(n) => Some(*n),
+            Limit::Parameterized { .. } => None,
         }
     }
 

@@ -54,7 +54,6 @@ struct PreparedAggregations {
 
 pub struct TopKScanExecState {
     limit: Limit,
-    resolved_limit: Option<usize>,
     orderby_info: Option<Vec<OrderByInfo>>,
 
     // set during init
@@ -105,10 +104,8 @@ impl TopKScanExecState {
             1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
         } * crate::gucs::limit_fetch_multiplier();
 
-        let resolved_limit = limit.static_value();
         Self {
             limit,
-            resolved_limit,
             orderby_info,
             search_query_input: None,
             search_reader: None,
@@ -126,7 +123,8 @@ impl TopKScanExecState {
     }
 
     fn limit(&self) -> usize {
-        self.resolved_limit
+        self.limit
+            .static_value()
             .expect("TopK limit must be resolved before query execution")
     }
 
@@ -268,16 +266,14 @@ impl TopKScanExecState {
 impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
-        // Resolve parameterized limit from executor params if needed
-        if self.resolved_limit.is_none() {
+        // Resolve parameterized limit from executor params
+        if self.limit.static_value().is_none() {
             unsafe {
                 let estate = (*cstate).ss.ps.state;
-                let resolved = self.limit.resolve(estate);
-                self.resolved_limit = Some(resolved);
-                // Update the exec_method_type so EXPLAIN ANALYZE shows the resolved limit
-                if let ExecMethodType::TopK { ref mut limit, .. } = state.exec_method_type {
-                    *limit = Limit::Static(resolved);
-                }
+                self.limit = Limit::Static(self.limit.resolve(estate));
+            }
+            if let ExecMethodType::TopK { ref mut limit, .. } = state.exec_method_type {
+                *limit = self.limit.clone();
             }
         }
 

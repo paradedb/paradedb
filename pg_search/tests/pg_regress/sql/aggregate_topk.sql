@@ -169,3 +169,52 @@ ORDER BY COUNT(*) DESC
 LIMIT 3;
 
 DROP TABLE mock_items;
+
+-- ================================================================
+-- Test 10: NULL aggregate values — known limitation
+-- Tantivy treats NULL aggregates as 0/missing, while Postgres's
+-- SUM(NULL, NULL) = NULL with NULLS FIRST for DESC. This is a
+-- pre-existing aggregate scan limitation, not specific to TopK.
+-- TopK ordering pushdown is restricted to COUNT-only to avoid
+-- compounding this issue.
+-- ================================================================
+CREATE TABLE agg_null_topk_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    score INT
+);
+
+CREATE INDEX idx_agg_null_topk_test ON agg_null_topk_test
+USING bm25 (id, category, score)
+WITH (
+    key_field='id',
+    text_fields='{"category": {"fast": true}}',
+    numeric_fields='{"score": {"fast": true}}'
+);
+
+INSERT INTO agg_null_topk_test (category, score) VALUES
+    ('null_grp', NULL),
+    ('null_grp', NULL),
+    ('ten_grp', 10),
+    ('nine_grp', 9);
+
+-- Native Postgres: null_grp (SUM=NULL) comes first with NULLS FIRST
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT category, SUM(score) AS s
+FROM agg_null_topk_test
+WHERE agg_null_topk_test @@@ paradedb.all()
+GROUP BY category
+ORDER BY SUM(score) DESC
+LIMIT 2;
+
+-- Custom scan: Tantivy computes SUM(NULL,NULL)=0, not NULL, so
+-- null_grp doesn't sort first. This is a known Tantivy limitation.
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT category, SUM(score) AS s
+FROM agg_null_topk_test
+WHERE agg_null_topk_test @@@ paradedb.all()
+GROUP BY category
+ORDER BY SUM(score) DESC
+LIMIT 2;
+
+DROP TABLE agg_null_topk_test;

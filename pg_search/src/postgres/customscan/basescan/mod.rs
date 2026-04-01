@@ -1874,7 +1874,11 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
             orderby_info,
             window_aggregates: _,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_k::TopKScanExecState::new(heaprelid, limit.clone(), orderby_info),
+            exec_methods::top_k::TopKScanExecState::new(
+                heaprelid,
+                limit.static_value(),
+                orderby_info,
+            ),
             None,
         ),
 

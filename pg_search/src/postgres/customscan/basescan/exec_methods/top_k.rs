@@ -53,7 +53,7 @@ struct PreparedAggregations {
 }
 
 pub struct TopKScanExecState {
-    limit: Limit,
+    limit: Option<usize>,
     orderby_info: Option<Vec<OrderByInfo>>,
 
     // set during init
@@ -78,7 +78,7 @@ pub struct TopKScanExecState {
 impl TopKScanExecState {
     pub fn new(
         heaprelid: pg_sys::Oid,
-        limit: Limit,
+        limit: Option<usize>,
         orderby_info: Option<Vec<OrderByInfo>>,
     ) -> Self {
         if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPK_FEATURES) {
@@ -124,7 +124,6 @@ impl TopKScanExecState {
 
     fn limit(&self) -> usize {
         self.limit
-            .static_value()
             .expect("TopK limit must be resolved before query execution")
     }
 
@@ -267,13 +266,14 @@ impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
         // Resolve parameterized limit from executor params
-        if self.limit.static_value().is_none() {
-            unsafe {
-                let estate = (*cstate).ss.ps.state;
-                self.limit = Limit::Static(self.limit.resolve(estate));
-            }
+        if self.limit.is_none() {
             if let ExecMethodType::TopK { ref mut limit, .. } = state.exec_method_type {
-                *limit = self.limit.clone();
+                unsafe {
+                    let estate = (*cstate).ss.ps.state;
+                    let resolved = limit.resolve(estate);
+                    self.limit = Some(resolved);
+                    *limit = Limit::Static(resolved);
+                }
             }
         }
 

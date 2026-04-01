@@ -29,6 +29,9 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
 
+      - name: Install System Dependencies
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+
       - name: Install Mintlify CLI
         run: npm install -g mintlify
 

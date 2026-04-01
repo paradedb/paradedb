@@ -25,6 +25,7 @@ use crate::index::reader::index::{
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -52,8 +53,7 @@ struct PreparedAggregations {
 }
 
 pub struct TopKScanExecState {
-    // required
-    limit: usize,
+    limit: Option<usize>,
     orderby_info: Option<Vec<OrderByInfo>>,
 
     // set during init
@@ -78,7 +78,7 @@ pub struct TopKScanExecState {
 impl TopKScanExecState {
     pub fn new(
         heaprelid: pg_sys::Oid,
-        limit: usize,
+        limit: Option<usize>,
         orderby_info: Option<Vec<OrderByInfo>>,
     ) -> Self {
         if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPK_FEATURES) {
@@ -120,6 +120,11 @@ impl TopKScanExecState {
             scale_factor,
             window_aggregates: Vec::new(),
         }
+    }
+
+    fn limit(&self) -> usize {
+        self.limit
+            .expect("TopK limit must be resolved before query execution")
     }
 
     /// Produces an iterator of Segments to query.
@@ -259,7 +264,19 @@ impl TopKScanExecState {
 
 impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
-    fn init(&mut self, state: &mut BaseScanState, _cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
+        // Resolve parameterized limit from executor params
+        if self.limit.is_none() {
+            if let ExecMethodType::TopK { ref mut limit, .. } = state.exec_method_type {
+                unsafe {
+                    let estate = (*cstate).ss.ps.state;
+                    let resolved = limit.resolve(estate);
+                    self.limit = Some(resolved);
+                    *limit = Limit::Static(resolved);
+                }
+            }
+        }
+
         // Call the default init behavior first
         self.reset(state);
 
@@ -278,7 +295,7 @@ impl ExecMethod for TopKScanExecState {
     fn query(&mut self, state: &mut BaseScanState) -> bool {
         self.did_query = true;
 
-        if self.found >= self.limit || self.exhausted {
+        if self.found >= self.limit() || self.exhausted {
             return false;
         }
 
@@ -287,7 +304,7 @@ impl ExecMethod for TopKScanExecState {
 
         // Calculate the limit for this query, and what the offset will be for the next query.
         let local_limit =
-            (self.limit as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
+            (self.limit() as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
         let aggregations = self.prepare_aggregations(state);
@@ -367,27 +384,42 @@ impl ExecMethod for TopKScanExecState {
         // If aggregates were executed, publish their results in our state for projection during
         // the scan.
         if let Some(aggregations) = aggregations {
-            let agg_result = self
-                .search_results
-                .take_aggregation_results()
-                .expect("an aggregation request should produce a result");
-            let intermediate_results = if let Some(parallel_state) = state.parallel_state {
-                let segment_count = self
-                    .claimed_segments
-                    .borrow()
-                    .as_ref()
-                    .expect("Should have claimed segments while running.")
-                    .len();
-                unsafe {
-                    (*parallel_state)
-                        .aggregation_append(agg_result, segment_count)
-                        .expect("Failed to append aggregation result");
+            let intermediate_results = if self.orderby_info.is_some() {
+                // Ordered TopK: aggregation was piggybacked on the search via aux collector
+                let agg_result = self
+                    .search_results
+                    .take_aggregation_results()
+                    .expect("an aggregation request should produce a result");
+                if let Some(parallel_state) = state.parallel_state {
+                    let segment_count = self
+                        .claimed_segments
+                        .borrow()
+                        .as_ref()
+                        .expect("Should have claimed segments while running.")
+                        .len();
+                    unsafe {
+                        (*parallel_state)
+                            .aggregation_append(agg_result, segment_count)
+                            .expect("Failed to append aggregation result");
 
-                    (*parallel_state).aggregation_wait()
+                        (*parallel_state).aggregation_wait()
+                    }
+                } else {
+                    agg_result
                 }
             } else {
-                // Not parallel: finalize without propagating through the parallel state.
-                agg_result
+                // Unordered TopK: run a standalone aggregation query since the
+                // unordered path does not support aggregation collectors
+                let search_reader = self.search_reader.as_ref().unwrap();
+                let tokenizer_manager = search_reader.searcher().index().tokenizers().clone();
+                let aggregation_collector = DistributedAggregationCollector::from_aggs(
+                    aggregations.aggregations.clone(),
+                    AggContextParams::new(agg_limits.clone(), tokenizer_manager),
+                );
+                search_reader
+                    .searcher()
+                    .search(search_reader.query(), &aggregation_collector)
+                    .expect("failed to run window aggregation query")
             };
 
             let window_aggregate_results =
@@ -420,7 +452,7 @@ impl ExecMethod for TopKScanExecState {
                     // we haven't even done a query yet, so this is our very first time in
                     return ExecState::Eof;
                 }
-                None | Some(_) if self.found >= self.limit => {
+                None | Some(_) if self.found >= self.limit() => {
                     // we found all the matching rows
                     return ExecState::Eof;
                 }
@@ -442,7 +474,7 @@ impl ExecMethod for TopKScanExecState {
             // but do not exceed the max chunk size
             self.chunk_size = (self.chunk_size * crate::gucs::topk_retry_scale_factor() as usize)
                 .max(
-                    (self.limit as f64
+                    (self.limit() as f64
                         * self.scale_factor
                         * crate::gucs::topk_retry_scale_factor() as f64)
                         as usize,

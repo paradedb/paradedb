@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::agg_funcoid;
 use crate::api::operator::{anyelement_search_opoids, is_paradedb_search_operator};
 use crate::api::window_aggregate::window_agg_oid;
+use crate::api::{agg_funcoid, agg_with_solve_mvcc_funcoid};
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
@@ -515,22 +515,27 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
         return false;
     }
 
-    // STRICT CHECK: Validate Top K compatibility
-    // If we're going to replace window functions with pdb.window_agg(), we MUST ensure
-    // that the query can actually be executed as a Top K query on the index.
-    // Otherwise, we'll crash later when basescan falls back to Normal execution.
-    if !unsafe { validate_topk_compatibility(parse) } {
-        if has_paradedb_agg_current_level {
-            pgrx::error!(
-                "pdb.agg() window functions require a valid Top K query (ORDER BY and LIMIT) where all \
-                 ORDER BY columns are indexed and sortable (fast fields). Ensure you are sorting by \
-                 indexed columns of a single table with a BM25 index."
-            );
-        }
-        return false;
+    // Check Top K compatibility (ORDER BY + LIMIT on indexed columns).
+    if unsafe { validate_topk_compatibility(parse) } {
+        return true;
     }
 
-    true
+    // Even without full Top K compatibility (e.g., LIMIT without ORDER BY),
+    // we can still replace window functions when pdb.agg() is present and the
+    // query has a LIMIT clause. The unordered TopK or NormalScan execution
+    // paths will compute the aggregates via a standalone Tantivy query.
+    if has_paradedb_agg_current_level && !(*parse).limitCount.is_null() {
+        return true;
+    }
+
+    if has_paradedb_agg_current_level {
+        pgrx::error!(
+            "pdb.agg() window functions require a LIMIT clause. \
+             Ensure your query includes a LIMIT to use pdb.agg() as a window function."
+        );
+    }
+
+    false
 }
 
 /// Planner hook that replaces WindowFunc nodes before PostgreSQL processes them.
@@ -805,10 +810,12 @@ unsafe fn expr_contains_paradedb_operator(node: *mut pg_sys::Node) -> bool {
 /// TODO: Consider unifying this logic to avoid duplication (see GitHub issue #3455)
 pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive: bool) -> bool {
     let paradedb_agg_oid = agg_funcoid().to_u32();
+    let paradedb_agg_mvcc_oid = agg_with_solve_mvcc_funcoid().to_u32();
     let window_agg_proc_oid = window_agg_oid();
 
     struct WalkerContext {
         paradedb_agg_oid: u32,
+        paradedb_agg_mvcc_oid: u32,
         window_agg_proc_oid: pg_sys::Oid,
         found: bool,
     }
@@ -826,7 +833,8 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
 
         // Check for window function usage (before planner hook replacement)
         if let Some(window_func) = nodecast!(WindowFunc, T_WindowFunc, node) {
-            if (*window_func).winfnoid.to_u32() == (*ctx).paradedb_agg_oid {
+            let oid = (*window_func).winfnoid.to_u32();
+            if oid == (*ctx).paradedb_agg_oid || oid == (*ctx).paradedb_agg_mvcc_oid {
                 (*ctx).found = true;
                 return true; // Stop walking
             }
@@ -834,7 +842,8 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
 
         // Check for aggregate function usage (GROUP BY context)
         if let Some(aggref) = nodecast!(Aggref, T_Aggref, node) {
-            if (*aggref).aggfnoid.to_u32() == (*ctx).paradedb_agg_oid {
+            let oid = (*aggref).aggfnoid.to_u32();
+            if oid == (*ctx).paradedb_agg_oid || oid == (*ctx).paradedb_agg_mvcc_oid {
                 (*ctx).found = true;
                 return true; // Stop walking
             }
@@ -857,6 +866,7 @@ pub(crate) unsafe fn query_has_paradedb_agg(parse: *mut pg_sys::Query, recursive
 
     let mut context = WalkerContext {
         paradedb_agg_oid,
+        paradedb_agg_mvcc_oid,
         window_agg_proc_oid,
         found: false,
     };

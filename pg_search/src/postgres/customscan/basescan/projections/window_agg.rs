@@ -197,11 +197,9 @@ pub unsafe fn extract_and_convert_window_functions(
 ) -> HashMap<usize, TargetList> {
     // Check Top K context requirement if enabled
     if window_aggregates::ONLY_ALLOW_TOP_K {
-        let has_order_by = !(*parse).sortClause.is_null();
         let has_limit = !(*parse).limitCount.is_null();
-        let is_top_k_query = has_order_by && has_limit;
-        if !is_top_k_query {
-            // Not a Top K query - return empty map so PostgreSQL handles all window functions
+        if !has_limit {
+            // No LIMIT clause - return empty map so PostgreSQL handles all window functions
             return HashMap::new();
         }
     }

@@ -35,7 +35,6 @@ use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, Relation
 use crate::postgres::customscan::joinscan::scan_state::build_base_session;
 use crate::postgres::customscan::joinscan::translator::{build_equi_join_exprs, make_col};
 use crate::scan::info::RowEstimate;
-use crate::scan::topk_aggregate_rule::TopKAggregateRule;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
@@ -47,13 +46,13 @@ use futures::future::{FutureExt, LocalBoxFuture};
 /// Creates a DataFusion [`SessionContext`] for aggregate workloads.
 ///
 /// Shares the base session setup with JoinScan (visibility, late
-/// materialization, sort-merge join) via [`build_base_session`], then
-/// appends `TopKAggregateRule` instead of `SegmentedTopKRule`.
+/// materialization, sort-merge join) via [`build_base_session`].
+/// Unlike JoinScan, this does not include `SegmentedTopKRule` (row-level
+/// TopK doesn't apply to aggregates). DataFusion's built-in
+/// `SortExec(fetch=K)` already uses a bounded TopK heap internally.
 pub fn create_aggregate_session_context() -> SessionContext {
     let config = SessionConfig::new().with_target_partitions(1);
     let builder = build_base_session(config)
-        // TopKAggregateRule: fuse sort + limit into TopK selection for aggregate output
-        .with_physical_optimizer_rule(Arc::new(TopKAggregateRule))
         // FilterPushdown: push filters to PgSearchTableProvider
         .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
 

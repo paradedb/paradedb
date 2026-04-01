@@ -907,8 +907,8 @@ impl AggregateScan {
 
         // TopK for join aggregates is disabled. Postgres cannot resolve pathkey
         // items through scanrelid=0 CustomScans, causing "could not find pathkey
-        // item to sort" errors even with custom_scan_tlist set. The infrastructure
-        // (TopKAggregateRule + TopKAggregateExec) is ready — see #4493.
+        // item to sort" errors even with custom_scan_tlist set. DataFusion's
+        // built-in SortExec(fetch=K) handles TopK internally — see #4493.
         let topk = None::<privdat::DataFusionTopK>;
 
         // Build the custom path with DataFusion private data

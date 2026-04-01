@@ -43,10 +43,13 @@ use arrow_schema::SchemaRef;
 use datafusion::arrow::row::{RowConverter, SortField};
 use datafusion::common::Result;
 use datafusion::execution::TaskContext;
+use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
+use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricBuilder};
 use datafusion::physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, SendableRecordBatchStream,
+    DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
+    SendableRecordBatchStream,
 };
 
 use crate::scan::execution_plan::UnsafeSendStream;
@@ -69,7 +72,18 @@ pub struct TopKAggregateExec {
 impl TopKAggregateExec {
     pub fn new(input: Arc<dyn ExecutionPlan>, sort_exprs: LexOrdering, k: usize) -> Self {
         let schema = input.schema();
-        let properties = input.properties().clone();
+
+        // Build properties that reflect the actual output: sorted by sort_exprs,
+        // single partition, and final emission (all rows emitted in one batch).
+        let mut eq_props = EquivalenceProperties::new(schema.clone());
+        eq_props.add_ordering(sort_exprs.clone());
+        let properties = Arc::new(PlanProperties::new(
+            eq_props,
+            Partitioning::UnknownPartitioning(1),
+            EmissionType::Final,
+            Boundedness::Bounded,
+        ));
+
         Self {
             input,
             sort_exprs,

@@ -51,7 +51,9 @@ use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 
 /// Custom query planner that uses our LateMaterializePlanner extension.
-/// Same as JoinScan's PgSearchQueryPlanner.
+/// Similar to JoinScan's PgSearchQueryPlanner but omits
+/// VisibilityExtensionPlanner since aggregate results don't need
+/// per-row visibility filtering.
 #[derive(Debug)]
 struct AggQueryPlanner;
 

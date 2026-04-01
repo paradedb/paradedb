@@ -396,7 +396,8 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             ))
         };
 
-        let topk_output: Vec<(String, String)> = if let Some(ref agg_order) = self.aggregate_orderby
+        let topk_output: Vec<(String, String)> = if let (true, Some(ref agg_order)) =
+            (self.limit_offset.limit().is_some(), &self.aggregate_orderby)
         {
             let dir = if agg_order.descending { "DESC" } else { "ASC" };
             let target_name = match &agg_order.metric_key {

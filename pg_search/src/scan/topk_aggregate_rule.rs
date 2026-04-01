@@ -20,7 +20,7 @@
 //! [`TopKAggregateExec`] node.
 //!
 //! This avoids a full sort of aggregate results when only the top-K groups
-//! are needed, using a bounded heap instead.
+//! are needed, using partial sort (`select_nth_unstable_by`) instead.
 //!
 //! # Plan Transformation
 //!

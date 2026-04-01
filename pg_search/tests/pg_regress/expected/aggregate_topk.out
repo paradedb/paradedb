@@ -304,7 +304,10 @@ LIMIT 100;
 (10 rows)
 
 -- ================================================================
--- Test 9: Parity — TopK top-3 matches top-3 of full result
+-- Test 9: TopK top-3 vs native top-3 (tie-breaking may differ)
+-- When multiple categories share the same count, Tantivy's
+-- per-segment TopK approximation may return different groups
+-- than Postgres's native sort. This is expected behavior.
 -- ================================================================
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT category, COUNT(*)

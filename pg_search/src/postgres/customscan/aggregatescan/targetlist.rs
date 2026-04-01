@@ -254,6 +254,14 @@ impl CustomScanClause<AggregateScan> for TargetList {
                     };
                     uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
 
+                    // If we identified a pdb.agg() custom aggregate, we MUST handle it
+                    // via AggregateScan regardless of which operator is in the WHERE clause.
+                    // The placeholder pdb.agg() state function will error if PostgreSQL's
+                    // standard aggregate machinery tries to process it.
+                    if matches!(aggregate, AggregateType::Custom { .. }) {
+                        uses_our_operator = true;
+                    }
+
                     if let Some(field_name) = aggregate.field_name() {
                         if let Some(search_field) = schema.search_field(&field_name) {
                             if !search_field.is_fast() {

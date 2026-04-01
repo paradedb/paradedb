@@ -740,8 +740,8 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert_eq!(rows.len(), 6);
 }
 
-// TODO: This test is currently ignored because the custom scan will not trigger (in all cases)
-// on a partial index: see https://github.com/paradedb/paradedb/issues/2747
+// TODO: This test is currently ignored because hybrid plans do not reliably trigger the custom
+// scan on a partial BM25 index yet: see https://github.com/paradedb/paradedb/issues/2747
 #[ignore]
 #[rstest]
 fn bm25_partial_index_hybrid(mut conn: PgConnection) {

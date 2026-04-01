@@ -39,17 +39,18 @@ cargo test --package tests
 
 ## Running Tests with a Self-Hosted PostgreSQL
 
-If you are using a self-hosted PostgreSQL installation, install the `pg_search` extension on your system's PostgreSQL instead of pgrx’s.
+If you are using a self-hosted PostgreSQL installation, make sure your PostgreSQL server is already running, create a `pg_search` database on it,
+and install the `pg_search` extension files into that PostgreSQL instance instead of pgrx's bundled Postgres.
 
 ```shell
 #! /bin/sh
 
 set -x
-export DATABASE_URL=postgresql://localhost:28818/pg_search
+export DATABASE_URL=postgresql://localhost:5432/pg_search
 export RUST_BACKTRACE=1
-cargo pgrx stop --package pg_search
+
+createdb pg_search || true
 cargo pgrx install --package pg_search --pg-config /opt/homebrew/opt/postgresql@18/bin/pg_config
-cargo pgrx start --package pg_search
 
 cargo test --package tests
 ```

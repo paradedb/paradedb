@@ -44,7 +44,7 @@ The planner hook builds a [`JoinCSClause`][joincsc] — a serializable IR captur
 
 ### 4. Deferred Columns
 
-String columns are emitted as a [3-way `UnionArray`](../../scan/deferred_encode.rs) (doc_address | term_ordinal | materialized) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../scan/table_provider.rs) is made in [`try_enable_late_materialization()`][defer-decision].
+String columns are emitted as a [3-way `UnionArray`](../../scan/deferred_encode.rs) (doc_address | term_ordinal | materialized) so intermediate nodes work with cheap integer ordinals instead of decoded strings. The [decision to defer](../../scan/table_provider.rs) is made in [`configure_deferred_outputs()`][defer-decision].
 
 ### 5. Pruning Path
 

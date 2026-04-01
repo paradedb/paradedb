@@ -145,7 +145,81 @@ pub fn anyelement_search_opoids() -> [pg_sys::Oid; 2] {
 }
 
 pub fn is_anyelement_search_opoid(opno: pg_sys::Oid) -> bool {
-    anyelement_search_opoids().contains(&opno)
+    // Fast path: check for common @@@(anyelement, searchqueryinput/pdb.query) first
+    if anyelement_search_opoids().contains(&opno) {
+        return true;
+    }
+
+    // Slow path: check operator name for all ParadeDB search operators (|||, &&&, ===, ###, ##, ##>)
+    // These operators have many type overloads, so checking by name is more practical than
+    // enumerating all OIDs.
+    is_paradedb_search_operator(opno)
+}
+
+/// Check if an operator OID belongs to a ParadeDB search operator by looking up its name
+/// and left argument type in the system catalog.
+///
+/// Recognizes: @@@, |||, &&&, ===, ### (left type = anyelement)
+///             ##, ##> (left type = proximityclause, a ParadeDB type)
+///
+/// Checks operator name regardless of right-hand argument types (text, text[], pdb.query,
+/// pdb.boost, pdb.fuzzy, etc.), covering all overload variants with a single name match.
+/// The left-type check prevents false positives against built-in operators with the same
+/// name (e.g., PostgreSQL's geometric ## or tsvector @@@).
+pub fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
+    unsafe {
+        let opertup = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::OPEROID as _,
+            opno.into_datum().unwrap(),
+        );
+
+        if opertup.is_null() {
+            return false;
+        }
+
+        let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
+        let opername = pgrx::name_data_to_str(&(*operform).oprname);
+        let oprleft = (*operform).oprleft;
+
+        let is_ours = match opername {
+            // These have anyelement as the left type.
+            // The left-type check excludes built-in @@ @/tsvector and geometric collisions.
+            "@@@" | "|||" | "&&&" | "===" | "###" => oprleft == pg_sys::ANYELEMENTOID,
+
+            // Proximity operators use proximityclause (a ParadeDB type) on the left.
+            // No built-in collision risk, but we still verify it's not a geometric ##
+            // by confirming the left type is NOT a built-in geometric type.
+            "##" | "##>" => {
+                oprleft != pg_sys::POINTOID
+                    && oprleft != pg_sys::LINEOID
+                    && oprleft != pg_sys::LSEGOID
+                    && oprleft != pg_sys::BOXOID
+            }
+
+            _ => false,
+        };
+
+        pg_sys::ReleaseSysCache(opertup);
+        is_ours
+    }
+}
+
+/// Look up the name of a PostgreSQL operator by its OID. Returns "unknown" if the OID
+/// is not found in the system catalog.
+pub fn operator_name_from_oid(opno: pg_sys::Oid) -> String {
+    unsafe {
+        let opertup = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::OPEROID as _,
+            opno.into_datum().unwrap(),
+        );
+        if opertup.is_null() {
+            return "unknown".to_string();
+        }
+        let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
+        let name = pgrx::name_data_to_str(&(*operform).oprname).to_string();
+        pg_sys::ReleaseSysCache(opertup);
+        name
+    }
 }
 
 pub fn searchqueryinput_typoid() -> pg_sys::Oid {

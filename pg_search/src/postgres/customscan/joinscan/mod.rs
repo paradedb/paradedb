@@ -38,8 +38,8 @@
 //!
 //! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: on)
 //!
-//! 2. **Join type**: Only `INNER JOIN` is currently supported
-//!    - LEFT, RIGHT, FULL, SEMI, and ANTI joins are planned for future work
+//! 2. **Join type**: INNER, SEMI, and ANTI joins are supported
+//!    - LEFT, RIGHT, and FULL joins are planned for future work
 //!
 //! 3. **LIMIT clause**: Query must have a LIMIT clause
 //!    - This ensures we only pay the cost of "late materialization" (random heap access)
@@ -138,17 +138,19 @@
 //! - [`privdat`]: Private data serialization between planning and execution.
 //! - [`explain`]: EXPLAIN output formatting.
 
-mod build;
+pub mod build;
 mod explain;
-mod memory;
-mod planner;
+pub mod memory;
+pub mod planner;
 mod planning;
-mod predicate;
+pub mod predicate;
 mod privdat;
-mod scan_state;
-mod translator;
+pub mod scan_state;
+pub mod translator;
+pub mod visibility_filter;
 
-use self::build::{CtidColumn, JoinCSClause, RelNode, RelationAlias};
+pub use self::build::CtidColumn;
+use self::build::{JoinCSClause, RelNode, RelationAlias};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::memory::create_memory_pool;
 use self::planning::{
@@ -156,8 +158,9 @@ use self::planning::{
     expr_uses_scores_from_source, extract_join_conditions, extract_orderby, get_score_func_rti,
     order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
-use self::predicate::{extract_join_level_conditions, is_column_fast_field};
+use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
+use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{
     build_joinscan_logical_plan, build_joinscan_physical_plan, create_session_context,
@@ -180,9 +183,7 @@ use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
-use crate::scan::codec::{
-    deserialize_logical_plan, deserialize_logical_plan_parallel, serialize_logical_plan,
-};
+use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
@@ -248,7 +249,7 @@ impl ParallelQueryCapable for JoinScan {
         }
 
         // Read the canonical non-partitioning segment ID sets from shared memory.
-        // The leader uses these in exec_custom_scan to inject them into the codec.
+        // The leader uses these in exec_custom_scan to populate the execution codec.
         let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
@@ -332,6 +333,70 @@ impl JoinScan {
             .collect();
 
         state.custom_state_mut().source_manifests = manifests;
+    }
+
+    /// Build plan_position → canonical segment IDs map for SearchPredicateUDF.
+    ///
+    /// This is keyed by plan_position rather than indexrelid because it is a
+    /// per-source contract, not just a per-index one. The same index can appear
+    /// more than once in one JoinScan plan; in parallel execution those source
+    /// copies can also carry different canonical segment sets (partitioned vs
+    /// replicated). If this were keyed only by indexrelid, one source could
+    /// inject another source's segment set and make packed DocAddresses resolve
+    /// against the wrong segment ordering.
+    ///
+    /// Workers use frozen segment IDs from DSM to match the leader's segment set.
+    /// Leader/serial uses manifests captured with the same snapshot.
+    fn build_index_segment_ids(
+        state: &mut CustomScanStateWrapper<Self>,
+        join_clause: &JoinCSClause,
+        plan_sources: &[&build::JoinSource],
+    ) -> Vec<crate::api::HashSet<tantivy::index::SegmentId>> {
+        let mut ids_by_pos = vec![None; plan_sources.len()];
+        let partitioning_idx = join_clause.partitioning_source_index();
+        let is_worker = unsafe { pg_sys::ParallelWorkerNumber >= 0 };
+
+        if is_worker {
+            let non_partitioning_segs = &state.custom_state().non_partitioning_segments;
+            let mut np_counter = 0usize;
+            for (i, _source) in plan_sources.iter().enumerate() {
+                if i == partitioning_idx {
+                    if let Some(ps) = state.custom_state().parallel_state {
+                        let ids =
+                            unsafe { crate::postgres::customscan::parallel::list_segment_ids(ps) };
+                        ids_by_pos[i] = Some(ids);
+                    }
+                } else if let Some(ids) = non_partitioning_segs.get(np_counter) {
+                    ids_by_pos[i] = Some(ids.clone());
+                    np_counter += 1;
+                }
+            }
+        } else {
+            Self::ensure_source_manifests(state);
+            for (i, _source) in plan_sources.iter().enumerate() {
+                if let Some(manifest) = state.custom_state().source_manifests.get(i) {
+                    let ids: crate::api::HashSet<_> = manifest
+                        .segment_readers()
+                        .iter()
+                        .map(|r| r.segment_id())
+                        .collect();
+                    ids_by_pos[i] = Some(ids);
+                }
+            }
+        }
+
+        ids_by_pos
+            .into_iter()
+            .enumerate()
+            .map(|(plan_position, ids)| {
+                ids.unwrap_or_else(|| {
+                    panic!(
+                        "missing canonical segment IDs for join source at plan_position {}",
+                        plan_position
+                    )
+                })
+            })
+            .collect()
     }
 
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
@@ -511,15 +576,23 @@ impl CustomScan for JoinScan {
 
                 match (outer_source, inner_source) {
                     (Some(outer), Some(inner)) => {
-                        if !is_column_fast_field(
-                            outer.scan_info.heaprelid,
-                            outer.scan_info.indexrelid,
-                            jk.outer_attno,
-                        ) || !is_column_fast_field(
-                            inner.scan_info.heaprelid,
-                            inner.scan_info.indexrelid,
-                            jk.inner_attno,
-                        ) {
+                        let outer_hr = PgSearchRelation::open(outer.scan_info.heaprelid);
+                        let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
+                        let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
+                        let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
+                        if resolve_fast_field(
+                            jk.outer_attno as i32,
+                            &outer_hr.tuple_desc(),
+                            &outer_ir,
+                        )
+                        .is_none()
+                            || resolve_fast_field(
+                                jk.inner_attno as i32,
+                                &inner_hr.tuple_desc(),
+                                &inner_ir,
+                            )
+                            .is_none()
+                        {
                             Self::add_planner_warning(
                                 "JoinScan not used: join key columns must be fast fields",
                                 &aliases,
@@ -1073,18 +1146,22 @@ impl CustomScan for JoinScan {
                 );
                 return;
             }
-            // For plain EXPLAIN, reconstruct the plan from the serialized logical plan.
+            // For plain EXPLAIN, reconstruct the plan using the same session
+            // configuration that execution uses so `VisibilityFilterExec`
+            // appears in the displayed plan, matching EXPLAIN ANALYZE.
+            let expr_context = crate::postgres::utils::ExprContextGuard::new();
             let ctx = create_session_context();
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
-            let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let logical_plan = deserialize_logical_plan(
+            let logical_plan = deserialize_logical_plan_with_runtime(
                 logical_plan,
                 &ctx.task_ctx(),
                 None,
                 Some(expr_context.as_ptr()),
                 None,
+                vec![],
+                vec![],
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
@@ -1149,21 +1226,26 @@ impl CustomScan for JoinScan {
 
                 // Deserialize the logical plan and convert to execution plan
                 let planstate = state.planstate();
+                // Clone plan_bytes to release the immutable borrow on `state`
+                // before the mutable borrow in ensure_source_manifests below.
                 let plan_bytes = state
                     .custom_state()
                     .logical_plan
-                    .as_ref()
+                    .clone()
                     .expect("Logical plan is required");
 
-                // Deserialize the logical plan
+                let index_segment_ids =
+                    Self::build_index_segment_ids(state, &join_clause, &plan_sources);
+
                 let ctx = create_session_context();
-                let logical_plan = deserialize_logical_plan_parallel(
-                    plan_bytes,
+                let logical_plan = deserialize_logical_plan_with_runtime(
+                    &plan_bytes,
                     &ctx.task_ctx(),
                     state.custom_state().parallel_state,
                     Some(state.runtime_context),
                     Some(planstate),
                     state.custom_state().non_partitioning_segments.clone(),
+                    index_segment_ids,
                 )
                 .expect("Failed to deserialize logical plan");
 

@@ -72,20 +72,35 @@ fn compact_with_mask(
     }
 }
 
-/// Ensure `memoized_columns[ff_index]` is populated, fetching from the fast field helper if needed.
 fn ensure_column_fetched(
     memoized_columns: &mut [Option<ArrayRef>],
+    which_fast_fields: &[WhichFastField],
     ffhelper: &FFHelper,
     segment_ord: SegmentOrdinal,
     ff_index: usize,
     ids: &[DocId],
 ) {
-    if memoized_columns[ff_index].is_none() {
-        memoized_columns[ff_index] = Some(
-            ffhelper
-                .column(segment_ord, ff_index)
-                .fetch_values_or_ords_to_arrow(ids),
-        );
+    if memoized_columns[ff_index].is_some() {
+        return;
+    }
+    match &which_fast_fields[ff_index] {
+        WhichFastField::Named(_, _) | WhichFastField::Deferred(_, _) => {
+            memoized_columns[ff_index] = Some(
+                ffhelper
+                    .column(segment_ord, ff_index)
+                    .fetch_values_or_ords_to_arrow(ids),
+            );
+        }
+        WhichFastField::Ctid
+        | WhichFastField::Score
+        | WhichFastField::TableOid
+        | WhichFastField::Junk(_) => {}
+        WhichFastField::DeferredCtid(alias) => {
+            panic!(
+                "pre-filter referenced DeferredCtid column '{alias}' at index {ff_index} \
+                 — this indicates a planning bug"
+            );
+        }
     }
 }
 
@@ -133,6 +148,9 @@ pub struct Scanner {
     maybe_ctids: Vec<Option<u64>>,
     visibility_results: Vec<Option<u64>>,
     prefetched: Option<Batch>,
+    /// When true, visibility checking is deferred to VisibilityFilterExec.
+    /// Packed DocAddresses are emitted instead of real ctids.
+    defer_visibility: bool,
     /// Rows entering the pre-materialization filter stage (after visibility).
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
@@ -179,6 +197,10 @@ impl Scanner {
             .unwrap_or(default_batch_size)
             .min(default_batch_size);
 
+        let defer_visibility = which_fast_fields
+            .iter()
+            .any(|wff| matches!(wff, WhichFastField::DeferredCtid(_)));
+
         Self {
             search_results,
             batch_size,
@@ -187,6 +209,7 @@ impl Scanner {
             maybe_ctids: Vec::new(),
             visibility_results: Vec::new(),
             prefetched: None,
+            defer_visibility,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
         }
@@ -278,6 +301,7 @@ impl Scanner {
                 for &ff_index in &pre_filter.required_columns {
                     ensure_column_fetched(
                         &mut memoized_columns,
+                        &self.which_fast_fields,
                         ffhelper,
                         segment_ord,
                         ff_index,
@@ -300,7 +324,15 @@ impl Scanner {
         }
 
         // Batch lookup the ctids and visibility check them.
-        let ctids: Vec<u64> = {
+        // When defer_visibility is true, we skip visibility checking entirely —
+        // VisibilityFilterExec will handle it in batch after the join.
+        let ctids: Vec<u64> = if self.defer_visibility {
+            // TODO: Remove ctid from SearchIndexScore entirely and use batch
+            // lookups (similar to materialize_deferred_ctid) in consumers.
+            // These placeholder zeros only appear in Batch.ids for LIMIT
+            // tracking via SearchIndexScore, where the ctid value is irrelevant.
+            vec![0u64; ids.len()]
+        } else {
             self.maybe_ctids.resize(ids.len(), None);
             ffhelper
                 .ctid(segment_ord)
@@ -333,7 +365,14 @@ impl Scanner {
         // Pre-fetch any Named columns that weren't already fetched by pre-filters.
         for (ff_index, which_ff) in self.which_fast_fields.iter().enumerate() {
             if matches!(which_ff, WhichFastField::Named(_, _)) {
-                ensure_column_fetched(&mut memoized_columns, ffhelper, segment_ord, ff_index, &ids);
+                ensure_column_fetched(
+                    &mut memoized_columns,
+                    &self.which_fast_fields,
+                    ffhelper,
+                    segment_ord,
+                    ff_index,
+                    &ids,
+                );
             }
         }
 
@@ -389,6 +428,9 @@ impl Scanner {
                 // 1. Some(UInt64) -> The pre-filter already fetched ordinals. Emit State 1 (Term Ordinals).
                 // 2. Some(other)  -> The pre-filter fully materialized the column. Emit State 2 (Materialized).
                 // 3. None         -> The pre-filter didn't touch this column. Emit State 0 (DocAddress).
+                WhichFastField::DeferredCtid(_) => Some(Arc::new(
+                    crate::scan::deferred_encode::pack_doc_addresses(segment_ord, &ids),
+                ) as ArrayRef),
                 WhichFastField::Deferred(_, field_type) => {
                     let is_bytes = matches!(
                         field_type.arrow_data_type(),

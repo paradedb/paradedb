@@ -338,6 +338,39 @@ pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> 
     }
 }
 
+/// Find an `Aggref` node in an expression tree using Postgres's `expression_tree_walker`
+/// for robust traversal through all wrapper types (RelabelType, CoerceViaIO, FuncExpr, etc.).
+pub unsafe fn find_one_aggref(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Aggref> {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
+            (*(data as *mut Data)).found = node as *mut pg_sys::Aggref;
+            return true;
+        }
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    struct Data {
+        found: *mut pg_sys::Aggref,
+    }
+
+    let mut data = Data {
+        found: std::ptr::null_mut(),
+    };
+    walker(node, addr_of_mut!(data).cast());
+    if data.found.is_null() {
+        None
+    } else {
+        Some(data.found)
+    }
+}
+
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the [`pg_sys::Var`] and
 /// the [`FieldName`] that it references.
 ///

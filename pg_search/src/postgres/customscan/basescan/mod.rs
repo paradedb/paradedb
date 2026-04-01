@@ -82,7 +82,7 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
-use crate::postgres::customscan::limit_offset::extract_const_i64;
+use crate::postgres::customscan::limit_offset::{extract_const_i64, find_extern_param_id};
 use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
@@ -669,13 +669,23 @@ impl CustomScan for BaseScan {
                 maybe_limit_from_parse(builder.args().root)
             };
 
+            let limit_param_id = if limit.is_none() && !(*builder.args().root).parse.is_null() {
+                find_extern_param_id((*(*builder.args().root).parse).limitCount)
+            } else {
+                None
+            };
+            let has_parameterized_limit = limit_param_id.is_some();
+            custom_private.set_has_parameterized_limit(has_parameterized_limit);
+            custom_private.set_limit_param_id(limit_param_id);
+
             // Get all columns referenced by this RTE throughout the entire query
             let referenced_columns = collect_maybe_fast_field_referenced_columns(rti, rel);
 
             // Save the count of referenced columns for decision-making
             custom_private.set_referenced_columns_count(referenced_columns.len());
 
-            let is_maybe_topk = limit.is_some() && topk_pathkey_info.is_usable();
+            let has_any_limit = limit.is_some() || has_parameterized_limit;
+            let is_maybe_topk = has_any_limit && topk_pathkey_info.is_usable();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
             // not just those in the target list. To avoid execution-time surprises, the "planned"
@@ -729,8 +739,7 @@ impl CustomScan for BaseScan {
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
-            let limit_is_explicit =
-                limit.is_some() && !is_minmax_implicit_limit(builder.args().root);
+            let limit_is_explicit = has_any_limit && !is_minmax_implicit_limit(builder.args().root);
 
             // Check if the index has a sort_by configuration and the query has a matching pathkey.
             // If so, create an additional sorted path that declares the pathkey.
@@ -1069,6 +1078,7 @@ impl CustomScan for BaseScan {
 
             builder.custom_state().exec_method_type =
                 builder.custom_private().exec_method_type().clone();
+            builder.custom_state().limit_param_id = builder.custom_private().limit_param_id();
 
             builder.custom_state().targetlist_len = builder.target_list().len();
 
@@ -1749,10 +1759,11 @@ fn choose_exec_method(
     has_sort_by_pathkey: bool,
 ) -> Vec<ExecMethodType> {
     // See if we can use Top K.
-    if let Some(limit) = privdata.limit() {
+    // A known limit value or a parameterized limit (value resolved at execution time) both qualify.
+    let limit = privdata.limit();
+    let has_any_limit = limit.is_some() || privdata.has_parameterized_limit();
+    if has_any_limit {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
-            // having a valid limit and sort direction means we can do a Top K query
-            // and Top K can do snippets
             let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
@@ -1769,9 +1780,6 @@ fn choose_exec_method(
             return vec![method];
         }
         if matches!(topk_pathkey_info, PathKeyInfo::None) {
-            // we have a limit but no pathkeys at all. we can still go through our "top k"
-            // machinery, but getting "limit" (essentially) random docs, which is what the user
-            // asked for
             let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,

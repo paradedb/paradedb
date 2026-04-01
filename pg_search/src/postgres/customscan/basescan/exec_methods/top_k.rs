@@ -33,7 +33,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 
-use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
+use pgrx::{check_for_interrupts, direct_function_call, pg_sys, FromDatum, IntoDatum};
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{
@@ -52,8 +52,8 @@ struct PreparedAggregations {
 }
 
 pub struct TopKScanExecState {
-    // required
-    limit: usize,
+    // required — None means the limit is parameterized and must be resolved at execution time
+    limit: Option<usize>,
     orderby_info: Option<Vec<OrderByInfo>>,
 
     // set during init
@@ -78,7 +78,7 @@ pub struct TopKScanExecState {
 impl TopKScanExecState {
     pub fn new(
         heaprelid: pg_sys::Oid,
-        limit: usize,
+        limit: Option<usize>,
         orderby_info: Option<Vec<OrderByInfo>>,
     ) -> Self {
         if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPK_FEATURES) {
@@ -120,6 +120,42 @@ impl TopKScanExecState {
             scale_factor,
             window_aggregates: Vec::new(),
         }
+    }
+
+    fn limit(&self) -> usize {
+        self.limit
+            .expect("TopK limit must be resolved before query execution")
+    }
+
+    /// Resolve a parameterized limit by reading the external parameter value
+    /// from the executor state's param list.
+    pub unsafe fn resolve_limit_from_param(&mut self, param_id: i32, estate: *mut pg_sys::EState) {
+        if self.limit.is_some() {
+            return;
+        }
+
+        let param_list = (*estate).es_param_list_info;
+        assert!(
+            !param_list.is_null(),
+            "es_param_list_info is NULL but we have a parameterized LIMIT"
+        );
+
+        let idx = (param_id - 1) as usize;
+        assert!(
+            idx < (*param_list).numParams as usize,
+            "LIMIT param_id {} out of range (numParams={})",
+            param_id,
+            (*param_list).numParams
+        );
+
+        let param_data = &(*param_list)
+            .params
+            .as_slice((*param_list).numParams as usize)[idx];
+        assert!(!param_data.isnull, "LIMIT parameter ${} is NULL", param_id);
+
+        let value = i64::from_datum(param_data.value, param_data.isnull)
+            .expect("LIMIT parameter should be convertible to i64");
+        self.limit = Some(value as usize);
     }
 
     /// Produces an iterator of Segments to query.
@@ -259,7 +295,21 @@ impl TopKScanExecState {
 
 impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
-    fn init(&mut self, state: &mut BaseScanState, _cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
+        // Resolve parameterized limit from executor params if needed
+        if self.limit.is_none() {
+            if let Some(param_id) = state.limit_param_id {
+                unsafe {
+                    let estate = (*cstate).ss.ps.state;
+                    self.resolve_limit_from_param(param_id, estate);
+                }
+            }
+            // Update the exec_method_type so EXPLAIN ANALYZE shows the resolved limit
+            if let ExecMethodType::TopK { ref mut limit, .. } = state.exec_method_type {
+                *limit = self.limit;
+            }
+        }
+
         // Call the default init behavior first
         self.reset(state);
 
@@ -278,7 +328,7 @@ impl ExecMethod for TopKScanExecState {
     fn query(&mut self, state: &mut BaseScanState) -> bool {
         self.did_query = true;
 
-        if self.found >= self.limit || self.exhausted {
+        if self.found >= self.limit() || self.exhausted {
             return false;
         }
 
@@ -287,7 +337,7 @@ impl ExecMethod for TopKScanExecState {
 
         // Calculate the limit for this query, and what the offset will be for the next query.
         let local_limit =
-            (self.limit as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
+            (self.limit() as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
         let aggregations = self.prepare_aggregations(state);
@@ -435,7 +485,7 @@ impl ExecMethod for TopKScanExecState {
                     // we haven't even done a query yet, so this is our very first time in
                     return ExecState::Eof;
                 }
-                None | Some(_) if self.found >= self.limit => {
+                None | Some(_) if self.found >= self.limit() => {
                     // we found all the matching rows
                     return ExecState::Eof;
                 }
@@ -457,7 +507,7 @@ impl ExecMethod for TopKScanExecState {
             // but do not exceed the max chunk size
             self.chunk_size = (self.chunk_size * crate::gucs::topk_retry_scale_factor() as usize)
                 .max(
-                    (self.limit as f64
+                    (self.limit() as f64
                         * self.scale_factor
                         * crate::gucs::topk_retry_scale_factor() as f64)
                         as usize,

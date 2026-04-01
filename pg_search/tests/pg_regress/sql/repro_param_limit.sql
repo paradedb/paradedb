@@ -11,7 +11,7 @@ WITH (key_field='id');
 
 SET plan_cache_mode = force_generic_plan;
 
--- BUG: parameterized LIMIT causes NormalScanExecState instead of TopKScanExecState
+-- Parameterized LIMIT should use TopKScanExecState (limit resolved at execution time)
 PREPARE param_limit(text, int) AS
 SELECT
   id,

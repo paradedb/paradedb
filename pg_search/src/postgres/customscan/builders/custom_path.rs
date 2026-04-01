@@ -115,7 +115,7 @@ pub enum ExecMethodType {
     Normal,
     TopK {
         heaprelid: pg_sys::Oid,
-        limit: usize,
+        limit: Option<usize>,
         orderby_info: Option<Vec<OrderByInfo>>,
         window_aggregates: Vec<WindowAggregateInfo>,
     },

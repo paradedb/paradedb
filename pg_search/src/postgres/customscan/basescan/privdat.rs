@@ -56,6 +56,8 @@ pub struct PrivateData {
     // Whether this path was chosen as a sorted path (declares pathkeys for index's sort_by field).
     // When true, the execution should use the sorted merge path for segment scanning.
     use_sorted_path: bool,
+    has_parameterized_limit: bool,
+    limit_param_id: Option<i32>,
 }
 
 mod var_attname_lookup_serializer {
@@ -233,6 +235,14 @@ impl PrivateData {
     pub fn set_use_sorted_path(&mut self, use_sorted: bool) {
         self.use_sorted_path = use_sorted;
     }
+
+    pub fn set_has_parameterized_limit(&mut self, has: bool) {
+        self.has_parameterized_limit = has;
+    }
+
+    pub fn set_limit_param_id(&mut self, param_id: Option<i32>) {
+        self.limit_param_id = param_id;
+    }
 }
 
 //
@@ -307,5 +317,13 @@ impl PrivateData {
 
     pub fn use_sorted_path(&self) -> bool {
         self.use_sorted_path
+    }
+
+    pub fn has_parameterized_limit(&self) -> bool {
+        self.has_parameterized_limit
+    }
+
+    pub fn limit_param_id(&self) -> Option<i32> {
+        self.limit_param_id
     }
 }

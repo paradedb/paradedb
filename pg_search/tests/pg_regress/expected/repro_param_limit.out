@@ -12,7 +12,7 @@ CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description)
 WITH (key_field='id');
 SET plan_cache_mode = force_generic_plan;
--- BUG: parameterized LIMIT causes NormalScanExecState instead of TopKScanExecState
+-- Parameterized LIMIT should use TopKScanExecState (limit resolved at execution time)
 PREPARE param_limit(text, int) AS
 SELECT
   id,
@@ -23,18 +23,17 @@ ORDER BY pdb.score(id) DESC
 LIMIT $2;
 EXPLAIN (COSTS OFF)
 EXECUTE param_limit('description:keyboard', 5);
-                                                                                                            QUERY PLAN                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (pdb.score(id)) DESC
-         ->  Custom Scan (ParadeDB Base Scan) on mock_items
-               Table: mock_items
-               Index: search_idx
-               Exec Method: NormalScanExecState
-               Scores: true
-               Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.parse($1, NULL::boolean, NULL::boolean)))"}}}
-(9 rows)
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc
+         Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.parse($1, NULL::boolean, NULL::boolean)))"}}}
+(8 rows)
 
 EXECUTE param_limit('description:keyboard', 5);
  id |       score       

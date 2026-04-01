@@ -88,6 +88,7 @@ pub struct BaseScanState {
     pub join_predicates: Option<SearchQueryInput>,
 
     pub exec_method_type: ExecMethodType,
+    pub limit_param_id: Option<i32>,
     pub ambulkdelete_epoch: u32,
 
     pub doc_from_heap_state: Option<HeapFetchState>,
@@ -318,7 +319,7 @@ impl BaseScanState {
 
     pub fn limit(&self) -> Option<usize> {
         match &self.exec_method_type {
-            ExecMethodType::TopK { limit, .. } => Some(*limit),
+            ExecMethodType::TopK { limit, .. } => *limit,
             _ => None,
         }
     }

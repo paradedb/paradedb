@@ -367,27 +367,42 @@ impl ExecMethod for TopKScanExecState {
         // If aggregates were executed, publish their results in our state for projection during
         // the scan.
         if let Some(aggregations) = aggregations {
-            let agg_result = self
-                .search_results
-                .take_aggregation_results()
-                .expect("an aggregation request should produce a result");
-            let intermediate_results = if let Some(parallel_state) = state.parallel_state {
-                let segment_count = self
-                    .claimed_segments
-                    .borrow()
-                    .as_ref()
-                    .expect("Should have claimed segments while running.")
-                    .len();
-                unsafe {
-                    (*parallel_state)
-                        .aggregation_append(agg_result, segment_count)
-                        .expect("Failed to append aggregation result");
+            let intermediate_results = if self.orderby_info.is_some() {
+                // Ordered TopK: aggregation was piggybacked on the search via aux collector
+                let agg_result = self
+                    .search_results
+                    .take_aggregation_results()
+                    .expect("an aggregation request should produce a result");
+                if let Some(parallel_state) = state.parallel_state {
+                    let segment_count = self
+                        .claimed_segments
+                        .borrow()
+                        .as_ref()
+                        .expect("Should have claimed segments while running.")
+                        .len();
+                    unsafe {
+                        (*parallel_state)
+                            .aggregation_append(agg_result, segment_count)
+                            .expect("Failed to append aggregation result");
 
-                    (*parallel_state).aggregation_wait()
+                        (*parallel_state).aggregation_wait()
+                    }
+                } else {
+                    agg_result
                 }
             } else {
-                // Not parallel: finalize without propagating through the parallel state.
-                agg_result
+                // Unordered TopK: run a standalone aggregation query since the
+                // unordered path does not support aggregation collectors
+                let search_reader = self.search_reader.as_ref().unwrap();
+                let tokenizer_manager = search_reader.searcher().index().tokenizers().clone();
+                let aggregation_collector = DistributedAggregationCollector::from_aggs(
+                    aggregations.aggregations.clone(),
+                    AggContextParams::new(agg_limits.clone(), tokenizer_manager),
+                );
+                search_reader
+                    .searcher()
+                    .search(search_reader.query(), &aggregation_collector)
+                    .expect("failed to run window aggregation query")
             };
 
             let window_aggregate_results =

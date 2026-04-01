@@ -25,7 +25,6 @@ use crate::index::reader::index::{
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -34,7 +33,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 
-use pgrx::{check_for_interrupts, direct_function_call, pg_sys, FromDatum, IntoDatum};
+use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{
@@ -126,37 +125,6 @@ impl TopKScanExecState {
     fn limit(&self) -> usize {
         self.limit
             .expect("TopK limit must be resolved before query execution")
-    }
-
-    /// Resolve a parameterized limit by reading the external parameter value
-    /// from the executor state's param list.
-    pub unsafe fn resolve_limit_from_param(&mut self, param_id: i32, estate: *mut pg_sys::EState) {
-        if self.limit.is_some() {
-            return;
-        }
-
-        let param_list = (*estate).es_param_list_info;
-        assert!(
-            !param_list.is_null(),
-            "es_param_list_info is NULL but we have a parameterized LIMIT"
-        );
-
-        let idx = (param_id - 1) as usize;
-        assert!(
-            idx < (*param_list).numParams as usize,
-            "LIMIT param_id {} out of range (numParams={})",
-            param_id,
-            (*param_list).numParams
-        );
-
-        let param_data = &(*param_list)
-            .params
-            .as_slice((*param_list).numParams as usize)[idx];
-        assert!(!param_data.isnull, "LIMIT parameter ${} is NULL", param_id);
-
-        let value = i64::from_datum(param_data.value, param_data.isnull)
-            .expect("LIMIT parameter should be convertible to i64");
-        self.limit = Some(value as usize);
     }
 
     /// Produces an iterator of Segments to query.
@@ -299,10 +267,10 @@ impl ExecMethod for TopKScanExecState {
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
         // Resolve parameterized limit from executor params if needed
         if self.limit.is_none() {
-            if let Some(param_id) = state.limit.as_ref().and_then(Limit::param_id) {
+            if let Some(ref scan_limit) = state.limit {
                 unsafe {
                     let estate = (*cstate).ss.ps.state;
-                    self.resolve_limit_from_param(param_id, estate);
+                    self.limit = Some(scan_limit.resolve(estate));
                 }
             }
             // Update the exec_method_type so EXPLAIN ANALYZE shows the resolved limit

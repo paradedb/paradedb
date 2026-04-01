@@ -23,7 +23,7 @@ use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::{pg_sys, PgList};
+use pgrx::{pg_sys, FromDatum, PgList};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +44,39 @@ impl Limit {
         match self {
             Limit::Parameterized { limit_param_id } => Some(*limit_param_id),
             Limit::Static(_) => None,
+        }
+    }
+
+    pub unsafe fn resolve(&self, estate: *mut pg_sys::EState) -> usize {
+        match self {
+            Limit::Static(n) => *n,
+            Limit::Parameterized { limit_param_id } => {
+                let param_list = (*estate).es_param_list_info;
+                assert!(
+                    !param_list.is_null(),
+                    "es_param_list_info is NULL but we have a parameterized LIMIT"
+                );
+
+                let idx = (*limit_param_id - 1) as usize;
+                assert!(
+                    idx < (*param_list).numParams as usize,
+                    "LIMIT param_id {} out of range (numParams={})",
+                    limit_param_id,
+                    (*param_list).numParams
+                );
+
+                let param_data = &(*param_list)
+                    .params
+                    .as_slice((*param_list).numParams as usize)[idx];
+                assert!(
+                    !param_data.isnull,
+                    "LIMIT parameter ${} is NULL",
+                    limit_param_id
+                );
+
+                i64::from_datum(param_data.value, param_data.isnull)
+                    .expect("LIMIT parameter should be convertible to i64") as usize
+            }
         }
     }
 }

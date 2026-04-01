@@ -245,5 +245,30 @@ GROUP BY p.category
 ORDER BY SUM(p.price) ASC
 LIMIT 2;
 
+-- =====================================================================
+-- Test 13: MVCC visibility — deleted rows excluded from join aggregates
+-- Verifies that the DataFusion aggregate path respects Postgres
+-- snapshot visibility. Without VisibilityFilterExec, deleted-but-not-
+-- vacuumed rows would be counted in aggregates.
+-- =====================================================================
+-- Baseline: count Electronics tags before any deletion
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR mouse'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Delete one product (Wireless mouse) — its 2 tags should disappear from count
+DELETE FROM topk_products WHERE id = 3;
+
+-- After delete: Electronics count should drop by 2 (the mouse's 2 tags)
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR mouse'
+GROUP BY p.category
+ORDER BY p.category;
+
 DROP TABLE topk_tags;
 DROP TABLE topk_products;

@@ -50,10 +50,13 @@ use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 
-/// Custom query planner that uses our LateMaterializePlanner extension.
-/// Similar to JoinScan's PgSearchQueryPlanner but omits
-/// VisibilityExtensionPlanner since aggregate results don't need
-/// per-row visibility filtering.
+/// Custom query planner for aggregate-on-join workloads.
+///
+/// Includes both `LateMaterializePlanner` and `VisibilityExtensionPlanner`
+/// (same as JoinScan's `PgSearchQueryPlanner`). Visibility filtering is
+/// required because `PgSearchTableProvider` scans return raw rows including
+/// invisible (deleted-but-not-vacuumed) tuples — without the visibility
+/// filter, aggregates like COUNT(*) would include dead rows.
 #[derive(Debug)]
 struct AggQueryPlanner;
 
@@ -64,9 +67,15 @@ impl QueryPlanner for AggQueryPlanner {
         logical_plan: &datafusion::logical_expr::LogicalPlan,
         session_state: &SessionState,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let physical_planner = DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(
-            crate::scan::late_materialization::LateMaterializePlanner {},
-        )]);
+        let extension_planners: Vec<
+            Arc<dyn datafusion::physical_planner::ExtensionPlanner + Send + Sync>,
+        > = vec![
+            Arc::new(crate::scan::late_materialization::LateMaterializePlanner {}),
+            Arc::new(
+                crate::postgres::customscan::joinscan::visibility_filter::VisibilityExtensionPlanner::new(),
+            ),
+        ];
+        let physical_planner = DefaultPhysicalPlanner::with_extension_planners(extension_planners);
         physical_planner
             .create_physical_plan(logical_plan, session_state)
             .await
@@ -75,25 +84,36 @@ impl QueryPlanner for AggQueryPlanner {
 
 /// Create a DataFusion [`SessionContext`] for aggregate workloads.
 ///
-/// Similar to JoinScan's `create_session_context()` but without
-/// `SegmentedTopKRule` (row-level TopK doesn't apply to aggregates).
+/// Similar to JoinScan's `create_session_context()` but replaces
+/// `SegmentedTopKRule` (row-level TopK) with `TopKAggregateRule`
+/// (aggregate-level TopK). All other rules — including MVCC visibility
+/// filtering — are preserved.
 pub fn create_aggregate_session_context() -> SessionContext {
+    use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterOptimizerRule;
+    use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
+
     let config = SessionConfig::new().with_target_partitions(1);
 
     let mut builder = SessionStateBuilder::new().with_config(config);
+
+    // Inject visibility before late materialization so ctid lineage is analyzed
+    // while DeferredCtid columns are still present in the logical plan.
+    builder = builder
+        .with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new()))
+        .with_optimizer_rule(Arc::new(
+            crate::scan::late_materialization::LateMaterializationRule,
+        ));
 
     // SortMergeJoinEnforcer: converts HashJoinExec → SortMergeJoinExec when inputs are sorted
     if crate::gucs::is_columnar_sort_enabled() {
         builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
     }
 
-    // LateMaterializationRule: defer string column reads during join phase
-    builder = builder.with_optimizer_rule(Arc::new(
-        crate::scan::late_materialization::LateMaterializationRule,
-    ));
-
-    // Our custom query planner
+    // Our custom query planner (includes VisibilityExtensionPlanner)
     builder = builder.with_query_planner(Arc::new(AggQueryPlanner {}));
+
+    // VisibilityCtidResolverRule: wire ctid resolvers for visibility checks
+    builder = builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
 
     // TopKAggregateRule: fuse sort + limit into TopK selection for aggregate output
     builder = builder.with_physical_optimizer_rule(Arc::new(

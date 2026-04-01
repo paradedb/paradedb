@@ -114,7 +114,7 @@ fn make_source_score_col(source: &JoinSource, plan_position: usize) -> Expr {
 /// canonical plan. Execution-only bindings are still injected separately during
 /// deserialization.
 #[derive(Debug, Default)]
-struct PgSearchQueryPlanner;
+pub struct PgSearchQueryPlanner;
 
 #[async_trait]
 impl QueryPlanner for PgSearchQueryPlanner {

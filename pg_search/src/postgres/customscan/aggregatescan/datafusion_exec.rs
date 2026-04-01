@@ -35,52 +35,18 @@ use crate::postgres::customscan::joinscan::translator::{build_equi_join_exprs, m
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
-use datafusion::execution::context::{QueryPlanner, SessionState};
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
-use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 
-use async_trait::async_trait;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
-
-/// Custom query planner for aggregate-on-join workloads.
-///
-/// Includes both `LateMaterializePlanner` and `VisibilityExtensionPlanner`
-/// (same as JoinScan's `PgSearchQueryPlanner`). Visibility filtering is
-/// required because `PgSearchTableProvider` scans return raw rows including
-/// invisible (deleted-but-not-vacuumed) tuples — without the visibility
-/// filter, aggregates like COUNT(*) would include dead rows.
-#[derive(Debug)]
-struct AggQueryPlanner;
-
-#[async_trait]
-impl QueryPlanner for AggQueryPlanner {
-    async fn create_physical_plan(
-        &self,
-        logical_plan: &datafusion::logical_expr::LogicalPlan,
-        session_state: &SessionState,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        let extension_planners: Vec<
-            Arc<dyn datafusion::physical_planner::ExtensionPlanner + Send + Sync>,
-        > = vec![
-            Arc::new(crate::scan::late_materialization::LateMaterializePlanner {}),
-            Arc::new(
-                crate::postgres::customscan::joinscan::visibility_filter::VisibilityExtensionPlanner::new(),
-            ),
-        ];
-        let physical_planner = DefaultPhysicalPlanner::with_extension_planners(extension_planners);
-        physical_planner
-            .create_physical_plan(logical_plan, session_state)
-            .await
-    }
-}
+use crate::postgres::customscan::joinscan::scan_state::PgSearchQueryPlanner;
 
 /// Create a DataFusion [`SessionContext`] for aggregate workloads.
 ///
@@ -109,8 +75,9 @@ pub fn create_aggregate_session_context() -> SessionContext {
         builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
     }
 
-    // Our custom query planner (includes VisibilityExtensionPlanner)
-    builder = builder.with_query_planner(Arc::new(AggQueryPlanner {}));
+    // Reuse JoinScan's query planner (includes VisibilityExtensionPlanner
+    // and LateMaterializePlanner)
+    builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
     // VisibilityCtidResolverRule: wire ctid resolvers for visibility checks
     builder = builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));

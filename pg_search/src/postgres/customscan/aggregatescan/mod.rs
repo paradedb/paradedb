@@ -1054,8 +1054,13 @@ unsafe fn detect_join_aggregate_topk(
     let sort_clause_ptr = sort_clauses.get_ptr(0)?;
     let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
 
-    // Check if the sort expression contains an aggregate
-    targetlist::find_single_aggref_in_expr(sort_expr)?;
+    // The sort expression must BE an aggregate, not merely contain one.
+    // e.g. ORDER BY ABS(SUM(score)) wraps the aggregate — ABS breaks
+    // monotonicity so Tantivy's ordering wouldn't match Postgres.
+    let aggref = targetlist::find_single_aggref_in_expr(sort_expr)?;
+    if aggref as *mut pg_sys::Node != sort_expr {
+        return None;
+    }
 
     let direction = build::sort_direction_from_op((*sort_clause_ptr).sortop)?;
 

@@ -30,19 +30,21 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
+use crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK;
 use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
+use crate::postgres::customscan::joinscan::scan_state::build_base_session;
 use crate::postgres::customscan::joinscan::translator::{build_equi_join_exprs, make_col};
 use crate::scan::info::RowEstimate;
+use crate::scan::topk_aggregate_rule::TopKAggregateRule;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 use datafusion::logical_expr::{lit, Expr};
+use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
-
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 /// Creates a DataFusion [`SessionContext`] for aggregate workloads.
 ///
@@ -50,14 +52,10 @@ use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 /// materialization, sort-merge join) via [`build_base_session`], then
 /// appends `TopKAggregateRule` instead of `SegmentedTopKRule`.
 pub fn create_aggregate_session_context() -> SessionContext {
-    use crate::postgres::customscan::joinscan::scan_state::build_base_session;
-
     let config = SessionConfig::new().with_target_partitions(1);
     let builder = build_base_session(config)
         // TopKAggregateRule: fuse sort + limit into TopK selection for aggregate output
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::topk_aggregate_rule::TopKAggregateRule,
-        ))
+        .with_physical_optimizer_rule(Arc::new(TopKAggregateRule))
         // FilterPushdown: push filters to PgSearchTableProvider
         .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
 
@@ -69,7 +67,7 @@ pub fn create_aggregate_session_context() -> SessionContext {
 pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
-    topk: Option<&crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK>,
+    topk: Option<&DataFusionTopK>,
     ctx: &SessionContext,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     // Step 1: Build the join DataFrame from the RelNode tree

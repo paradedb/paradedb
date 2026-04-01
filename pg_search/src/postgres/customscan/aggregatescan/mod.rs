@@ -61,6 +61,7 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::memory::create_memory_pool;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
@@ -1036,7 +1037,7 @@ impl AggregateScan {
 /// that can be pushed down into the DataFusion plan as sort + limit.
 #[allow(dead_code)] // Will be used when TopK for join aggregates is re-enabled (#4493)
 unsafe fn detect_join_aggregate_topk(
-    args: &crate::postgres::customscan::CreateUpperPathsHookArgs,
+    args: &CreateUpperPathsHookArgs,
     targetlist: &join_targetlist::JoinAggregateTargetList,
 ) -> Option<privdat::DataFusionTopK> {
     let parse = args.root().parse;
@@ -1084,7 +1085,7 @@ unsafe fn detect_join_aggregate_topk(
         .position(|a| a.output_index == pos)?;
 
     // Extract LIMIT
-    let limit_offset = crate::postgres::customscan::limit_offset::LimitOffset::from_parse(parse);
+    let limit_offset = LimitOffset::from_parse(parse);
     let limit = limit_offset.limit()? as usize;
     let offset = limit_offset.offset().unwrap_or(0) as usize;
     let k = limit + offset;

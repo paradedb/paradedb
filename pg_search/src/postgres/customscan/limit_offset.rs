@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::nodecast;
-use pgrx::{pg_sys, FromDatum, PgList};
+use pgrx::{pg_sys, FromDatum};
 use serde::{Deserialize, Serialize};
 
 /// Parsed LIMIT and OFFSET from a query's parse tree.
@@ -88,38 +88,4 @@ pub unsafe fn extract_const_u32(node: *mut pg_sys::Node) -> Option<u32> {
 pub unsafe fn extract_const_i64(node: *mut pg_sys::Node) -> Option<i64> {
     let const_node = nodecast!(Const, T_Const, node)?;
     i64::from_datum((*const_node).constvalue, (*const_node).constisnull)
-}
-
-/// If the expression tree contains an external `Param` node, return its 1-based paramid.
-/// Handles cases where the Param is wrapped in a FuncExpr (e.g., int4 → int8 cast)
-/// or other single-argument wrappers.
-pub unsafe fn find_extern_param_id(node: *mut pg_sys::Node) -> Option<i32> {
-    if node.is_null() {
-        return None;
-    }
-
-    if let Some(param) = nodecast!(Param, T_Param, node) {
-        if (*param).paramkind == pg_sys::ParamKind::PARAM_EXTERN {
-            return Some((*param).paramid);
-        }
-        return None;
-    }
-
-    // LIMIT $2 where $2 is int4 gets wrapped in int48(Param) by the planner
-    if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-        let args = PgList::<pg_sys::Node>::from_pg((*func_expr).args);
-        if args.len() == 1 {
-            return find_extern_param_id(args.get_ptr(0).unwrap());
-        }
-    }
-
-    if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
-        return find_extern_param_id((*relabel).arg.cast());
-    }
-
-    if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
-        return find_extern_param_id((*coerce).arg.cast());
-    }
-
-    None
 }

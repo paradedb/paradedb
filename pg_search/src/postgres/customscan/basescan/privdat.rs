@@ -40,11 +40,38 @@ impl Limit {
         }
     }
 
-    pub unsafe fn from_param(limit_count_node: *mut pg_sys::Node) -> Option<Self> {
-        use crate::postgres::customscan::limit_offset::find_extern_param_id;
-        find_extern_param_id(limit_count_node).map(|param_id| Limit::Parameterized {
-            limit_param_id: param_id,
-        })
+    pub unsafe fn from_param(node: *mut pg_sys::Node) -> Option<Self> {
+        use crate::nodecast;
+
+        if node.is_null() {
+            return None;
+        }
+
+        if let Some(param) = nodecast!(Param, T_Param, node) {
+            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXTERN {
+                return Some(Limit::Parameterized {
+                    limit_param_id: (*param).paramid,
+                });
+            }
+            return None;
+        }
+
+        if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            let args = PgList::<pg_sys::Node>::from_pg((*func_expr).args);
+            if args.len() == 1 {
+                return Limit::from_param(args.get_ptr(0).unwrap());
+            }
+        }
+
+        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
+            return Limit::from_param((*relabel).arg.cast());
+        }
+
+        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
+            return Limit::from_param((*coerce).arg.cast());
+        }
+
+        None
     }
 
     pub fn param_id(&self) -> Option<i32> {

@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt;
+
 use crate::api::{AsCStr, FieldName, HashMap, HashSet, OrderByInfo, Varno};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
@@ -30,6 +32,15 @@ use serde::{Deserialize, Serialize};
 pub enum Limit {
     Static(usize),
     Parameterized { limit_param_id: i32 },
+}
+
+impl fmt::Display for Limit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Limit::Static(n) => write!(f, "{n}"),
+            Limit::Parameterized { .. } => write!(f, "<parameterized>"),
+        }
+    }
 }
 
 impl Limit {

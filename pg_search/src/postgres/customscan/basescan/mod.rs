@@ -1084,7 +1084,6 @@ impl CustomScan for BaseScan {
 
             builder.custom_state().exec_method_type =
                 builder.custom_private().exec_method_type().clone();
-            builder.custom_state().limit = builder.custom_private().limit().clone();
 
             builder.custom_state().targetlist_len = builder.target_list().len();
 
@@ -1659,12 +1658,12 @@ fn validate_topk_expectation(
     }
 
     // Check if this query should be using Top K
-    let has_static_limit = privdata.static_limit().is_some();
+    let has_limit = privdata.limit().is_some();
     let has_search_query = privdata.query().is_some();
     let no_group_by = privdata.window_aggregates().is_empty();
 
     // Top K is expected when we have: explicit LIMIT + search query + no GROUP BY
-    let should_use_topk = has_static_limit && limit_is_explicit && has_search_query && no_group_by;
+    let should_use_topk = has_limit && limit_is_explicit && has_search_query && no_group_by;
 
     // Check if we actually got Top K
     let is_using_topk = matches!(chosen_method, ExecMethodType::TopK { .. });
@@ -1675,7 +1674,7 @@ fn validate_topk_expectation(
     }
 
     // At this point: should_use_topk is true AND we're not using Top K - emit warning
-    let limit = privdata.static_limit().unwrap();
+    let limit = privdata.limit().as_ref().unwrap();
     let method_name = match chosen_method {
         ExecMethodType::Normal => "Normal",
         ExecMethodType::Columnar { .. } => "Columnar",
@@ -1766,13 +1765,11 @@ fn choose_exec_method(
 ) -> Vec<ExecMethodType> {
     // See if we can use Top K.
     // A known limit value or a parameterized limit (value resolved at execution time) both qualify.
-    let static_limit = privdata.static_limit();
-    let has_any_limit = privdata.limit().is_some();
-    if has_any_limit {
+    if let Some(limit) = privdata.limit().clone() {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
             let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit: static_limit,
+                limit: limit.clone(),
                 orderby_info: Some(orderby_info.clone()),
                 window_aggregates: privdata.window_aggregates().clone(),
             };
@@ -1788,7 +1785,7 @@ fn choose_exec_method(
         if matches!(topk_pathkey_info, PathKeyInfo::None) {
             let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit: static_limit,
+                limit,
                 orderby_info: None,
                 window_aggregates: privdata.window_aggregates().clone(),
             };
@@ -1877,7 +1874,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
             orderby_info,
             window_aggregates: _,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_k::TopKScanExecState::new(heaprelid, limit, orderby_info),
+            exec_methods::top_k::TopKScanExecState::new(heaprelid, limit.clone(), orderby_info),
             None,
         ),
 

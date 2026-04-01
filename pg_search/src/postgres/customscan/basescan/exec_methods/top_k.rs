@@ -25,6 +25,7 @@ use crate::index::reader::index::{
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -52,8 +53,8 @@ struct PreparedAggregations {
 }
 
 pub struct TopKScanExecState {
-    // required — None means the limit is parameterized and must be resolved at execution time
-    limit: Option<usize>,
+    limit: Limit,
+    resolved_limit: Option<usize>,
     orderby_info: Option<Vec<OrderByInfo>>,
 
     // set during init
@@ -78,7 +79,7 @@ pub struct TopKScanExecState {
 impl TopKScanExecState {
     pub fn new(
         heaprelid: pg_sys::Oid,
-        limit: Option<usize>,
+        limit: Limit,
         orderby_info: Option<Vec<OrderByInfo>>,
     ) -> Self {
         if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPK_FEATURES) {
@@ -104,8 +105,10 @@ impl TopKScanExecState {
             1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
         } * crate::gucs::limit_fetch_multiplier();
 
+        let resolved_limit = limit.static_value();
         Self {
             limit,
+            resolved_limit,
             orderby_info,
             search_query_input: None,
             search_reader: None,
@@ -123,7 +126,7 @@ impl TopKScanExecState {
     }
 
     fn limit(&self) -> usize {
-        self.limit
+        self.resolved_limit
             .expect("TopK limit must be resolved before query execution")
     }
 
@@ -266,16 +269,15 @@ impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
         // Resolve parameterized limit from executor params if needed
-        if self.limit.is_none() {
-            if let Some(ref scan_limit) = state.limit {
-                unsafe {
-                    let estate = (*cstate).ss.ps.state;
-                    self.limit = Some(scan_limit.resolve(estate));
+        if self.resolved_limit.is_none() {
+            unsafe {
+                let estate = (*cstate).ss.ps.state;
+                let resolved = self.limit.resolve(estate);
+                self.resolved_limit = Some(resolved);
+                // Update the exec_method_type so EXPLAIN ANALYZE shows the resolved limit
+                if let ExecMethodType::TopK { ref mut limit, .. } = state.exec_method_type {
+                    *limit = Limit::Static(resolved);
                 }
-            }
-            // Update the exec_method_type so EXPLAIN ANALYZE shows the resolved limit
-            if let ExecMethodType::TopK { ref mut limit, .. } = state.exec_method_type {
-                *limit = self.limit;
             }
         }
 

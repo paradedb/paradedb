@@ -17,7 +17,9 @@
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use duckdb::{AccessMode, Config, Connection};
+
+use crate::duckdb_utils::open_duckdb_conn;
+use duckdb::Connection;
 
 #[derive(Parser)]
 pub struct ConvertArgs {
@@ -39,21 +41,6 @@ pub struct ConvertArgs {
     /// Validate inputs and list files that would be converted, without performing conversion.
     #[arg(long, default_value_t = false)]
     pub dry_run: bool,
-}
-
-fn open_duckdb_conn() -> Result<Connection> {
-    let config = Config::default()
-        .access_mode(AccessMode::Automatic)?
-        .enable_autoload_extension(true)?;
-    let conn = Connection::open_in_memory_with_flags(config)
-        .context("Failed to open DuckDB in-memory connection")?;
-
-    conn.execute_batch(
-        "CREATE OR REPLACE SECRET secret (TYPE s3, PROVIDER credential_chain);",
-    )
-    .context("Failed to configure S3 credentials. Ensure AWS credentials are available via environment variables, ~/.aws/credentials, or instance metadata.")?;
-
-    Ok(conn)
 }
 
 /// Validation phase:

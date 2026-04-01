@@ -720,6 +720,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "toml 0.8.23",
 ]
 
 [[package]]

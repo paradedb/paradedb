@@ -1,0 +1,16 @@
+root_table = "documents"
+
+[[tables]]
+name = "documents"
+
+[[tables]]
+name = "files"
+parent = "documents"
+parent_key = "id"
+foreign_key = "documentId"
+
+[[tables]]
+name = "pages"
+parent = "files"
+parent_key = "id"
+foreign_key = "fileId"

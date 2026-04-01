@@ -1,0 +1,4 @@
+root_table = "benchmark_logs"
+
+[[tables]]
+name = "benchmark_logs"

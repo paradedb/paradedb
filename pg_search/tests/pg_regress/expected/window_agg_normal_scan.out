@@ -116,21 +116,19 @@ WHERE n.id @@@ pdb.parse('education', lenient => true)
   AND n.deleted_at IS NULL
   AND n.is_irs_active = true
 LIMIT 5;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, legal_name, (pdb.agg('{"terms": {"size": 10, "field": "state"}}'::jsonb, false) OVER w1)
-   ->  WindowAgg
-         Output: id, legal_name, pdb.agg('{"terms": {"size": 10, "field": "state"}}'::jsonb, false) OVER w1
-         Window: w1 AS ()
-         ->  Custom Scan (ParadeDB Base Scan) on public.nonprofits_test n
-               Output: id, legal_name
-               Table: nonprofits_test
-               Index: nonprofits_test_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"education","lenient":true,"conjunction_mode":null}}}},{"term":{"field":"is_irs_active","value":true,"is_datetime":false}}]}}
-(12 rows)
+   Output: id, legal_name, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"size":10,"field":"state"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Base Scan) on public.nonprofits_test n
+         Output: id, legal_name, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"size":10,"field":"state"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: nonprofits_test
+         Index: nonprofits_test_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Limit: 5
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"education","lenient":true,"conjunction_mode":null}}}},{"term":{"field":"is_irs_active","value":true,"is_datetime":false}}]}}
+(10 rows)
 
 SELECT
     n.id, n.legal_name,
@@ -140,7 +138,15 @@ WHERE n.id @@@ pdb.parse('education', lenient => true)
   AND n.deleted_at IS NULL
   AND n.is_irs_active = true
 LIMIT 5;
-ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+ id |      legal_name      |                                                                                                   state_facets                                                                                                    
+----+----------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  1 | Org 1                | {"buckets": [{"key": "NY", "doc_count": 1740}, {"key": "CA", "doc_count": 1737}, {"key": "MA", "doc_count": 1239}, {"key": "OR", "doc_count": 1238}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | Org 3                | {"buckets": [{"key": "NY", "doc_count": 1740}, {"key": "CA", "doc_count": 1737}, {"key": "MA", "doc_count": 1239}, {"key": "OR", "doc_count": 1238}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  4 | Org 4                | {"buckets": [{"key": "NY", "doc_count": 1740}, {"key": "CA", "doc_count": 1737}, {"key": "MA", "doc_count": 1239}, {"key": "OR", "doc_count": 1238}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  5 | Org 5 Education Fund | {"buckets": [{"key": "NY", "doc_count": 1740}, {"key": "CA", "doc_count": 1737}, {"key": "MA", "doc_count": 1239}, {"key": "OR", "doc_count": 1238}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  6 | Org 6                | {"buckets": [{"key": "NY", "doc_count": 1740}, {"key": "CA", "doc_count": 1737}, {"key": "MA", "doc_count": 1239}, {"key": "OR", "doc_count": 1238}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(5 rows)
+
 -- Test 3: Standalone pdb.agg() aggregate (non-window, should always work)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT pdb.agg('{"terms":{"field":"state","size":10}}')

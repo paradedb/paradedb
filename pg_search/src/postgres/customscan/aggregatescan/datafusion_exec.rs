@@ -40,8 +40,6 @@ use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
-use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
-use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 
@@ -120,61 +118,6 @@ pub async fn build_join_aggregate_plan(
     }
 
     df.into_optimized_plan()
-}
-
-/// Build a DataFusion physical plan from a logical plan.
-///
-/// When `target_partitions > 1`, the optimizer will produce a two-phase
-/// aggregate plan (Partial → Repartition → FinalPartitioned). We add a
-/// `CoalescePartitionsExec` on top to merge into a single output stream.
-pub async fn build_aggregate_physical_plan(
-    ctx: &SessionContext,
-    logical_plan: datafusion::logical_expr::LogicalPlan,
-) -> Result<Arc<dyn ExecutionPlan>> {
-    let state = ctx.state();
-    let plan = state
-        .query_planner()
-        .create_physical_plan(&logical_plan, &state)
-        .await?;
-
-    if plan.output_partitioning().partition_count() > 1 {
-        Ok(Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>)
-    } else {
-        Ok(plan)
-    }
-}
-
-/// Build a [`datafusion::execution::TaskContext`] with a memory pool
-/// sized for the given physical plan.
-///
-/// Follows JoinScan's pattern: walks the plan tree to estimate memory
-/// needs (hash joins, sorts) and wraps them in a `PanicOnOOMMemoryPool`.
-pub fn build_aggregate_task_context(
-    ctx: &SessionContext,
-    plan: &Arc<dyn ExecutionPlan>,
-) -> Arc<datafusion::execution::TaskContext> {
-    use crate::postgres::customscan::joinscan::memory::create_memory_pool;
-    use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-    use pgrx::pg_sys;
-
-    let (work_mem, hash_mem_mul) = unsafe {
-        (
-            pg_sys::work_mem as usize * 1024,
-            pg_sys::hash_mem_multiplier,
-        )
-    };
-    let memory_pool = create_memory_pool(plan, work_mem, hash_mem_mul);
-
-    Arc::new(
-        datafusion::execution::TaskContext::default()
-            .with_session_config(ctx.state().config().clone())
-            .with_runtime(Arc::new(
-                RuntimeEnvBuilder::new()
-                    .with_memory_pool(memory_pool)
-                    .build()
-                    .expect("Failed to create RuntimeEnv"),
-            )),
-    )
 }
 
 /// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].

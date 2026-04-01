@@ -338,6 +338,38 @@ pub async fn build_physical_plan(
     }
 }
 
+/// Build a [`datafusion::execution::TaskContext`] with a memory pool
+/// sized for the given physical plan.
+///
+/// Walks the plan tree to estimate memory needs (hash joins, sorts) and
+/// wraps them in a `PanicOnOOMMemoryPool`. Shared by JoinScan and AggregateScan.
+pub fn build_task_context(
+    ctx: &SessionContext,
+    plan: &Arc<dyn ExecutionPlan>,
+) -> Arc<datafusion::execution::TaskContext> {
+    use super::memory::create_memory_pool;
+    use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+
+    let (work_mem, hash_mem_mul) = unsafe {
+        (
+            pg_sys::work_mem as usize * 1024,
+            pg_sys::hash_mem_multiplier,
+        )
+    };
+    let memory_pool = create_memory_pool(plan, work_mem, hash_mem_mul);
+
+    Arc::new(
+        datafusion::execution::TaskContext::default()
+            .with_session_config(ctx.state().config().clone())
+            .with_runtime(Arc::new(
+                RuntimeEnvBuilder::new()
+                    .with_memory_pool(memory_pool)
+                    .build()
+                    .expect("Failed to create RuntimeEnv"),
+            )),
+    )
+}
+
 /// Recursively lowers a `RelNode` tree into a DataFusion `DataFrame`.
 ///
 /// This traversal maps the abstract relation operators (Scan, Join, Filter) onto DataFusion's

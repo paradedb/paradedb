@@ -82,7 +82,7 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
-use crate::postgres::customscan::limit_offset::{extract_const_i64, find_extern_param_id};
+use crate::postgres::customscan::limit_offset::extract_const_i64;
 use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
@@ -672,11 +672,7 @@ impl CustomScan for BaseScan {
             let limit = if let Some(l) = limit {
                 Some(Limit::Static(l.round() as usize))
             } else if !(*builder.args().root).parse.is_null() {
-                find_extern_param_id((*(*builder.args().root).parse).limitCount).map(|param_id| {
-                    Limit::Parameterized {
-                        limit_param_id: param_id,
-                    }
-                })
+                Limit::from_param((*(*builder.args().root).parse).limitCount)
             } else {
                 None
             };

@@ -40,6 +40,13 @@ impl Limit {
         }
     }
 
+    pub unsafe fn from_param(limit_count_node: *mut pg_sys::Node) -> Option<Self> {
+        use crate::postgres::customscan::limit_offset::find_extern_param_id;
+        find_extern_param_id(limit_count_node).map(|param_id| Limit::Parameterized {
+            limit_param_id: param_id,
+        })
+    }
+
     pub fn param_id(&self) -> Option<i32> {
         match self {
             Limit::Parameterized { limit_param_id } => Some(*limit_param_id),

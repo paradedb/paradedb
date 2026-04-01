@@ -1,0 +1,90 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (key_field='id');
+SET plan_cache_mode = force_generic_plan;
+-- BUG: parameterized LIMIT causes NormalScanExecState instead of TopKScanExecState
+PREPARE param_limit(text, int) AS
+SELECT
+  id,
+  pdb.score(id)::float8
+FROM mock_items
+WHERE id @@@ pdb.parse($1)
+ORDER BY pdb.score(id) DESC
+LIMIT $2;
+EXPLAIN (COSTS OFF)
+EXECUTE param_limit('description:keyboard', 5);
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (pdb.score(id)) DESC
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
+               Table: mock_items
+               Index: search_idx
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.parse($1, NULL::boolean, NULL::boolean)))"}}}
+(9 rows)
+
+EXECUTE param_limit('description:keyboard', 5);
+ id |       score       
+----+-------------------
+  2 | 3.266859531402588
+  1 | 2.821378707885742
+(2 rows)
+
+DEALLOCATE param_limit;
+-- Control: constant LIMIT correctly uses TopKScanExecState
+PREPARE const_limit(text) AS
+SELECT
+  id,
+  pdb.score(id)::float8
+FROM mock_items
+WHERE id @@@ pdb.parse($1)
+ORDER BY pdb.score(id) DESC
+LIMIT 5;
+EXPLAIN (COSTS OFF)
+EXECUTE const_limit('description:keyboard');
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: true
+            TopK Order By: pdb.score() desc
+            TopK Limit: 5
+         Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.to_search_query_input('id'::paradedb.fieldname, pdb.parse($1, NULL::boolean, NULL::boolean)))"}}}
+(9 rows)
+
+EXECUTE const_limit('description:keyboard');
+ id |       score       
+----+-------------------
+  2 | 3.266859531402588
+  1 | 2.821378707885742
+(2 rows)
+
+DEALLOCATE const_limit;
+DROP TABLE mock_items;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_columnar_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

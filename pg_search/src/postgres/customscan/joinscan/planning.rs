@@ -243,12 +243,30 @@ unsafe fn collect_join_sources_base_rel(
         if !baserestrictinfo.is_empty() {
             let context = PlannerContext::from_planner(root);
 
+            // Separate subplans (SEMI/ANTI joins) from search-capable predicates.
+            // Subplans are collected and later handled by wrapping the current
+            // scan's RelNode in additional Join nodes (see `RelNode::Join` below).
+            // This separation ensures `extract_quals` only receives clauses it
+            // can fully convert to a Tantivy query.
+            let mut search_ri = PgList::<pg_sys::RestrictInfo>::new();
             for ri in baserestrictinfo.iter_ptr() {
+                if let Some((subplan, is_anti, inner_root)) =
+                    extract_subplan_from_clause(root, (*ri).clause.cast())
+                {
+                    extracted_subqueries.push((subplan, is_anti, inner_root));
+                } else {
+                    search_ri.push(ri);
+                }
+            }
+
+            if !search_ri.is_empty() {
                 let mut state = QualExtractState::default();
+                // Extract search-capable predicates all at once. This is required
+                // for score filters, which must wrap the rest of the search query.
                 if let Some(qual) = extract_quals(
                     &context,
                     rti,
-                    ri.cast(), // extract_quals expects Node, so we cast the RestrictInfo
+                    search_ri.as_ptr().cast(),
                     crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
                     &bm25_index,
                     false,
@@ -256,23 +274,13 @@ unsafe fn collect_join_sources_base_rel(
                     true,
                 ) {
                     let query = SearchQueryInput::from(&qual);
-                    // Merge into existing query using Boolean Must, or set it if not present
-                    let current_query = side_info.query.take();
-                    let new_query = match current_query {
-                        Some(existing) => SearchQueryInput::Boolean {
-                            must: vec![existing, query],
-                            should: vec![],
-                            must_not: vec![],
-                        },
-                        None => query,
-                    };
-
-                    side_info = side_info.with_query(new_query);
+                    side_info = side_info.with_query(query);
                     if state.uses_our_operator {
                         side_info = side_info.with_search_predicate();
                     }
-                } else if let Some((subplan, is_anti, inner_root)) = extract_subplan_from_clause(root, (*ri).clause.cast()) {
-                    extracted_subqueries.push((subplan, is_anti, inner_root));
+                } else {
+                    // Fail the JoinScan if any search predicate cannot be extracted.
+                    return None;
                 }
             }
         }

@@ -147,6 +147,7 @@ FROM products_4531 p
 WHERE p.description @@@ 'widget'
   AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
 ORDER BY p.id DESC LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id 
 ----
 (0 rows)

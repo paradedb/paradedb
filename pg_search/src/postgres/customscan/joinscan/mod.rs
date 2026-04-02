@@ -264,133 +264,230 @@ pub unsafe fn try_create_subplan_join_paths(
         return Vec::new();
     }
 
-    let all_sources = plan.sources();
+    // Delegate to the shared validation + path construction logic.
+    JoinScan::validate_and_build_path(root, rel, plan, join_keys, false, false)
+}
 
-    // --- Activation checks (mirrors create_custom_path) ---
+impl JoinScan {
+    /// Shared validation and `CustomPath` construction for JoinScan.
+    ///
+    /// Called by both `try_create_subplan_join_paths` (SubPlan-based joins from
+    /// `set_rel_pathlist_hook`) and `create_custom_path` (standard joins from
+    /// `set_join_pathlist_hook`) to avoid duplicating activation checks and
+    /// `JoinCSClause` finalization.
+    ///
+    /// # Arguments
+    /// * `root` – planner info
+    /// * `rel` – the relation this path will be attached to
+    /// * `plan` – the validated `RelNode` tree (may contain Semi/Anti/LeftMark joins)
+    /// * `join_keys` – equi-join keys extracted from the plan
+    /// * `has_distinct` – whether the query uses DISTINCT
+    /// * `consider_parallel` – whether to attempt parallel execution
+    unsafe fn validate_and_build_path(
+        root: *mut pg_sys::PlannerInfo,
+        rel: *mut pg_sys::RelOptInfo,
+        plan: RelNode,
+        join_keys: Vec<build::JoinKeyPair>,
+        has_distinct: bool,
+        consider_parallel: bool,
+    ) -> Vec<pg_sys::CustomPath> {
+        let all_sources = plan.sources();
 
-    // Need a search predicate somewhere.
-    if !all_sources.iter().any(|s| s.scan_info.has_search_predicate) {
-        return Vec::new();
-    }
+        // --- Activation checks ---
 
-    // All tables need BM25 indexes.
-    if all_sources
-        .iter()
-        .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
-    {
-        return Vec::new();
-    }
+        if !all_sources.iter().any(|s| s.scan_info.has_search_predicate) {
+            return Vec::new();
+        }
 
-    // No aggregates.
-    if (*(*root).parse).hasAggs {
-        return Vec::new();
-    }
+        if all_sources
+            .iter()
+            .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
+        {
+            return Vec::new();
+        }
 
-    // LIMIT required.
-    let limit_offset = LimitOffset::from_root(root);
-    if limit_offset.limit.is_none() {
-        return Vec::new();
-    }
+        if (*(*root).parse).hasAggs {
+            return Vec::new();
+        }
 
-    // Need equi-join keys.
-    if join_keys.is_empty() {
-        return Vec::new();
-    }
+        let limit_offset = LimitOffset::from_root(root);
+        if limit_offset.limit.is_none() {
+            return Vec::new();
+        }
 
-    // ORDER BY columns must be fast fields.
-    if !order_by_columns_are_fast_fields(root, &all_sources) {
-        return Vec::new();
-    }
+        if join_keys.is_empty() {
+            return Vec::new();
+        }
 
-    // All equi-join key columns must be fast fields.
-    for jk in &join_keys {
-        let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
-        let inner_source = all_sources.iter().find(|s| s.contains_rti(jk.inner_rti));
-        match (outer_source, inner_source) {
-            (Some(outer), Some(inner)) => {
-                let outer_hr = PgSearchRelation::open(outer.scan_info.heaprelid);
-                let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
-                let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
-                let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
-                if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
-                    .is_none()
-                    || resolve_fast_field(jk.inner_attno as i32, &inner_hr.tuple_desc(), &inner_ir)
+        if has_distinct && !distinct_columns_are_fast_fields(root, &all_sources) {
+            return Vec::new();
+        }
+
+        if !order_by_columns_are_fast_fields(root, &all_sources) {
+            return Vec::new();
+        }
+
+        for jk in &join_keys {
+            let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
+            let inner_source = all_sources.iter().find(|s| s.contains_rti(jk.inner_rti));
+            match (outer_source, inner_source) {
+                (Some(outer), Some(inner)) => {
+                    let outer_hr = PgSearchRelation::open(outer.scan_info.heaprelid);
+                    let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
+                    let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
+                    let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
+                    if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
                         .is_none()
-                {
-                    return Vec::new();
+                        || resolve_fast_field(
+                            jk.inner_attno as i32,
+                            &inner_hr.tuple_desc(),
+                            &inner_ir,
+                        )
+                        .is_none()
+                    {
+                        return Vec::new();
+                    }
+                }
+                _ => return Vec::new(),
+            }
+        }
+
+        // --- Build JoinCSClause ---
+
+        let mut join_clause = JoinCSClause::new(plan)
+            .with_limit(limit_offset.limit)
+            .with_offset(limit_offset.offset)
+            .with_distinct(has_distinct);
+
+        for source in join_clause.plan.sources_mut() {
+            let score_in_tlist =
+                expr_uses_scores_from_source((*root).processed_tlist.cast(), source);
+            let score_in_pathkey = pathkey_uses_scores_from_source(root, source);
+            if score_in_tlist || score_in_pathkey {
+                ensure_score_bubbling(source);
+            }
+        }
+
+        if join_clause.plan.has_semi_or_anti() {
+            if join_clause.partitioning_source_index() != 0 {
+                pgrx::warning!(
+                    "For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal \
+                     parallel partitioning strategy for this query. See \
+                     https://github.com/paradedb/paradedb/issues/4152"
+                );
+            }
+            join_clause = join_clause.with_forced_partitioning(0);
+        }
+
+        let output_rtis = join_clause.plan.output_rtis();
+        let current_sources = join_clause.plan.sources();
+        let order_by = match extract_orderby(root, &current_sources, &output_rtis) {
+            Some(ob) => ob,
+            None => return Vec::new(),
+        };
+        join_clause = join_clause.with_order_by(order_by);
+
+        // --- Cost estimation ---
+
+        let startup_cost = crate::DEFAULT_STARTUP_COST;
+        let total_cost = startup_cost + 1.0;
+        let mut result_rows = limit_offset.limit.map(|l| l as f64).unwrap_or(1000.0);
+
+        let (segment_count, row_estimate) = {
+            let src = join_clause.partitioning_source();
+            (src.scan_info.segment_count, src.scan_info.estimate)
+        };
+
+        let nworkers = if consider_parallel {
+            let declares_sorted_output = !join_clause.order_by.is_empty();
+            compute_nworkers(
+                declares_sorted_output,
+                limit_offset.limit.map(|l| l as f64),
+                row_estimate,
+                segment_count,
+                false,
+                false,
+                true,
+            )
+        } else {
+            0
+        };
+
+        if nworkers > 0 {
+            let processes = std::cmp::max(
+                1,
+                nworkers
+                    + if pg_sys::parallel_leader_participation {
+                        1
+                    } else {
+                        0
+                    },
+            );
+            result_rows /= processes as f64;
+            let processes = processes as u64;
+            let partitioning_idx = join_clause.partitioning_source_index();
+            for (idx, source) in join_clause.plan.sources_mut().into_iter().enumerate() {
+                if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
+                    source.scan_info.estimated_rows_per_worker = if idx == partitioning_idx {
+                        Some(n / processes)
+                    } else {
+                        Some(n)
+                    };
                 }
             }
-            _ => return Vec::new(),
+        } else {
+            for source in join_clause.plan.sources_mut() {
+                if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
+                    source.scan_info.estimated_rows_per_worker = Some(n);
+                }
+            }
         }
-    }
 
-    // --- Build JoinCSClause ---
-    let mut join_clause = JoinCSClause::new(plan)
-        .with_limit(limit_offset.limit)
-        .with_offset(limit_offset.offset);
+        // --- Build CustomPath ---
 
-    // Check scores.
-    for source in join_clause.plan.sources_mut() {
-        let score_in_tlist = expr_uses_scores_from_source((*root).processed_tlist.cast(), source);
-        let score_in_pathkey = pathkey_uses_scores_from_source(root, source);
-        if score_in_tlist || score_in_pathkey {
-            ensure_score_bubbling(source);
-        }
-    }
-
-    // Force left-side partitioning for SEMI/ANTI/LeftMark correctness.
-    if join_clause.plan.has_semi_or_anti() {
-        join_clause = join_clause.with_forced_partitioning(0);
-    }
-
-    // ORDER BY.
-    let output_rtis = join_clause.plan.output_rtis();
-    let current_sources = join_clause.plan.sources();
-    let order_by = match extract_orderby(root, &current_sources, &output_rtis) {
-        Some(ob) => ob,
-        None => return Vec::new(),
-    };
-    join_clause = join_clause.with_order_by(order_by);
-
-    // Costs (simple fixed since we force the path).
-    let startup_cost = crate::DEFAULT_STARTUP_COST;
-    let total_cost = startup_cost + 1.0;
-    let result_rows = limit_offset.limit.map(|l| l as f64).unwrap_or(1000.0);
-
-    // Set per-worker row estimates.
-    for source in join_clause.plan.sources_mut() {
-        if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
-            source.scan_info.estimated_rows_per_worker = Some(n);
-        }
-    }
-
-    // Build CustomPath manually using JoinScan's methods.
-    let private_data = PrivateData::new(join_clause);
-    let custom_path = pg_sys::CustomPath {
-        path: pg_sys::Path {
-            type_: pg_sys::NodeTag::T_CustomPath,
-            pathtype: pg_sys::NodeTag::T_CustomScan,
-            parent: rel,
-            pathtarget: (*rel).reltarget,
-            param_info: std::ptr::null_mut(),
-            rows: result_rows,
-            startup_cost,
-            total_cost,
-            pathkeys: if !private_data.join_clause.order_by.is_empty() {
-                (*root).query_pathkeys
-            } else {
-                std::ptr::null_mut()
+        let has_order_by = !join_clause.order_by.is_empty();
+        let order_by_len = join_clause.order_by.len();
+        let private_data = PrivateData::new(join_clause);
+        let mut custom_path = pg_sys::CustomPath {
+            path: pg_sys::Path {
+                type_: pg_sys::NodeTag::T_CustomPath,
+                pathtype: pg_sys::NodeTag::T_CustomScan,
+                parent: rel,
+                pathtarget: (*rel).reltarget,
+                param_info: pg_sys::get_baserel_parampathinfo(
+                    root,
+                    rel,
+                    pg_sys::bms_copy((*rel).lateral_relids),
+                ),
+                rows: result_rows,
+                startup_cost,
+                total_cost,
+                ..Default::default()
             },
+            flags: Flags::Force as u32,
+            methods: JoinScan::custom_path_methods(),
+            custom_private: private_data.into(),
+            custom_paths: std::ptr::null_mut(),
             ..Default::default()
-        },
-        flags: Flags::Force as u32,
-        methods: JoinScan::custom_path_methods(),
-        custom_private: private_data.into(),
-        custom_paths: std::ptr::null_mut(),
-        ..Default::default()
-    };
+        };
 
-    vec![custom_path]
+        if has_order_by {
+            let query_pathkeys_len =
+                PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys).len();
+            if order_by_len == query_pathkeys_len {
+                custom_path.path.pathkeys = (*root).query_pathkeys;
+            }
+        }
+
+        if nworkers > 0 {
+            custom_path.path.parallel_aware = true;
+            custom_path.path.parallel_safe = true;
+            custom_path.path.parallel_workers =
+                nworkers.try_into().expect("nworkers should be a valid i32");
+        }
+
+        vec![custom_path]
+    }
 }
 
 impl ParallelQueryCapable for JoinScan {

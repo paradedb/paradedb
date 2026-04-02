@@ -152,6 +152,9 @@ pub enum JoinType {
     /// `EXISTS` / `IN` subqueries inside disjunctive predicates such as
     /// `col IS NULL OR col IN (SELECT ...)`.
     LeftMark,
+    /// RightMark join: mirror of LeftMark. Not yet used but reserved for
+    /// symmetry with LeftMark and potential future right-side subquery handling.
+    RightMark,
     RightSemi,
     RightAnti,
     UniqueOuter,
@@ -168,6 +171,7 @@ impl fmt::Display for JoinType {
             JoinType::Semi => "Semi",
             JoinType::Anti => "Anti",
             JoinType::LeftMark => "LeftMark",
+            JoinType::RightMark => "RightMark",
             JoinType::RightSemi => "RightSemi",
             JoinType::RightAnti => "RightAnti",
             JoinType::UniqueOuter => "UniqueOuter",

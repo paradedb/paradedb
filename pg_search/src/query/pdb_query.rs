@@ -121,8 +121,15 @@ pub mod pdb {
         use tantivy::Term;
         let term = Term::from_field_text(Field::from_field_id(0), "hello");
 
-        let _query_prefix = FuzzyTermQuery::new_prefix(term.clone(), 1, true);
-        let _query_normal = FuzzyTermQuery::new(term, 1, true);
+        let query_prefix = FuzzyTermQuery::new_prefix(term.clone(), 1, true);
+        let query_normal = FuzzyTermQuery::new(term, 1, true);
+
+        // Verify the prefix and non-prefix variants produce different queries
+        assert_ne!(
+            format!("{:?}", query_prefix),
+            format!("{:?}", query_normal),
+            "FuzzyTermQuery::new_prefix and FuzzyTermQuery::new should produce different queries"
+        );
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]

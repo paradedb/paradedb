@@ -2,8 +2,8 @@
 -- TopK Aggregate-on-JOIN via DataFusion Backend
 -- =====================================================================
 -- Tests ORDER BY aggregate + LIMIT pushdown into DataFusion for join
--- aggregate queries, using the TopKAggregateRule optimization.
--- Also tests GROUP BY on joins (requires custom_scan_tlist for scanrelid=0).
+-- aggregate queries. DataFusion's native SortExec(fetch=K) provides
+-- TopK via a bounded heap. Also tests GROUP BY on joins (scanrelid=0).
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================

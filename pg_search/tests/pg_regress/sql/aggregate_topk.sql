@@ -38,7 +38,9 @@ ORDER BY COUNT(*) DESC
 LIMIT 3;
 
 -- ================================================================
--- Test 2: ORDER BY SUM(field) DESC LIMIT (TopK by sub-aggregation)
+-- Test 2: ORDER BY SUM(field) DESC LIMIT — routed to DataFusion
+-- Non-COUNT aggregate ordering is handled by DataFusion (not Tantivy)
+-- for correct NULL semantics. Verify the routing works.
 -- ================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, SUM(rating)
@@ -101,7 +103,8 @@ GROUP BY category
 ORDER BY COUNT(*) DESC;
 
 -- ================================================================
--- Test 6: Multiple aggregates with ORDER BY one of them
+-- Test 6: Multiple aggregates with ORDER BY SUM — routed to DataFusion
+-- ORDER BY SUM routes to DataFusion for correct NULL semantics.
 -- ================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT category, COUNT(*), SUM(rating), MIN(rating), MAX(rating)

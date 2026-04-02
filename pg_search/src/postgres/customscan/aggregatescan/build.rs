@@ -656,10 +656,6 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
 
             // We can use LIMIT-based size optimization when:
             // 1. There's exactly one grouping column (multiple columns need all combinations)
-            // 2. Either no ORDER BY, or ORDER BY targets a COUNT aggregate
-            //
-            // We can use LIMIT-based size optimization when:
-            // 1. There's exactly one grouping column (multiple columns need all combinations)
             // 2. Either no ORDER BY, or ORDER BY targets COUNT (the only safe aggregate
             //    for TopK — see detect_aggregate_orderby for why non-COUNT is excluded)
             let can_limit_buckets = grouping_columns.len() == 1

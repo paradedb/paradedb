@@ -165,7 +165,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.fuzzy(2, f);
-                                                                          QUERY PLAN                                                                         
+                                                                         QUERY PLAN                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items

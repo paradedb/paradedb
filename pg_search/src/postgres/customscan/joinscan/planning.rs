@@ -667,12 +667,23 @@ unsafe fn extract_subplan_from_or_clause(
         return None; // Only handle two-branch OR for now
     }
 
-    let arg0 = args.get_ptr(0)?;
-    let arg1 = args.get_ptr(1)?;
+    let raw_arg0 = unwrap_restrict_info(args.get_ptr(0)?);
+    let raw_arg1 = unwrap_restrict_info(args.get_ptr(1)?);
 
     // Try both orderings: (NullTest, SubPlan) and (SubPlan, NullTest)
-    try_extract_null_and_subplan(root, arg0, arg1)
-        .or_else(|| try_extract_null_and_subplan(root, arg1, arg0))
+    try_extract_null_and_subplan(root, raw_arg0, raw_arg1)
+        .or_else(|| try_extract_null_and_subplan(root, raw_arg1, raw_arg0))
+}
+
+/// Unwrap a `RestrictInfo` node to its inner clause. Returns the node unchanged
+/// if it is not a RestrictInfo.
+unsafe fn unwrap_restrict_info(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if !node.is_null() && (*node).type_ == pg_sys::NodeTag::T_RestrictInfo {
+        let ri = node as *mut pg_sys::RestrictInfo;
+        (*ri).clause.cast()
+    } else {
+        node
+    }
 }
 
 /// Helper: given a candidate null_arg (expected IS NULL) and subplan_arg (expected SubPlan),

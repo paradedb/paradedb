@@ -228,6 +228,31 @@ pub unsafe fn try_create_subplan_join_paths(
         return Vec::new();
     }
 
+    // Quick pre-check: only proceed if baserestrictinfo contains an OR expression
+    // with a SubPlan inside. This avoids interfering with normal queries where
+    // set_join_pathlist_hook already handles SubPlans.
+    {
+        use crate::postgres::customscan::qual_inspect::is_subplan;
+        let bri = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        let has_or_subplan = bri.iter_ptr().any(|ri| {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            if clause.is_null() {
+                return false;
+            }
+            // Check if the clause itself is an OR BoolExpr containing a SubPlan.
+            // Top-level SubPlans are handled by the normal join_pathlist hook.
+            if (*clause).type_ == pg_sys::NodeTag::T_BoolExpr {
+                let bexpr = clause as *mut pg_sys::BoolExpr;
+                (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR && is_subplan(clause)
+            } else {
+                false
+            }
+        });
+        if !has_or_subplan {
+            return Vec::new();
+        }
+    }
+
     // Try to extract SubPlan-based joins from baserestrictinfo.
     let (plan, join_keys) = match collect_join_sources_base_rel(root, rel, rti) {
         Some(res) => res,

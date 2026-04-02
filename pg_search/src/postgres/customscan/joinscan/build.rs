@@ -152,8 +152,8 @@ pub enum JoinType {
     /// `EXISTS` / `IN` subqueries inside disjunctive predicates such as
     /// `col IS NULL OR col IN (SELECT ...)`.
     LeftMark,
-    /// RightMark join: mirror of LeftMark. Not yet used but reserved for
-    /// symmetry with LeftMark and potential future right-side subquery handling.
+    /// RightMark join: mirror of LeftMark — returns all right rows with a
+    /// boolean "mark" column indicating whether a left-side match exists.
     RightMark,
     RightSemi,
     RightAnti,
@@ -668,7 +668,7 @@ impl RelNode {
             RelNode::Join(j) => {
                 matches!(
                     j.join_type,
-                    JoinType::Semi | JoinType::Anti | JoinType::LeftMark
+                    JoinType::Semi | JoinType::Anti | JoinType::LeftMark | JoinType::RightMark
                 ) || j.left.has_semi_or_anti()
                     || j.right.has_semi_or_anti()
             }
@@ -682,7 +682,11 @@ impl RelNode {
             RelNode::Join(j) => {
                 if !matches!(
                     j.join_type,
-                    JoinType::Inner | JoinType::Semi | JoinType::Anti | JoinType::LeftMark
+                    JoinType::Inner
+                        | JoinType::Semi
+                        | JoinType::Anti
+                        | JoinType::LeftMark
+                        | JoinType::RightMark
                 ) {
                     acc.push(j.join_type);
                 }
@@ -764,7 +768,7 @@ impl RelNode {
                 JoinType::Semi | JoinType::Anti | JoinType::LeftMark => {
                     j.left.collect_output_sources(acc);
                 }
-                JoinType::RightSemi | JoinType::RightAnti => {
+                JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
                     j.right.collect_output_sources(acc);
                 }
                 _ => {

@@ -413,6 +413,9 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::LeftMark => {
                         JoinType::LeftMark
                     }
+                    crate::postgres::customscan::joinscan::build::JoinType::RightMark => {
+                        JoinType::RightMark
+                    }
                     crate::postgres::customscan::joinscan::build::JoinType::RightSemi => {
                         JoinType::RightSemi
                     }

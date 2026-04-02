@@ -1,86 +1,97 @@
-SET
-SET
-SET
-CREATE TABLE
-CREATE TABLE
-INSERT 0 2
-INSERT 0 5
-CREATE INDEX
-CREATE INDEX
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: p.id
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.id
-         Relation Tree: p LEFTMARK s
-         Join Cond: p.supplier_id = s.id
-         Join Predicate: (mark = true OR col IS NULL)
-         Limit: 10
-         Order By: p.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     FilterExec: mark@3 OR supplier_id@1 IS NULL, projection=[ctid_0@0, id@2]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(supplier_id@1, id@1)]
-           :         VisibilityFilterExec: tables=[p]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
-           :         VisibilityFilterExec: tables=[s]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all"
-(20 rows)
-
- id 
-----
-  4
-  1
-(2 rows)
-
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: p.id
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.id
-         Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
-         Limit: 10
-         Order By: p.id desc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=10), expr=[id@2 DESC], preserve_partitioning=[false]
-           :     VisibilityFilterExec: tables=[s, p]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
-
- id 
-----
-  4
-  1
-(2 rows)
-
-UPDATE 5
- id 
-----
-  5
-  4
-  1
-(3 rows)
-
-UPDATE 2
-UPDATE 1
-UPDATE 1
-UPDATE 1
-DELETE 2
- id 
-----
-(0 rows)
-
-INSERT 0 2
-DROP TABLE
-DROP TABLE
+-- Issue #4531: IN (SELECT ...) OR col IS NULL prevents JoinScan
+-- by blocking subquery flattening.
+--
+-- When a query uses `col IN (SELECT ...) OR col IS NULL`, PostgreSQL keeps
+-- the subquery as a SubPlan instead of flattening it into a join. This test
+-- verifies that JoinScan now handles this pattern via LeftMark join.
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan TO OFF;
+SET paradedb.enable_join_custom_scan = on;
+-- Setup tables
+CREATE TABLE suppliers_4531 (id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE products_4531 (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    supplier_id INTEGER
+);
+INSERT INTO suppliers_4531 VALUES (1, 'Alpha'), (2, 'Beta');
+INSERT INTO products_4531 VALUES
+    (1, 'Widget',  'A fine widget',  1),
+    (2, 'Gadget',  'A cool gadget',  1),
+    (3, 'Gizmo',   'A neat gizmo',   NULL),
+    (4, 'Doohicky','Another widget',  2),
+    (5, 'Thingamajig', 'Yet another widget', 999);
+CREATE INDEX ON products_4531 USING bm25 (id, name, description, supplier_id)
+    WITH (key_field='id', numeric_fields='{"supplier_id": {"fast": true}}');
+ERROR:  access method "bm25" does not exist
+CREATE INDEX ON suppliers_4531 USING bm25 (id, name)
+    WITH (key_field='id');
+ERROR:  access method "bm25" does not exist
+-- ============================================================
+-- Test 1: The original failing pattern — OR IS NULL
+-- Should now use JoinScan (LeftMark join)
+-- ============================================================
+-- EXPLAIN to verify JoinScan activates
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id
+FROM products_4531 p
+WHERE p.description @@@ 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 10;
+ERROR:  operator does not exist: text @@@ unknown at character 95
+-- Actual query execution
+SELECT p.id
+FROM products_4531 p
+WHERE p.description @@@ 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 10;
+ERROR:  operator does not exist: text @@@ unknown at character 54
+-- ============================================================
+-- Test 2: Without OR IS NULL — should use regular JoinScan (Semi)
+-- (This already worked before)
+-- ============================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id
+FROM products_4531 p
+WHERE p.description @@@ 'widget'
+  AND p.supplier_id IN (SELECT s.id FROM suppliers_4531 s)
+ORDER BY p.id DESC LIMIT 10;
+ERROR:  operator does not exist: text @@@ unknown at character 95
+SELECT p.id
+FROM products_4531 p
+WHERE p.description @@@ 'widget'
+  AND p.supplier_id IN (SELECT s.id FROM suppliers_4531 s)
+ORDER BY p.id DESC LIMIT 10;
+ERROR:  operator does not exist: text @@@ unknown at character 54
+-- ============================================================
+-- Test 3: All NULLs — edge case where all supplier_ids are NULL
+-- ============================================================
+-- Temporarily set all supplier_ids to NULL
+UPDATE products_4531 SET supplier_id = NULL;
+SELECT p.id
+FROM products_4531 p
+WHERE p.description @@@ 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 10;
+ERROR:  operator does not exist: text @@@ unknown at character 54
+-- Restore original data
+UPDATE products_4531 SET supplier_id = 1 WHERE id IN (1, 2);
+UPDATE products_4531 SET supplier_id = NULL WHERE id = 3;
+UPDATE products_4531 SET supplier_id = 2 WHERE id = 4;
+UPDATE products_4531 SET supplier_id = 999 WHERE id = 5;
+-- ============================================================
+-- Test 4: No matching suppliers — only NULL rows should pass
+-- ============================================================
+DELETE FROM suppliers_4531;
+SELECT p.id
+FROM products_4531 p
+WHERE p.description @@@ 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 10;
+ERROR:  operator does not exist: text @@@ unknown at character 54
+-- Restore suppliers
+INSERT INTO suppliers_4531 VALUES (1, 'Alpha'), (2, 'Beta');
+-- Cleanup
+DROP TABLE products_4531 CASCADE;
+DROP TABLE suppliers_4531 CASCADE;

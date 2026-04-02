@@ -269,7 +269,7 @@ pub mod pdb {
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> String {
-        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 
     #[allow(unused_variables)]
@@ -283,7 +283,7 @@ pub mod pdb {
         offset: default!(Option<i32>, "NULL"),
         sort_by: default!(String, "'score'"),
     ) -> Vec<String> {
-        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 
     #[allow(unused_variables)]
@@ -307,7 +307,7 @@ AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> IntArray2D {
-        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 }
 
@@ -324,7 +324,7 @@ fn paradedb_snippet_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> Option<String> {
-    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 #[warn(deprecated)]
@@ -339,7 +339,7 @@ fn paradedb_snippets_from_relation(
     offset: default!(Option<i32>, "NULL"),
     sort_by: default!(String, "'score'"),
 ) -> Option<Vec<String>> {
-    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 #[warn(deprecated)]
@@ -364,7 +364,7 @@ fn paradedb_snippet_positions_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> pdb::IntArray2D {
-    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 extension_sql!(

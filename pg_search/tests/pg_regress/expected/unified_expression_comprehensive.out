@@ -227,7 +227,7 @@ FROM products
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test Case 3: Another example with price filter (non-indexed)
 -- Should show the same issue - scores become null due to non-indexed predicate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -748,7 +748,7 @@ FROM products
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
 ORDER BY score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test Case 14: Array operations (if supported)
 -- Tests heap filtering with array predicates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

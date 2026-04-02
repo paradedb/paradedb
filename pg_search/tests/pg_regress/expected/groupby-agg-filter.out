@@ -1031,7 +1031,7 @@ SELECT
     COUNT(DISTINCT category) AS unique_categories,
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test;
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678). To disable this warning: SET paradedb.check_aggregate_scan = false (table: filter_agg_test)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: filter_agg_test)
  unique_categories | apple_count 
 -------------------+-------------
                  4 |           3

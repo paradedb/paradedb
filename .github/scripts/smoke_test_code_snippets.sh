@@ -34,6 +34,24 @@ export PGPASSWORD="$PARADEDB_PASSWORD"
 
 PSQL=(psql -v ON_ERROR_STOP=1)
 
+run_psql_file() {
+  local sql_file="$1"
+  local output
+
+  if ! output="$("${PSQL[@]}" -f "$sql_file" 2>&1 >/dev/null)"; then
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+
+  if [[ -n "$output" ]]; then
+    printf '%s\n' "$output" >&2
+  fi
+
+  if grep -Eq '(^|:) WARNING:' <<<"$output"; then
+    return 1
+  fi
+}
+
 echo "Creating temporary Python environment for Python snippet verification..."
 python3 -m venv "$PYTHON_ENV_DIR"
 
@@ -51,7 +69,7 @@ GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
 
 "$PYTHON_BIN" "${SCRIPT_DIR}/extract_code_snippets.py" >/dev/null
 
-"${PSQL[@]}" -f "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql" >/dev/null
+run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
 
 sql_pass_count=0
 sql_fail_count=0
@@ -59,7 +77,7 @@ sql_fail_count=0
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-  if "${PSQL[@]}" -f "$snippet_file" >/dev/null; then
+  if run_psql_file "$snippet_file"; then
     echo "[SUCCESS] $rel_snippet" >&2
     sql_pass_count=$((sql_pass_count + 1))
   else

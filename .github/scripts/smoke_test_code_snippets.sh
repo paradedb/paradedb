@@ -9,10 +9,11 @@ SQL_DIR="${VERIFY_DIR}/sql"
 DJANGO_DIR="${VERIFY_DIR}/django"
 RAILS_DIR="${VERIFY_DIR}/rails"
 SQLALCHEMY_DIR="${VERIFY_DIR}/sqlalchemy"
-PARADEDB_CONTAINER_NAME="paradedb-docs-verify"
-PARADEDB_VERSION="$(grep -m 1 '^version = ' "$REPO_ROOT/Cargo.toml" | sed 's/version = "\(.*\)"/\1/')"
-PARADEDB_IMAGE="paradedb/paradedb:${PARADEDB_VERSION}-pg18"
-PARADEDB_URL="postgresql://postgres:postgres@localhost:5422/postgres"
+PARADEDB_HOST="${PARADEDB_HOST:-localhost}"
+PARADEDB_PORT="${PARADEDB_PORT:-28818}"
+PARADEDB_DATABASE="${PARADEDB_DATABASE:-postgres}"
+PARADEDB_USER="${PARADEDB_USER:-$(id -un)}"
+PARADEDB_PASSWORD="${PARADEDB_PASSWORD:-}"
 PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-python.XXXXXX)"
 PYTHON_BIN="$PYTHON_ENV_DIR/bin/python"
 RUBY_GEM_HOME="$(mktemp -d -t paradedb-docs-ruby.XXXXXX)"
@@ -24,32 +25,12 @@ cleanup() {
 
 trap cleanup EXIT
 
-if docker ps --format '{{.Names}}' | grep -Fxq "$PARADEDB_CONTAINER_NAME"; then
-  echo "ParadeDB container ${PARADEDB_CONTAINER_NAME} is already running..."
-elif docker ps -a --format '{{.Names}}' | grep -Fxq "$PARADEDB_CONTAINER_NAME"; then
-  echo "Starting existing ParadeDB container ${PARADEDB_CONTAINER_NAME}..."
-  docker start "$PARADEDB_CONTAINER_NAME" >/dev/null
-else
-  echo "Starting ParadeDB container ${PARADEDB_CONTAINER_NAME} from ${PARADEDB_IMAGE}..."
-  docker run -d \
-    --name "$PARADEDB_CONTAINER_NAME" \
-    -e POSTGRES_PASSWORD=postgres \
-    -p "5422:5432" \
-    "$PARADEDB_IMAGE" >/dev/null
-fi
-
-echo "Waiting for ParadeDB to become ready..."
-for _ in {1..30}; do
-  if docker exec "$PARADEDB_CONTAINER_NAME" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
-    break
-  fi
-  sleep 5
-done
-
-if ! docker exec "$PARADEDB_CONTAINER_NAME" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
-  echo "ParadeDB did not become ready in time" >&2
-  exit 1
-fi
+export PARADEDB_HOST PARADEDB_PORT PARADEDB_DATABASE PARADEDB_USER PARADEDB_PASSWORD
+export PGHOST="$PARADEDB_HOST"
+export PGPORT="$PARADEDB_PORT"
+export PGDATABASE="$PARADEDB_DATABASE"
+export PGUSER="$PARADEDB_USER"
+export PGPASSWORD="$PARADEDB_PASSWORD"
 
 echo "Creating temporary Python environment for Python snippet verification..."
 python3 -m venv "$PYTHON_ENV_DIR"
@@ -68,8 +49,7 @@ GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
 
 "$PYTHON_BIN" "${SCRIPT_DIR}/extract_code_snippets.py" >/dev/null
 
-psql "$PARADEDB_URL" -v ON_ERROR_STOP=1 -X \
-  -f "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql" >/dev/null
+psql -f "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql" >/dev/null
 
 sql_pass_count=0
 sql_fail_count=0
@@ -77,7 +57,7 @@ sql_fail_count=0
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-  if psql "$PARADEDB_URL" -v ON_ERROR_STOP=1 -X -f "$snippet_file" >/dev/null; then
+  if psql -f "$snippet_file" >/dev/null; then
     echo "[SUCCESS] $rel_snippet" >&2
     sql_pass_count=$((sql_pass_count + 1))
   else

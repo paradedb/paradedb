@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import getpass
+import os
 from typing import Any
 
 from sqlalchemy import (
@@ -22,7 +24,22 @@ from sqlalchemy.dialects.postgresql import INT4RANGE, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5422/postgres"
+def build_database_url() -> str:
+    """Build a SQLAlchemy connection string for the docs verification database."""
+    user = os.environ.get("PARADEDB_USER", getpass.getuser())
+    password = os.environ.get("PARADEDB_PASSWORD", "")
+    host = os.environ.get("PARADEDB_HOST", "localhost")
+    port = os.environ.get("PARADEDB_PORT", "28818")
+    database = os.environ.get("PARADEDB_DATABASE", "postgres")
+
+    credentials = user
+    if password:
+        credentials = f"{credentials}:{password}"
+
+    return f"postgresql+psycopg://{credentials}@{host}:{port}/{database}"
+
+
+DATABASE_URL = build_database_url()
 
 
 class Base(DeclarativeBase):

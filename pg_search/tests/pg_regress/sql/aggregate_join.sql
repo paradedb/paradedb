@@ -226,9 +226,15 @@ DELETE FROM agg_join_products WHERE description = 'Orphan product no tags';
 -- SECTION 6: COUNT(DISTINCT) on JOIN
 -- =====================================================================
 
--- Test 6.1: COUNT(DISTINCT) — falls back to Postgres native because
--- DISTINCT aggregates change the UPPERREL_GROUP_AGG input structure,
--- causing join key extraction to fail. Results are still correct.
+-- Test 6.1: COUNT(DISTINCT) — routed through DataFusion via count_udaf(distinct=true).
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category, COUNT(DISTINCT t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
 SELECT p.category, COUNT(DISTINCT t.tag_name)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -283,20 +289,56 @@ GROUP BY p.category
 ORDER BY p.category;
 
 -- =====================================================================
--- SECTION 8: Verify single-table aggregates still use Tantivy
+-- SECTION 8: Composite ON clause (T_List equi-key extraction)
+-- Postgres may wrap multi-condition ON clause quals in a T_List node
+-- rather than a T_BoolExpr(AND). This tests that code path.
 -- =====================================================================
 
--- Test 8.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
+CREATE TABLE comp_a (id SERIAL PRIMARY KEY, description TEXT, x INT, y INT);
+CREATE TABLE comp_b (id SERIAL PRIMARY KEY, name TEXT, x INT, y INT);
+INSERT INTO comp_a VALUES (1,'laptop fast',10,20),(2,'shoes nice',30,40),(3,'laptop pro',10,20);
+INSERT INTO comp_b VALUES (1,'B1',10,20),(2,'B2',30,40);
+CREATE INDEX idx_comp_a ON comp_a USING bm25(id,description,x,y) WITH (key_field='id',text_fields='{"description":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+CREATE INDEX idx_comp_b ON comp_b USING bm25(id,name,x,y) WITH (key_field='id',text_fields='{"name":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+
+-- Test 8.1: Composite ON with two equi-join keys — should use DataFusion
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*)
+FROM comp_a a
+JOIN comp_b b ON a.x = b.x AND a.y = b.y
+WHERE a.description @@@ 'laptop OR shoes';
+
+SELECT COUNT(*)
+FROM comp_a a
+JOIN comp_b b ON a.x = b.x AND a.y = b.y
+WHERE a.description @@@ 'laptop OR shoes';
+
+-- Test 8.2: Parity check for composite ON
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*)
+FROM comp_a a
+JOIN comp_b b ON a.x = b.x AND a.y = b.y
+WHERE a.description @@@ 'laptop OR shoes';
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE comp_a;
+DROP TABLE comp_b;
+
+-- =====================================================================
+-- SECTION 9: Verify single-table aggregates still use Tantivy
+-- =====================================================================
+
+-- Test 9.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 
 -- =====================================================================
--- SECTION 9: Correctness parity — compare DataFusion vs Postgres default
+-- SECTION 10: Correctness parity — compare DataFusion vs Postgres default
 -- =====================================================================
 
--- Test 9.1: Run the same query with custom scan OFF to verify result parity
+-- Test 10.1: Run the same query with custom scan OFF to verify result parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT COUNT(*)

@@ -862,15 +862,6 @@ impl AggregateScan {
             );
             return Vec::new();
         }
-        // Reject queries with OR predicates in WHERE or joinrestrictinfo.
-        // Different PG versions place OR predicates in different locations.
-        if unsafe { datafusion_build::has_or_in_quals(root, input_rel) } {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: query contains OR predicates",
-                "join".to_string(),
-            );
-            return Vec::new();
-        }
 
         // Extract the join tree from the parse tree
         let mut plan = match unsafe {

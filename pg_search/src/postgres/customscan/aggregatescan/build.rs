@@ -515,6 +515,42 @@ pub(super) unsafe fn sort_direction_from_op(sortop: pg_sys::Oid) -> Option<SortD
     }
 }
 
+/// Returns true when the query has ORDER BY on a non-COUNT aggregate + LIMIT.
+/// These queries should be routed to DataFusion instead of Tantivy because:
+/// - Tantivy's NULL semantics for SUM/AVG/MIN/MAX differ from Postgres
+/// - DataFusion's SortExec(fetch=K) provides native TopK with correct NULLs
+///
+/// This is a lightweight parse-tree check used before building the full
+/// AggregateCSClause — it only looks at the sort clause structure.
+pub(super) unsafe fn has_non_count_aggregate_orderby(args: &CreateUpperPathsHookArgs) -> bool {
+    let parse = args.root().parse;
+    if parse.is_null() || (*parse).sortClause.is_null() || (*parse).groupClause.is_null() {
+        return false;
+    }
+    // Must have a LIMIT for TopK to matter
+    if (*parse).limitCount.is_null() {
+        return false;
+    }
+    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    if sort_clauses.len() != 1 {
+        return false;
+    }
+    let Some(sort_clause_ptr) = sort_clauses.get_ptr(0) else {
+        return false;
+    };
+    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+
+    // Check if the sort expression is a direct Aggref
+    let Some(aggref) = find_single_aggref_in_expr(sort_expr) else {
+        return false;
+    };
+    if aggref as *mut pg_sys::Node != sort_expr {
+        return false;
+    }
+    // Check if it's COUNT(*) — aggstar=true means COUNT(*)
+    !(*aggref).aggstar
+}
+
 /// Detects ORDER BY on aggregate metrics (e.g., ORDER BY COUNT(*) DESC)
 /// for TopK optimization in TermsAggregation.
 ///

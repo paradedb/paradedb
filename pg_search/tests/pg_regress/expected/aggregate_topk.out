@@ -71,22 +71,20 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                     QUERY PLAN                     
+----------------------------------------------------
  Limit
-   Output: category, (pdb.agg_fn('SUM'::text))
+   Output: category, (sum(rating))
    ->  Sort
-         Output: category, (pdb.agg_fn('SUM'::text))
-         Sort Key: (pdb.agg_fn('SUM'::text)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
-               Output: category, pdb.agg_fn('SUM'::text)
-               Index: idx_mock_items
-               Tantivy Query: {"with_index":{"query":"all"}}
-                 Applies to Aggregates: SUM(rating)
-                 Group By: category
-                 Limit: 3
-                 Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"rating","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(13 rows)
+         Output: category, (sum(rating))
+         Sort Key: (sum(mock_items.rating)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (sum(rating))
+               Backend: DataFusion
+               Indexes: idx_mock_items (mock_items)
+               Group By: category
+               Aggregates: SUM(rating)
+(11 rows)
 
 SELECT category, SUM(rating)
 FROM mock_items
@@ -98,7 +96,7 @@ LIMIT 3;
 -------------+-----
  Footwear    |  24
  Electronics |  20
- Home Decor  |  18
+ Photography |  18
 (3 rows)
 
 -- ================================================================
@@ -209,22 +207,20 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY SUM(rating) DESC
 LIMIT 3;
-                                                                                                                              QUERY PLAN                                                                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
  Limit
-   Output: category, (pdb.agg_fn('COUNT(*)'::text)), (pdb.agg_fn('SUM'::text)), (pdb.agg_fn('MIN'::text)), (pdb.agg_fn('MAX'::text))
+   Output: category, (count(*)), (sum(rating)), (min(rating)), (max(rating))
    ->  Sort
-         Output: category, (pdb.agg_fn('COUNT(*)'::text)), (pdb.agg_fn('SUM'::text)), (pdb.agg_fn('MIN'::text)), (pdb.agg_fn('MAX'::text))
-         Sort Key: (pdb.agg_fn('SUM'::text)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
-               Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
-               Index: idx_mock_items
-               Tantivy Query: {"with_index":{"query":"all"}}
-                 Applies to Aggregates: COUNT(*), SUM(rating), MIN(rating), MAX(rating)
-                 Group By: category
-                 Limit: 3
-                 Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"rating","missing":null}},"1":{"min":{"field":"rating","missing":null}},"2":{"max":{"field":"rating","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(13 rows)
+         Output: category, (count(*)), (sum(rating)), (min(rating)), (max(rating))
+         Sort Key: (sum(mock_items.rating)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (count(*)), (sum(rating)), (min(rating)), (max(rating))
+               Backend: DataFusion
+               Indexes: idx_mock_items (mock_items)
+               Group By: category
+               Aggregates: COUNT(*)(*), SUM(rating), MIN(rating), MAX(rating)
+(11 rows)
 
 SELECT category, COUNT(*), SUM(rating), MIN(rating), MAX(rating)
 FROM mock_items
@@ -236,7 +232,7 @@ LIMIT 3;
 -------------+-------+-----+-----+-----
  Footwear    |     6 |  24 |   3 |   5
  Electronics |     5 |  20 |   3 |   5
- Home Decor  |     4 |  18 |   4 |   5
+ Photography |     4 |  18 |   4 |   5
 (3 rows)
 
 -- ================================================================

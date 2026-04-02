@@ -117,11 +117,20 @@ impl CustomScan for AggregateScan {
 
         match input_rel.reloptkind {
             pg_sys::RelOptKind::RELOPT_BASEREL => {
-                // If the estimated number of groups exceeds Tantivy's bucket limit,
-                // fall back to DataFusion which has no such limit.
-                let estimated_groups = builder.args().output_rel().rows;
-                let max_buckets = gucs::max_term_agg_buckets() as f64;
-                if estimated_groups > max_buckets {
+                let use_datafusion = unsafe {
+                    // If the estimated number of groups exceeds Tantivy's bucket limit,
+                    // fall back to DataFusion which has no such limit.
+                    let estimated_groups = builder.args().output_rel().rows;
+                    let max_buckets = gucs::max_term_agg_buckets() as f64;
+                    if estimated_groups > max_buckets {
+                        true
+                    } else {
+                        // ORDER BY non-COUNT aggregate + LIMIT: route to DataFusion
+                        // for correct NULL semantics and native TopK via SortExec(fetch=K).
+                        build::has_non_count_aggregate_orderby(builder.args())
+                    }
+                };
+                if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
                         return Vec::new();
                     }
@@ -880,12 +889,11 @@ impl AggregateScan {
 
         // Reject CROSS JOINs (no equi-join keys). Without join keys the
         // second table's PgSearchTableProvider has no Named fields, producing
-        // empty RecordBatches.
-        // NOTE: For single-table RELOPT_BASEREL overflow, sources.len() == 1
-        // and the plan is a RelNode::Scan with no join keys. This guard
-        // currently also rejects that path; a later PR wraps this check in
-        // `if sources.len() > 1` to allow single-table DataFusion fallback.
-        if plan.join_keys().is_empty() {
+        // empty RecordBatches. Single-table scans (sources.len() == 1) have
+        // no join keys by definition and are allowed — they reach this path
+        // when routed from RELOPT_BASEREL (e.g., max_buckets overflow or
+        // ORDER BY non-COUNT aggregate + LIMIT).
+        if sources.len() > 1 && plan.join_keys().is_empty() {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
                 "join".to_string(),

@@ -19,7 +19,7 @@ ORDER BY
 LIMIT 10;
 
 -- DataFusion TopK aggregate scan
-SET paradedb.enable_aggregate_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT
     f.title,
     COUNT(*)
 FROM files f

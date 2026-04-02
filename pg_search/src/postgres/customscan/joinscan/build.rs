@@ -585,6 +585,16 @@ pub enum JoinLevelExpr {
     Or(Vec<JoinLevelExpr>),
     /// Logical NOT of a child expression.
     Not(Box<JoinLevelExpr>),
+    /// Post-LeftMark-join filter: `mark = true OR col IS NULL` (or `mark = false OR col IS NULL`
+    /// for the anti/NOT-IN variant). Used to implement `col IS NULL OR col IN (SELECT ...)`.
+    MarkOrNull {
+        /// True for NOT IN patterns (anti-join semantics).
+        is_anti: bool,
+        /// Varno of the outer column tested for IS NULL.
+        null_test_varno: pgrx::pg_sys::Index,
+        /// Attribute number of the outer column tested for IS NULL.
+        null_test_attno: pgrx::pg_sys::AttrNumber,
+    },
 }
 
 /// A node in the intermediate relational plan tree.

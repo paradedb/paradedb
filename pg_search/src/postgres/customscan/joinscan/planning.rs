@@ -216,7 +216,10 @@ unsafe fn collect_join_sources_base_rel(
         }
     }
 
+    // Top-level SubPlans (e.g. `col IN (SELECT ...)`)
     let mut extracted_subqueries = Vec::new();
+    // SubPlans nested inside OR expressions (e.g. `col IS NULL OR col IN (SELECT ...)`)
+    let mut extracted_or_subqueries: Vec<OrSubPlanExtraction> = Vec::new();
 
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
         side_info = side_info.with_indexrelid(bm25_index.oid());
@@ -253,9 +256,22 @@ unsafe fn collect_join_sources_base_rel(
                 if let Some((subplan, is_anti, inner_root)) =
                     extract_subplan_from_clause(root, (*ri).clause.cast())
                 {
+                    // Top-level SubPlan (e.g. `col IN (SELECT ...)`) → Semi/Anti join.
                     extracted_subqueries.push((subplan, is_anti, inner_root));
                 } else {
-                    search_ri.push(ri);
+                    // Try to extract SubPlan from inside an OR expression.
+                    // Handles patterns like `col IS NULL OR col IN (SELECT ...)`.
+                    let clause = if !(*ri).orclause.is_null() {
+                        (*ri).orclause.cast()
+                    } else {
+                        (*ri).clause.cast()
+                    };
+                    if let Some(or_extraction) = extract_subplan_from_or_clause(root, clause) {
+                        extracted_or_subqueries.push(or_extraction);
+                    } else {
+                        // Not a SubPlan — pass to extract_quals for search predicate extraction.
+                        search_ri.push(ri);
+                    }
                 }
             }
 
@@ -292,7 +308,7 @@ unsafe fn collect_join_sources_base_rel(
     let mut current_node = RelNode::Scan(Box::new(source));
     let mut all_keys = Vec::new();
 
-    // Wrap current_node in Join nodes for each extracted subquery
+    // Wrap current_node in Join nodes for each top-level extracted subquery (Semi/Anti)
     for (subplan, is_anti, inner_root) in extracted_subqueries {
         // Find the final rel for the inner subquery
         let inner_rel = find_final_rel(inner_root);
@@ -324,6 +340,68 @@ unsafe fn collect_join_sources_base_rel(
 
         all_keys.extend(equi_keys);
         current_node = RelNode::Join(Box::new(join_node));
+    }
+
+    // Wrap current_node in LeftMark join + Filter for each OR-extracted subquery.
+    // These come from patterns like `col IS NULL OR col IN (SELECT ...)`.
+    // The LeftMark join produces all left rows + a boolean "mark" column.
+    // The Filter keeps rows where `mark = true OR col IS NULL`.
+    for or_ext in extracted_or_subqueries {
+        let inner_rel = find_final_rel(or_ext.inner_root);
+        if inner_rel.is_null() {
+            continue;
+        }
+
+        let Some((inner_node, inner_keys)) = collect_join_sources(or_ext.inner_root, inner_rel)
+        else {
+            continue;
+        };
+
+        all_keys.extend(inner_keys);
+
+        let equi_keys = extract_equi_keys_from_subplan(
+            or_ext.subplan,
+            or_ext.inner_root,
+            &current_node,
+            &inner_node,
+        );
+
+        // Build a LeftMark join: produces all left rows + boolean "mark" column.
+        let join_type = if or_ext.is_anti {
+            // NOT IN (...) OR IS NULL  →  LeftMark with inverted mark check
+            crate::postgres::customscan::joinscan::build::JoinType::LeftMark
+        } else {
+            // IN (...) OR IS NULL  →  LeftMark
+            crate::postgres::customscan::joinscan::build::JoinType::LeftMark
+        };
+
+        let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
+            join_type,
+            left: current_node,
+            right: inner_node,
+            equi_keys: equi_keys.clone(),
+            filter: None,
+        };
+
+        all_keys.extend(equi_keys);
+        let join_rel = RelNode::Join(Box::new(join_node));
+
+        // Wrap the LeftMark join in a Filter node:
+        //   `mark = true OR outer_col IS NULL`  (for IN)
+        //   `mark = false OR outer_col IS NULL`  (for NOT IN)
+        //
+        // The filter is stored as a MarkOrNullFilter which is handled specially
+        // during DataFusion plan building (see scan_state.rs).
+        let filter_node = crate::postgres::customscan::joinscan::build::FilterNode {
+            input: join_rel,
+            predicate: crate::postgres::customscan::joinscan::build::JoinLevelExpr::MarkOrNull {
+                is_anti: or_ext.is_anti,
+                null_test_varno: or_ext.null_test_varno,
+                null_test_attno: or_ext.null_test_attno,
+            },
+        };
+
+        current_node = RelNode::Filter(Box::new(filter_node));
     }
 
     Some((current_node, all_keys))
@@ -542,6 +620,126 @@ unsafe fn extract_subplan_from_clause(
     }
 
     None
+}
+
+/// Result of extracting a SubPlan from within an OR expression.
+/// Contains the SubPlan info plus the outer column varno/attno
+/// for which the IS NULL condition was found (used to build the
+/// post-LeftMark-join filter: `mark = true OR outer_col IS NULL`).
+struct OrSubPlanExtraction {
+    subplan: *mut pg_sys::SubPlan,
+    is_anti: bool,
+    inner_root: *mut pg_sys::PlannerInfo,
+    /// The outer variable's varno and varattno for the IS NULL branch.
+    null_test_varno: pg_sys::Index,
+    null_test_attno: pg_sys::AttrNumber,
+}
+
+/// Attempts to extract a `T_SubPlan` node from an OR expression that combines
+/// an `IS NULL` test with an `IN (SubPlan)` / `NOT IN (SubPlan)` test on the
+/// same column.
+///
+/// Recognises patterns like:
+///   `col IS NULL OR col IN (SELECT ...)`
+///   `col IS NULL OR NOT col IN (SELECT ...)`
+///
+/// Returns the SubPlan, negation flag, inner PlannerInfo, and the column
+/// targeted by the IS NULL test (needed for the post-LeftMark filter).
+unsafe fn extract_subplan_from_or_clause(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> Option<OrSubPlanExtraction> {
+    if node.is_null() {
+        return None;
+    }
+
+    // Must be an OR BoolExpr
+    if (*node).type_ != pg_sys::NodeTag::T_BoolExpr {
+        return None;
+    }
+    let bool_expr = node as *mut pg_sys::BoolExpr;
+    if (*bool_expr).boolop != pg_sys::BoolExprType::OR_EXPR {
+        return None;
+    }
+
+    let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+    if args.len() != 2 {
+        return None; // Only handle two-branch OR for now
+    }
+
+    let arg0 = args.get_ptr(0)?;
+    let arg1 = args.get_ptr(1)?;
+
+    // Try both orderings: (NullTest, SubPlan) and (SubPlan, NullTest)
+    try_extract_null_and_subplan(root, arg0, arg1)
+        .or_else(|| try_extract_null_and_subplan(root, arg1, arg0))
+}
+
+/// Helper: given a candidate null_arg (expected IS NULL) and subplan_arg (expected SubPlan),
+/// try to extract the pieces.
+unsafe fn try_extract_null_and_subplan(
+    root: *mut pg_sys::PlannerInfo,
+    null_arg: *mut pg_sys::Node,
+    subplan_arg: *mut pg_sys::Node,
+) -> Option<OrSubPlanExtraction> {
+    // --- Validate the IS NULL side ---
+    if (*null_arg).type_ != pg_sys::NodeTag::T_NullTest {
+        return None;
+    }
+    let null_test = null_arg as *mut pg_sys::NullTest;
+    if (*null_test).nulltesttype != pg_sys::NullTestType::IS_NULL {
+        return None;
+    }
+    // The argument to IS NULL must be a Var
+    let null_test_arg = (*null_test).arg as *mut pg_sys::Node;
+    if null_test_arg.is_null() || (*null_test_arg).type_ != pg_sys::NodeTag::T_Var {
+        return None;
+    }
+    let null_var = null_test_arg as *mut pg_sys::Var;
+    let null_varno = (*null_var).varno as pg_sys::Index;
+    let null_attno = (*null_var).varattno;
+
+    // --- Validate the SubPlan side ---
+    let (subplan, is_anti, inner_root) = extract_subplan_from_clause(root, subplan_arg)?;
+
+    // Verify the SubPlan's testexpr references the same outer column as the IS NULL.
+    // The testexpr is typically: outer_var = PARAM (or PARAM = outer_var).
+    let testexpr = (*subplan).testexpr;
+    if testexpr.is_null() {
+        return None;
+    }
+    if (*testexpr).type_ != pg_sys::NodeTag::T_OpExpr {
+        return None;
+    }
+    let opexpr = testexpr as *mut pg_sys::OpExpr;
+    let te_args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+    if te_args.len() != 2 {
+        return None;
+    }
+    let te_arg0 = strip_wrappers(te_args.get_ptr(0)?);
+    let te_arg1 = strip_wrappers(te_args.get_ptr(1)?);
+
+    // Find the Var in testexpr (the outer column)
+    let outer_var = if (*te_arg0).type_ == pg_sys::NodeTag::T_Var {
+        te_arg0 as *mut pg_sys::Var
+    } else if (*te_arg1).type_ == pg_sys::NodeTag::T_Var {
+        te_arg1 as *mut pg_sys::Var
+    } else {
+        return None;
+    };
+
+    // The outer var in testexpr must match the IS NULL var
+    if (*outer_var).varno as pg_sys::Index != null_varno || (*outer_var).varattno != null_attno {
+        return None;
+    }
+
+    Some(OrSubPlanExtraction {
+        subplan,
+        is_anti,
+        inner_root,
+        null_test_varno: null_varno,
+        null_test_attno: null_attno,
+    })
 }
 
 /// Extracts equi-join keys from a subplan's testexpr for `Semi`/`Anti` joins.

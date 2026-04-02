@@ -155,6 +155,11 @@ impl<'a> PredicateTranslator<'a> {
                 )?;
                 Some(Expr::Not(Box::new(inner)))
             }
+            JoinLevelExpr::MarkOrNull { .. } => {
+                // Handled directly in scan_state.rs (build_relnode_df) because
+                // it needs source metadata to resolve column names.
+                None
+            }
         }
     }
 

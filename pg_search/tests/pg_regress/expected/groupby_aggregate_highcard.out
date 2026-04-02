@@ -21,16 +21,15 @@ SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating;
-                 QUERY PLAN                  
----------------------------------------------
- Sort
-   Sort Key: rating
-   ->  Custom Scan (ParadeDB Aggregate Scan)
-         Backend: DataFusion
-         Indexes: products_idx (products)
-         Group By: rating
-         Aggregates: COUNT(*)(*)
-(7 rows)
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on products
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: rating
+     Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
+(6 rows)
 
 -- Limit + offset exceeds max_term_agg_buckets
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -39,17 +38,18 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 6;
-                    QUERY PLAN                     
----------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: rating
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Backend: DataFusion
-               Indexes: products_idx (products)
-               Group By: rating
-               Aggregates: COUNT(*)(*)
-(8 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan) on products
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: rating
+           Limit: 5
+           Offset: 6
+           Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
+(9 rows)
 
 -- Ordering on a non grouping column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -58,17 +58,23 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating, id
 ORDER BY rating, id
 LIMIT 5 OFFSET 5;
-                    QUERY PLAN                     
----------------------------------------------------
+WARNING:  Aggregate Scan not used: Field 'rating' is not a grouping column. To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+                            QUERY PLAN                             
+-------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: rating, id
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Backend: DataFusion
-               Indexes: products_idx (products)
-               Group By: rating, id
-               Aggregates: COUNT(*)(*)
-(8 rows)
+         ->  HashAggregate
+               Group Key: id
+               ->  Custom Scan (ParadeDB Base Scan) on products
+                     Table: products
+                     Index: products_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: id, rating
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(13 rows)
 
 -- This should be pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -77,19 +83,19 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 5;
-                    QUERY PLAN                     
----------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: rating, (count(*))
-   ->  Sort
-         Output: rating, (count(*))
-         Sort Key: products.rating
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: rating, (count(*))
-               Backend: DataFusion
-               Indexes: products_idx (products)
-               Group By: rating
-               Aggregates: COUNT(*)(*)
+   Output: rating, (pdb.agg_fn('COUNT(*)'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: rating, pdb.agg_fn('COUNT(*)'::text)
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: rating
+           Limit: 5
+           Offset: 5
+           Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
 (11 rows)
 
 SELECT rating, COUNT(*) FROM products
@@ -149,20 +155,19 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 0;
-                    QUERY PLAN                     
----------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: rating, (count(*))
-   ->  Sort
-         Output: rating, (count(*))
-         Sort Key: products.rating
-         ->  Custom Scan (ParadeDB Aggregate Scan)
-               Output: rating, (count(*))
-               Backend: DataFusion
-               Indexes: products_idx (products)
-               Group By: rating
-               Aggregates: COUNT(*)(*)
-(11 rows)
+   Output: rating, (pdb.agg_fn('COUNT(*)'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: rating, pdb.agg_fn('COUNT(*)'::text)
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+           Applies to Aggregates: COUNT(*)
+           Group By: rating
+           Limit: 0
+           Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":10,"size":10}}}
+(10 rows)
 
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()

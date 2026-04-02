@@ -191,7 +191,7 @@ pub(super) unsafe fn collect_join_sources(
 /// TODO: Currently, we only extract `T_SubPlan`s if they are at the top level of the
 /// `baserestrictinfo` list (i.e. not nested inside AND/OR trees). This is sufficient for many
 /// typical query patterns, but could be extended to dig deeper into the boolean expression tree.
-unsafe fn collect_join_sources_base_rel(
+pub(super) unsafe fn collect_join_sources_base_rel(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
     rti: pg_sys::Index,

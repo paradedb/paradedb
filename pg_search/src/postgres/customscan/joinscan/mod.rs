@@ -154,9 +154,9 @@ use self::build::{JoinCSClause, RelNode, RelationAlias};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::memory::create_memory_pool;
 use self::planning::{
-    collect_join_sources, collect_required_fields, ensure_score_bubbling,
-    expr_uses_scores_from_source, extract_join_conditions, extract_orderby, get_score_func_rti,
-    order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
+    collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
+    ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
+    get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
 };
 use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
@@ -196,6 +196,177 @@ use std::sync::Arc;
 
 #[derive(Default)]
 pub struct JoinScan;
+
+/// Try to create JoinScan `CustomPath`s for a single base relation that contains
+/// SubPlan-based join opportunities (e.g. `col IN (SELECT ...) OR col IS NULL`).
+///
+/// Called from `set_rel_pathlist_hook` after BaseScan has been considered.
+/// When PostgreSQL keeps a subquery as a SubPlan instead of flattening it into
+/// a join, `set_join_pathlist_hook` never fires.  This function gives JoinScan
+/// a chance to handle those patterns.
+pub unsafe fn try_create_subplan_join_paths(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+    rti: pg_sys::Index,
+) -> Vec<pg_sys::CustomPath> {
+    use crate::postgres::customscan::range_table::bms_iter;
+
+    if !crate::gucs::enable_join_custom_scan() {
+        return Vec::new();
+    }
+
+    // Only consider base relations (single RTI).
+    let relids = (*rel).relids;
+    if relids.is_null() || pg_sys::bms_num_members(relids) != 1 {
+        return Vec::new();
+    }
+    let base_rti = match bms_iter(relids).next() {
+        Some(r) => r,
+        None => return Vec::new(),
+    };
+    if base_rti != rti {
+        return Vec::new();
+    }
+
+    // Try to extract SubPlan-based joins from baserestrictinfo.
+    let (plan, join_keys) = match collect_join_sources_base_rel(root, rel, rti) {
+        Some(res) => res,
+        None => return Vec::new(),
+    };
+
+    // Only proceed if the plan actually contains a join (from SubPlan extraction).
+    if !plan.has_semi_or_anti() {
+        return Vec::new();
+    }
+
+    let all_sources = plan.sources();
+
+    // --- Activation checks (mirrors create_custom_path) ---
+
+    // Need a search predicate somewhere.
+    if !all_sources.iter().any(|s| s.scan_info.has_search_predicate) {
+        return Vec::new();
+    }
+
+    // All tables need BM25 indexes.
+    if all_sources
+        .iter()
+        .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
+    {
+        return Vec::new();
+    }
+
+    // No aggregates.
+    if (*(*root).parse).hasAggs {
+        return Vec::new();
+    }
+
+    // LIMIT required.
+    let limit_offset = LimitOffset::from_root(root);
+    if limit_offset.limit.is_none() {
+        return Vec::new();
+    }
+
+    // Need equi-join keys.
+    if join_keys.is_empty() {
+        return Vec::new();
+    }
+
+    // ORDER BY columns must be fast fields.
+    if !order_by_columns_are_fast_fields(root, &all_sources) {
+        return Vec::new();
+    }
+
+    // All equi-join key columns must be fast fields.
+    for jk in &join_keys {
+        let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
+        let inner_source = all_sources.iter().find(|s| s.contains_rti(jk.inner_rti));
+        match (outer_source, inner_source) {
+            (Some(outer), Some(inner)) => {
+                let outer_hr = PgSearchRelation::open(outer.scan_info.heaprelid);
+                let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
+                let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
+                let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
+                if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
+                    .is_none()
+                    || resolve_fast_field(jk.inner_attno as i32, &inner_hr.tuple_desc(), &inner_ir)
+                        .is_none()
+                {
+                    return Vec::new();
+                }
+            }
+            _ => return Vec::new(),
+        }
+    }
+
+    // --- Build JoinCSClause ---
+    let mut join_clause = JoinCSClause::new(plan)
+        .with_limit(limit_offset.limit)
+        .with_offset(limit_offset.offset);
+
+    // Check scores.
+    for source in join_clause.plan.sources_mut() {
+        let score_in_tlist = expr_uses_scores_from_source((*root).processed_tlist.cast(), source);
+        let score_in_pathkey = pathkey_uses_scores_from_source(root, source);
+        if score_in_tlist || score_in_pathkey {
+            ensure_score_bubbling(source);
+        }
+    }
+
+    // Force left-side partitioning for SEMI/ANTI/LeftMark correctness.
+    if join_clause.plan.has_semi_or_anti() {
+        join_clause = join_clause.with_forced_partitioning(0);
+    }
+
+    // ORDER BY.
+    let output_rtis = join_clause.plan.output_rtis();
+    let current_sources = join_clause.plan.sources();
+    let order_by = match extract_orderby(root, &current_sources, &output_rtis) {
+        Some(ob) => ob,
+        None => return Vec::new(),
+    };
+    join_clause = join_clause.with_order_by(order_by);
+
+    // Costs (simple fixed since we force the path).
+    let startup_cost = crate::DEFAULT_STARTUP_COST;
+    let total_cost = startup_cost + 1.0;
+    let result_rows = limit_offset.limit.map(|l| l as f64).unwrap_or(1000.0);
+
+    // Set per-worker row estimates.
+    for source in join_clause.plan.sources_mut() {
+        if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
+            source.scan_info.estimated_rows_per_worker = Some(n);
+        }
+    }
+
+    // Build CustomPath manually using JoinScan's methods.
+    let private_data = PrivateData::new(join_clause);
+    let custom_path = pg_sys::CustomPath {
+        path: pg_sys::Path {
+            type_: pg_sys::NodeTag::T_CustomPath,
+            pathtype: pg_sys::NodeTag::T_CustomScan,
+            parent: rel,
+            pathtarget: (*rel).reltarget,
+            param_info: std::ptr::null_mut(),
+            rows: result_rows,
+            startup_cost,
+            total_cost,
+            pathkeys: if !private_data.join_clause.order_by.is_empty() {
+                (*root).query_pathkeys
+            } else {
+                std::ptr::null_mut()
+            },
+            ..Default::default()
+        },
+        flags: Flags::Force as u32,
+        methods: JoinScan::custom_path_methods(),
+        custom_private: private_data.into(),
+        custom_paths: std::ptr::null_mut(),
+        ..Default::default()
+    };
+
+    vec![custom_path]
+}
 
 impl ParallelQueryCapable for JoinScan {
     fn estimate_dsm_custom_scan(

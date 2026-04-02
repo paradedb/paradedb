@@ -532,12 +532,12 @@ mod tests {
     }
 
     #[pgrx::pg_test]
-    fn test_agg_project_unsupported_type() {
-        // Unsupported Arrow type should return None
+    fn test_agg_project_timestamp_type() {
+        // TimestampNanosecondArray is now supported for TIMESTAMPOID
         let arr: ArrayRef = Arc::new(arrow_array::TimestampNanosecondArray::from(vec![
             1_000_000_000i64,
         ]));
         let datum = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
-        assert!(datum.is_none());
+        assert!(datum.is_some());
     }
 }

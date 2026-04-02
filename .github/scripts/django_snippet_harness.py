@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import getpass
+import os
+
 import django
 from django.conf import settings
 from django.contrib.postgres.fields import IntegerRangeField
@@ -14,11 +17,11 @@ from paradedb.queryset import ParadeDBManager
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "postgres",
-        "USER": "postgres",
-        "PASSWORD": "postgres",
-        "HOST": "localhost",
-        "PORT": 5422,
+        "NAME": os.environ.get("PARADEDB_DATABASE", "postgres"),
+        "USER": os.environ.get("PARADEDB_USER", getpass.getuser()),
+        "PASSWORD": os.environ.get("PARADEDB_PASSWORD", ""),
+        "HOST": os.environ.get("PARADEDB_HOST", "localhost"),
+        "PORT": int(os.environ.get("PARADEDB_PORT", "28818")),
     }
 }
 

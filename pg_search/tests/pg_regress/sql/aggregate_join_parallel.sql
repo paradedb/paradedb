@@ -153,6 +153,8 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy';
 -- =====================================================================
 
 -- Test 3.1: Parity — target_partitions=1 vs Postgres native (no custom scan)
+-- Note: DataFusion f64 summation may differ from Postgres float8
+-- in least-significant digits (compensated vs naive summation).
 SET paradedb.aggregate_target_partitions TO 1;
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT COUNT(*), SUM(p.price), AVG(p.rating), MIN(p.price), MAX(p.price)
@@ -194,5 +196,7 @@ ORDER BY p.category;
 -- =====================================================================
 -- Clean up
 -- =====================================================================
+RESET paradedb.aggregate_target_partitions;
+RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE par_agg_tags;
 DROP TABLE par_agg_products;

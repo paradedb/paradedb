@@ -597,7 +597,7 @@ pub fn enable_segmented_topk() -> bool {
 }
 
 pub fn aggregate_target_partitions() -> usize {
-    AGGREGATE_TARGET_PARTITIONS.get().max(1) as usize
+    AGGREGATE_TARGET_PARTITIONS.get() as usize
 }
 
 #[cfg(any(test, feature = "pg_test"))]

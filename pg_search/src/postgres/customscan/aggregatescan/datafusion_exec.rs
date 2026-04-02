@@ -46,8 +46,10 @@ use futures::future::{FutureExt, LocalBoxFuture};
 /// Creates a DataFusion [`SessionContext`] for aggregate workloads.
 ///
 /// Shares the base session setup with JoinScan (visibility, late
-/// materialization, sort-merge join) via [`build_base_session`], then
-/// appends `TopKAggregateRule` instead of `SegmentedTopKRule`.
+/// materialization, sort-merge join) via [`build_base_session`].
+/// Does not include `SegmentedTopKRule` (row-level TopK doesn't apply
+/// to aggregates). DataFusion's built-in `SortExec(fetch=K)` handles
+/// TopK natively via a bounded heap.
 ///
 /// `target_partitions` controls parallelism: 1 = single-threaded,
 /// >1 = DataFusion produces two-phase aggregate plans (partial → final).

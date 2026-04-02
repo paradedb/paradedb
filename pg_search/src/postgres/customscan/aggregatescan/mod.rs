@@ -168,6 +168,14 @@ impl CustomScan for AggregateScan {
             PrivateData::DataFusion { .. } => {
                 // For join aggregates, scanrelid=0 (no single base relation)
                 builder.set_scanrelid(0);
+
+                // Check if the query has pathkeys (ORDER BY) before consuming builder.
+                let root = builder.args().root;
+                let has_pathkeys = unsafe {
+                    !(*root).query_pathkeys.is_null()
+                        && pg_sys::list_length((*root).query_pathkeys) > 0
+                };
+
                 unsafe {
                     let mut cscan = builder.build();
 
@@ -179,9 +187,14 @@ impl CustomScan for AggregateScan {
                     cscan.custom_scan_tlist =
                         pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
 
-                    // Replace Aggrefs in the plan's targetlist (but NOT custom_scan_tlist)
-                    let plan = &mut cscan.scan.plan;
-                    replace_aggrefs_in_target_list(plan);
+                    if !has_pathkeys {
+                        // No ORDER BY: safe to replace Aggrefs at plan time.
+                        let plan = &mut cscan.scan.plan;
+                        replace_aggrefs_in_target_list(plan);
+                    }
+                    // When has_pathkeys: aggrefs stay in plan.targetlist so Postgres's
+                    // make_sort_from_pathkeys can find them. Replacement is deferred to
+                    // create_custom_scan_state (execution time).
                     cscan
                 }
             }
@@ -215,7 +228,8 @@ impl CustomScan for AggregateScan {
                 targetlist,
                 topk,
             } => {
-                // Replace Aggrefs for DataFusion path too
+                // Replace Aggrefs for DataFusion path — handles the deferred case
+                // when plan_custom_path skipped replacement due to pathkeys (ORDER BY).
                 unsafe {
                     let cscan = builder.args().cscan;
                     let pg_plan = &mut (*cscan).scan.plan;
@@ -897,11 +911,12 @@ impl AggregateScan {
         }
 
         // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
-        // We pass the TopK info to DataFusion so it can fuse Sort+Limit+Aggregate
-        // internally via TopKAggregateRule. We do NOT declare pathkeys to Postgres
-        // because scanrelid=0 CustomScans cannot resolve pathkey items through
-        // setrefs.c, causing "could not find pathkey item to sort" errors.
-        // Postgres may add a redundant Sort above us, which is correct (just wasteful).
+        // We pass the TopK info to DataFusion so it can add Sort+Limit to the
+        // logical plan. DataFusion's SortExec(fetch=K) uses a bounded TopK heap
+        // internally. We do NOT declare pathkeys to Postgres because scanrelid=0
+        // CustomScans cannot resolve pathkey items through setrefs.c, causing
+        // "could not find pathkey item to sort" errors. Postgres may add a
+        // redundant Sort above us, which is correct (just wasteful on K rows).
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
         // Build the custom path with DataFusion private data

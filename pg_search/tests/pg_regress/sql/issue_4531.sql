@@ -104,6 +104,38 @@ ORDER BY p.id DESC LIMIT 10;
 -- Restore suppliers
 INSERT INTO suppliers_4531 VALUES (1, 'Alpha'), (2, 'Beta');
 
+-- ============================================================
+-- Test 5: NULL supplier_id row that ALSO matches 'widget'
+-- Ensures the LeftMark join correctly passes NULL outer keys.
+-- ============================================================
+INSERT INTO products_4531 VALUES (6, 'NullWidget', 'A null widget', NULL);
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id
+FROM products_4531 p
+WHERE p.description @@@ 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 10;
+
+SELECT p.id
+FROM products_4531 p
+WHERE p.description @@@ 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 10;
+
+-- ============================================================
+-- Verify: same query with JoinScan OFF must return same results
+-- ============================================================
+SET paradedb.enable_join_custom_scan = off;
+
+SELECT p.id
+FROM products_4531 p
+WHERE p.description @@@ 'widget'
+  AND (p.supplier_id IS NULL OR p.supplier_id IN (SELECT s.id FROM suppliers_4531 s))
+ORDER BY p.id DESC LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = on;
+
 -- Cleanup
 DROP TABLE products_4531 CASCADE;
 DROP TABLE suppliers_4531 CASCADE;

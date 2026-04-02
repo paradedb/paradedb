@@ -151,6 +151,31 @@ SELECT 'beer'::pdb.fuzzy(2, "false", "false");
 (1 row)
 
 --
+-- prefix behavior: verify prefix=true vs prefix=false produce different queries
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.fuzzy(2, t);
+                                                                        QUERY PLAN
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"shoes","distance":2,"transposition_cost_one":false,"prefix":true}}}}
+(6 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.fuzzy(2, f);
+                                                                         QUERY PLAN
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"shoes","distance":2,"transposition_cost_one":false,"prefix":false}}}}
+(6 rows)
+
+--
 -- error conditions
 --
 SELECT 'beer'::pdb.fuzzy(-1);

@@ -147,6 +147,11 @@ pub enum JoinType {
     Right,
     Semi,
     Anti,
+    /// LeftMark join: returns all left rows with an additional boolean "mark" column
+    /// indicating whether a right-side match exists. Used to decorrelate
+    /// `EXISTS` / `IN` subqueries inside disjunctive predicates such as
+    /// `col IS NULL OR col IN (SELECT ...)`.
+    LeftMark,
     RightSemi,
     RightAnti,
     UniqueOuter,
@@ -162,6 +167,7 @@ impl fmt::Display for JoinType {
             JoinType::Right => "Right",
             JoinType::Semi => "Semi",
             JoinType::Anti => "Anti",
+            JoinType::LeftMark => "LeftMark",
             JoinType::RightSemi => "RightSemi",
             JoinType::RightAnti => "RightAnti",
             JoinType::UniqueOuter => "UniqueOuter",
@@ -646,8 +652,10 @@ impl RelNode {
         match self {
             RelNode::Scan(_) => false,
             RelNode::Join(j) => {
-                matches!(j.join_type, JoinType::Semi | JoinType::Anti)
-                    || j.left.has_semi_or_anti()
+                matches!(
+                    j.join_type,
+                    JoinType::Semi | JoinType::Anti | JoinType::LeftMark
+                ) || j.left.has_semi_or_anti()
                     || j.right.has_semi_or_anti()
             }
             RelNode::Filter(f) => f.input.has_semi_or_anti(),
@@ -660,7 +668,7 @@ impl RelNode {
             RelNode::Join(j) => {
                 if !matches!(
                     j.join_type,
-                    JoinType::Inner | JoinType::Semi | JoinType::Anti
+                    JoinType::Inner | JoinType::Semi | JoinType::Anti | JoinType::LeftMark
                 ) {
                     acc.push(j.join_type);
                 }
@@ -739,7 +747,7 @@ impl RelNode {
         match self {
             RelNode::Scan(s) => acc.push(&**s),
             RelNode::Join(j) => match j.join_type {
-                JoinType::Semi | JoinType::Anti => {
+                JoinType::Semi | JoinType::Anti | JoinType::LeftMark => {
                     j.left.collect_output_sources(acc);
                 }
                 JoinType::RightSemi | JoinType::RightAnti => {

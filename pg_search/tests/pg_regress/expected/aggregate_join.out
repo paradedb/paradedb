@@ -439,12 +439,11 @@ GROUP BY p.category;
                          QUERY PLAN                          
 -------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
-   Output: p.category, (count(t.tag_name))
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Group By: category
    Aggregates: COUNT(tag_name)
-(6 rows)
+(5 rows)
 
 SELECT p.category, COUNT(t.tag_name)
 FROM agg_join_products p

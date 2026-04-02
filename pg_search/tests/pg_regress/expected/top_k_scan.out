@@ -96,6 +96,7 @@ USING bm25 (
     }'
 );
 \echo '======== EXECUTION METHOD TESTS ========'
+======== EXECUTION METHOD TESTS ========
 \echo 'Tests to identify when TopKScanExecState vs NormalScanExecState is used'
 Tests to identify when TopKScanExecState vs NormalScanExecState is used
 -- TODO: Many queries won't get Top K due to https://github.com/paradedb/paradedb/issues/2688

@@ -35,7 +35,7 @@ This will spin up a Postgres instance with `pg_search` preinstalled.
 
 If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow the steps below.
 
-It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_search` must be in the list of `shared_preload_libraries` if your Postgres version is less than 17:
+It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_search` must be in the list of `shared_preload_libraries`:
 
 ```c
 shared_preload_libraries = 'pg_search'

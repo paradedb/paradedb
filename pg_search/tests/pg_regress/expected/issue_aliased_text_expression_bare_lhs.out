@@ -1,0 +1,24 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
+  (lower(description)::pdb.literal('alias=literal_description')),
+  rating
+)
+WITH (key_field='id');
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description) DESC
+LIMIT 5;
+ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
+DROP TABLE mock_items;

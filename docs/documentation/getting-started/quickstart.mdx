@@ -11,15 +11,12 @@ To start you'll need a [Django](https://www.djangoproject.com/) project with [ps
 Run the following to create one:
 
 ```bash
-uv init --bare
-uv add django psycopg django-paradedb
-uv run django-admin startproject myproject .
-uv run manage.py startapp myapp
+python3 -m venv .venv
+source .venv/bin/activate
+pip install django psycopg django-paradedb
+python3 -m django startproject myproject .
+python3 manage.py startapp myapp
 ```
-
-<Note>
-You can install `uv` [here](https://docs.astral.sh/uv/getting-started/installation/#installation-methods).
-</Note>
 
 In `myproject/settings.py`, add `'django.contrib.postgres'` and `'myapp'` to `INSTALLED_APPS`, then configure `DATABASES["default"]` to point to Postgres:
 
@@ -90,11 +87,11 @@ class MockItem(models.Model):
 Run the migrations to create the table and index:
 
 ```bash
-uv run manage.py makemigrations
-uv run manage.py migrate
+python3 manage.py makemigrations
+python3 manage.py migrate
 ```
 
-Now open a Python shell with `uv run manage.py shell` and run the following command to populate `mock_items`.
+Now open a Python shell with `python3 manage.py shell` and run the following command to populate `mock_items`.
 
 ```python
 from django.db import connection

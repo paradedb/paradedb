@@ -30,23 +30,20 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
+                     QUERY PLAN                     
+----------------------------------------------------
  Limit
-   Output: category, (pdb.agg_fn('COUNT(*)'::text))
+   Output: category, (count(*))
    ->  Sort
-         Output: category, (pdb.agg_fn('COUNT(*)'::text))
-         Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
-               Output: category, pdb.agg_fn('COUNT(*)'::text)
-               Index: idx_mock_items
-               Tantivy Query: {"with_index":{"query":"all"}}
-                 Applies to Aggregates: COUNT(*)
-                 Group By: category
-                 Limit: 3
-                 TopK Order: COUNT(*) DESC
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":65000,"size":3}}}
-(14 rows)
+         Output: category, (count(*))
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (count(*))
+               Backend: DataFusion
+               Indexes: idx_mock_items (mock_items)
+               Group By: category
+               Aggregates: COUNT(*)(*)
+(11 rows)
 
 SELECT category, COUNT(*)
 FROM mock_items
@@ -58,7 +55,7 @@ LIMIT 3;
 -------------+-------
  Footwear    |     6
  Electronics |     5
- Groceries   |     4
+ Photography |     4
 (3 rows)
 
 -- ================================================================
@@ -111,23 +108,20 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) ASC
 LIMIT 2;
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
+                     QUERY PLAN                     
+----------------------------------------------------
  Limit
-   Output: category, (pdb.agg_fn('COUNT(*)'::text))
+   Output: category, (count(*))
    ->  Sort
-         Output: category, (pdb.agg_fn('COUNT(*)'::text))
-         Sort Key: (pdb.agg_fn('COUNT(*)'::text))
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
-               Output: category, pdb.agg_fn('COUNT(*)'::text)
-               Index: idx_mock_items
-               Tantivy Query: {"with_index":{"query":"all"}}
-                 Applies to Aggregates: COUNT(*)
-                 Group By: category
-                 Limit: 2
-                 TopK Order: COUNT(*) ASC
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"asc"},"segment_size":65000,"size":2}}}
-(14 rows)
+         Output: category, (count(*))
+         Sort Key: (count(*))
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (count(*))
+               Backend: DataFusion
+               Indexes: idx_mock_items (mock_items)
+               Group By: category
+               Aggregates: COUNT(*)(*)
+(11 rows)
 
 SELECT category, COUNT(*)
 FROM mock_items
@@ -137,8 +131,8 @@ ORDER BY COUNT(*) ASC
 LIMIT 2;
  category  | count 
 -----------+-------
- Beauty    |     3
  Furniture |     3
+ Beauty    |     3
 (2 rows)
 
 -- ================================================================
@@ -153,7 +147,7 @@ LIMIT 2 OFFSET 1;
   category   | count 
 -------------+-------
  Electronics |     5
- Groceries   |     4
+ Photography |     4
 (2 rows)
 
 -- ================================================================
@@ -248,23 +242,20 @@ WHERE mock_items @@@ paradedb.all()
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
+                     QUERY PLAN                     
+----------------------------------------------------
  Limit
-   Output: category, (pdb.agg_fn('COUNT(*)'::text))
+   Output: category, (count(*))
    ->  Sort
-         Output: category, (pdb.agg_fn('COUNT(*)'::text))
-         Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
-               Output: category, pdb.agg_fn('COUNT(*)'::text)
-               Index: idx_mock_items
-               Tantivy Query: {"with_index":{"query":"all"}}
-                 Applies to Aggregates: COUNT(*)
-                 Group By: category
-                 Limit: 1
-                 TopK Order: COUNT(*) DESC
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","order":{"_count":"desc"},"segment_size":65000,"size":1}}}
-(14 rows)
+         Output: category, (count(*))
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (count(*))
+               Backend: DataFusion
+               Indexes: idx_mock_items (mock_items)
+               Group By: category
+               Aggregates: COUNT(*)(*)
+(11 rows)
 
 SELECT category, COUNT(*)
 FROM mock_items
@@ -290,12 +281,12 @@ LIMIT 100;
 -------------+-------
  Footwear    |     6
  Electronics |     5
+ Books       |     4
+ Photography |     4
  Groceries   |     4
  Toys        |     4
- Books       |     4
- Apparel     |     4
  Home Decor  |     4
- Photography |     4
+ Apparel     |     4
  Beauty      |     3
  Furniture   |     3
 (10 rows)
@@ -331,7 +322,7 @@ LIMIT 3;
 -------------+-------
  Footwear    |     6
  Electronics |     5
- Groceries   |     4
+ Photography |     4
 (3 rows)
 
 DROP TABLE mock_items;

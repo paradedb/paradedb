@@ -15,9 +15,7 @@ WITH (key_field='id');
 
 SELECT description, rating
 FROM mock_items
-WHERE description ||| 'sleek running shoes'
-ORDER BY lower(description) DESC
-LIMIT 5;
+WHERE description ||| 'sleek running shoes';
 
 DROP INDEX search_idx;
 
@@ -32,9 +30,15 @@ WITH (key_field='id');
 
 SELECT description, rating
 FROM mock_items
-WHERE description ||| 'sleek running shoes'
-ORDER BY lower(description) DESC
-LIMIT 5;
+WHERE description ||| 'sleek running shoes';
+
+SELECT description, rating
+FROM mock_items
+WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes';
+
+SELECT description, rating
+FROM mock_items
+WHERE description::pdb.alias('simple_description') ||| 'sleek running shoes';
 
 DROP TABLE mock_items;
 

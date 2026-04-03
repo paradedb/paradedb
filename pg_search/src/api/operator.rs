@@ -536,9 +536,22 @@ pub unsafe fn field_name_from_node(
                 return Some(field_name.clone());
             }
             _ => {
-                // TODO: if the alias matches exaclty we should allow it
-                // TODO improve message
-                panic!("Could not unambiguously identify column");
+                let mut names: Vec<String> = candidate_field_names
+                    .into_iter()
+                    .map(|f| format!("`{}`", f))
+                    .collect();
+                names.sort();
+
+                let column_name = attname_from_var(heaprel, var)
+                    .map(|f| f.to_string())
+                    .unwrap_or_else(|| "<unknown>".to_string());
+
+                panic!(
+                    "Query is ambiguous: column `{}` matches multiple indexed fields: {}. Use `{}::pdb.alias(...)` to choose one",
+                    column_name,
+                    names.join(", "),
+                    column_name
+                );
             }
         }
     }

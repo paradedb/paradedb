@@ -81,7 +81,7 @@ struct Args {
     fail_on_error: bool,
 
     /// Whether to clear the OS page cache and Postgres buffer cache before each query.
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = true, num_args = 1)]
     clear_caches: bool,
 }
 

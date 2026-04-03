@@ -1,0 +1,408 @@
+-- =====================================================================
+-- TopK Aggregate-on-JOIN via DataFusion Backend
+-- =====================================================================
+-- Tests ORDER BY aggregate + LIMIT pushdown into DataFusion for join
+-- aggregate queries. DataFusion's native SortExec(fetch=K) provides
+-- TopK via a bounded heap. Also tests GROUP BY on joins (scanrelid=0).
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test Data Setup
+-- =====================================================================
+CREATE TABLE topk_products (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    price FLOAT,
+    rating INTEGER
+);
+CREATE TABLE topk_tags (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    tag_name TEXT
+);
+INSERT INTO topk_products (description, category, price, rating) VALUES
+    ('Laptop with fast processor', 'Electronics', 999.99, 5),
+    ('Gaming laptop with RGB', 'Electronics', 1299.99, 5),
+    ('Wireless mouse for office', 'Electronics', 29.99, 4),
+    ('Running shoes for athletes', 'Sports', 89.99, 4),
+    ('Basketball shoes premium', 'Sports', 119.99, 3),
+    ('Winter jacket warm', 'Clothing', 129.99, 3),
+    ('Summer dress casual', 'Clothing', 49.99, 4),
+    ('Toy laptop for kids', 'Toys', 499.99, 2),
+    ('Puzzle game educational', 'Toys', 19.99, 5),
+    ('Cookbook healthy recipes', 'Books', 24.99, 4);
+INSERT INTO topk_tags (product_id, tag_name) VALUES
+    (1, 'tech'), (1, 'computer'),
+    (2, 'tech'), (2, 'gaming'),
+    (3, 'tech'), (3, 'office'),
+    (4, 'fitness'), (4, 'running'),
+    (5, 'fitness'), (5, 'basketball'),
+    (6, 'outdoor'),
+    (7, 'fashion'),
+    (8, 'tech'), (8, 'kids'),
+    (9, 'kids'), (9, 'education'),
+    (10, 'cooking');
+CREATE INDEX topk_products_idx ON topk_products
+USING bm25 (id, description, category, price, rating)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
+);
+CREATE INDEX topk_tags_idx ON topk_tags
+USING bm25 (id, product_id, tag_name)
+WITH (
+    key_field='id',
+    numeric_fields='{"product_id": {"fast": true}}',
+    text_fields='{"tag_name": {"fast": true}}'
+);
+-- =====================================================================
+-- Test 1: GROUP BY on join (requires custom_scan_tlist fix)
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category;
+                     QUERY PLAN                      
+-----------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: p.category, (count(*))
+   Backend: DataFusion
+   Indexes: topk_products_idx (p), topk_tags_idx (t)
+   Group By: category
+   Aggregates: COUNT(*)(*)
+(6 rows)
+
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category;
+  category   | count 
+-------------+-------
+ Electronics |     4
+ Sports      |     4
+ Clothing    |     2
+ Toys        |     4
+ Books       |     1
+(5 rows)
+
+-- =====================================================================
+-- Test 2: ORDER BY COUNT(*) DESC LIMIT — TopK pushdown
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit
+   Output: p.category, (count(*))
+   ->  Sort
+         Output: p.category, (count(*))
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.category, (count(*))
+               Backend: DataFusion
+               Indexes: topk_products_idx (p), topk_tags_idx (t)
+               Group By: category
+               Aggregates: COUNT(*)(*)
+(11 rows)
+
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+  category   | count 
+-------------+-------
+ Sports      |     4
+ Electronics |     4
+ Toys        |     4
+(3 rows)
+
+-- =====================================================================
+-- Test 3: ORDER BY SUM(price) DESC LIMIT
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, SUM(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY SUM(p.price) DESC
+LIMIT 2;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit
+   Output: p.category, (sum(p.price))
+   ->  Sort
+         Output: p.category, (sum(p.price))
+         Sort Key: (sum(p.price)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.category, (sum(p.price))
+               Backend: DataFusion
+               Indexes: topk_products_idx (p), topk_tags_idx (t)
+               Group By: category
+               Aggregates: SUM(price)
+(11 rows)
+
+SELECT p.category, SUM(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY SUM(p.price) DESC
+LIMIT 2;
+  category   |   sum   
+-------------+---------
+ Electronics | 4599.96
+ Toys        | 1039.96
+(2 rows)
+
+-- =====================================================================
+-- Test 4: ORDER BY COUNT(*) ASC LIMIT (bottom K)
+-- =====================================================================
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) ASC
+LIMIT 2;
+ category | count 
+----------+-------
+ Books    |     1
+ Clothing |     2
+(2 rows)
+
+-- =====================================================================
+-- Test 5: Multiple aggregates with ORDER BY one of them
+-- =====================================================================
+SELECT p.category, COUNT(*), SUM(p.price), MIN(p.rating), MAX(p.rating)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY SUM(p.price) DESC
+LIMIT 3;
+  category   | count |   sum   | min | max 
+-------------+-------+---------+-----+-----
+ Electronics |     4 | 4599.96 |   5 |   5
+ Toys        |     4 | 1039.96 |   2 |   5
+ Sports      |     4 |  419.96 |   3 |   4
+(3 rows)
+
+-- =====================================================================
+-- Test 6: Parity — TopK results match full ORDER BY
+-- =====================================================================
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC;
+  category   | count |        sum         
+-------------+-------+--------------------
+ Electronics |     4 |            4599.96
+ Sports      |     4 |             419.96
+ Toys        |     4 |            1039.96
+ Clothing    |     2 | 179.98000000000002
+ Books       |     1 |              24.99
+(5 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+  category   | count |   sum   
+-------------+-------+---------
+ Sports      |     4 |  419.96
+ Electronics |     4 | 4599.96
+ Toys        |     4 | 1039.96
+(3 rows)
+
+-- =====================================================================
+-- Test 7: Scalar aggregates (no GROUP BY) still work
+-- =====================================================================
+SELECT COUNT(*), SUM(p.price), AVG(p.rating)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+ count |  sum   | avg 
+-------+--------+-----
+    10 | 6019.9 | 3.8
+(1 row)
+
+-- =====================================================================
+-- Test 8: LIMIT 1 (smallest possible K)
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 1;
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Limit
+   Output: p.category, (count(*))
+   ->  Sort
+         Output: p.category, (count(*))
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.category, (count(*))
+               Backend: DataFusion
+               Indexes: topk_products_idx (p), topk_tags_idx (t)
+               Group By: category
+               Aggregates: COUNT(*)(*)
+(11 rows)
+
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 1;
+  category   | count 
+-------------+-------
+ Electronics |     4
+(1 row)
+
+-- =====================================================================
+-- Test 9: LIMIT larger than number of groups (returns all groups)
+-- =====================================================================
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 100;
+  category   | count 
+-------------+-------
+ Sports      |     4
+ Electronics |     4
+ Toys        |     4
+ Clothing    |     2
+ Books       |     1
+(5 rows)
+
+-- =====================================================================
+-- Test 10: OFFSET + LIMIT on join TopK
+-- =====================================================================
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 2 OFFSET 1;
+  category   | count 
+-------------+-------
+ Electronics |     4
+ Toys        |     4
+(2 rows)
+
+-- =====================================================================
+-- Test 11: Parity — TopK top-3 matches top-3 of full result
+-- =====================================================================
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+  category   | count 
+-------------+-------
+ Electronics |     4
+ Sports      |     4
+ Toys        |     4
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY COUNT(*) DESC
+LIMIT 3;
+  category   | count 
+-------------+-------
+ Sports      |     4
+ Electronics |     4
+ Toys        |     4
+(3 rows)
+
+-- =====================================================================
+-- Test 12: ORDER BY SUM ASC LIMIT (bottom K by sum)
+-- =====================================================================
+SELECT p.category, SUM(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY SUM(p.price) ASC
+LIMIT 2;
+ category |        sum         
+----------+--------------------
+ Books    |              24.99
+ Clothing | 179.98000000000002
+(2 rows)
+
+-- =====================================================================
+-- Test 13: MVCC visibility — deleted rows excluded from join aggregates
+-- Verifies that the DataFusion aggregate path respects Postgres
+-- snapshot visibility. Without VisibilityFilterExec, deleted-but-not-
+-- vacuumed rows would be counted in aggregates.
+-- =====================================================================
+-- Baseline: count Electronics tags before any deletion
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR mouse'
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count 
+-------------+-------
+ Electronics |     6
+ Toys        |     2
+(2 rows)
+
+-- Delete one product (Wireless mouse) — its 2 tags should disappear from count
+DELETE FROM topk_products WHERE id = 3;
+-- After delete: Electronics count should drop by 2 (the mouse's 2 tags)
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR mouse'
+GROUP BY p.category
+ORDER BY p.category;
+  category   | count 
+-------------+-------
+ Electronics |     4
+ Toys        |     2
+(2 rows)
+
+DROP TABLE topk_tags;
+DROP TABLE topk_products;

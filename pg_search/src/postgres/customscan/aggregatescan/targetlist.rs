@@ -34,7 +34,9 @@ use std::ptr::addr_of_mut;
 /// Find the single Aggref node in an expression tree (handles wrapped aggregates like COALESCE(COUNT(*), 0))
 /// Returns the pointer to the Aggref if exactly one is found, None if zero or multiple Aggrefs exist.
 /// Expressions like COUNT(*) + SUM(x) will return None since we can't handle multiple aggregates.
-unsafe fn find_single_aggref_in_expr(expr: *mut pg_sys::Node) -> Option<*mut pg_sys::Aggref> {
+pub(super) unsafe fn find_single_aggref_in_expr(
+    expr: *mut pg_sys::Node,
+) -> Option<*mut pg_sys::Aggref> {
     use pgrx::pg_guard;
 
     struct WalkerContext {

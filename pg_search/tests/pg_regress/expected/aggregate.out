@@ -186,7 +186,7 @@ SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
 SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
  sum 
 -----
-   0
+    
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -277,7 +277,7 @@ SELECT SUM(price) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (c
 SELECT SUM(price) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
  sum 
 -----
-   0
+    
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -354,7 +354,7 @@ FROM products
 WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
  count | sum 
 -------+-----
-     0 |   0
+     0 |    
 (1 row)
 
 -- =====================================================================

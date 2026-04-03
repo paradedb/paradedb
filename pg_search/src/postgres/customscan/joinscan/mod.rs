@@ -163,8 +163,7 @@ use self::privdat::PrivateData;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{
-    build_joinscan_logical_plan, build_joinscan_physical_plan, create_session_context,
-    JoinScanState,
+    build_joinscan_logical_plan, build_physical_plan, create_session_context, JoinScanState,
 };
 use crate::api::OrderByFeature;
 use crate::index::mvcc::MvccSatisfies;
@@ -1241,7 +1240,7 @@ impl CustomScan for JoinScan {
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
-                .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                .block_on(build_physical_plan(&ctx, logical_plan))
                 .expect("Failed to create execution plan");
             let displayable = displayable(physical_plan.as_ref());
             explainer.add_text("DataFusion Physical Plan", "");
@@ -1327,7 +1326,7 @@ impl CustomScan for JoinScan {
 
                 // Convert logical plan to physical plan
                 let plan = runtime
-                    .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                    .block_on(build_physical_plan(&ctx, logical_plan))
                     .expect("Failed to create execution plan");
 
                 let memory_pool = create_memory_pool(

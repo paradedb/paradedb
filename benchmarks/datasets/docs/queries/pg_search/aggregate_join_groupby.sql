@@ -5,8 +5,7 @@
 -- aggregate pipeline including custom_scan_tlist for scanrelid=0.
 
 -- Postgres default plan (custom scan off)
-SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT f.title, COUNT(*), SUM(p."sizeInBytes")
+SET paradedb.enable_aggregate_custom_scan TO off; SELECT f.title, COUNT(*), SUM(p."sizeInBytes")
 FROM files f
 JOIN pages p ON f.id = p."fileId"
 WHERE f.content @@@ 'Section'
@@ -14,8 +13,7 @@ GROUP BY f.title
 ORDER BY f.title;
 
 -- DataFusion aggregate scan
-SET paradedb.enable_aggregate_custom_scan TO on;
-SELECT f.title, COUNT(*), SUM(p."sizeInBytes")
+SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT f.title, COUNT(*), SUM(p."sizeInBytes")
 FROM files f
 JOIN pages p ON f.id = p."fileId"
 WHERE f.content @@@ 'Section'

@@ -367,15 +367,15 @@ unsafe fn arrow_to_datum_single(
         }
         DataType::Int16 => {
             let arr = array.as_any().downcast_ref::<Int16Array>().unwrap();
-            pg_sys::Datum::from(arr.value(index) as usize)
+            pg_sys::Datum::from(arr.value(index) as isize as usize)
         }
         DataType::Int32 => {
             let arr = array.as_any().downcast_ref::<Int32Array>().unwrap();
-            pg_sys::Datum::from(arr.value(index) as usize)
+            pg_sys::Datum::from(arr.value(index) as isize as usize)
         }
         DataType::Int64 => {
             let arr = array.as_any().downcast_ref::<Int64Array>().unwrap();
-            pg_sys::Datum::from(arr.value(index) as usize)
+            pg_sys::Datum::from(arr.value(index) as isize as usize)
         }
         DataType::UInt32 => {
             let arr = array.as_any().downcast_ref::<UInt32Array>().unwrap();

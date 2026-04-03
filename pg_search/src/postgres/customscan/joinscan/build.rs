@@ -266,6 +266,19 @@ pub struct JoinLevelSearchPredicate {
     pub display_string: String,
 }
 
+/// Describes a single input variable dependency of an expression.
+/// Type metadata is resolved at planning time from the Var node itself
+/// (Var.vartype, Var.vartypmod, Var.varcollid), avoiding any catalog lookups
+/// at execution time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputVarInfo {
+    pub rti: pg_sys::Index,
+    pub attno: pg_sys::AttrNumber,
+    pub type_oid: pg_sys::Oid,
+    pub typmod: i32,
+    pub collation: pg_sys::Oid,
+}
+
 /// Projection information for a child join.
 /// Maps an output attribute (by index in the vector) to the source column.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,6 +287,24 @@ pub struct ChildProjection {
     pub attno: pg_sys::AttrNumber,
     #[serde(default)]
     pub is_score: bool,
+    /// Serialized PostgreSQL expression tree (via nodeToString).
+    /// Present when this projection is an expression, not a simple column reference.
+    #[serde(default)]
+    pub pg_expr_string: Option<String>,
+    /// The Var nodes this expression depends on, with resolved type metadata.
+    #[serde(default)]
+    pub input_vars: Option<Vec<InputVarInfo>>,
+    /// The PostgreSQL result type OID of the expression.
+    #[serde(default)]
+    pub result_type_oid: Option<pg_sys::Oid>,
+}
+
+impl ChildProjection {
+    /// Returns true if this projection represents an expression rather than
+    /// a simple column reference or score function.
+    pub fn is_expression(&self) -> bool {
+        self.pg_expr_string.is_some()
+    }
 }
 
 use crate::index::mvcc::MvccSatisfies;

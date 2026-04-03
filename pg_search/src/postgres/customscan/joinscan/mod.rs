@@ -1006,6 +1006,9 @@ impl CustomScan for JoinScan {
                         rti: info.rti,
                         attno: info.original_attno,
                         is_score: info.is_score,
+                        pg_expr_string: None,
+                        input_vars: None,
+                        result_type_oid: None,
                     })
                     .collect(),
             );

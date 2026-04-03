@@ -263,7 +263,7 @@ impl BaseScan {
                     attempt_pushdown,
                 ) {
                     partial_quals.push(qual);
-                } else if !is_subplan(ri.cast()) {
+                } else if !is_subplan(ri.cast(), root) {
                     all_skipped_are_subplans = false;
                 }
             }
@@ -1028,7 +1028,7 @@ impl CustomScan for BaseScan {
             let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
             let mut subplan_quals = PgList::<pg_sys::Node>::new();
             for clause in clauses.iter_ptr() {
-                if is_subplan(clause) {
+                if is_subplan(clause, builder.args().root) {
                     // strip RestrictInfo wrapper, plan.qual needs bare expressions
                     let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
                         let ri = clause as *mut pg_sys::RestrictInfo;

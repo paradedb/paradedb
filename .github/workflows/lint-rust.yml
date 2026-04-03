@@ -21,7 +21,7 @@ concurrency:
 jobs:
   lint-rust:
     name: Lint Rust Files
-    runs-on: ubicloud-standard-2-arm
+    runs-on: ubicloud-standard-4-arm
     strategy:
       matrix:
         pg_version: [18]

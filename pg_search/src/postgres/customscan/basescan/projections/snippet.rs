@@ -229,6 +229,7 @@ pub mod pdb {
                     pg_sys::INT4OID, // element type OID (integer)
                     4,               // typlen (int4 is 4 bytes)
                     true,            // typbyval (int4 is passed by value)
+                    #[allow(clippy::useless_conversion)]
                     pg_sys::TYPALIGN_INT.try_into().unwrap(), // typalign (char type, architecture-specific)
                 );
 

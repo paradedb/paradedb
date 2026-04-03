@@ -243,7 +243,7 @@ pub unsafe fn try_create_subplan_join_paths(
             // Top-level SubPlans are handled by the normal join_pathlist hook.
             if (*clause).type_ == pg_sys::NodeTag::T_BoolExpr {
                 let bexpr = clause as *mut pg_sys::BoolExpr;
-                (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR && is_subplan(clause)
+                (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR && is_subplan(clause, root)
             } else {
                 false
             }

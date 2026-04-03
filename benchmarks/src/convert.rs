@@ -149,7 +149,7 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
 
         let mut csv_stmt = conn
             .prepare(&format!(
-                "SELECT count(*) FROM read_csv('{output}/{table}/*.csv')",
+                "SELECT count(*) FROM read_csv('{output}/{table}/*.csv', parallel=false, header=true)",
             ))
             .with_context(|| format!("Failed to prepare csv count statement for {table}"))?;
         let csv_count: usize = csv_stmt

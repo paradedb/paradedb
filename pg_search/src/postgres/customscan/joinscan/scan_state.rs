@@ -606,7 +606,73 @@ fn build_clause_df<'a>(
 
                 for (i, proj) in projection.iter().enumerate() {
                     let col_alias = format!("col_{}", i + 1);
-                    let expr = build_projection_expr(proj, join_clause);
+
+                    let expr = if proj.is_expression() {
+                        // Expression-based DISTINCT: create a PgExprUdf call
+                        let udf_name = format!("pg_eval_expr_{}", i);
+                        let input_vars = match proj.input_vars.as_ref() {
+                            Some(vars) => vars,
+                            None => {
+                                pgrx::warning!(
+                                    "PgExprUdf: expression projection missing input_vars"
+                                );
+                                continue;
+                            }
+                        };
+                        let pg_expr_string = match proj.pg_expr_string.as_ref() {
+                            Some(s) => s.clone(),
+                            None => {
+                                pgrx::warning!(
+                                    "PgExprUdf: expression projection missing pg_expr_string"
+                                );
+                                continue;
+                            }
+                        };
+                        let result_type_oid = proj.result_type_oid.unwrap_or(pg_sys::TEXTOID);
+
+                        // Build input column expressions from the DataFusion plan
+                        let plan_sources = join_clause.plan.sources();
+                        let input_exprs: Vec<Expr> = input_vars
+                            .iter()
+                            .filter_map(|var_info| {
+                                for (idx, source) in plan_sources.iter().enumerate() {
+                                    if let Some(attno) =
+                                        source.map_var(var_info.rti, var_info.attno)
+                                    {
+                                        if let Some(field_name) = source.column_name(attno) {
+                                            return Some(make_source_col(source, idx, &field_name));
+                                        }
+                                    }
+                                }
+                                None
+                            })
+                            .collect();
+
+                        if input_exprs.len() != input_vars.len() {
+                            pgrx::warning!(
+                                "PgExprUdf: could not resolve all input columns for expression"
+                            );
+                            continue;
+                        }
+
+                        let udf = super::pg_expr_udf::PgExprUdf::new(
+                            udf_name,
+                            pg_expr_string,
+                            input_vars.clone(),
+                            result_type_oid,
+                        );
+
+                        Expr::ScalarFunction(
+                            datafusion::logical_expr::expr::ScalarFunction::new_udf(
+                                Arc::new(datafusion::logical_expr::ScalarUDF::from(udf)),
+                                input_exprs,
+                            ),
+                        )
+                    } else {
+                        // Simple column or score — existing logic
+                        build_projection_expr(proj, join_clause)
+                    };
+
                     group_exprs.push(expr.alias(&col_alias));
 
                     // Record mapping for sort step:

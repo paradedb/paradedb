@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   test-docs:
-    name: Test Docs for Broken Links, SEO Issues, and Code Snippets That error
+    name: Test Docs for Broken Links, SEO Issues, and Code Snippets
     runs-on: ubuntu-latest
 
     steps:

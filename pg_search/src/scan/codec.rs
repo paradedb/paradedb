@@ -26,7 +26,7 @@ use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use tantivy::index::SegmentId;
 
-use crate::postgres::customscan::joinscan::pg_expr_udf::PgExprUdf;
+use crate::postgres::customscan::joinscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
@@ -300,12 +300,12 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             return Ok(Arc::new(ScalarUDF::new_from_impl(udf)));
         }
 
-        if name.starts_with("pg_eval_expr_") {
+        if name.starts_with(PG_EXPR_UDF_PREFIX) {
             let mut udf: PgExprUdf = serde_json::from_slice(buf).map_err(|e| {
                 DataFusionError::Internal(format!("Failed to deserialize PgExprUdf: {e}"))
             })?;
             udf.fixup_after_deserialize();
-            return Ok(Arc::new(ScalarUDF::from(udf)));
+            return Ok(Arc::new(ScalarUDF::new_from_impl(udf)));
         }
 
         Err(DataFusionError::NotImplemented(format!(
@@ -331,7 +331,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             return Ok(());
         }
 
-        if name.starts_with("pg_eval_expr_") {
+        if name.starts_with(PG_EXPR_UDF_PREFIX) {
             let udf = node
                 .inner()
                 .as_any()

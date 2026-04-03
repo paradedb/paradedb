@@ -35,13 +35,16 @@ use std::sync::Arc;
 
 use datafusion::arrow::array::*;
 use datafusion::arrow::datatypes::*;
-use datafusion::common::Result;
+use datafusion::common::{DataFusionError, Result};
 use datafusion::logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, Volatility};
 use pgrx::pg_sys;
 use pgrx::PgMemoryContexts;
 use serde::{Deserialize, Serialize};
 
 use crate::postgres::customscan::joinscan::build::InputVarInfo;
+
+/// Prefix for PgExprUdf names. UDF names follow the pattern `{PREFIX}{index}`.
+pub const PG_EXPR_UDF_PREFIX: &str = "pg_eval_expr_";
 
 /// A DataFusion ScalarUDF that wraps PostgreSQL's ExecEvalExpr.
 #[derive(Serialize, Deserialize)]
@@ -247,6 +250,11 @@ impl ScalarUDFImpl for PgExprUdf {
         // SAFETY: single-threaded access guaranteed by target_partitions=1.
         let pg_state = unsafe { self.get_or_init_state() };
 
+        // TODO(#4604): Per-row ExecEvalExpr allocations for pass-by-reference types
+        // (TEXT, etc.) accumulate for the entire batch in CurrentMemoryContext.
+        // For large batches, consider wrapping the loop in a dedicated memory context
+        // that is deleted after datums_to_arrow_array copies results to Arrow.
+        // Current impact: bounded by batch_size (typically 8192) × avg datum size.
         let mut results = Vec::with_capacity(num_rows);
         let mut nulls = Vec::with_capacity(num_rows);
 
@@ -258,7 +266,7 @@ impl ScalarUDFImpl for PgExprUdf {
                 // SAFETY: tts_values and tts_isnull are arrays of size >= natts.
                 for (col_idx, arg) in arg_values.iter().enumerate() {
                     let (value, is_null) =
-                        arrow_value_to_datum(arg, row_idx, self.input_vars[col_idx].type_oid);
+                        arrow_value_to_datum(arg, row_idx, self.input_vars[col_idx].type_oid)?;
                     (*pg_state.slot).tts_values.add(col_idx).write(value);
                     (*pg_state.slot).tts_isnull.add(col_idx).write(is_null);
                 }
@@ -325,25 +333,25 @@ unsafe fn arrow_value_to_datum(
     col: &ColumnarValue,
     row_idx: usize,
     type_oid: pg_sys::Oid,
-) -> (pg_sys::Datum, bool) {
+) -> Result<(pg_sys::Datum, bool)> {
     match col {
         ColumnarValue::Array(arr) => {
             if arr.is_null(row_idx) {
-                (pg_sys::Datum::from(0), true)
+                Ok((pg_sys::Datum::from(0), true))
             } else {
-                let datum = arrow_to_datum_single(arr.as_ref(), row_idx, type_oid);
-                (datum, false)
+                let datum = arrow_to_datum_single(arr.as_ref(), row_idx, type_oid)?;
+                Ok((datum, false))
             }
         }
         ColumnarValue::Scalar(scalar) => {
             if scalar.is_null() {
-                (pg_sys::Datum::from(0), true)
+                Ok((pg_sys::Datum::from(0), true))
             } else {
-                let arr = scalar
-                    .to_array()
-                    .expect("scalar to_array should not fail for supported types");
-                let datum = arrow_to_datum_single(arr.as_ref(), 0, type_oid);
-                (datum, false)
+                let arr = scalar.to_array().map_err(|e| {
+                    DataFusionError::Internal(format!("ScalarValue to array failed: {e}"))
+                })?;
+                let datum = arrow_to_datum_single(arr.as_ref(), 0, type_oid)?;
+                Ok((datum, false))
             }
         }
     }
@@ -357,59 +365,64 @@ unsafe fn arrow_to_datum_single(
     array: &dyn Array,
     index: usize,
     type_oid: pg_sys::Oid,
-) -> pg_sys::Datum {
+) -> Result<pg_sys::Datum> {
     use pgrx::IntoDatum;
 
     match array.data_type() {
         DataType::Boolean => {
             let arr = array.as_any().downcast_ref::<BooleanArray>().unwrap();
-            pg_sys::Datum::from(arr.value(index) as usize)
+            Ok(pg_sys::Datum::from(arr.value(index) as usize))
         }
         DataType::Int16 => {
             let arr = array.as_any().downcast_ref::<Int16Array>().unwrap();
-            pg_sys::Datum::from(arr.value(index) as isize as usize)
+            Ok(pg_sys::Datum::from(arr.value(index) as isize as usize))
         }
         DataType::Int32 => {
             let arr = array.as_any().downcast_ref::<Int32Array>().unwrap();
-            pg_sys::Datum::from(arr.value(index) as isize as usize)
+            Ok(pg_sys::Datum::from(arr.value(index) as isize as usize))
         }
         DataType::Int64 => {
             let arr = array.as_any().downcast_ref::<Int64Array>().unwrap();
-            pg_sys::Datum::from(arr.value(index) as isize as usize)
+            Ok(pg_sys::Datum::from(arr.value(index) as isize as usize))
         }
         DataType::UInt32 => {
             let arr = array.as_any().downcast_ref::<UInt32Array>().unwrap();
-            pg_sys::Datum::from(arr.value(index) as usize)
+            Ok(pg_sys::Datum::from(arr.value(index) as usize))
         }
         DataType::UInt64 => {
             let arr = array.as_any().downcast_ref::<UInt64Array>().unwrap();
-            pg_sys::Datum::from(arr.value(index) as usize)
+            Ok(pg_sys::Datum::from(arr.value(index) as usize))
         }
         DataType::Float32 => {
             let arr = array.as_any().downcast_ref::<Float32Array>().unwrap();
-            pg_sys::Datum::from(arr.value(index).to_bits() as usize)
+            Ok(pg_sys::Datum::from(arr.value(index).to_bits() as usize))
         }
         DataType::Float64 => {
             let arr = array.as_any().downcast_ref::<Float64Array>().unwrap();
-            pg_sys::Datum::from(arr.value(index).to_bits() as usize)
+            Ok(pg_sys::Datum::from(arr.value(index).to_bits() as usize))
         }
         DataType::Utf8 => {
             let arr = array.as_any().downcast_ref::<StringArray>().unwrap();
             let s = arr.value(index);
-            s.into_datum().unwrap_or(pg_sys::Datum::from(0))
+            Ok(s.into_datum().unwrap_or(pg_sys::Datum::from(0)))
         }
         DataType::Utf8View => {
             let arr = array.as_string_view();
             let s = arr.value(index);
-            s.into_datum().unwrap_or(pg_sys::Datum::from(0))
+            Ok(s.into_datum().unwrap_or(pg_sys::Datum::from(0)))
         }
         _ => {
-            // Fallback: try to use the existing arrow_array_to_datum for other types.
-            // Convert type_oid to PgOid for the existing utility.
             let pg_oid = pgrx::PgOid::from(type_oid);
             match crate::postgres::types_arrow::arrow_array_to_datum(array, index, pg_oid, None) {
-                Ok(Some(datum)) => datum,
-                _ => pg_sys::Datum::from(0),
+                Ok(Some(datum)) => Ok(datum),
+                Ok(None) => Err(DataFusionError::Internal(format!(
+                    "arrow_array_to_datum returned None for type OID {}",
+                    type_oid
+                ))),
+                Err(e) => Err(DataFusionError::Internal(format!(
+                    "arrow_array_to_datum failed for type OID {}: {e}",
+                    type_oid
+                ))),
             }
         }
     }

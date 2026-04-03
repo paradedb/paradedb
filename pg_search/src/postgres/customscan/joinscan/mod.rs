@@ -1006,10 +1006,12 @@ impl CustomScan for JoinScan {
             private_data.output_columns = output_columns;
 
             // Build output_projection, enriching expression entries with metadata
-            // when DISTINCT is active. Call distinct_columns_are_fast_fields directly
-            // to get DistinctEntry data — both this call and the validation call in
-            // validate_and_build_clause run during the same planning phase with the
-            // same valid parse tree.
+            // when DISTINCT is active.
+            //
+            // TODO(#4604): This is the second call to distinct_columns_are_fast_fields
+            // in the same planning phase (first in validate_and_build_clause). Both
+            // calls walk the same parse tree. Consider caching the result in a
+            // planning-phase-scoped structure to avoid redundant work.
             let distinct_entries = if private_data.join_clause.has_distinct {
                 let all_sources = private_data.join_clause.plan.sources();
                 distinct_columns_are_fast_fields(root, &all_sources)
@@ -1086,6 +1088,18 @@ impl CustomScan for JoinScan {
                                     rti: *rti,
                                     attno: 0,
                                     is_score: true,
+                                    pg_expr_string: None,
+                                    input_vars: None,
+                                    result_type_oid: None,
+                                }
+                            }
+                            Some(planning::DistinctEntry::IndexedExpression { rti }) => {
+                                // Indexed expressions use attno=0 (the existing convention
+                                // for non-physical columns handled by fast field machinery).
+                                build::ChildProjection {
+                                    rti: *rti,
+                                    attno: info.original_attno,
+                                    is_score: false,
                                     pg_expr_string: None,
                                     input_vars: None,
                                     result_type_oid: None,

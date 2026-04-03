@@ -1248,30 +1248,8 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 // (e.g., upper(name)) to the ORDER BY. Allow these if all their
                 // Var dependencies are fast fields — PG's Sort+Unique above the
                 // CustomScan handles the final ordering.
-                if !found && has_distinct {
-                    let var_list = pg_sys::pull_var_clause(
-                        expr.cast(),
-                        (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
-                    );
-                    let dep_vars = PgList::<pg_sys::Var>::from_pg(var_list);
-                    if !dep_vars.is_empty() {
-                        let all_fast = dep_vars.iter_ptr().all(|var_ptr| {
-                            let vno = (*var_ptr).varno as pg_sys::Index;
-                            let vattno = (*var_ptr).varattno;
-                            sources.iter().any(|s| {
-                                if !s.contains_rti(vno) {
-                                    return false;
-                                }
-                                let hr = PgSearchRelation::open(s.scan_info.heaprelid);
-                                let ir = PgSearchRelation::open(s.scan_info.indexrelid);
-                                let td = hr.tuple_desc();
-                                resolve_fast_field(vattno as i32, &td, &ir).is_some()
-                            })
-                        });
-                        if all_fast {
-                            found = true;
-                        }
-                    }
+                if !found && has_distinct && expression_vars_all_fast(expr.cast(), sources) {
+                    found = true;
                 }
 
                 if !found {
@@ -1284,6 +1262,36 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
     true
 }
 
+/// Check if all Var dependencies of an expression are fast fields in any source.
+/// Returns true if ALL Var deps are fast fields, false if any is missing or no vars found.
+unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSource]) -> bool {
+    let var_list = pg_sys::pull_var_clause(
+        expr,
+        (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
+    );
+    let vars = PgList::<pg_sys::Var>::from_pg(var_list);
+    if vars.is_empty() {
+        return false;
+    }
+    for var_ptr in vars.iter_ptr() {
+        let vno = (*var_ptr).varno as pg_sys::Index;
+        let vattno = (*var_ptr).varattno;
+        let found = sources.iter().any(|s| {
+            if !s.contains_rti(vno) {
+                return false;
+            }
+            let hr = PgSearchRelation::open(s.scan_info.heaprelid);
+            let ir = PgSearchRelation::open(s.scan_info.indexrelid);
+            let td = hr.tuple_desc();
+            resolve_fast_field(vattno as i32, &td, &ir).is_some()
+        });
+        if !found {
+            return false;
+        }
+    }
+    true
+}
+
 /// Represents a parsed DISTINCT target list entry.
 pub(super) enum DistinctEntry {
     /// Simple column reference (existing behavior)
@@ -1293,6 +1301,9 @@ pub(super) enum DistinctEntry {
     },
     /// Score function (existing behavior)
     Score { rti: pg_sys::Index },
+    /// An indexed expression that matched via find_matching_fast_field.
+    /// Handled by existing machinery — does NOT need the UDF path.
+    IndexedExpression { rti: pg_sys::Index },
     /// Arbitrary expression with its Var dependencies and resolved type info
     Expression {
         expr_node: *mut pg_sys::Expr,
@@ -1377,17 +1388,27 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             .is_some()
         });
         if let Some(source) = matched_source {
-            // Indexed expressions are handled as columns by the existing machinery.
-            // They don't need the UDF path.
-            entries.push(DistinctEntry::Column {
+            // Indexed expressions are handled by existing fast field machinery.
+            // They don't need the UDF path. The attno=0 convention for indexed
+            // expressions is already handled by build_projection_expr.
+            entries.push(DistinctEntry::IndexedExpression {
                 rti: source.scan_info.heap_rti,
-                attno: 0,
             });
             continue;
         }
 
         // Case 4: Expression with Var dependencies — walk the expression tree
         // to find all referenced Var nodes and verify each is a fast field.
+
+        // Reject expressions containing aggregates or window functions —
+        // ExecEvalExpr cannot evaluate these.
+        if pg_sys::contain_agg_clause(expr) {
+            return None;
+        }
+        if pg_sys::contain_window_function(expr) {
+            return None;
+        }
+
         let var_list = pg_sys::pull_var_clause(
             expr,
             (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
@@ -1401,9 +1422,16 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
         }
 
         let mut input_vars = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for var_ptr in vars.iter_ptr() {
             let varno = (*var_ptr).varno as pg_sys::Index;
             let varattno = (*var_ptr).varattno;
+
+            // Deduplicate by (rti, attno) — pull_var_clause returns duplicates
+            // for expressions like `name || name`.
+            if !seen.insert((varno, varattno)) {
+                continue;
+            }
 
             let source = sources.iter().find(|s| s.contains_rti(varno));
             match source {
@@ -1411,7 +1439,15 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
                     let hr = PgSearchRelation::open(source.scan_info.heaprelid);
                     let ir = PgSearchRelation::open(source.scan_info.indexrelid);
                     let td = hr.tuple_desc();
-                    resolve_fast_field(varattno as i32, &td, &ir)?;
+                    if resolve_fast_field(varattno as i32, &td, &ir).is_none() {
+                        pgrx::debug1!(
+                            "JoinScan: DISTINCT expression references non-fast-field column \
+                             (rti={}, attno={})",
+                            varno,
+                            varattno
+                        );
+                        return None;
+                    }
                     // Resolve type info directly from the Var node.
                     input_vars.push(InputVarInfo {
                         rti: varno,
@@ -1713,35 +1749,13 @@ pub(super) unsafe fn extract_orderby(
 
                 // When DISTINCT is active, PG adds expression pathkeys (e.g.
                 // upper(name)) for the Unique node. If all Var dependencies are
-                // fast fields, skip this pathkey — the DISTINCT GROUP BY in
-                // DataFusion + PG's Sort+Unique above handles it.
-                // Don't add to result — PG re-sorts above the CustomScan.
-                if !pathkey_resolved && has_distinct {
-                    let var_list = pg_sys::pull_var_clause(
-                        check_expr.cast(),
-                        (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
-                    );
-                    let dep_vars = PgList::<pg_sys::Var>::from_pg(var_list);
-                    if !dep_vars.is_empty() {
-                        let all_fast = dep_vars.iter_ptr().all(|var_ptr| {
-                            let vno = (*var_ptr).varno as pg_sys::Index;
-                            let vattno = (*var_ptr).varattno;
-                            sources.iter().any(|s| {
-                                if !s.contains_rti(vno) {
-                                    return false;
-                                }
-                                let hr = PgSearchRelation::open(s.scan_info.heaprelid);
-                                let ir = PgSearchRelation::open(s.scan_info.indexrelid);
-                                let td = hr.tuple_desc();
-                                resolve_fast_field(vattno as i32, &td, &ir).is_some()
-                            })
-                        });
-                        if all_fast {
-                            // Skip this pathkey — it's a DISTINCT expression that
-                            // DataFusion GROUP BY and PG's Unique node will handle.
-                            pathkey_resolved = true;
-                        }
-                    }
+                // fast fields, skip this pathkey — DataFusion GROUP BY +
+                // PG's Sort+Unique above handles it.
+                if !pathkey_resolved
+                    && has_distinct
+                    && expression_vars_all_fast(check_expr.cast(), sources)
+                {
+                    pathkey_resolved = true;
                 }
             }
             if pathkey_resolved {

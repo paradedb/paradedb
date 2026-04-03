@@ -609,25 +609,18 @@ fn build_clause_df<'a>(
 
                     let expr = if proj.is_expression() {
                         // Expression-based DISTINCT: create a PgExprUdf call
-                        let udf_name = format!("pg_eval_expr_{}", i);
-                        let input_vars = match proj.input_vars.as_ref() {
-                            Some(vars) => vars,
-                            None => {
-                                pgrx::warning!(
-                                    "PgExprUdf: expression projection missing input_vars"
-                                );
-                                continue;
-                            }
-                        };
-                        let pg_expr_string = match proj.pg_expr_string.as_ref() {
-                            Some(s) => s.clone(),
-                            None => {
-                                pgrx::warning!(
-                                    "PgExprUdf: expression projection missing pg_expr_string"
-                                );
-                                continue;
-                            }
-                        };
+                        let udf_name = format!("{}{}", super::pg_expr_udf::PG_EXPR_UDF_PREFIX, i);
+                        let input_vars = proj.input_vars.as_ref().ok_or_else(|| {
+                            DataFusionError::Internal(
+                                "PgExprUdf: expression projection missing input_vars".to_string(),
+                            )
+                        })?;
+                        let pg_expr_string = proj.pg_expr_string.as_ref().ok_or_else(|| {
+                            DataFusionError::Internal(
+                                "PgExprUdf: expression projection missing pg_expr_string"
+                                    .to_string(),
+                            )
+                        })?;
                         let result_type_oid = proj.result_type_oid.unwrap_or(pg_sys::TEXTOID);
 
                         // Build input column expressions from the DataFusion plan
@@ -649,15 +642,17 @@ fn build_clause_df<'a>(
                             .collect();
 
                         if input_exprs.len() != input_vars.len() {
-                            pgrx::warning!(
-                                "PgExprUdf: could not resolve all input columns for expression"
-                            );
-                            continue;
+                            return Err(DataFusionError::Internal(format!(
+                                "PgExprUdf: could not resolve all input columns for expression \
+                                 (resolved {} of {})",
+                                input_exprs.len(),
+                                input_vars.len()
+                            )));
                         }
 
                         let udf = super::pg_expr_udf::PgExprUdf::new(
                             udf_name,
-                            pg_expr_string,
+                            pg_expr_string.clone(),
                             input_vars.clone(),
                             result_type_oid,
                         );

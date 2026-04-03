@@ -831,8 +831,9 @@ impl AggregateScan {
             return Vec::new();
         }
 
-        // Only 2-table joins are supported; 3+ table joins produce
-        // unreliable plans in DataFusion (empty batches, join errors).
+        // Only 2-table joins are supported; 3+ table joins can produce
+        // empty RecordBatches in DataFusion for certain query patterns
+        // (e.g., scalar COUNT(*) across 3 tables with no GROUP BY columns).
         if sources.len() > 2 {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported",
@@ -880,6 +881,11 @@ impl AggregateScan {
                 return Vec::new();
             }
         };
+
+        // Note: 3+ table joins with LEFT/RIGHT/FULL are supported since every
+        // source is guaranteed at least one Named fast field (safety fallback in
+        // populate_required_fields). This prevents empty RecordBatches in
+        // DataFusion's join processing.
 
         // Extract aggregate target list (GROUP BY + aggregates)
         let targetlist = match unsafe { extract_aggregate_targetlist(builder.args(), &sources) } {

@@ -56,41 +56,81 @@ fn open_duckdb_conn() -> Result<Connection> {
     Ok(conn)
 }
 
+/// Validation phase:
+/// check that each table has at least one parquet file, and that the output location for each
+/// table is empty
+fn validate_conversion(
+    tables: &[String],
+    conn: &Connection,
+    input: &str,
+    output: &str,
+) -> Result<()> {
+    println!("Validating input and output paths...");
+    let mut missing_tables: Vec<String> = Vec::new();
+    let mut filled_outputs: Vec<String> = Vec::new();
+
+    for table in tables.iter() {
+        let input_glob = format!("{input}/{table}/*.parquet");
+        let input_exists: bool = conn
+            .query_row(
+                &format!("SELECT count(*) > 0 FROM (SELECT * FROM glob('{input_glob}') LIMIT 1)"),
+                [],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("Failed to check parquet files for table '{table}'"))?;
+        let output_glob = format!("{output}/{table}/*");
+        let output_empty: bool = conn
+            .query_row(
+                &format!("SELECT count(*) == 0 FROM (SELECT * FROM glob('{input_glob}') LIMIT 1)"),
+                [],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("Failed to check output files for table '{table}'"))?;
+
+        if !input_exists {
+            println!("  {table}: no parquet files found at '{input_glob}'");
+            missing_tables.push(table.clone());
+        }
+        if !output_empty {
+            println!("  {table}: output directory not empty '{output_glob}'");
+            filled_outputs.push(table.clone());
+        }
+        if input_exists && output_empty {
+            println!("  {table}: ok");
+        }
+    }
+
+    match (missing_tables.is_empty(), filled_outputs.is_empty()) {
+        (false, false) => bail!(
+            "No parquet files found for {} table(s): {}.\nOutput directories not empty for {} table(s): {}\nAborting before any conversion work.",
+            filled_outputs.len(),
+            filled_outputs.join(", "),
+            missing_tables.len(),
+            missing_tables.join(", ")
+        ),
+        (false, true) => bail!(
+            "No parquet files found for {} table(s): {}. Aborting before any conversion work.",
+            missing_tables.len(),
+            missing_tables.join(", ")
+        ),
+        (true, false) => bail!(
+            "Output directories not empty for {} table(s): {} Aborting before any conversion work.",
+            filled_outputs.len(),
+            filled_outputs.join(", "),
+        ),
+        (true, true) => {}
+    }
+
+    Ok(())
+}
+
 pub fn run_convert(args: ConvertArgs) -> Result<()> {
     let conn = open_duckdb_conn()?;
 
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
 
-    // Validation phase: check that each table has at least one parquet file.
-    println!("Validating input paths...");
-    let mut missing_tables: Vec<String> = Vec::new();
-
-    for table in &args.tables {
-        let glob_pattern = format!("{input}/{table}/*.parquet");
-        let exists: bool = conn
-            .query_row(
-                &format!("SELECT count(*) > 0 FROM (SELECT * FROM glob('{glob_pattern}') LIMIT 1)"),
-                [],
-                |row| row.get(0),
-            )
-            .with_context(|| format!("Failed to check parquet files for table '{table}'"))?;
-
-        if exists {
-            println!("  {table}: ok");
-        } else {
-            println!("  {table}: no parquet files found at '{glob_pattern}'");
-            missing_tables.push(table.clone());
-        }
-    }
-
-    if !missing_tables.is_empty() {
-        bail!(
-            "No parquet files found for {} table(s): {}. Aborting before any conversion work.",
-            missing_tables.len(),
-            missing_tables.join(", ")
-        );
-    }
+    validate_conversion(&args.tables, &conn, input, output)?;
 
     if args.dry_run {
         println!("\nDry run: counting planned conversions...");

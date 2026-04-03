@@ -59,13 +59,13 @@ jobs:
         # Base: system Postgres on regular runner for all versions
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
         pg_impl: [system]
-        runner: [ubicloud-standard-8-arm-ubuntu-2404]
+        runner: [ubicloud-standard-4-arm-ubuntu-2404]
         arch: [arm64]
         include:
           # Add pgrx-managed Postgres for PG 18 (regular runner)
           - pg_version: 18
             pg_impl: pgrx
-            runner: ubicloud-standard-8-arm-ubuntu-2404
+            runner: ubicloud-standard-4-arm-ubuntu-2404
             arch: arm64
           # Add AMD run for PG 18 (system Postgres)
           - pg_version: 18

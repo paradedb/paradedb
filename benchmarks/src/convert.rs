@@ -116,7 +116,7 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
     conn.execute("LOAD httpfs", [])
         .with_context(|| "Failed to load httpfs extension")?;
     // Increase timeout (default is 30 seconds) to allow for working with larger files (200MB+)
-    conn.execute("SET http_timeout = 60", [])
+    conn.execute("SET http_timeout = 120", [])
         .with_context(|| "Failed to configure http timeout")?;
 
     // Conversion phase: one COPY per table, DuckDB handles parallelism internally.
@@ -132,6 +132,34 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
             .with_context(|| format!("Failed to convert table '{table}'"))?;
 
         println!("  {table}: done");
+    }
+
+    println!("\nVerifying input and output table row counts...");
+    for table in &args.tables {
+        println!("  Checking table '{table}'...");
+
+        let mut parquet_stmt = conn
+            .prepare(&format!(
+                "SELECT count(*) FROM read_parquet('{input}/{table}/*.parquet')",
+            ))
+            .with_context(|| format!("Failed to prepare parquet count statement for {table}"))?;
+        let parquet_count: usize = parquet_stmt
+            .query_one([], |row| row.get(0))
+            .with_context(|| format!("Failed to query parquet count for {table}"))?;
+
+        let mut csv_stmt = conn
+            .prepare(&format!(
+                "SELECT count(*) FROM read_csv('{output}/{table}/*.csv')",
+            ))
+            .with_context(|| format!("Failed to prepare csv count statement for {table}"))?;
+        let csv_count: usize = csv_stmt
+            .query_one([], |row| row.get(0))
+            .with_context(|| format!("Failed to query csv count for {table}"))?;
+
+        println!("  {parquet_count} -> {csv_count}");
+        if parquet_count != csv_count {
+            bail!("{parquet_count} rows for {table} exist in the source, but only {csv_count} were found in the output");
+        }
     }
 
     println!("\nConversion complete.");

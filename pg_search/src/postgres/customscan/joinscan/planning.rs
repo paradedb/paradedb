@@ -1179,6 +1179,7 @@ unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::Att
 pub(super) unsafe fn order_by_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
+    has_distinct: bool,
 ) -> bool {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
@@ -1242,6 +1243,37 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                         break;
                     }
                 }
+
+                // When DISTINCT is active, PG adds DISTINCT expression pathkeys
+                // (e.g., upper(name)) to the ORDER BY. Allow these if all their
+                // Var dependencies are fast fields — PG's Sort+Unique above the
+                // CustomScan handles the final ordering.
+                if !found && has_distinct {
+                    let var_list = pg_sys::pull_var_clause(
+                        expr.cast(),
+                        (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
+                    );
+                    let dep_vars = PgList::<pg_sys::Var>::from_pg(var_list);
+                    if !dep_vars.is_empty() {
+                        let all_fast = dep_vars.iter_ptr().all(|var_ptr| {
+                            let vno = (*var_ptr).varno as pg_sys::Index;
+                            let vattno = (*var_ptr).varattno;
+                            sources.iter().any(|s| {
+                                if !s.contains_rti(vno) {
+                                    return false;
+                                }
+                                let hr = PgSearchRelation::open(s.scan_info.heaprelid);
+                                let ir = PgSearchRelation::open(s.scan_info.indexrelid);
+                                let td = hr.tuple_desc();
+                                resolve_fast_field(vattno as i32, &td, &ir).is_some()
+                            })
+                        });
+                        if all_fast {
+                            found = true;
+                        }
+                    }
+                }
+
                 if !found {
                     return false;
                 }
@@ -1331,7 +1363,7 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
         }
 
         // Case 3: Check if expression matches an indexed expression (existing behavior)
-        let matched_indexed = sources.iter().any(|source| {
+        let matched_source = sources.iter().find(|source| {
             let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
             let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
                 return false;
@@ -1344,15 +1376,11 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             )
             .is_some()
         });
-        if matched_indexed {
+        if let Some(source) = matched_source {
             // Indexed expressions are handled as columns by the existing machinery.
-            // For now, treat them the same as before — they don't need the UDF path.
-            // We still need a rti/attno, but since this is an indexed expression,
-            // the find_matching_fast_field matched it. We'll handle this as a column
-            // with attno=0 (which the existing code already handles for expressions).
-            let varno = sources.first().map(|s| s.scan_info.heap_rti).unwrap_or(0);
+            // They don't need the UDF path.
             entries.push(DistinctEntry::Column {
-                rti: varno,
+                rti: source.scan_info.heap_rti,
                 attno: 0,
             });
             continue;
@@ -1545,6 +1573,7 @@ pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
     output_rtis: &[pg_sys::Index],
+    has_distinct: bool,
 ) -> Option<Vec<OrderByInfo>> {
     let mut result = Vec::new();
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
@@ -1679,6 +1708,39 @@ pub(super) unsafe fn extract_orderby(
                         });
                         pathkey_resolved = true;
                         break;
+                    }
+                }
+
+                // When DISTINCT is active, PG adds expression pathkeys (e.g.
+                // upper(name)) for the Unique node. If all Var dependencies are
+                // fast fields, skip this pathkey — the DISTINCT GROUP BY in
+                // DataFusion + PG's Sort+Unique above handles it.
+                // Don't add to result — PG re-sorts above the CustomScan.
+                if !pathkey_resolved && has_distinct {
+                    let var_list = pg_sys::pull_var_clause(
+                        check_expr.cast(),
+                        (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
+                    );
+                    let dep_vars = PgList::<pg_sys::Var>::from_pg(var_list);
+                    if !dep_vars.is_empty() {
+                        let all_fast = dep_vars.iter_ptr().all(|var_ptr| {
+                            let vno = (*var_ptr).varno as pg_sys::Index;
+                            let vattno = (*var_ptr).varattno;
+                            sources.iter().any(|s| {
+                                if !s.contains_rti(vno) {
+                                    return false;
+                                }
+                                let hr = PgSearchRelation::open(s.scan_info.heaprelid);
+                                let ir = PgSearchRelation::open(s.scan_info.indexrelid);
+                                let td = hr.tuple_desc();
+                                resolve_fast_field(vattno as i32, &td, &ir).is_some()
+                            })
+                        });
+                        if all_fast {
+                            // Skip this pathkey — it's a DISTINCT expression that
+                            // DataFusion GROUP BY and PG's Unique node will handle.
+                            pathkey_resolved = true;
+                        }
                     }
                 }
             }

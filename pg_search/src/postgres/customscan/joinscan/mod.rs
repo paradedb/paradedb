@@ -322,7 +322,7 @@ impl JoinScan {
             return None;
         }
 
-        if !order_by_columns_are_fast_fields(root, &all_sources) {
+        if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
             return None;
         }
 
@@ -395,7 +395,12 @@ impl JoinScan {
     ) -> Option<pg_sys::CustomPath> {
         let output_rtis = join_clause.plan.output_rtis();
         let current_sources = join_clause.plan.sources();
-        let order_by = extract_orderby(root, &current_sources, &output_rtis)?;
+        let order_by = extract_orderby(
+            root,
+            &current_sources,
+            &output_rtis,
+            join_clause.has_distinct,
+        )?;
         join_clause = join_clause.with_order_by(order_by);
 
         // --- Cost estimation ---
@@ -1001,7 +1006,10 @@ impl CustomScan for JoinScan {
             private_data.output_columns = output_columns;
 
             // Build output_projection, enriching expression entries with metadata
-            // when DISTINCT is active.
+            // when DISTINCT is active. Call distinct_columns_are_fast_fields directly
+            // to get DistinctEntry data — both this call and the validation call in
+            // validate_and_build_clause run during the same planning phase with the
+            // same valid parse tree.
             let distinct_entries = if private_data.join_clause.has_distinct {
                 let all_sources = private_data.join_clause.plan.sources();
                 distinct_columns_are_fast_fields(root, &all_sources)
@@ -1009,40 +1017,43 @@ impl CustomScan for JoinScan {
                 None
             };
 
-            // Build a map from tleSortGroupRef → DistinctEntry for expression matching
-            let distinct_entry_by_ref: crate::api::HashMap<u32, &planning::DistinctEntry> =
-                if let Some(ref entries) = distinct_entries {
-                    if !entries.is_empty() {
-                        let parse = (*root).parse;
-                        let distinct_list =
-                            PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
-                        distinct_list
-                            .iter_ptr()
-                            .zip(entries.iter())
-                            .map(|(clause, entry)| ((*clause).tleSortGroupRef, entry))
-                            .collect()
-                    } else {
-                        Default::default()
+            // Map DistinctEntry to output columns by walking the parse tree's
+            // target list (which has original expressions and valid ressortgroupref).
+            // For ALL entries (Column, Score, Expression), use the parse-tree
+            // varnos so that distinct_col_map keys are consistent with
+            // extract_orderby's pathkey varnos.
+            let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::DistinctEntry> =
+                Default::default();
+            if let Some(ref entries) = distinct_entries {
+                let parse = (*root).parse;
+                let parse_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+                let distinct_list =
+                    PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+
+                for (clause_ptr, entry) in distinct_list.iter_ptr().zip(entries.iter()) {
+                    let tle_ref = (*clause_ptr).tleSortGroupRef;
+                    if let Some(parse_te) = parse_tlist
+                        .iter_ptr()
+                        .find(|te| (**te).ressortgroupref == tle_ref)
+                    {
+                        let output_idx = ((*parse_te).resno - 1) as usize;
+                        entry_by_output_idx.insert(output_idx, entry);
                     }
-                } else {
-                    Default::default()
-                };
+                }
+            }
 
             private_data.join_clause.output_projection = Some(
-                original_entries
-                    .iter_ptr()
-                    .zip(private_data.output_columns.iter())
-                    .map(|(te, info)| {
-                        // Check if this target entry has a matching expression DistinctEntry
-                        let sgref = (*te).ressortgroupref;
-                        if sgref != 0 {
-                            if let Some(planning::DistinctEntry::Expression {
+                private_data
+                    .output_columns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, info)| {
+                        match entry_by_output_idx.get(&i) {
+                            Some(planning::DistinctEntry::Expression {
                                 expr_node,
                                 input_vars,
                                 result_type,
-                            }) = distinct_entry_by_ref.get(&sgref)
-                            {
-                                // Serialize the expression tree via nodeToString
+                            }) => {
                                 let expr_string = {
                                     let node_str = pg_sys::nodeToString((*expr_node).cast());
                                     std::ffi::CStr::from_ptr(node_str)
@@ -1050,24 +1061,47 @@ impl CustomScan for JoinScan {
                                         .into_owned()
                                 };
                                 let primary_rti = input_vars.first().map_or(0, |v| v.rti);
-                                return build::ChildProjection {
+                                build::ChildProjection {
                                     rti: primary_rti,
                                     attno: 0,
                                     is_score: false,
                                     pg_expr_string: Some(expr_string),
                                     input_vars: Some(input_vars.clone()),
                                     result_type_oid: Some(*result_type),
-                                };
+                                }
                             }
-                        }
-                        // Non-expression: existing behavior
-                        build::ChildProjection {
-                            rti: info.rti,
-                            attno: info.original_attno,
-                            is_score: info.is_score,
-                            pg_expr_string: None,
-                            input_vars: None,
-                            result_type_oid: None,
+                            Some(planning::DistinctEntry::Column { rti, attno }) => {
+                                // Use parse-tree varnos for consistency with extract_orderby
+                                build::ChildProjection {
+                                    rti: *rti,
+                                    attno: *attno,
+                                    is_score: info.is_score,
+                                    pg_expr_string: None,
+                                    input_vars: None,
+                                    result_type_oid: None,
+                                }
+                            }
+                            Some(planning::DistinctEntry::Score { rti }) => {
+                                build::ChildProjection {
+                                    rti: *rti,
+                                    attno: 0,
+                                    is_score: true,
+                                    pg_expr_string: None,
+                                    input_vars: None,
+                                    result_type_oid: None,
+                                }
+                            }
+                            None => {
+                                // No DistinctEntry match — use output_columns as-is
+                                build::ChildProjection {
+                                    rti: info.rti,
+                                    attno: info.original_attno,
+                                    is_score: info.is_score,
+                                    pg_expr_string: None,
+                                    input_vars: None,
+                                    result_type_oid: None,
+                                }
+                            }
                         }
                     })
                     .collect(),

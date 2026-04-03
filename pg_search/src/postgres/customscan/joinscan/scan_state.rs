@@ -797,7 +797,13 @@ fn build_clause_df<'a>(
             for (i, proj) in projection.iter().enumerate() {
                 let col_alias = format!("col_{}", i + 1);
                 let expr = if !distinct_col_map.is_empty() {
-                    resolve_distinct_col(proj.is_score, proj.rti, proj.attno, &col_alias)
+                    if proj.is_expression() {
+                        // Expression columns are already in the GROUP BY output
+                        // as col_{i+1} — reference directly.
+                        col(&col_alias)
+                    } else {
+                        resolve_distinct_col(proj.is_score, proj.rti, proj.attno, &col_alias)
+                    }
                 } else {
                     build_projection_expr(proj, join_clause)
                 };

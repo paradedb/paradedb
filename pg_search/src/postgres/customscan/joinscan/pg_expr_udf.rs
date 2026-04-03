@@ -39,10 +39,12 @@ use datafusion::common::Result;
 use datafusion::logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, Volatility};
 use pgrx::pg_sys;
 use pgrx::PgMemoryContexts;
+use serde::{Deserialize, Serialize};
 
 use crate::postgres::customscan::joinscan::build::InputVarInfo;
 
 /// A DataFusion ScalarUDF that wraps PostgreSQL's ExecEvalExpr.
+#[derive(Serialize, Deserialize)]
 pub struct PgExprUdf {
     name: String,
     /// Serialized PostgreSQL expression tree (from nodeToString)
@@ -52,12 +54,13 @@ pub struct PgExprUdf {
     /// PostgreSQL result type OID
     result_type_oid: pg_sys::Oid,
     /// Arrow return type (derived from result_type_oid)
+    #[serde(skip, default = "PgExprUdf::default_return_type")]
     return_type: DataType,
     /// Pre-computed DataFusion Signature
+    #[serde(skip, default = "PgExprUdf::default_signature")]
     signature: Signature,
     /// Lazily initialized PG expression evaluation state.
-    /// Uses `UnsafeCell` because `invoke_with_args` takes `&self` (not `&mut self`)
-    /// but we need to mutate this field on first call.
+    #[serde(skip)]
     initialized_state: UnsafeCell<Option<PgExprState>>,
 }
 
@@ -105,6 +108,25 @@ unsafe impl Send for PgExprUdf {}
 unsafe impl Sync for PgExprUdf {}
 
 impl PgExprUdf {
+    fn default_return_type() -> DataType {
+        DataType::Utf8
+    }
+
+    fn default_signature() -> Signature {
+        Signature::variadic_any(Volatility::Immutable)
+    }
+
+    /// Rebuild derived fields after deserialization.
+    pub fn fixup_after_deserialize(&mut self) {
+        self.return_type = pg_type_to_arrow_type(self.result_type_oid);
+        let input_types: Vec<DataType> = self
+            .input_vars
+            .iter()
+            .map(|v| pg_type_to_arrow_type(v.type_oid))
+            .collect();
+        self.signature = Signature::exact(input_types, Volatility::Immutable);
+    }
+
     pub fn new(
         name: String,
         pg_expr_string: String,

@@ -495,6 +495,7 @@ unsafe fn extract_equi_keys_from_path(
 /// OR predicates in join aggregate queries are problematic because our
 /// per-table scan pushdown can't split OR branches correctly across
 /// different PG versions. Reject and let Postgres handle them natively.
+#[allow(dead_code)]
 pub unsafe fn has_or_in_quals(
     root: *mut pg_sys::PlannerInfo,
     input_rel: &pg_sys::RelOptInfo,

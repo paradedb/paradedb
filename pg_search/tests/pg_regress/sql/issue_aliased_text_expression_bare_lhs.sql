@@ -25,16 +25,14 @@ CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,
   (description::pdb.simple('alias=simple_description')),
-  (lower(description)::pdb.literal('alias=literal_description')),
+  (lower(description)::pdb.literal('alias=description')),
   rating
 )
 WITH (key_field='id');
 
 SELECT description, rating
 FROM mock_items
-WHERE description ||| 'sleek running shoes'
-ORDER BY lower(description) DESC
-LIMIT 5;
+WHERE description ||| 'sleek running shoes';
 
 DROP TABLE mock_items;
 

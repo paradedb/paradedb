@@ -31,14 +31,12 @@ CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,
   (description::pdb.simple('alias=simple_description')),
-  (lower(description)::pdb.literal('alias=literal_description')),
+  (lower(description)::pdb.literal('alias=description')),
   rating
 )
 WITH (key_field='id');
 SELECT description, rating
 FROM mock_items
-WHERE description ||| 'sleek running shoes'
-ORDER BY lower(description) DESC
-LIMIT 5;
-ERROR:  Could not unambiguously identify column
+WHERE description ||| 'sleek running shoes';
+ERROR:  Query is ambiguous: column `description` matches multiple indexed fields: `description`, `simple_description`. Use `description::pdb.alias(...)` to choose one
 DROP TABLE mock_items;

@@ -394,7 +394,7 @@ impl From<&Qual> for SearchQueryInput {
 
                 SearchQueryInput::ScoreFilter {
                     bounds: vec![(lower, upper)],
-                    query: None,
+                    query: Some(Box::new(SearchQueryInput::All)),
                 }
             },
             Qual::HeapExpr {

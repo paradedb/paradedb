@@ -12,7 +12,7 @@
 -- before adding our custom path so neither regular nor partial native
 -- alternatives can outcompete it.
 --
--- See: https://github.com/orgs/paradedb/discussions/3678
+-- See: https://github.com/paradedb/paradedb/issues/new/choose
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 

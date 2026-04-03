@@ -659,7 +659,7 @@ fn build_clause_df<'a>(
 
                         Expr::ScalarFunction(
                             datafusion::logical_expr::expr::ScalarFunction::new_udf(
-                                Arc::new(datafusion::logical_expr::ScalarUDF::from(udf)),
+                                Arc::new(datafusion::logical_expr::ScalarUDF::new_from_impl(udf)),
                                 input_exprs,
                             ),
                         )

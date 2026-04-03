@@ -31,7 +31,7 @@ on:
 jobs:
   antithesis-trigger-test-run:
     name: Test pg_search via Antithesis
-    runs-on: ubicloud-standard-8-ubuntu-2404
+    runs-on: ubicloud-standard-8-arm-ubuntu-2404
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'antithesis')
     strategy:
       matrix:

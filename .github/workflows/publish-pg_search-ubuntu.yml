@@ -38,70 +38,70 @@ jobs:
         include:
           # Ubuntu 22.04
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
-            pg_version: 15
-            arch: amd64
-          - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            runner: ubicloud-standard-8-arm-ubuntu-2204
             pg_version: 15
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
+            runner: ubicloud-standard-4-ubuntu-2204
+            pg_version: 15
+            arch: amd64
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-8-arm-ubuntu-2204
+            pg_version: 16
+            arch: arm64
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-4-ubuntu-2204
             pg_version: 16
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
-            pg_version: 16
-            arch: arm64
-          - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
-            pg_version: 17
-            arch: amd64
-          - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            runner: ubicloud-standard-8-arm-ubuntu-2204
             pg_version: 17
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
-            pg_version: 18
+            runner: ubicloud-standard-4-ubuntu-2204
+            pg_version: 17
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            runner: ubicloud-standard-8-arm-ubuntu-2204
             pg_version: 18
             arch: arm64
+          - name: Ubuntu 22.04 (Jammy)
+            runner: ubicloud-standard-4-ubuntu-2204
+            pg_version: 18
+            arch: amd64
           # Ubuntu 24.04
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
-            pg_version: 15
-            arch: amd64
-          - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            runner: ubicloud-standard-8-arm-ubuntu-2404
             pg_version: 15
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
+            runner: ubicloud-standard-4-ubuntu-2404
+            pg_version: 15
+            arch: amd64
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-8-arm-ubuntu-2404
+            pg_version: 16
+            arch: arm64
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-4-ubuntu-2404
             pg_version: 16
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
-            pg_version: 16
-            arch: arm64
-          - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
-            pg_version: 17
-            arch: amd64
-          - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            runner: ubicloud-standard-8-arm-ubuntu-2404
             pg_version: 17
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
-            pg_version: 18
+            runner: ubicloud-standard-4-ubuntu-2404
+            pg_version: 17
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            runner: ubicloud-standard-8-arm-ubuntu-2404
             pg_version: 18
             arch: arm64
+          - name: Ubuntu 24.04 (Noble)
+            runner: ubicloud-standard-4-ubuntu-2404
+            pg_version: 18
+            arch: amd64
 
     steps:
       - name: Install Dependencies

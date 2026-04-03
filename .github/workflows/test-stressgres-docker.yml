@@ -23,7 +23,7 @@ concurrency:
 jobs:
   test-stressgres-docker:
     name: Test Stressgres Docker Image
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-8-arm
 
     steps:
       - name: Checkout Git Repository

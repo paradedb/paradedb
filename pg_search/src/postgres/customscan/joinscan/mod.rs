@@ -1039,7 +1039,9 @@ impl CustomScan for JoinScan {
                         .find(|te| (**te).ressortgroupref == tle_ref)
                     {
                         let output_idx = ((*parse_te).resno - 1) as usize;
-                        entry_by_output_idx.insert(output_idx, entry);
+                        if output_idx < private_data.output_columns.len() {
+                            entry_by_output_idx.insert(output_idx, entry);
+                        }
                     }
                 }
             }
@@ -1094,8 +1096,10 @@ impl CustomScan for JoinScan {
                                 }
                             }
                             Some(planning::DistinctEntry::IndexedExpression { rti }) => {
-                                // Indexed expressions use attno=0 (the existing convention
-                                // for non-physical columns handled by fast field machinery).
+                                // Indexed expressions are handled by existing fast field
+                                // machinery. Use the original attno from OutputColumnInfo
+                                // which preserves whatever the existing code path produces
+                                // for indexed expressions.
                                 build::ChildProjection {
                                     rti: *rti,
                                     attno: info.original_attno,

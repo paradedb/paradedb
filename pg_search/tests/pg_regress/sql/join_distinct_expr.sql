@@ -37,14 +37,17 @@ CREATE TABLE dex_suppliers
     country TEXT
 );
 
--- Insert products — include NULLs for name to test IS NULL
+-- Insert products — include NULLs and edge cases for name
 INSERT INTO dex_products (id, name, description, supplier_id, category) VALUES
 (101, 'Wireless Mouse', 'Ergonomic wireless mouse with Bluetooth', 1, 'Electronics'),
 (102, 'USB Cable', 'High-speed USB cable for data wireless transfer', 2, 'Electronics'),
 (103, 'Keyboard', 'Mechanical keyboard wireless enabled', 1, 'Electronics'),
 (104, NULL, 'Unnamed wireless gadget for testing', 3, 'Office'),
 (105, 'Headphones', 'Noise-canceling wireless headphones premium', 1, 'Electronics'),
-(106, NULL, 'Another unnamed wireless product', 2, 'Office');
+(106, NULL, 'Another unnamed wireless product', 2, 'Office'),
+(107, 'WIRELESS ROUTER', 'Enterprise wireless router', 1, 'Electronics'),
+(108, 'tablet', 'Budget wireless tablet device', 2, 'Electronics'),
+(109, '', 'Empty name wireless device', 1, 'Office');
 
 -- Insert suppliers
 INSERT INTO dex_suppliers (id, name, info, country) VALUES
@@ -74,8 +77,7 @@ SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 -- TEST 1: Single-table NullTest — SELECT DISTINCT name IS NULL
 -- =============================================================================
--- 'wireless' matches all 6 products (101-106). 4 have names, 2 have NULL.
--- DISTINCT (name IS NULL) should yield {true, false}.
+-- 'wireless' matches all 9 products. 7 have names (incl empty string), 2 have NULL.
 
 EXPLAIN (COSTS OFF)
 SELECT DISTINCT name IS NULL AS is_null
@@ -106,14 +108,14 @@ SELECT DISTINCT upper(name) AS upper_name
 FROM dex_products
 WHERE description @@@ 'wireless'
 ORDER BY 1
-    LIMIT 10;
+    LIMIT 20;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT upper(name) AS upper_name
 FROM dex_products
 WHERE description @@@ 'wireless'
 ORDER BY 1
-    LIMIT 10;
+    LIMIT 20;
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
@@ -124,21 +126,19 @@ SELECT DISTINCT id + 1 AS id_plus_one
 FROM dex_products
 WHERE description @@@ 'wireless'
 ORDER BY 1
-    LIMIT 10;
+    LIMIT 20;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT id + 1 AS id_plus_one
 FROM dex_products
 WHERE description @@@ 'wireless'
 ORDER BY 1
-    LIMIT 10;
+    LIMIT 20;
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
 -- TEST 4: Single-table LIMIT correctness — must return exactly 1 row
 -- =============================================================================
--- name IS NULL has at most 2 distinct values. LIMIT 1 must return 1, not 0.
--- This validates that deduplication happens BEFORE LIMIT.
 
 SELECT DISTINCT name IS NULL
 FROM dex_products
@@ -171,10 +171,28 @@ SELECT DISTINCT name || ' - ' || category AS combo
 FROM dex_products
 WHERE description @@@ 'wireless'
 ORDER BY 1
-    LIMIT 10;
+    LIMIT 20;
 
 SET paradedb.enable_join_custom_scan = off;
 SELECT DISTINCT name || ' - ' || category AS combo
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST A1: IS NOT NULL
+-- =============================================================================
+
+SELECT DISTINCT name IS NOT NULL AS has_name
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT name IS NOT NULL AS has_name
 FROM dex_products
 WHERE description @@@ 'wireless'
 ORDER BY 1
@@ -182,12 +200,117 @@ ORDER BY 1
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
+-- TEST A4: String length function
+-- =============================================================================
+
+SELECT DISTINCT length(name) AS name_len
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT length(name) AS name_len
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST A5: Arithmetic with multiple operators
+-- =============================================================================
+
+SELECT DISTINCT (id * 2 + supplier_id) AS computed
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT (id * 2 + supplier_id) AS computed
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST A6: COALESCE
+-- =============================================================================
+
+SELECT DISTINCT COALESCE(name, 'N/A') AS safe_name
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT COALESCE(name, 'N/A') AS safe_name
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST A7: lower()
+-- =============================================================================
+
+SELECT DISTINCT lower(name) AS lower_name
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT lower(name) AS lower_name
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST B1: Double function nesting — length(upper(name))
+-- =============================================================================
+
+SELECT DISTINCT length(upper(name)) AS upper_len
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT length(upper(name)) AS upper_len
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST B2: Expression mixing column types (text + int cast)
+-- =============================================================================
+
+SELECT DISTINCT name || '-' || supplier_id::text AS name_supplier
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT name || '-' || supplier_id::text AS name_supplier
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1
+    LIMIT 20;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
 -- TEST 7: Join — DISTINCT with expression, both tables have @@@ predicates
 -- =============================================================================
--- 'wireless' matches products 101-106 (all have 'wireless' in description).
--- 'electronics' matches suppliers 1, 2, 3 (all have 'electronics' in info).
--- After join on supplier_id: products join their suppliers.
--- DISTINCT upper(s.name) should collapse duplicates.
+-- DISTINCT upper(s.name) should collapse duplicates via PgExprUdf GROUP BY.
 -- ORDER BY uses a plain fast-field column so JoinScan can validate ORDER BY.
 
 EXPLAIN (COSTS OFF)
@@ -232,6 +355,63 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST C4: Join — arithmetic expression
+-- =============================================================================
+
+SELECT DISTINCT p.supplier_id * 10 + p.id AS combo_id, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT p.supplier_id * 10 + p.id AS combo_id, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST D1: Join — LIMIT 1 correctness
+-- =============================================================================
+-- Must return exactly 1 row, not 0.
+
+SELECT DISTINCT upper(s.name) IS NULL, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 1;
+
+-- =============================================================================
+-- TEST D3: Empty result set (no matches)
+-- =============================================================================
+
+SELECT DISTINCT upper(name) AS upper_name
+FROM dex_products
+WHERE description @@@ 'nonexistentterm12345'
+ORDER BY 1;
+
+-- =============================================================================
+-- TEST D4: Empty string vs NULL distinction
+-- =============================================================================
+
+SELECT DISTINCT name IS NULL AS is_null, name = '' AS is_empty
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1, 2;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT name IS NULL AS is_null, name = '' AS is_empty
+FROM dex_products
+WHERE description @@@ 'wireless'
+ORDER BY 1, 2;
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================

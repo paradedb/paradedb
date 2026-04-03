@@ -250,6 +250,12 @@ impl ScalarUDFImpl for PgExprUdf {
         // SAFETY: single-threaded access guaranteed by target_partitions=1.
         let pg_state = unsafe { self.get_or_init_state() };
 
+        debug_assert!(
+            !self.input_vars.is_empty(),
+            "PgExprUdf '{}' has no input_vars — expression must have Var dependencies",
+            self.name
+        );
+
         // TODO(#4604): Per-row ExecEvalExpr allocations for pass-by-reference types
         // (TEXT, etc.) accumulate for the entire batch in CurrentMemoryContext.
         // For large batches, consider wrapping the loop in a dedicated memory context
@@ -448,57 +454,34 @@ fn datums_to_arrow_array(
             }
             Arc::new(builder.finish())
         }
-        pg_sys::INT2OID => {
-            let mut builder = Int16Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(datum.value() as i16);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::INT4OID => {
-            let mut builder = Int32Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(datum.value() as i32);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::INT8OID => {
+        // Tantivy fast fields widen all integers to i64, so output as Int64.
+        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => {
             let mut builder = Int64Builder::with_capacity(datums.len());
             for (i, datum) in datums.iter().enumerate() {
                 if nulls[i] {
                     builder.append_null();
                 } else {
-                    builder.append_value(datum.value() as i64);
+                    // Pass-by-value: sign-extend to i64 via isize
+                    builder.append_value(datum.value() as isize as i64);
                 }
             }
             Arc::new(builder.finish())
         }
-        pg_sys::FLOAT4OID => {
-            let mut builder = Float32Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(f32::from_bits(datum.value() as u32));
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::FLOAT8OID => {
+        // Tantivy fast fields widen all floats to f64.
+        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => {
             let mut builder = Float64Builder::with_capacity(datums.len());
             for (i, datum) in datums.iter().enumerate() {
                 if nulls[i] {
                     builder.append_null();
                 } else {
-                    builder.append_value(f64::from_bits(datum.value() as u64));
+                    // For FLOAT4: datum holds f32 bits in low 32 bits
+                    // For FLOAT8: datum holds f64 bits in all 64 bits
+                    let f = if result_type_oid == pg_sys::FLOAT4OID {
+                        f32::from_bits(datum.value() as u32) as f64
+                    } else {
+                        f64::from_bits(datum.value() as u64)
+                    };
+                    builder.append_value(f);
                 }
             }
             Arc::new(builder.finish())
@@ -555,15 +538,17 @@ fn datums_to_arrow_array(
     }
 }
 
-/// Map a PostgreSQL type OID to an Arrow DataType.
+/// Map a PostgreSQL type OID to the Arrow DataType that Tantivy fast fields
+/// produce. Tantivy widens narrow integers (Int16, Int32) to Int64 and
+/// narrow floats (Float32) to Float64, so the UDF signature must match
+/// the actual Arrow column types in the DataFusion plan.
 fn pg_type_to_arrow_type(type_oid: pg_sys::Oid) -> DataType {
     match type_oid {
         pg_sys::BOOLOID => DataType::Boolean,
-        pg_sys::INT2OID => DataType::Int16,
-        pg_sys::INT4OID => DataType::Int32,
-        pg_sys::INT8OID => DataType::Int64,
-        pg_sys::FLOAT4OID => DataType::Float32,
-        pg_sys::FLOAT8OID => DataType::Float64,
+        // Tantivy widens all integer fast fields to i64/u64.
+        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => DataType::Int64,
+        // Tantivy widens Float32 to Float64 for fast fields.
+        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => DataType::Float64,
         pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
         pg_sys::TIMESTAMPOID => DataType::Timestamp(TimeUnit::Microsecond, None),
         pg_sys::TIMESTAMPTZOID => DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),

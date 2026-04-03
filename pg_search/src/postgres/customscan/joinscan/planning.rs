@@ -1264,7 +1264,12 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
 /// Check if all Var dependencies of an expression are fast fields in any source.
 /// Returns true if ALL Var deps are fast fields, false if any is missing or no vars found.
+/// Also rejects aggregates and window functions which ExecEvalExpr cannot evaluate.
 unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSource]) -> bool {
+    if pg_sys::contain_agg_clause(expr) || pg_sys::contain_window_function(expr) {
+        return false;
+    }
+
     let var_list = pg_sys::pull_var_clause(
         expr,
         (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,

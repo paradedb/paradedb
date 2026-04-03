@@ -71,21 +71,24 @@ fn validate_conversion(
 
     for table in tables.iter() {
         let input_glob = format!("{input}/{table}/*.parquet");
-        let input_exists: bool = conn
+        let input_file_count: usize = conn
             .query_row(
-                &format!("SELECT count(*) > 0 FROM (SELECT * FROM glob('{input_glob}') LIMIT 1)"),
+                &format!("SELECT count(*) FROM (SELECT * FROM glob('{input_glob}') LIMIT 1)"),
                 [],
                 |row| row.get(0),
             )
             .with_context(|| format!("Failed to check parquet files for table '{table}'"))?;
+        let input_exists = input_file_count > 0;
+
         let output_glob = format!("{output}/{table}/*");
-        let output_empty: bool = conn
+        let output_file_count: usize = conn
             .query_row(
-                &format!("SELECT count(*) == 0 FROM (SELECT * FROM glob('{input_glob}') LIMIT 1)"),
+                &format!("SELECT count(*) FROM (SELECT * FROM glob('{output_glob}') LIMIT 1)"),
                 [],
                 |row| row.get(0),
             )
             .with_context(|| format!("Failed to check output files for table '{table}'"))?;
+        let output_empty = output_file_count == 0;
 
         if !input_exists {
             println!("  {table}: no parquet files found at '{input_glob}'");

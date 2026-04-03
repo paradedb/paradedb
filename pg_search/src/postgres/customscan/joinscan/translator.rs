@@ -68,6 +68,7 @@ impl<'a> PredicateTranslator<'a> {
         ctid_map: &HashMap<pg_sys::Index, Expr>,
         predicates: &[JoinLevelSearchPredicate],
         deferred_positions: &crate::api::HashSet<usize>,
+        sources: &[&JoinSource],
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
@@ -100,6 +101,7 @@ impl<'a> PredicateTranslator<'a> {
                     ctid_map,
                     predicates,
                     deferred_positions,
+                    sources,
                 )?;
                 for child in &children[1..] {
                     let right = Self::translate_join_level_expr(
@@ -108,6 +110,7 @@ impl<'a> PredicateTranslator<'a> {
                         ctid_map,
                         predicates,
                         deferred_positions,
+                        sources,
                     )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
@@ -127,6 +130,7 @@ impl<'a> PredicateTranslator<'a> {
                     ctid_map,
                     predicates,
                     deferred_positions,
+                    sources,
                 )?;
                 for child in &children[1..] {
                     let right = Self::translate_join_level_expr(
@@ -135,6 +139,7 @@ impl<'a> PredicateTranslator<'a> {
                         ctid_map,
                         predicates,
                         deferred_positions,
+                        sources,
                     )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
@@ -151,8 +156,28 @@ impl<'a> PredicateTranslator<'a> {
                     ctid_map,
                     predicates,
                     deferred_positions,
+                    sources,
                 )?;
                 Some(Expr::Not(Box::new(inner)))
+            }
+            JoinLevelExpr::MarkOrNull {
+                is_anti,
+                null_test_varno,
+                null_test_attno,
+            } => {
+                // Resolve the outer column name from source metadata.
+                let source = sources.iter().find(|s| s.contains_rti(*null_test_varno));
+                let col_name = source.and_then(|s| s.column_name(*null_test_attno))?;
+
+                // Build: mark = true OR col IS NULL  (for IN)
+                //        mark = false OR col IS NULL  (for NOT IN)
+                let mark_check = if *is_anti {
+                    col("mark").eq(lit(false))
+                } else {
+                    col("mark").eq(lit(true))
+                };
+                let null_check = Expr::IsNull(Box::new(col(col_name)));
+                Some(mark_check.or(null_check))
             }
         }
     }

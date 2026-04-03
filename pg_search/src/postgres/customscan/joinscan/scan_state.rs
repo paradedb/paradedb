@@ -437,6 +437,12 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::Anti => {
                         JoinType::LeftAnti
                     }
+                    crate::postgres::customscan::joinscan::build::JoinType::LeftMark => {
+                        JoinType::LeftMark
+                    }
+                    crate::postgres::customscan::joinscan::build::JoinType::RightMark => {
+                        JoinType::RightMark
+                    }
                     crate::postgres::customscan::joinscan::build::JoinType::RightSemi => {
                         JoinType::RightSemi
                     }
@@ -481,6 +487,7 @@ fn build_relnode_df<'a>(
                 // ctid_A and ctid_B are still packed while ctid_C is resolved.
                 let deferred_positions =
                     super::visibility_filter::deferred_plan_positions(&filter.input);
+                let sources = filter.input.sources();
                 let filter_expr = unsafe {
                     crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
@@ -488,6 +495,7 @@ fn build_relnode_df<'a>(
                         ctid_map,
                         &join_clause.join_level_predicates,
                         &deferred_positions,
+                        &sources,
                     )
                 }
                 .ok_or_else(|| {
@@ -497,7 +505,27 @@ fn build_relnode_df<'a>(
                     ))
                 })?;
 
+                // For MarkOrNull filters, drop the synthetic "mark" column after filtering.
+                let is_mark_filter = matches!(
+                    filter.predicate,
+                    crate::postgres::customscan::joinscan::build::JoinLevelExpr::MarkOrNull { .. }
+                );
+
                 df = df.filter(filter_expr)?;
+
+                if is_mark_filter {
+                    use datafusion::logical_expr::col;
+                    let schema = df.schema().clone();
+                    let proj_cols: Vec<datafusion::logical_expr::Expr> = schema
+                        .columns()
+                        .into_iter()
+                        .filter(|c| c.name != "mark")
+                        .map(col)
+                        .collect();
+                    if !proj_cols.is_empty() {
+                        df = df.select(proj_cols)?;
+                    }
+                }
                 Ok(df)
             }
         }

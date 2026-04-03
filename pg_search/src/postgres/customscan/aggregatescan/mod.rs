@@ -852,8 +852,9 @@ impl AggregateScan {
         }
 
         // Reject joins with non-equi quals (OR across tables, cross-table
-        // filters, non-@@@ conditions). These live in the join path's
-        // joinrestrictinfo and our DataFusion backend can't apply them.
+        // filters, non-@@@ conditions). Check both the cheapest path's
+        // joinrestrictinfo AND the parse tree's WHERE quals for cross-table
+        // references that our DataFusion backend can't apply.
         if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",

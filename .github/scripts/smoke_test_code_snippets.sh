@@ -34,15 +34,9 @@ export PGPASSWORD="$PARADEDB_PASSWORD"
 
 PSQL=(psql -v ON_ERROR_STOP=1)
 
-if [[ -t 2 ]] && command -v tput >/dev/null 2>&1; then
-  GREEN="$(tput setaf 2)"
-  RED="$(tput setaf 1)"
-  RESET="$(tput sgr0)"
-else
-  GREEN=""
-  RED=""
-  RESET=""
-fi
+GREEN=$'\033[32m'
+RED=$'\033[31m'
+RESET=$'\033[0m'
 
 run_psql_file() {
   local sql_file="$1"

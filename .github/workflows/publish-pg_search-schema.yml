@@ -24,7 +24,7 @@ concurrency:
 jobs:
   publish-pg_search-schema:
     name: Publish pg_search Schema
-    runs-on: ubicloud-standard-8-arm-ubuntu-2404
+    runs-on: ubicloud-standard-8-ubuntu-2404
     if: ${{ !contains(github.ref, '-rc.') }}
     defaults:
       run:

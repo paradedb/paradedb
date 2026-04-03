@@ -40,86 +40,86 @@ jobs:
         include:
           # Debian 12 (Bookworm)
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8-arm
-            image: debian:12-slim
-            pg_version: 15
-            arch: arm64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4
+            runner: ubicloud-standard-8
             image: debian:12-slim
             pg_version: 15
             arch: amd64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8-arm
+            runner: ubicloud-standard-4-arm
+            image: debian:12-slim
+            pg_version: 15
+            arch: arm64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-8
+            image: debian:12-slim
+            pg_version: 16
+            arch: amd64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
             image: debian:12-slim
             pg_version: 16
             arch: arm64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4
-            image: debian:12-slim
-            pg_version: 16
-            arch: amd64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8-arm
-            image: debian:12-slim
-            pg_version: 17
-            arch: arm64
-          - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4
+            runner: ubicloud-standard-8
             image: debian:12-slim
             pg_version: 17
             arch: amd64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8-arm
+            runner: ubicloud-standard-4-arm
             image: debian:12-slim
-            pg_version: 18
+            pg_version: 17
             arch: arm64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4
+            runner: ubicloud-standard-8
             image: debian:12-slim
             pg_version: 18
             arch: amd64
+          - name: Debian 12 (Bookworm)
+            runner: ubicloud-standard-4-arm
+            image: debian:12-slim
+            pg_version: 18
+            arch: arm64
           # Debian 13 (Trixie)
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-8-arm
-            image: debian:13-slim
-            pg_version: 15
-            arch: arm64
-          - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-4
+            runner: ubicloud-standard-8
             image: debian:13-slim
             pg_version: 15
             arch: amd64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-8-arm
+            runner: ubicloud-standard-4-arm
+            image: debian:13-slim
+            pg_version: 15
+            arch: arm64
+          - name: Debian 13 (Trixie)
+            runner: ubicloud-standard-8
+            image: debian:13-slim
+            pg_version: 16
+            arch: amd64
+          - name: Debian 13 (Trixie)
+            runner: ubicloud-standard-4-arm
             image: debian:13-slim
             pg_version: 16
             arch: arm64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-4
-            image: debian:13-slim
-            pg_version: 16
-            arch: amd64
-          - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-8-arm
-            image: debian:13-slim
-            pg_version: 17
-            arch: arm64
-          - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-4
+            runner: ubicloud-standard-8
             image: debian:13-slim
             pg_version: 17
             arch: amd64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-8-arm
+            runner: ubicloud-standard-4-arm
             image: debian:13-slim
-            pg_version: 18
+            pg_version: 17
             arch: arm64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-4
+            runner: ubicloud-standard-8
             image: debian:13-slim
             pg_version: 18
             arch: amd64
+          - name: Debian 13 (Trixie)
+            runner: ubicloud-standard-4-arm
+            image: debian:13-slim
+            pg_version: 18
+            arch: arm64
 
     steps:
       - name: Install Dependencies

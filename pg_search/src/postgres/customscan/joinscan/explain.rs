@@ -117,5 +117,12 @@ pub(super) fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSC
         JoinLevelExpr::Not(child) => {
             format!("NOT {}", format_join_level_expr(child, join_clause))
         }
+        JoinLevelExpr::MarkOrNull { is_anti, .. } => {
+            if *is_anti {
+                "(mark = false OR col IS NULL)".to_string()
+            } else {
+                "(mark = true OR col IS NULL)".to_string()
+            }
+        }
     }
 }

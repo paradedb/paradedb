@@ -317,7 +317,7 @@ impl JoinScan {
             return None;
         }
 
-        if has_distinct && !distinct_columns_are_fast_fields(root, &all_sources) {
+        if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
             return None;
         }
 

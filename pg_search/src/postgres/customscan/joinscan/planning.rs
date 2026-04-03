@@ -23,7 +23,9 @@
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
 
-use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode};
+use super::build::{
+    InputVarInfo, JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode,
+};
 use super::predicate::find_base_info_recursive;
 use super::privdat::{OutputColumnInfo, PrivateData};
 
@@ -1236,62 +1238,45 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
     true
 }
 
+/// Represents a parsed DISTINCT target list entry.
+pub(super) enum DistinctEntry {
+    /// Simple column reference (existing behavior)
+    Column {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Score function (existing behavior)
+    Score { rti: pg_sys::Index },
+    /// Arbitrary expression with its Var dependencies and resolved type info
+    Expression {
+        expr_node: *mut pg_sys::Expr,
+        input_vars: Vec<InputVarInfo>,
+        result_type: pg_sys::Oid,
+    },
+}
+
 /// Check if all DISTINCT columns are fast fields in their respective BM25 indexes.
 ///
 /// DISTINCT requires all target columns to be available as fast fields so that
 /// deduplication can happen within DataFusion without heap access.
 /// Walks `parse->distinctClause` (a list of SortGroupClause), resolves each to
 /// its TargetEntry, and checks the referenced Var against source fast fields.
+///
+/// Returns `Some(entries)` if all DISTINCT columns are fast fields, `None` otherwise.
+/// When there is no DISTINCT clause, returns `Some(vec![])`.
 pub(super) unsafe fn distinct_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
-) -> bool {
+) -> Option<Vec<DistinctEntry>> {
     let parse = (*root).parse;
     if (*parse).distinctClause.is_null() {
-        return true;
+        return Some(vec![]);
     }
 
     let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
     let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
-    // Check whether a single DISTINCT expression is resolvable as a fast field.
-    let expr_is_fast_field = |expr: *mut pg_sys::Node| -> bool {
-        if let Some(var) = nodecast!(Var, T_Var, expr) {
-            // Plain column reference — must be a fast field in its source index.
-            let varno = (*var).varno as pg_sys::Index;
-            sources.iter().any(|source| {
-                if !source.contains_rti(varno) {
-                    return false;
-                }
-                let hr = PgSearchRelation::open(source.scan_info.heaprelid);
-                let ir = PgSearchRelation::open(source.scan_info.indexrelid);
-                let td = hr.tuple_desc();
-                resolve_fast_field((*var).varattno as i32, &td, &ir).is_some()
-            })
-        } else if get_score_func_rti(expr.cast()).is_some() {
-            // Score functions are handled separately — always allowed in DISTINCT.
-            true
-        } else {
-            // Non-Var expression (e.g. lower(name)) — check if it matches an indexed
-            // expression so we can emit it directly from the index.
-            // TODO(#3303): ORDER BY on indexed expressions is not yet supported in
-            // JoinScan, so in practice this path requires the ORDER BY to use a
-            // different column. Full support will come with #3303.
-            sources.iter().any(|source| {
-                let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
-                    return false;
-                };
-                find_matching_fast_field(
-                    expr,
-                    &index_rel.index_expressions(),
-                    schema,
-                    source.scan_info.heap_rti,
-                )
-                .is_some()
-            })
-        }
-    };
+    let mut entries = Vec::new();
 
     for clause_ptr in distinct_list.iter_ptr() {
         let tle_ref = (*clause_ptr).tleSortGroupRef;
@@ -1299,17 +1284,116 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             .iter_ptr()
             .find(|te| (**te).ressortgroupref == tle_ref);
 
-        match te {
-            None => return false, // SortGroupClause references a TargetEntry we can't find
-            Some(te) => {
-                if !expr_is_fast_field((*te).expr as *mut pg_sys::Node) {
+        let te = te?;
+
+        let expr = (*te).expr as *mut pg_sys::Node;
+
+        // Case 1: Plain column reference (Var node)
+        if let Some(var) = nodecast!(Var, T_Var, expr) {
+            let varno = (*var).varno as pg_sys::Index;
+            let is_fast = sources.iter().any(|source| {
+                if !source.contains_rti(varno) {
                     return false;
                 }
+                let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+                let ir = PgSearchRelation::open(source.scan_info.indexrelid);
+                let td = hr.tuple_desc();
+                resolve_fast_field((*var).varattno as i32, &td, &ir).is_some()
+            });
+            if !is_fast {
+                return None;
+            }
+            entries.push(DistinctEntry::Column {
+                rti: varno,
+                attno: (*var).varattno,
+            });
+            continue;
+        }
+
+        // Case 2: Score function
+        if let Some(rti) = get_score_func_rti(expr.cast()) {
+            entries.push(DistinctEntry::Score { rti });
+            continue;
+        }
+
+        // Case 3: Check if expression matches an indexed expression (existing behavior)
+        let matched_indexed = sources.iter().any(|source| {
+            let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+            let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+                return false;
+            };
+            find_matching_fast_field(
+                expr,
+                &index_rel.index_expressions(),
+                schema,
+                source.scan_info.heap_rti,
+            )
+            .is_some()
+        });
+        if matched_indexed {
+            // Indexed expressions are handled as columns by the existing machinery.
+            // For now, treat them the same as before — they don't need the UDF path.
+            // We still need a rti/attno, but since this is an indexed expression,
+            // the find_matching_fast_field matched it. We'll handle this as a column
+            // with attno=0 (which the existing code already handles for expressions).
+            let varno = sources.first().map(|s| s.scan_info.heap_rti).unwrap_or(0);
+            entries.push(DistinctEntry::Column {
+                rti: varno,
+                attno: 0,
+            });
+            continue;
+        }
+
+        // Case 4: Expression with Var dependencies — walk the expression tree
+        // to find all referenced Var nodes and verify each is a fast field.
+        let var_list = pg_sys::pull_var_clause(
+            expr,
+            (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
+        );
+        let vars = PgList::<pg_sys::Var>::from_pg(var_list);
+
+        if vars.is_empty() {
+            // Expression with no Var dependencies (e.g., constant expression).
+            // Not useful for DISTINCT — decline.
+            return None;
+        }
+
+        let mut input_vars = Vec::new();
+        for var_ptr in vars.iter_ptr() {
+            let varno = (*var_ptr).varno as pg_sys::Index;
+            let varattno = (*var_ptr).varattno;
+
+            let source = sources.iter().find(|s| s.contains_rti(varno));
+            match source {
+                Some(source) => {
+                    let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+                    let ir = PgSearchRelation::open(source.scan_info.indexrelid);
+                    let td = hr.tuple_desc();
+                    resolve_fast_field(varattno as i32, &td, &ir)?;
+                    // Resolve type info directly from the Var node.
+                    input_vars.push(InputVarInfo {
+                        rti: varno,
+                        attno: varattno,
+                        type_oid: (*var_ptr).vartype,
+                        typmod: (*var_ptr).vartypmod,
+                        collation: (*var_ptr).varcollid,
+                    });
+                }
+                None => return None,
             }
         }
+
+        // SAFETY: expr is a valid Node pointer from the parse tree.
+        let result_type = pg_sys::exprType(expr);
+
+        entries.push(DistinctEntry::Expression {
+            expr_node: expr.cast(),
+            input_vars,
+            result_type,
+        });
     }
 
-    true
+    Some(entries)
 }
 
 /// Check if any pathkey (ORDER BY clause) uses paradedb.score() referencing a specific relation.

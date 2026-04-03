@@ -31,9 +31,7 @@ use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
 use crate::api::tokenizers::type_can_be_tokenized;
-use crate::api::tokenizers::{
-    try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
-};
+use crate::api::tokenizers::{try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -420,15 +418,7 @@ unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys:
     if !vars_equal_ignoring_varno(expr_var, var) {
         return false;
     }
-    // the Var is the expression that matches the Var we're looking for
-    // but lets make sure the whole expression is one without an alias
-    // we pick the first un-aliased custom tokenizer expression that uses the
-    // Var as the matching indexed expression
-    let typmod = pg_sys::exprTypmod(expr.cast());
-    let alias = UncheckedTypmod::try_from(typmod)
-        .unwrap_or_else(|e| panic!("{e}"))
-        .alias();
-    alias.is_none()
+    true
 }
 
 pub unsafe fn field_name_from_node(
@@ -465,6 +455,8 @@ pub unsafe fn field_name_from_node(
         // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
 
         let expressions = indexrel.index_expressions();
+        // TODO: remove allocation?
+        let mut candidate_field_names: Vec<FieldName> = vec![];
         let mut expr_no = 0;
         for i in 0..index_info.ii_NumIndexAttrs {
             let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
@@ -509,6 +501,7 @@ pub unsafe fn field_name_from_node(
                                 continue;
                             }
 
+                            // TODO update this here?
                             if var_matches_tokenizer_expr(var, arg.cast()) {
                                 return Some(FieldName::from(fields[position].field_name.clone()));
                             }
@@ -519,14 +512,35 @@ pub unsafe fn field_name_from_node(
                     if type_can_be_tokenized((*var).vartype)
                         && var_matches_tokenizer_expr(var, expression.cast())
                     {
-                        return attname_from_var(heaprel, var);
+                        let oid = pg_sys::exprType(expression.cast());
+                        let typmod = pg_sys::exprTypmod(expression.cast());
+                        if let Some(field_name) = try_get_alias(oid, typmod)
+                            .map(FieldName::from)
+                            .or_else(|| attname_from_var(heaprel, var))
+                        {
+                            candidate_field_names.push(field_name);
+                        }
                     }
                     expr_no += 1;
                 }
             }
         }
-
-        return None;
+        match &candidate_field_names[..] {
+            [] => {
+                // no candidate expressions
+                return None;
+            }
+            [field_name] => {
+                // Unambiguous match
+                // TODO: remove clone?
+                return Some(field_name.clone());
+            }
+            _ => {
+                // TODO: if the alias matches exaclty we should allow it
+                // TODO improve message
+                panic!("Could not unambiguously identify column");
+            }
+        }
     }
 
     //

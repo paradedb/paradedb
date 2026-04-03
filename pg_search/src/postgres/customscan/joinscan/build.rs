@@ -147,6 +147,14 @@ pub enum JoinType {
     Right,
     Semi,
     Anti,
+    /// LeftMark join: returns all left rows with an additional boolean "mark" column
+    /// indicating whether a right-side match exists. Used to decorrelate
+    /// `EXISTS` / `IN` subqueries inside disjunctive predicates such as
+    /// `col IS NULL OR col IN (SELECT ...)`.
+    LeftMark,
+    /// RightMark join: mirror of LeftMark — returns all right rows with a
+    /// boolean "mark" column indicating whether a left-side match exists.
+    RightMark,
     RightSemi,
     RightAnti,
     UniqueOuter,
@@ -162,6 +170,8 @@ impl fmt::Display for JoinType {
             JoinType::Right => "Right",
             JoinType::Semi => "Semi",
             JoinType::Anti => "Anti",
+            JoinType::LeftMark => "LeftMark",
+            JoinType::RightMark => "RightMark",
             JoinType::RightSemi => "RightSemi",
             JoinType::RightAnti => "RightAnti",
             JoinType::UniqueOuter => "UniqueOuter",
@@ -579,6 +589,16 @@ pub enum JoinLevelExpr {
     Or(Vec<JoinLevelExpr>),
     /// Logical NOT of a child expression.
     Not(Box<JoinLevelExpr>),
+    /// Post-LeftMark-join filter: `mark = true OR col IS NULL` (or `mark = false OR col IS NULL`
+    /// for the anti/NOT-IN variant). Used to implement `col IS NULL OR col IN (SELECT ...)`.
+    MarkOrNull {
+        /// True for NOT IN patterns (anti-join semantics).
+        is_anti: bool,
+        /// Varno of the outer column tested for IS NULL.
+        null_test_varno: pgrx::pg_sys::Index,
+        /// Attribute number of the outer column tested for IS NULL.
+        null_test_attno: pgrx::pg_sys::AttrNumber,
+    },
 }
 
 /// A node in the intermediate relational plan tree.
@@ -646,8 +666,10 @@ impl RelNode {
         match self {
             RelNode::Scan(_) => false,
             RelNode::Join(j) => {
-                matches!(j.join_type, JoinType::Semi | JoinType::Anti)
-                    || j.left.has_semi_or_anti()
+                matches!(
+                    j.join_type,
+                    JoinType::Semi | JoinType::Anti | JoinType::LeftMark | JoinType::RightMark
+                ) || j.left.has_semi_or_anti()
                     || j.right.has_semi_or_anti()
             }
             RelNode::Filter(f) => f.input.has_semi_or_anti(),
@@ -660,7 +682,11 @@ impl RelNode {
             RelNode::Join(j) => {
                 if !matches!(
                     j.join_type,
-                    JoinType::Inner | JoinType::Semi | JoinType::Anti
+                    JoinType::Inner
+                        | JoinType::Semi
+                        | JoinType::Anti
+                        | JoinType::LeftMark
+                        | JoinType::RightMark
                 ) {
                     acc.push(j.join_type);
                 }
@@ -739,10 +765,10 @@ impl RelNode {
         match self {
             RelNode::Scan(s) => acc.push(&**s),
             RelNode::Join(j) => match j.join_type {
-                JoinType::Semi | JoinType::Anti => {
+                JoinType::Semi | JoinType::Anti | JoinType::LeftMark => {
                     j.left.collect_output_sources(acc);
                 }
-                JoinType::RightSemi | JoinType::RightAnti => {
+                JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
                     j.right.collect_output_sources(acc);
                 }
                 _ => {

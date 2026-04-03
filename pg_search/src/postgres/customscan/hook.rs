@@ -1110,3 +1110,52 @@ unsafe fn replace_in_node(
     // No replacement needed
     node
 }
+
+/// Register a `set_rel_pathlist_hook` callback that checks for SubPlan-based
+/// join opportunities after the base-scan hooks have run.
+///
+/// When PostgreSQL keeps a subquery as a SubPlan (e.g. `col IN (SELECT ...) OR
+/// col IS NULL`), `set_join_pathlist_hook` never fires.  This additional
+/// rel-pathlist hook gives JoinScan a chance to handle those patterns by
+/// converting the SubPlan into a LeftMark join executed via DataFusion.
+pub fn register_subplan_join_pathlist() {
+    unsafe {
+        static mut PREV_HOOK: pg_sys::set_rel_pathlist_hook_type = None;
+
+        #[pg_guard]
+        extern "C-unwind" fn callback(
+            root: *mut pg_sys::PlannerInfo,
+            rel: *mut pg_sys::RelOptInfo,
+            rti: pg_sys::Index,
+            rte: *mut pg_sys::RangeTblEntry,
+        ) {
+            unsafe {
+                #[allow(static_mut_refs)]
+                if let Some(prev) = PREV_HOOK {
+                    prev(root, rel, rti, rte);
+                }
+
+                if !pg_search_extension_installed() {
+                    return;
+                }
+
+                if !gucs::enable_custom_scan() {
+                    return;
+                }
+
+                let paths = crate::postgres::customscan::joinscan::try_create_subplan_join_paths(
+                    root, rel, rti,
+                );
+                for path in paths {
+                    add_path(rel, path);
+                }
+            }
+        }
+
+        #[allow(static_mut_refs)]
+        {
+            PREV_HOOK = pg_sys::set_rel_pathlist_hook;
+        }
+        pg_sys::set_rel_pathlist_hook = Some(callback);
+    }
+}

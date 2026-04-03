@@ -102,7 +102,7 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-WARNING:  JoinScan not used: all DISTINCT columns must be fast fields in the BM25 index (tables: p, s)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -128,7 +128,7 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-WARNING:  JoinScan not used: all DISTINCT columns must be fast fields in the BM25 index (tables: p, s)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
  name  
 -------
  Alpha

@@ -36,6 +36,12 @@ SELECT 'beer'::pdb.fuzzy(2, "true", "true");
 SELECT 'beer'::pdb.fuzzy(2, "false", "false");
 
 --
+-- prefix behavior: verify prefix=true vs prefix=false produce different queries
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.fuzzy(2, t);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.fuzzy(2, f);
+
+--
 -- error conditions
 --
 SELECT 'beer'::pdb.fuzzy(-1);

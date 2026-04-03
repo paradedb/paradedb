@@ -19,6 +19,7 @@ pretty_assertions = "1.4.1"
 tokio = { version = "1.48", features = ["full"] }
 serde = "1.0.228"
 futures = "0.3.31"
+duckdb = { version = "1.10501.0", features = ["bundled"] }
 
 [lib]
 name = "paradedb"

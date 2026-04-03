@@ -44,7 +44,7 @@ use serde::{Deserialize, Serialize};
 use crate::postgres::customscan::joinscan::build::InputVarInfo;
 
 /// Prefix for PgExprUdf names. UDF names follow the pattern `{PREFIX}{index}`.
-pub const PG_EXPR_UDF_PREFIX: &str = "pg_eval_expr_";
+pub const PG_EXPR_UDF_PREFIX: &str = "pdb_eval_expr_";
 
 /// A DataFusion ScalarUDF that wraps PostgreSQL's ExecEvalExpr.
 #[derive(Serialize, Deserialize)]

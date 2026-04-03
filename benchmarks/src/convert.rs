@@ -136,14 +136,15 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
         println!("\nDry run: counting planned conversions...");
         for table in &args.tables {
             let glob_pattern = format!("{input}/{table}/*.parquet");
-            let mut stmt = conn
-                .prepare(&format!("SELECT count(*) FROM glob('{glob_pattern}')"))
+            let count: usize = conn
+                .query_row(
+                    &format!("SELECT count(*) FROM glob('{glob_pattern}')"),
+                    [],
+                    |row| row.get(0),
+                )
                 .with_context(|| {
-                    format!("Failed to prepare query to count parquet files for table '{table}'")
+                    format!("Failed to execute query to count parquet files for table '{table}'")
                 })?;
-            let count: usize = stmt
-                .query_one([], |row| row.get(0))
-                .with_context(|| format!("Failed to count parquet files for table '{table}'"))?;
             println!("  Table '{table}' ({count} file(s)):");
         }
         println!("\nDry run complete. No files were converted.");
@@ -178,23 +179,19 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
     for table in &args.tables {
         println!("  Checking table '{table}'...");
 
-        let mut parquet_stmt = conn
-            .prepare(&format!(
-                "SELECT count(*) FROM read_parquet('{input}/{table}/*.parquet')",
-            ))
-            .with_context(|| format!("Failed to prepare parquet count statement for {table}"))?;
-        let parquet_count: usize = parquet_stmt
-            .query_one([], |row| row.get(0))
-            .with_context(|| format!("Failed to query parquet count for {table}"))?;
+        let parquet_count: usize = conn
+            .query_row(
+                &format!("SELECT count(*) FROM read_parquet('{input}/{table}/*.parquet')",),
+                [],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("Failed to query parquet row count for {table}"))?;
 
-        let mut csv_stmt = conn
-            .prepare(&format!(
+        let csv_count: usize = conn
+            .query_row(&format!(
                 "SELECT count(*) FROM read_csv('{output}/{table}/*.csv', parallel=false, header=true)",
-            ))
-            .with_context(|| format!("Failed to prepare csv count statement for {table}"))?;
-        let csv_count: usize = csv_stmt
-            .query_one([], |row| row.get(0))
-            .with_context(|| format!("Failed to query csv count for {table}"))?;
+            ), [], |row| row.get(0))
+            .with_context(|| format!("Failed to query csv row count for {table}"))?;
 
         println!("  {parquet_count} -> {csv_count}");
         if parquet_count != csv_count {

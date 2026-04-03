@@ -46,6 +46,6 @@ The following command will read a parquet dataset from the input location and wr
 Example:
 
 ```bash
-# This will convert a large dataset, so use something else for expirementation
+# This will fail (as the output already exists), so use different inputs/outputs for experimentation
 cargo run --release -- convert --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ --output s3://paradedb-benchmarks/datasets/stackoverflow/pruned/csv/ --tables posts_questions,posts_answers,comments
 ```

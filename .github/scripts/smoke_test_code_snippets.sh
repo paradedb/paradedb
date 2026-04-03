@@ -34,6 +34,16 @@ export PGPASSWORD="$PARADEDB_PASSWORD"
 
 PSQL=(psql -v ON_ERROR_STOP=1)
 
+if [[ -t 2 ]] && command -v tput >/dev/null 2>&1; then
+  GREEN="$(tput setaf 2)"
+  RED="$(tput setaf 1)"
+  RESET="$(tput sgr0)"
+else
+  GREEN=""
+  RED=""
+  RESET=""
+fi
+
 run_psql_file() {
   local sql_file="$1"
   local output
@@ -78,10 +88,10 @@ while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   if run_psql_file "$snippet_file"; then
-    echo "[SUCCESS] $rel_snippet" >&2
+    echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
     sql_pass_count=$((sql_pass_count + 1))
   else
-    echo "[FAIL] $rel_snippet" >&2
+    echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
     sql_fail_count=$((sql_fail_count + 1))
   fi
 done < <(find "$SQL_DIR" -type f -name '*.sql' | LC_ALL=C sort)
@@ -101,10 +111,10 @@ PY
     cat "$snippet_file"
   } | "$PYTHON_BIN" - >/dev/null
   then
-    echo "[SUCCESS] $rel_snippet" >&2
+    echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
     django_pass_count=$((django_pass_count + 1))
   else
-    echo "[FAIL] $rel_snippet" >&2
+    echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
     django_fail_count=$((django_fail_count + 1))
   fi
 done < <(find "$DJANGO_DIR" -type f -name '*.py' | LC_ALL=C sort)
@@ -126,10 +136,10 @@ RUBY
       GEM_HOME="$RUBY_GEM_HOME" \
       GEM_PATH="$RUBY_GEM_HOME" \
       ruby - >/dev/null; then
-    echo "[SUCCESS] $rel_snippet" >&2
+    echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
     rails_pass_count=$((rails_pass_count + 1))
   else
-    echo "[FAIL] $rel_snippet" >&2
+    echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
     rails_fail_count=$((rails_fail_count + 1))
   fi
 done < <(find "$RAILS_DIR" -type f -name '*.rb' | LC_ALL=C sort)
@@ -148,10 +158,10 @@ from sqlalchemy_snippet_harness import MockItem, Order, engine
 PY
     cat "$snippet_file"
   } | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - >/dev/null; then
-    echo "[SUCCESS] $rel_snippet" >&2
+    echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
     sqlalchemy_pass_count=$((sqlalchemy_pass_count + 1))
   else
-    echo "[FAIL] $rel_snippet" >&2
+    echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
     sqlalchemy_fail_count=$((sqlalchemy_fail_count + 1))
   fi
 done < <(find "$SQLALCHEMY_DIR" -type f -name '*.py' | LC_ALL=C sort)

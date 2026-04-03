@@ -452,53 +452,6 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
-                // Handle MarkOrNull filters (from OR-wrapped SubPlans) directly,
-                // since they reference the synthetic "mark" column and need source info.
-                if let crate::postgres::customscan::joinscan::build::JoinLevelExpr::MarkOrNull {
-                    is_anti,
-                    null_test_varno,
-                    null_test_attno,
-                } = &filter.predicate
-                {
-                    // Find the source for the IS NULL column and get its name
-                    let sources = filter.input.sources();
-                    let source = sources.iter().find(|s| s.contains_rti(*null_test_varno));
-                    let col_name = source
-                        .and_then(|s| s.column_name(*null_test_attno))
-                        .ok_or_else(|| {
-                            DataFusionError::Internal(
-                                "MarkOrNull: cannot resolve column name for IS NULL test"
-                                    .to_string(),
-                            )
-                        })?;
-
-                    // Build: mark = true OR col IS NULL  (for IN)
-                    //        mark = false OR col IS NULL  (for NOT IN)
-                    use datafusion::logical_expr::{col, lit, Expr};
-                    let mark_check = if *is_anti {
-                        col("mark").eq(lit(false))
-                    } else {
-                        col("mark").eq(lit(true))
-                    };
-                    let null_check = Expr::IsNull(Box::new(col(col_name)));
-                    let filter_expr = mark_check.or(null_check);
-
-                    df = df.filter(filter_expr)?;
-                    // Drop the mark column — it is not part of the final output.
-                    let schema = df.schema().clone();
-                    let proj_cols: Vec<Expr> = schema
-                        .columns()
-                        .into_iter()
-                        .filter(|c| c.name != "mark")
-                        .map(col)
-                        .collect();
-                    if !proj_cols.is_empty() {
-                        df = df.select(proj_cols)?;
-                    }
-
-                    return Ok(df);
-                }
-
                 // Compute per-plan_position deferred visibility. A plan_position's
                 // ctid is "deferred" (packed DocAddress) if it flows only through
                 // inner joins from the leaf scan. Non-inner joins (semi, anti, etc.)
@@ -507,6 +460,7 @@ fn build_relnode_df<'a>(
                 // ctid_A and ctid_B are still packed while ctid_C is resolved.
                 let deferred_positions =
                     super::visibility_filter::deferred_plan_positions(&filter.input);
+                let sources = filter.input.sources();
                 let filter_expr = unsafe {
                     crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
@@ -514,6 +468,7 @@ fn build_relnode_df<'a>(
                         ctid_map,
                         &join_clause.join_level_predicates,
                         &deferred_positions,
+                        &sources,
                     )
                 }
                 .ok_or_else(|| {
@@ -523,7 +478,27 @@ fn build_relnode_df<'a>(
                     ))
                 })?;
 
+                // For MarkOrNull filters, drop the synthetic "mark" column after filtering.
+                let is_mark_filter = matches!(
+                    filter.predicate,
+                    crate::postgres::customscan::joinscan::build::JoinLevelExpr::MarkOrNull { .. }
+                );
+
                 df = df.filter(filter_expr)?;
+
+                if is_mark_filter {
+                    use datafusion::logical_expr::col;
+                    let schema = df.schema().clone();
+                    let proj_cols: Vec<datafusion::logical_expr::Expr> = schema
+                        .columns()
+                        .into_iter()
+                        .filter(|c| c.name != "mark")
+                        .map(col)
+                        .collect();
+                    if !proj_cols.is_empty() {
+                        df = df.select(proj_cols)?;
+                    }
+                }
                 Ok(df)
             }
         }

@@ -296,10 +296,9 @@ impl JoinScan {
         let all_sources = plan.sources();
 
         // --- Activation checks ---
-
-        if !all_sources.iter().any(|s| s.scan_info.has_search_predicate) {
-            return None;
-        }
+        // NOTE: We do NOT check has_search_predicate here. The caller is
+        // responsible for that check because the join-hook path also considers
+        // join_conditions.has_search_predicate, which is not available to us.
 
         if all_sources
             .iter()

@@ -19,6 +19,23 @@ WHERE description ||| 'sleek running shoes'
 ORDER BY lower(description) DESC
 LIMIT 5;
 
+DROP INDEX search_idx;
+
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
+  (description::pdb.simple('alias=simple_description')),
+  (lower(description)::pdb.literal('alias=literal_description')),
+  rating
+)
+WITH (key_field='id');
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description) DESC
+LIMIT 5;
+
 DROP TABLE mock_items;
 
 

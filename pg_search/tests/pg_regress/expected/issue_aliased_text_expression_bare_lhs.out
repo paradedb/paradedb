@@ -26,4 +26,19 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
  Sleek running shoes |      5
 (1 row)
 
+DROP INDEX search_idx;
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
+  (description::pdb.simple('alias=simple_description')),
+  (lower(description)::pdb.literal('alias=literal_description')),
+  rating
+)
+WITH (key_field='id');
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description) DESC
+LIMIT 5;
+ERROR:  Could not unambiguously identify column
 DROP TABLE mock_items;

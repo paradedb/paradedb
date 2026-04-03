@@ -392,6 +392,7 @@ pub(crate) mod pdb {
                 // Convert the text varlena to a string using pgrx utilities
                 let text_len = pgrx::varlena::varsize_any_exhdr(ptr);
                 let text_data = pgrx::varlena::vardata_any(ptr);
+                #[allow(clippy::unnecessary_cast)]
                 let text_slice = std::slice::from_raw_parts(text_data as *const u8, text_len);
                 let text_str = std::str::from_utf8_unchecked(text_slice);
                 std::ffi::CString::new(text_str)

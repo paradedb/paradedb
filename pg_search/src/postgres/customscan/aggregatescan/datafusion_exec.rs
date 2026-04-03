@@ -106,11 +106,8 @@ pub async fn build_join_aggregate_plan(
     // Step 5: If TopK is requested, add sort + limit so DataFusion handles it internally
     if let Some(topk) = topk {
         let sort_col_name = format!("agg_{}", topk.sort_agg_idx);
-        let is_asc = matches!(
-            topk.direction,
-            crate::api::SortDirection::AscNullsFirst | crate::api::SortDirection::AscNullsLast
-        );
-        let sort_expr = datafusion::prelude::col(&sort_col_name).sort(is_asc, true);
+        let sort_expr = datafusion::prelude::col(&sort_col_name)
+            .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         let df = df.sort(vec![sort_expr])?;
         let df = df.limit(0, Some(topk.k))?;
         return df.into_optimized_plan();

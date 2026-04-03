@@ -478,51 +478,15 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
     }
 }
 
-/// Determines sort direction from a Postgres sort operator OID.
-///
-/// Returns `None` if the operator properties cannot be resolved (should not
-/// happen for valid `SortGroupClause` operators). Callers should bail out
-/// of the TopK optimization rather than guessing a direction.
-#[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-pub(super) unsafe fn sort_direction_from_op(sortop: pg_sys::Oid) -> Option<SortDirection> {
-    let mut opfamily = pg_sys::InvalidOid;
-    let mut opcintype = pg_sys::InvalidOid;
-    let mut strategy: i16 = 0;
-    if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut strategy) {
-        if strategy as u32 == pg_sys::BTGreaterStrategyNumber {
-            Some(SortDirection::DescNullsFirst)
-        } else {
-            Some(SortDirection::AscNullsLast)
-        }
-    } else {
-        None
-    }
-}
-
-#[cfg(feature = "pg18")]
-pub(super) unsafe fn sort_direction_from_op(sortop: pg_sys::Oid) -> Option<SortDirection> {
-    let mut opfamily = pg_sys::InvalidOid;
-    let mut opcintype = pg_sys::InvalidOid;
-    let mut cmptype = pg_sys::CompareType::COMPARE_LT;
-    if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut cmptype) {
-        if cmptype == pg_sys::CompareType::COMPARE_GT {
-            Some(SortDirection::DescNullsFirst)
-        } else {
-            Some(SortDirection::AscNullsLast)
-        }
-    } else {
-        None
-    }
-}
-
-/// Returns true when the query has ORDER BY on a non-COUNT aggregate + LIMIT.
-/// These queries should be routed to DataFusion instead of Tantivy because:
-/// - Tantivy's NULL semantics for SUM/AVG/MIN/MAX differ from Postgres
-/// - DataFusion's SortExec(fetch=K) provides native TopK with correct NULLs
+/// Returns true when the query has ORDER BY on any aggregate + LIMIT.
+/// These queries are routed to DataFusion instead of Tantivy because:
+/// - Tantivy's max_buckets (65000) silently drops groups beyond that limit,
+///   which could exclude groups that belong in the top-K.
+/// - DataFusion has no bucket cap and provides native TopK via SortExec(fetch=K).
 ///
 /// This is a lightweight parse-tree check used before building the full
 /// AggregateCSClause — it only looks at the sort clause structure.
-pub(super) unsafe fn has_non_count_aggregate_orderby(args: &CreateUpperPathsHookArgs) -> bool {
+pub(super) unsafe fn has_aggregate_orderby_with_limit(args: &CreateUpperPathsHookArgs) -> bool {
     let parse = args.root().parse;
     if parse.is_null() || (*parse).sortClause.is_null() || (*parse).groupClause.is_null() {
         return false;
@@ -540,15 +504,11 @@ pub(super) unsafe fn has_non_count_aggregate_orderby(args: &CreateUpperPathsHook
     };
     let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
 
-    // Check if the sort expression is a direct Aggref
+    // The sort expression must BE an aggregate — not merely contain one.
     let Some(aggref) = find_single_aggref_in_expr(sort_expr) else {
         return false;
     };
-    if aggref as *mut pg_sys::Node != sort_expr {
-        return false;
-    }
-    // Check if it's COUNT(*) — aggstar=true means COUNT(*)
-    !(*aggref).aggstar
+    aggref as *mut pg_sys::Node == sort_expr
 }
 
 /// Detects ORDER BY on aggregate metrics (e.g., ORDER BY COUNT(*) DESC)
@@ -589,7 +549,7 @@ unsafe fn detect_aggregate_orderby(
 
     // Determine sort direction; bail out if the operator is unrecognized
     // so we fall back to the un-optimized path rather than risk wrong results.
-    let direction = sort_direction_from_op((*sort_clause_ptr).sortop)?;
+    let direction = SortDirection::from_sort_op((*sort_clause_ptr).sortop)?;
 
     // Find matching position in output_rel target using structural equality
     let reltarget = args.output_rel().reltarget;

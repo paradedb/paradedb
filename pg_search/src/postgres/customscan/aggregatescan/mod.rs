@@ -37,6 +37,7 @@ pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
 use crate::api::agg_funcoid;
+use crate::api::SortDirection;
 use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
@@ -125,9 +126,9 @@ impl CustomScan for AggregateScan {
                     if estimated_groups > max_buckets {
                         true
                     } else {
-                        // ORDER BY non-COUNT aggregate + LIMIT: route to DataFusion
-                        // for correct NULL semantics and native TopK via SortExec(fetch=K).
-                        build::has_non_count_aggregate_orderby(builder.args())
+                        // ORDER BY aggregate + LIMIT: route to DataFusion which has
+                        // no bucket cap and provides native TopK via SortExec(fetch=K).
+                        build::has_aggregate_orderby_with_limit(builder.args())
                     }
                 };
                 if use_datafusion {
@@ -892,7 +893,7 @@ impl AggregateScan {
         // empty RecordBatches. Single-table scans (sources.len() == 1) have
         // no join keys by definition and are allowed — they reach this path
         // when routed from RELOPT_BASEREL (e.g., max_buckets overflow or
-        // ORDER BY non-COUNT aggregate + LIMIT).
+        // ORDER BY aggregate + LIMIT).
         if sources.len() > 1 && plan.join_keys().is_empty() {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
@@ -1073,7 +1074,7 @@ unsafe fn detect_join_aggregate_topk(
         return None;
     }
 
-    let direction = build::sort_direction_from_op((*sort_clause_ptr).sortop)?;
+    let direction = SortDirection::from_sort_op((*sort_clause_ptr).sortop)?;
 
     // Find matching position in output_rel target using structural equality
     let reltarget = args.output_rel().reltarget;

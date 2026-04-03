@@ -1060,6 +1060,20 @@ pub(super) unsafe fn collect_required_fields(
             _ => {}
         }
     }
+
+    // Ensure expression input vars are included so Tantivy emits the columns
+    // that DISTINCT expressions depend on (e.g., `DISTINCT upper(name)` needs `name`).
+    if let Some(projections) = &join_clause.output_projection {
+        for proj in projections {
+            if let Some(input_vars) = &proj.input_vars {
+                for var_info in input_vars {
+                    for source in &mut plan_sources {
+                        ensure_column(source, var_info.rti, var_info.attno);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Ensures that a specific attribute from a relation is included in the output fields for a given `JoinSource`.

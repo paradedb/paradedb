@@ -998,17 +998,76 @@ impl CustomScan for JoinScan {
             }
 
             private_data.output_columns = output_columns;
+
+            // Build output_projection, enriching expression entries with metadata
+            // when DISTINCT is active.
+            let distinct_entries = if private_data.join_clause.has_distinct {
+                let all_sources = private_data.join_clause.plan.sources();
+                distinct_columns_are_fast_fields(root, &all_sources)
+            } else {
+                None
+            };
+
+            // Build a map from tleSortGroupRef → DistinctEntry for expression matching
+            let distinct_entry_by_ref: crate::api::HashMap<u32, &planning::DistinctEntry> =
+                if let Some(ref entries) = distinct_entries {
+                    if !entries.is_empty() {
+                        let parse = (*root).parse;
+                        let distinct_list =
+                            PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+                        distinct_list
+                            .iter_ptr()
+                            .zip(entries.iter())
+                            .map(|(clause, entry)| ((*clause).tleSortGroupRef, entry))
+                            .collect()
+                    } else {
+                        Default::default()
+                    }
+                } else {
+                    Default::default()
+                };
+
             private_data.join_clause.output_projection = Some(
-                private_data
-                    .output_columns
-                    .iter()
-                    .map(|info| build::ChildProjection {
-                        rti: info.rti,
-                        attno: info.original_attno,
-                        is_score: info.is_score,
-                        pg_expr_string: None,
-                        input_vars: None,
-                        result_type_oid: None,
+                original_entries
+                    .iter_ptr()
+                    .zip(private_data.output_columns.iter())
+                    .map(|(te, info)| {
+                        // Check if this target entry has a matching expression DistinctEntry
+                        let sgref = (*te).ressortgroupref;
+                        if sgref != 0 {
+                            if let Some(planning::DistinctEntry::Expression {
+                                expr_node,
+                                input_vars,
+                                result_type,
+                            }) = distinct_entry_by_ref.get(&sgref)
+                            {
+                                // Serialize the expression tree via nodeToString
+                                let expr_string = {
+                                    let node_str = pg_sys::nodeToString((*expr_node).cast());
+                                    std::ffi::CStr::from_ptr(node_str)
+                                        .to_string_lossy()
+                                        .into_owned()
+                                };
+                                let primary_rti = input_vars.first().map_or(0, |v| v.rti);
+                                return build::ChildProjection {
+                                    rti: primary_rti,
+                                    attno: 0,
+                                    is_score: false,
+                                    pg_expr_string: Some(expr_string),
+                                    input_vars: Some(input_vars.clone()),
+                                    result_type_oid: Some(*result_type),
+                                };
+                            }
+                        }
+                        // Non-expression: existing behavior
+                        build::ChildProjection {
+                            rti: info.rti,
+                            attno: info.original_attno,
+                            is_score: info.is_score,
+                            pg_expr_string: None,
+                            input_vars: None,
+                            result_type_oid: None,
+                        }
                     })
                     .collect(),
             );

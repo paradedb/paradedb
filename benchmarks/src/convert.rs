@@ -70,7 +70,7 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
         let glob_pattern = format!("{input}/{table}/*.parquet");
         let exists: bool = conn
             .query_row(
-                &format!("SELECT count(*) > 0 FROM (SELECT filename FROM glob('{glob_pattern}') LIMIT 1)"),
+                &format!("SELECT count(*) > 0 FROM (SELECT * FROM glob('{glob_pattern}') LIMIT 1)"),
                 [],
                 |row| row.get(0),
             )
@@ -93,26 +93,31 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
     }
 
     if args.dry_run {
-        println!("\nDry run: listing planned conversions...");
+        println!("\nDry run: counting planned conversions...");
         for table in &args.tables {
             let glob_pattern = format!("{input}/{table}/*.parquet");
             let mut stmt = conn
-                .prepare(&format!("SELECT filename FROM glob('{glob_pattern}')"))
-                .with_context(|| format!("Failed to list parquet files for table '{table}'"))?;
-            let files: Vec<String> = stmt
-                .query_map([], |row| row.get(0))?
-                .collect::<std::result::Result<Vec<String>, _>>()
-                .with_context(|| format!("Failed to collect file listing for table '{table}'"))?;
-            println!("  Table '{table}' ({} file(s)):", files.len());
-            for file_path in &files {
-                let parquet_filename = file_path.rsplit('/').next().unwrap_or(file_path);
-                let csv_filename = parquet_filename.replace(".parquet", ".csv");
-                println!("    {parquet_filename} -> {output}/{table}/{csv_filename}");
-            }
+                .prepare(&format!("SELECT count(*) FROM glob('{glob_pattern}')"))
+                .with_context(|| {
+                    format!("Failed to prepare query to count parquet files for table '{table}'")
+                })?;
+            let count: usize = stmt
+                .query_one([], |row| row.get(0))
+                .with_context(|| format!("Failed to count parquet files for table '{table}'"))?;
+            println!("  Table '{table}' ({count} file(s)):");
         }
         println!("\nDry run complete. No files were converted.");
         return Ok(());
     }
+
+    // Setup phase
+    conn.execute("INSTALL httpfs", [])
+        .with_context(|| "Failed to install httpfs extension")?;
+    conn.execute("LOAD httpfs", [])
+        .with_context(|| "Failed to load httpfs extension")?;
+    // Increase timeout (default is 30 seconds) to allow for working with larger files (200MB+)
+    conn.execute("SET http_timeout = 60", [])
+        .with_context(|| "Failed to configure http timeout")?;
 
     // Conversion phase: one COPY per table, DuckDB handles parallelism internally.
     println!("\nConverting parquet to CSV...");
@@ -120,7 +125,7 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
         println!("  Converting table '{table}'...");
         let sql = format!(
             "COPY (SELECT * FROM read_parquet('{input}/{table}/*.parquet')) \
-             TO '{output}/{table}/' (FORMAT CSV, HEADER true, PER_THREAD_OUTPUT true);"
+             TO '{output}/{table}' (FORMAT CSV, HEADER true, PER_THREAD_OUTPUT true);"
         );
 
         conn.execute_batch(&sql)

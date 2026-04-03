@@ -23,6 +23,17 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
 
+/// TopK sort+limit info pushed into the DataFusion aggregate plan.
+/// Allows DataFusion to handle ORDER BY aggregate + LIMIT internally.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DataFusionTopK {
+    /// Index into `JoinAggregateTargetList.aggregates` for the sort target.
+    pub sort_agg_idx: usize,
+    pub direction: crate::api::SortDirection,
+    /// Maximum number of rows to return (LIMIT + OFFSET).
+    pub k: usize,
+}
+
 /// Private data serialized between planning and execution for AggregateScan.
 ///
 /// The `Tantivy` variant is the existing single-table path. The `DataFusion`
@@ -43,6 +54,8 @@ pub enum PrivateData {
         plan: RelNode,
         /// The aggregate target list (GROUP BY columns + aggregate functions).
         targetlist: JoinAggregateTargetList,
+        /// Optional TopK sort+limit pushed down from Postgres.
+        topk: Option<DataFusionTopK>,
     },
 }
 

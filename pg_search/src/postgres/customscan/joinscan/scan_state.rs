@@ -114,7 +114,7 @@ fn make_source_score_col(source: &JoinSource, plan_position: usize) -> Expr {
 /// canonical plan. Execution-only bindings are still injected separately during
 /// deserialization.
 #[derive(Debug, Default)]
-struct PgSearchQueryPlanner;
+pub struct PgSearchQueryPlanner;
 
 #[async_trait]
 impl QueryPlanner for PgSearchQueryPlanner {
@@ -244,17 +244,18 @@ fn add_tail_physical_rules(builder: SessionStateBuilder) -> SessionStateBuilder 
         .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()))
 }
 
-/// Creates the shared DataFusion SessionContext used for both JoinScan logical
-/// planning and execution.
+/// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
+/// - Visibility filtering (logical + physical)
+/// - Late materialization
+/// - SortMergeJoinEnforcer (when columnar sort enabled)
+/// - `PgSearchQueryPlanner`
 ///
-/// The same context configuration is used to:
-/// 1. run logical optimization and produce the canonical serialized plan
-/// 2. lower that deserialized logical plan into a physical plan at execution
-pub fn create_session_context() -> SessionContext {
+/// Callers append their own TopK rule and FilterPushdown passes.
+pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
-    let mut builder = SessionStateBuilder::new().with_config(base_session_config());
+    let mut builder = SessionStateBuilder::new().with_config(config);
 
     // Inject visibility before late materialization so ctid lineage is analyzed
     // while DeferredCtid columns are still present in the logical plan.
@@ -270,13 +271,24 @@ pub fn create_session_context() -> SessionContext {
 
     builder = builder.with_query_planner(Arc::new(PgSearchQueryPlanner));
 
+    builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
+}
+
+/// Creates the shared DataFusion SessionContext used for both JoinScan logical
+/// planning and execution.
+///
+/// The same context configuration is used to:
+/// 1. run logical optimization and produce the canonical serialized plan
+/// 2. lower that deserialized logical plan into a physical plan at execution
+pub fn create_session_context() -> SessionContext {
+    let mut builder = build_base_session(base_session_config());
+
     // VisibilityExtensionPlanner already places visibility below any immediate
     // TantivyLookupExec chain, so only resolver wiring remains here before the
     // first post-optimization FilterPushdown pass. That pass reconnects dynamic
     // filters after SortMergeJoin rewrites; the final pass in
     // `add_tail_physical_rules` handles any new filters introduced by
     // SegmentedTopKRule later in the pipeline.
-    builder = builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule));
     if crate::gucs::is_columnar_sort_enabled() {
         builder =
             builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
@@ -304,7 +316,11 @@ pub async fn build_joinscan_logical_plan(
 /// nodes injected at planning time). Physical planning reuses the shared
 /// `SessionContext` configuration and lowers the stored plan after execution
 /// has injected whatever runtime-only bindings are required during decode.
-pub async fn build_joinscan_physical_plan(
+/// Build a DataFusion physical plan from a logical plan.
+///
+/// Uses the session context's query planner and wraps multi-partition
+/// output with `CoalescePartitionsExec`. Shared by JoinScan and AggregateScan.
+pub async fn build_physical_plan(
     ctx: &SessionContext,
     plan: datafusion::logical_expr::LogicalPlan,
 ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -410,6 +426,12 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::Anti => {
                         JoinType::LeftAnti
                     }
+                    crate::postgres::customscan::joinscan::build::JoinType::LeftMark => {
+                        JoinType::LeftMark
+                    }
+                    crate::postgres::customscan::joinscan::build::JoinType::RightMark => {
+                        JoinType::RightMark
+                    }
                     crate::postgres::customscan::joinscan::build::JoinType::RightSemi => {
                         JoinType::RightSemi
                     }
@@ -454,6 +476,7 @@ fn build_relnode_df<'a>(
                 // ctid_A and ctid_B are still packed while ctid_C is resolved.
                 let deferred_positions =
                     super::visibility_filter::deferred_plan_positions(&filter.input);
+                let sources = filter.input.sources();
                 let filter_expr = unsafe {
                     crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
@@ -461,6 +484,7 @@ fn build_relnode_df<'a>(
                         ctid_map,
                         &join_clause.join_level_predicates,
                         &deferred_positions,
+                        &sources,
                     )
                 }
                 .ok_or_else(|| {
@@ -470,7 +494,27 @@ fn build_relnode_df<'a>(
                     ))
                 })?;
 
+                // For MarkOrNull filters, drop the synthetic "mark" column after filtering.
+                let is_mark_filter = matches!(
+                    filter.predicate,
+                    crate::postgres::customscan::joinscan::build::JoinLevelExpr::MarkOrNull { .. }
+                );
+
                 df = df.filter(filter_expr)?;
+
+                if is_mark_filter {
+                    use datafusion::logical_expr::col;
+                    let schema = df.schema().clone();
+                    let proj_cols: Vec<datafusion::logical_expr::Expr> = schema
+                        .columns()
+                        .into_iter()
+                        .filter(|c| c.name != "mark")
+                        .map(col)
+                        .collect();
+                    if !proj_cols.is_empty() {
+                        df = df.select(proj_cols)?;
+                    }
+                }
                 Ok(df)
             }
         }

@@ -120,19 +120,17 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
+                    QUERY PLAN                     
+---------------------------------------------------
  Limit
    ->  Sort
-         Sort Key: (pdb.agg_fn('COUNT(*)'::text))
-         ->  Custom Scan (ParadeDB Aggregate Scan) on products
-               Index: products_idx
-               Tantivy Query: {"with_index":{"query":"all"}}
-                 Applies to Aggregates: COUNT(*)
-                 Group By: rating
-                 Limit: 5
-                 Aggregate Definition: {"grouped":{"terms":{"field":"rating","segment_size":65000,"size":65000}}}
-(10 rows)
+         Sort Key: (count(*))
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Backend: DataFusion
+               Indexes: products_idx (products)
+               Group By: rating
+               Aggregates: COUNT(*)(*)
+(8 rows)
 
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()

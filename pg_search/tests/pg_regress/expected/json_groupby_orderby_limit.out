@@ -73,8 +73,8 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
-                                                         QUERY PLAN                                                          
------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: ((metadata ->> 'category'::text)), (pdb.agg_fn('COUNT(*)'::text))
    ->  Sort
@@ -87,8 +87,9 @@ LIMIT 5;
                  Applies to Aggregates: COUNT(*)
                  Group By: metadata.category
                  Limit: 5
-                 Aggregate Definition: {"grouped":{"terms":{"field":"metadata.category","segment_size":65000,"size":65000}}}
-(13 rows)
+                 TopK Order: COUNT(*) ASC
+                 Aggregate Definition: {"grouped":{"terms":{"field":"metadata.category","order":{"_count":"asc"},"segment_size":65000,"size":5}}}
+(14 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single

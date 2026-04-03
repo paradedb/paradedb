@@ -85,8 +85,8 @@ FROM json_test
 WHERE id @@@ paradedb.exists('metadata_json.value')
 GROUP BY metadata_json->'value'
 ORDER BY count DESC;
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC
    ->  Custom Scan (ParadeDB Aggregate Scan) on json_test
@@ -94,7 +94,7 @@ ORDER BY count DESC;
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.value"}}}}
            Applies to Aggregates: COUNT(*)
            Group By: metadata_json.value
-           Aggregate Definition: {"grouped":{"terms":{"field":"metadata_json.value","segment_size":65000,"size":65000}}}
+           Aggregate Definition: {"grouped":{"terms":{"field":"metadata_json.value","order":{"_count":"desc"},"segment_size":65000,"size":65000}}}
 (8 rows)
 
 SELECT

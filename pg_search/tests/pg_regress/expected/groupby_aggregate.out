@@ -480,7 +480,7 @@ SELECT category, COUNT(DISTINCT rating), SUM(price)
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category;
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
                                                                                   QUERY PLAN                                                                                   
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -503,7 +503,7 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
+WARNING:  Aggregate Scan not used: DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose). To disable this warning: SET paradedb.check_aggregate_scan = false (table: products)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     2 | 2529.96
@@ -702,22 +702,20 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 10;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                    QUERY PLAN                     
+---------------------------------------------------
  Limit
-   Output: category, (pdb.agg_fn('COUNT(*)'::text))
+   Output: category, (count(*))
    ->  Sort
-         Output: category, (pdb.agg_fn('COUNT(*)'::text))
-         Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-               Output: category, pdb.agg_fn('COUNT(*)'::text)
-               Index: products_idx
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-                 Applies to Aggregates: COUNT(*)
-                 Group By: category
-                 Limit: 10
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(13 rows)
+         Output: category, (count(*))
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (count(*))
+               Backend: DataFusion
+               Indexes: products_idx (products)
+               Group By: category
+               Aggregates: COUNT(*)(*)
+(11 rows)
 
 SELECT category
 FROM products
@@ -899,22 +897,20 @@ WHERE description @@@ 'laptop OR keyboard OR jacket'
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 2;
-                                                                                       QUERY PLAN                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                    QUERY PLAN                     
+---------------------------------------------------
  Limit
-   Output: category, (pdb.agg_fn('COUNT(*)'::text))
+   Output: category, (count(*))
    ->  Sort
-         Output: category, (pdb.agg_fn('COUNT(*)'::text))
-         Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-               Output: category, pdb.agg_fn('COUNT(*)'::text)
-               Index: products_idx
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR jacket","lenient":null,"conjunction_mode":null}}}}
-                 Applies to Aggregates: COUNT(*)
-                 Group By: category
-                 Limit: 2
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(13 rows)
+         Output: category, (count(*))
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (count(*))
+               Backend: DataFusion
+               Indexes: products_idx (products)
+               Group By: category
+               Aggregates: COUNT(*)(*)
+(11 rows)
 
 SELECT category, COUNT(*) as product_count
 FROM products
@@ -939,22 +935,20 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY pcount DESC
 LIMIT 10;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                    QUERY PLAN                     
+---------------------------------------------------
  Limit
-   Output: category, (pdb.agg_fn('COUNT(*)'::text))
+   Output: category, (count(*))
    ->  Sort
-         Output: category, (pdb.agg_fn('COUNT(*)'::text))
-         Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-               Output: category, pdb.agg_fn('COUNT(*)'::text)
-               Index: products_idx
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-                 Applies to Aggregates: COUNT(*)
-                 Group By: category
-                 Limit: 10
-                 Aggregate Definition: {"grouped":{"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(13 rows)
+         Output: category, (count(*))
+         Sort Key: (count(*)) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan)
+               Output: category, (count(*))
+               Backend: DataFusion
+               Indexes: products_idx (products)
+               Group By: category
+               Aggregates: COUNT(*)(*)
+(11 rows)
 
 SELECT category, COUNT(*) as pcount
 FROM products

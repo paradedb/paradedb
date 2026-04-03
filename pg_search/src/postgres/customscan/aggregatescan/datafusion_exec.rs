@@ -30,21 +30,41 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
+use crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK;
 use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
+use crate::postgres::customscan::joinscan::scan_state::build_base_session;
 use crate::postgres::customscan::joinscan::translator::{build_equi_join_exprs, make_col};
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 use datafusion::logical_expr::{lit, Expr};
-use datafusion::prelude::{DataFrame, SessionContext};
+use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
+use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 
+/// Creates a DataFusion [`SessionContext`] for aggregate workloads.
+///
+/// Shares the base session setup with JoinScan (visibility, late
+/// materialization, sort-merge join) via [`build_base_session`].
+/// Unlike JoinScan, this does not include `SegmentedTopKRule` (row-level
+/// TopK doesn't apply to aggregates). DataFusion's built-in
+/// `SortExec(fetch=K)` already uses a bounded TopK heap internally.
+pub fn create_aggregate_session_context() -> SessionContext {
+    let config = SessionConfig::new().with_target_partitions(1);
+    let builder = build_base_session(config)
+        // FilterPushdown: push filters to PgSearchTableProvider
+        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+
+    SessionContext::new_with_state(builder.build())
+}
+
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
-/// scan(s) → join → aggregate.
+/// scan(s) → join → aggregate [→ sort → limit].
 pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
+    topk: Option<&DataFusionTopK>,
     ctx: &SessionContext,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     // Step 1: Build the join DataFrame from the RelNode tree
@@ -82,6 +102,16 @@ pub async fn build_join_aggregate_plan(
 
     // Step 4: Apply aggregate
     let df = df.aggregate(group_exprs, agg_exprs)?;
+
+    // Step 5: If TopK is requested, add sort + limit so DataFusion handles it internally
+    if let Some(topk) = topk {
+        let sort_col_name = format!("agg_{}", topk.sort_agg_idx);
+        let sort_expr = datafusion::prelude::col(&sort_col_name)
+            .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
+        let df = df.sort(vec![sort_expr])?;
+        let df = df.limit(0, Some(topk.k))?;
+        return df.into_optimized_plan();
+    }
 
     df.into_optimized_plan()
 }

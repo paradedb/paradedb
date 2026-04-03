@@ -536,7 +536,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  JoinScan not used: all DISTINCT columns must be fast fields in the BM25 index (tables: p, s)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
                                                                                       QUERY PLAN                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -574,7 +574,7 @@ FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
     LIMIT 10;
-WARNING:  JoinScan not used: queries with aggregate functions are not supported
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -608,7 +608,7 @@ FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
     LIMIT 3;
-WARNING:  JoinScan not used: queries with aggregate functions are not supported
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
  count 
 -------
      5
@@ -627,7 +627,7 @@ FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name;
-WARNING:  JoinScan not used: query must have a LIMIT clause
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique

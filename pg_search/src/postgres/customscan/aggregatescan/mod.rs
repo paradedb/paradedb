@@ -37,6 +37,7 @@ pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
 use crate::api::agg_funcoid;
+use crate::api::SortDirection;
 use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
@@ -44,7 +45,9 @@ use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::datafusion_build::{
     all_have_bm25_index, collect_join_agg_sources, extract_join_tree_from_parse, has_any_bm25_index,
 };
-use crate::postgres::customscan::aggregatescan::datafusion_exec::build_join_aggregate_plan;
+use crate::postgres::customscan::aggregatescan::datafusion_exec::{
+    build_join_aggregate_plan, create_aggregate_session_context,
+};
 use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
 use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
@@ -58,9 +61,8 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::memory::create_memory_pool;
-use crate::postgres::customscan::joinscan::scan_state::{
-    build_joinscan_physical_plan, create_session_context,
-};
+use crate::postgres::customscan::joinscan::scan_state::build_physical_plan;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
@@ -116,11 +118,20 @@ impl CustomScan for AggregateScan {
 
         match input_rel.reloptkind {
             pg_sys::RelOptKind::RELOPT_BASEREL => {
-                // If the estimated number of groups exceeds Tantivy's bucket limit,
-                // fall back to DataFusion which has no such limit.
-                let estimated_groups = builder.args().output_rel().rows;
-                let max_buckets = gucs::max_term_agg_buckets() as f64;
-                if estimated_groups > max_buckets {
+                let use_datafusion = unsafe {
+                    // If the estimated number of groups exceeds Tantivy's bucket limit,
+                    // fall back to DataFusion which has no such limit.
+                    let estimated_groups = builder.args().output_rel().rows;
+                    let max_buckets = gucs::max_term_agg_buckets() as f64;
+                    if estimated_groups > max_buckets {
+                        true
+                    } else {
+                        // ORDER BY aggregate + LIMIT: route to DataFusion which has
+                        // no bucket cap and provides native TopK via SortExec(fetch=K).
+                        build::has_aggregate_orderby_with_limit(builder.args())
+                    }
+                };
+                if use_datafusion {
                     if !gucs::enable_aggregate_custom_scan() && !has_paradedb_agg {
                         return Vec::new();
                     }
@@ -162,6 +173,14 @@ impl CustomScan for AggregateScan {
             PrivateData::DataFusion { .. } => {
                 // For join aggregates, scanrelid=0 (no single base relation)
                 builder.set_scanrelid(0);
+
+                // Check if the query has pathkeys (ORDER BY) before consuming builder.
+                let root = builder.args().root;
+                let has_pathkeys = unsafe {
+                    !(*root).query_pathkeys.is_null()
+                        && pg_sys::list_length((*root).query_pathkeys) > 0
+                };
+
                 unsafe {
                     let mut cscan = builder.build();
 
@@ -173,9 +192,14 @@ impl CustomScan for AggregateScan {
                     cscan.custom_scan_tlist =
                         pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
 
-                    // Replace Aggrefs in the plan's targetlist (but NOT custom_scan_tlist)
-                    let plan = &mut cscan.scan.plan;
-                    replace_aggrefs_in_target_list(plan);
+                    if !has_pathkeys {
+                        // No ORDER BY: safe to replace Aggrefs at plan time.
+                        let plan = &mut cscan.scan.plan;
+                        replace_aggrefs_in_target_list(plan);
+                    }
+                    // When has_pathkeys: aggrefs stay in plan.targetlist so Postgres's
+                    // make_sort_from_pathkeys can find them. Replacement is deferred to
+                    // create_custom_scan_state (execution time).
                     cscan
                 }
             }
@@ -204,7 +228,11 @@ impl CustomScan for AggregateScan {
                 builder.custom_state().aggregate_clause = *aggregate_clause;
                 builder.build()
             }
-            PrivateData::DataFusion { plan, targetlist } => {
+            PrivateData::DataFusion {
+                plan,
+                targetlist,
+                topk,
+            } => {
                 // Replace Aggrefs for DataFusion path too
                 unsafe {
                     let cscan = builder.args().cscan;
@@ -214,6 +242,7 @@ impl CustomScan for AggregateScan {
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
                     plan,
                     targetlist,
+                    topk,
                     runtime: None,
                     stream: None,
                     current_batch: None,
@@ -861,12 +890,11 @@ impl AggregateScan {
 
         // Reject CROSS JOINs (no equi-join keys). Without join keys the
         // second table's PgSearchTableProvider has no Named fields, producing
-        // empty RecordBatches.
-        // NOTE: For single-table RELOPT_BASEREL overflow, sources.len() == 1
-        // and the plan is a RelNode::Scan with no join keys. This guard
-        // currently also rejects that path; a later PR wraps this check in
-        // `if sources.len() > 1` to allow single-table DataFusion fallback.
-        if plan.join_keys().is_empty() {
+        // empty RecordBatches. Single-table scans (sources.len() == 1) have
+        // no join keys by definition and are allowed — they reach this path
+        // when routed from RELOPT_BASEREL (e.g., max_buckets overflow or
+        // ORDER BY aggregate + LIMIT).
+        if sources.len() > 1 && plan.join_keys().is_empty() {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
                 "join".to_string(),
@@ -886,8 +914,19 @@ impl AggregateScan {
             return Vec::new();
         }
 
+        // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
+        // DataFusion's SortExec(fetch=K) uses a bounded TopK heap internally.
+        // We do NOT declare pathkeys to Postgres because scanrelid=0 CustomScans
+        // cannot resolve pathkey items through setrefs.c. Postgres may add a
+        // redundant Sort above us, which is correct (just wasteful on K rows).
+        let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
+
         // Build the custom path with DataFusion private data
-        vec![builder.build(PrivateData::DataFusion { plan, targetlist })]
+        vec![builder.build(PrivateData::DataFusion {
+            plan,
+            targetlist,
+            topk,
+        })]
     }
 
     /// Execute the DataFusion aggregate path: build plan, consume Arrow batches,
@@ -914,12 +953,17 @@ impl AggregateScan {
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            let ctx = create_session_context();
+            let ctx = create_aggregate_session_context();
 
             let physical_plan = runtime.block_on(async {
-                let logical =
-                    build_join_aggregate_plan(&df_state.plan, &df_state.targetlist, &ctx).await?;
-                build_joinscan_physical_plan(&ctx, logical).await
+                let logical = build_join_aggregate_plan(
+                    &df_state.plan,
+                    &df_state.targetlist,
+                    df_state.topk.as_ref(),
+                    &ctx,
+                )
+                .await?;
+                build_physical_plan(&ctx, logical).await
             });
 
             let physical_plan = match physical_plan {
@@ -943,9 +987,12 @@ impl AggregateScan {
                             .expect("Failed to create RuntimeEnv"),
                     )),
             );
-            let stream = match physical_plan.execute(0, task_ctx) {
-                Ok(s) => s,
-                Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+            let stream = {
+                let _guard = runtime.enter();
+                match physical_plan.execute(0, task_ctx) {
+                    Ok(s) => s,
+                    Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+                }
             };
 
             df_state.runtime = Some(runtime);
@@ -996,6 +1043,75 @@ impl AggregateScan {
             }
         }
     }
+}
+
+/// Detects ORDER BY on aggregate + LIMIT for join aggregate queries.
+/// Returns `Some(DataFusionTopK)` when the sort clause targets a single aggregate
+/// that can be pushed down into the DataFusion plan as sort + limit.
+unsafe fn detect_join_aggregate_topk(
+    args: &CreateUpperPathsHookArgs,
+    targetlist: &join_targetlist::JoinAggregateTargetList,
+) -> Option<privdat::DataFusionTopK> {
+    let parse = args.root().parse;
+    if parse.is_null() || (*parse).sortClause.is_null() {
+        return None;
+    }
+
+    // Only single sort clause for TopK
+    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    if sort_clauses.len() != 1 {
+        return None;
+    }
+
+    let sort_clause_ptr = sort_clauses.get_ptr(0)?;
+    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+
+    // The sort expression must BE an aggregate, not merely contain one.
+    // e.g. ORDER BY ABS(SUM(score)) wraps the aggregate — ABS breaks
+    // monotonicity so Tantivy's ordering wouldn't match Postgres.
+    let aggref = targetlist::find_single_aggref_in_expr(sort_expr)?;
+    if aggref as *mut pg_sys::Node != sort_expr {
+        return None;
+    }
+
+    let direction = SortDirection::from_sort_op((*sort_clause_ptr).sortop)?;
+
+    // Find matching position in output_rel target using structural equality
+    let reltarget = args.output_rel().reltarget;
+    if reltarget.is_null() {
+        return None;
+    }
+    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs);
+
+    let mut match_pos = None;
+    for (pos, target_expr) in target_exprs.iter_ptr().enumerate() {
+        if pg_sys::equal(
+            sort_expr as *const core::ffi::c_void,
+            target_expr as *const core::ffi::c_void,
+        ) {
+            match_pos = Some(pos);
+            break;
+        }
+    }
+    let pos = match_pos?;
+
+    // Check if this output position corresponds to an aggregate in the join targetlist
+    let agg_idx = targetlist
+        .aggregates
+        .iter()
+        .position(|a| a.output_index == pos)?;
+
+    // Extract LIMIT
+    let limit_offset = LimitOffset::from_parse(parse);
+    let limit = limit_offset.limit()? as usize;
+    let offset = limit_offset.offset().unwrap_or(0) as usize;
+    let k = limit + offset;
+
+    Some(privdat::DataFusionTopK {
+        sort_agg_idx: agg_idx,
+        direction,
+        k,
+    })
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders

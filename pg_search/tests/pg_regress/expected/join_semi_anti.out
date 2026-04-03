@@ -168,29 +168,40 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-                                                                                                          QUERY PLAN                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: table_a, table_b)
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: table_a.id, table_a.category
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: table_a.id, table_a.category
-         Relation Tree: (table_a ANTI table_b) SEMI table_b
-         Join Cond: table_a.id = table_b.a_id, table_a.id = table_b.a_id
-         Limit: 10
-         Order By: table_a.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
-           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, a_id@0)]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@1, a_id@0)]
-           :         VisibilityFilterExec: tables=[table_a]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
-(20 rows)
+         Sort Key: table_a.id
+         ->  Hash Semi Join
+               Output: table_a.id, table_a.category
+               Hash Cond: (table_a.id = table_b.a_id)
+               ->  Custom Scan (ParadeDB Base Scan) on public.table_a
+                     Output: table_a.id, table_a.category
+                     Filter: (NOT (ANY (table_a.id = (hashed SubPlan 1).col1)))
+                     Table: table_a
+                     Index: table_a_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+                     SubPlan 1
+                       ->  Bitmap Heap Scan on public.table_b table_b_1
+                             Output: table_b_1.a_id
+                             Recheck Cond: ((table_b_1.group_id)::text = ANY ('{group_3,group_4}'::text[]))
+                             ->  Bitmap Index Scan on table_b_group_id_a_id_idx
+                                   Index Cond: ((table_b_1.group_id)::text = ANY ('{group_3,group_4}'::text[]))
+               ->  Hash
+                     Output: table_b.a_id
+                     ->  Bitmap Heap Scan on public.table_b
+                           Output: table_b.a_id
+                           Recheck Cond: ((table_b.group_id)::text = 'group_1'::text)
+                           ->  Bitmap Index Scan on table_b_group_id_a_id_idx
+                                 Index Cond: ((table_b.group_id)::text = 'group_1'::text)
+(29 rows)
 
 SELECT id, category
 FROM table_a
@@ -207,6 +218,8 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: table_a, table_b)
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
  id  |    category     
 -----+-----------------
   10 | target_category
@@ -355,7 +368,7 @@ WHERE id IN (
 AND id @@@ 'id:1'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                              QUERY PLAN                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -386,7 +399,7 @@ WHERE id IN (
 AND id @@@ 'id:1'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    category    
 ----+----------------
   1 | other_category

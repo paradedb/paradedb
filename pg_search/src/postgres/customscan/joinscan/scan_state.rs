@@ -614,8 +614,11 @@ fn build_clause_df<'a>(
                             result_type_oid,
                             ..
                         } => {
-                            let udf_name =
-                                format!("{}{}", super::pg_expr_udf::PG_EXPR_UDF_PREFIX, i);
+                            let udf_name = format!(
+                                "{}{}",
+                                crate::postgres::customscan::pg_expr_udf::PG_EXPR_UDF_PREFIX,
+                                i
+                            );
 
                             let plan_sources = join_clause.plan.sources();
                             let input_exprs: Vec<Expr> = input_vars
@@ -647,7 +650,7 @@ fn build_clause_df<'a>(
                                 )));
                             }
 
-                            let udf = super::pg_expr_udf::PgExprUdf::new(
+                            let udf = crate::postgres::customscan::pg_expr_udf::PgExprUdf::new(
                                 udf_name,
                                 pg_expr_string.clone(),
                                 input_vars.clone(),
@@ -867,8 +870,10 @@ fn build_projection_expr(
             }
         }
         ChildProjection::Expression { .. } => {
-            // Expression projections are handled via PgExprUdf in the GROUP BY path,
-            // not through build_projection_expr. This should not be reached.
+            unreachable!(
+                "Expression projections are handled via PgExprUdf in the \
+                 GROUP BY path, not through build_projection_expr"
+            );
         }
     }
     datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null)

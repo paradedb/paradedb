@@ -141,7 +141,6 @@
 pub mod build;
 mod explain;
 pub mod memory;
-pub(crate) mod pg_expr_udf;
 pub mod planner;
 mod planning;
 pub mod predicate;

@@ -266,18 +266,7 @@ pub struct JoinLevelSearchPredicate {
     pub display_string: String,
 }
 
-/// Describes a single input variable dependency of an expression.
-/// Type metadata is resolved at planning time from the Var node itself
-/// (Var.vartype, Var.vartypmod, Var.varcollid), avoiding any catalog lookups
-/// at execution time.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InputVarInfo {
-    pub rti: pg_sys::Index,
-    pub attno: pg_sys::AttrNumber,
-    pub type_oid: pg_sys::Oid,
-    pub typmod: i32,
-    pub collation: pg_sys::Oid,
-}
+pub use crate::postgres::customscan::expr_eval::InputVarInfo;
 
 /// Projection information for a child join.
 /// Maps an output attribute (by index in the vector) to the source column.

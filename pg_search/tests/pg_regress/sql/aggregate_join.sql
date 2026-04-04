@@ -393,6 +393,95 @@ WHERE p.description @@@ 'laptop';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
+-- SECTION 10: STDDEV/VARIANCE aggregates on JOIN
+-- =====================================================================
+
+-- Test 10.1: STDDEV and VARIANCE on join
+SELECT STDDEV(p.price), VARIANCE(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 10.2: STDDEV_POP and VAR_POP on join with GROUP BY
+SELECT p.category, STDDEV_POP(p.rating), VAR_POP(p.rating)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- Test 10.3: STDDEV parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT STDDEV(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT STDDEV(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- =====================================================================
+-- SECTION 11: Date/Timestamp aggregates on JOIN
+-- =====================================================================
+
+CREATE TABLE ts_orders (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    created_at TIMESTAMP
+);
+
+CREATE TABLE ts_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER,
+    item_name TEXT
+);
+
+INSERT INTO ts_orders (description, category, created_at) VALUES
+    ('Laptop order', 'Electronics', '2024-01-15 10:30:00'),
+    ('Phone order', 'Electronics', '2024-03-20 14:45:00'),
+    ('Shoes order', 'Sports', '2024-06-10 08:15:00');
+
+INSERT INTO ts_items (order_id, item_name) VALUES
+    (1, 'laptop'), (1, 'charger'),
+    (2, 'phone'),
+    (3, 'shoes'), (3, 'socks');
+
+CREATE INDEX ts_orders_idx ON ts_orders
+USING bm25 (id, description, category, created_at)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    datetime_fields='{"created_at": {"fast": true}}'
+);
+
+CREATE INDEX ts_items_idx ON ts_items
+USING bm25 (id, order_id, item_name)
+WITH (
+    key_field='id',
+    numeric_fields='{"order_id": {"fast": true}}',
+    text_fields='{"item_name": {"fast": true}}'
+);
+
+-- Test 10.1: MIN/MAX on timestamp column via join
+SELECT MIN(o.created_at), MAX(o.created_at)
+FROM ts_orders o
+JOIN ts_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order';
+
+-- Test 10.2: GROUP BY with timestamp aggregate
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM ts_orders o
+JOIN ts_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category;
+
+DROP TABLE ts_items;
+DROP TABLE ts_orders;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

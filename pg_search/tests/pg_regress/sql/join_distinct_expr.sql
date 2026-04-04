@@ -256,6 +256,28 @@ ORDER BY p.name
     LIMIT 1;
 
 -- =============================================================================
+-- TEST 8: Unsupported result type — graceful fallback to native PG
+-- =============================================================================
+-- to_jsonb returns JSONB which is not in is_supported_result_type.
+-- JoinScan should decline; PG handles it via native Hash Join / Unique.
+
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+-- Verify: no crash, no error, correct results via native PG.
+SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

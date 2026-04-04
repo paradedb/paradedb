@@ -554,6 +554,63 @@ ORDER BY p.name
 (1 row)
 
 -- =============================================================================
+-- TEST 8: Unsupported result type — graceful fallback to native PG
+-- =============================================================================
+-- to_jsonb returns JSONB which is not in is_supported_result_type.
+-- JoinScan should decline; PG handles it via native Hash Join / Unique.
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, (to_jsonb(s.name))
+               ->  Hash Join
+                     Hash Cond: (p.supplier_id = s.id)
+                     ->  Custom Scan (ParadeDB Base Scan) on dex_products p
+                           Table: dex_products
+                           Index: dex_products_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                     ->  Hash
+                           ->  Custom Scan (ParadeDB Base Scan) on dex_suppliers s
+                                 Table: dex_suppliers
+                                 Index: dex_suppliers_bm25
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+-- Verify: no crash, no error, correct results via native PG.
+SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
+ supplier_json |      name       
+---------------+-----------------
+ "TechCorp"    | 
+ "TechCorp"    | Headphones
+ "TechCorp"    | Keyboard
+               | USB Cable
+ "TechCorp"    | WIRELESS ROUTER
+ "TechCorp"    | Wireless Mouse
+               | tablet
+ "FastParts"   | 
+               | 
+(9 rows)
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS dex_products CASCADE;

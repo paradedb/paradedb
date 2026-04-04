@@ -28,7 +28,7 @@
 //!
 //! All Datum↔Arrow conversion logic is delegated to
 //! [`crate::postgres::types_arrow`] — this module is a consumer, not an
-//! implementor of type conversions.
+//! implementer of type conversions.
 
 use std::any::Any;
 use std::collections::HashMap;

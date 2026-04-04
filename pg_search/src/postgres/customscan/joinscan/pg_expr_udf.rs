@@ -202,6 +202,67 @@ impl PgExprUdf {
     }
 }
 
+/// Populate a virtual tuple slot from Arrow input columns for one row.
+///
+/// # Safety
+/// Caller must ensure `pg_state` pointers are valid and `row_idx` is in bounds.
+unsafe fn populate_slot(
+    pg_state: &PgExprState,
+    args: &[ColumnarValue],
+    input_vars: &[InputVarInfo],
+    row_idx: usize,
+) -> Result<()> {
+    pg_sys::ExecClearTuple(pg_state.slot);
+    for (col_idx, arg) in args.iter().enumerate() {
+        let (val, null) = arrow_value_to_datum(arg, row_idx, input_vars[col_idx].type_oid)?;
+        (*pg_state.slot).tts_values.add(col_idx).write(val);
+        (*pg_state.slot).tts_isnull.add(col_idx).write(null);
+    }
+    (*pg_state.slot).tts_nvalid = args.len() as i16;
+    pg_sys::ExecStoreVirtualTuple(pg_state.slot);
+    Ok(())
+}
+
+/// Single-pass Datum→Arrow conversion: evaluate the PG expression for each row
+/// and append the result directly to an Arrow builder. No intermediate Vec<Datum>.
+///
+/// Follows the `fetch_ff_column!` pattern from `fast_fields_helper.rs`.
+macro_rules! eval_expr_to_arrow {
+    (
+        $self_:expr, $num_rows:expr, $pg_state:expr, $args:expr, $input_vars:expr,
+        $( $pg_type:pat => $convert:expr => $builder_init:expr ),* $(,)?
+    ) => {
+        match $self_.result_type_oid {
+            $(
+                $pg_type => {
+                    let mut builder = $builder_init;
+                    for row_idx in 0..$num_rows {
+                        unsafe {
+                            populate_slot($pg_state, $args, $input_vars, row_idx)?;
+                            let mut is_null = false;
+                            let datum = pg_sys::ExecEvalExpr(
+                                $pg_state.expr_state,
+                                $pg_state.econtext,
+                                &mut is_null,
+                            );
+                            if is_null {
+                                builder.append_null();
+                            } else {
+                                builder.append_value($convert(datum));
+                            }
+                        }
+                    }
+                    std::sync::Arc::new(builder.finish()) as std::sync::Arc<dyn Array>
+                }
+            )*
+            other => panic!(
+                "PgExprUdf: unsupported result type OID {other} — \
+                 add a branch to eval_expr_to_arrow!"
+            ),
+        }
+    };
+}
+
 impl ScalarUDFImpl for PgExprUdf {
     fn as_any(&self) -> &dyn Any {
         self
@@ -223,9 +284,6 @@ impl ScalarUDFImpl for PgExprUdf {
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
     ) -> Result<ColumnarValue> {
-        let num_rows = args.number_rows;
-        let arg_values = &args.args;
-
         // SAFETY: single-threaded access guaranteed by target_partitions=1.
         let pg_state = unsafe { self.get_or_init_state() };
 
@@ -235,37 +293,22 @@ impl ScalarUDFImpl for PgExprUdf {
             self.name
         );
 
-        // TODO(#4604): Per-row ExecEvalExpr allocations for pass-by-reference types
-        // (TEXT, etc.) accumulate for the entire batch in CurrentMemoryContext.
-        // For large batches, consider wrapping the loop in a dedicated memory context
-        // that is deleted after datums_to_arrow copies results to Arrow.
-        // Current impact: bounded by batch_size (typically 8192) × avg datum size.
-        let mut results = Vec::with_capacity(num_rows);
-        let mut nulls = Vec::with_capacity(num_rows);
+        let n = args.number_rows;
+        let arg_values = &args.args;
 
-        for row_idx in 0..num_rows {
-            unsafe {
-                pg_sys::ExecClearTuple(pg_state.slot);
-
-                for (col_idx, arg) in arg_values.iter().enumerate() {
-                    let (value, is_null) =
-                        arrow_value_to_datum(arg, row_idx, self.input_vars[col_idx].type_oid)?;
-                    (*pg_state.slot).tts_values.add(col_idx).write(value);
-                    (*pg_state.slot).tts_isnull.add(col_idx).write(is_null);
-                }
-                (*pg_state.slot).tts_nvalid = arg_values.len() as i16;
-                pg_sys::ExecStoreVirtualTuple(pg_state.slot);
-
-                let mut is_null = false;
-                let datum =
-                    pg_sys::ExecEvalExpr(pg_state.expr_state, pg_state.econtext, &mut is_null);
-
-                results.push(datum);
-                nulls.push(is_null);
-            }
-        }
-
-        let arrow_array = types_arrow::datums_to_arrow(&results, &nulls, self.result_type_oid);
+        let arrow_array = eval_expr_to_arrow!(
+            self, n, pg_state, arg_values, &self.input_vars,
+            pg_sys::BOOLOID   => |d: pg_sys::Datum| d.value() != 0                    => BooleanBuilder::with_capacity(n),
+            pg_sys::INT2OID   => |d: pg_sys::Datum| d.value() as i16                  => Int16Builder::with_capacity(n),
+            pg_sys::INT4OID   => |d: pg_sys::Datum| d.value() as i32                  => Int32Builder::with_capacity(n),
+            pg_sys::INT8OID   => |d: pg_sys::Datum| d.value() as isize as i64         => Int64Builder::with_capacity(n),
+            pg_sys::FLOAT4OID => |d: pg_sys::Datum| f32::from_bits(d.value() as u32)  => Float32Builder::with_capacity(n),
+            pg_sys::FLOAT8OID => |d: pg_sys::Datum| f64::from_bits(d.value() as u64)  => Float64Builder::with_capacity(n),
+            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => |d: pg_sys::Datum| {
+                use pgrx::FromDatum;
+                String::from_datum(d, false).expect("non-null TEXT datum")
+            } => StringBuilder::with_capacity(n, n * 32),
+        );
 
         Ok(ColumnarValue::Array(arrow_array))
     }

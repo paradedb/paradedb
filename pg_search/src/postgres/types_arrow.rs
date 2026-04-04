@@ -303,14 +303,11 @@ pub fn date_time_to_ts_nanos(date_time: tantivy::DateTime) -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// Datum → Arrow conversion (used by PgExprUdf for expression result output)
+// Type mapping helpers (used by PgExprUdf for expression DISTINCT support)
 // ---------------------------------------------------------------------------
 
-use arrow_array::builder::*;
-use std::sync::Arc;
-
 /// Returns true if this PG type OID can be converted to an Arrow array
-/// by [`datums_to_arrow`]. Used at planning time to decline JoinScan
+/// by the `eval_expr_to_arrow!` macro. Used at planning time to decline JoinScan
 /// for unsupported expression result types, falling back to native PG.
 pub fn is_arrow_convertible(type_oid: pg_sys::Oid) -> bool {
     matches!(
@@ -361,108 +358,6 @@ pub fn pg_type_to_arrow(type_oid: pg_sys::Oid) -> DataType {
         }
         pg_sys::DATEOID => DataType::Date32,
         _ => DataType::Utf8,
-    }
-}
-
-/// Convert a batch of PG Datums into an Arrow array for the given result type.
-///
-/// Panics if `result_type_oid` is not supported — use [`is_arrow_convertible`]
-/// at planning time to prevent this.
-pub fn datums_to_arrow(
-    datums: &[pg_sys::Datum],
-    nulls: &[bool],
-    result_type_oid: pg_sys::Oid,
-) -> Arc<dyn arrow_array::Array> {
-    match result_type_oid {
-        pg_sys::BOOLOID => {
-            let mut builder = BooleanBuilder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(datum.value() != 0);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::INT2OID => {
-            let mut builder = Int16Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(datum.value() as i16);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::INT4OID => {
-            let mut builder = Int32Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(datum.value() as i32);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::INT8OID => {
-            let mut builder = Int64Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(datum.value() as isize as i64);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::FLOAT4OID => {
-            let mut builder = Float32Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(f32::from_bits(datum.value() as u32));
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::FLOAT8OID => {
-            let mut builder = Float64Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(f64::from_bits(datum.value() as u64));
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => {
-            let mut builder = StringBuilder::with_capacity(datums.len(), datums.len() * 32);
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    use pgrx::FromDatum;
-                    let text: String = unsafe {
-                        String::from_datum(*datum, false)
-                            .expect("non-null TEXT datum should convert to String")
-                    };
-                    builder.append_value(&text);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        _ => {
-            panic!(
-                "datums_to_arrow: unsupported result type OID {} — \
-                 use is_arrow_convertible() at planning time to prevent this",
-                result_type_oid
-            );
-        }
     }
 }
 

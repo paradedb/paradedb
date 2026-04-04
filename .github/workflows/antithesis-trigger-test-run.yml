@@ -81,7 +81,7 @@ jobs:
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             COMMIT_SHA=${{ github.sha }}
             ENABLE_ANTITHESIS_INSTRUMENTATION=true
-          platforms: linux/amd64
+          platforms: linux/arm64
           file: docker/Dockerfile
           push: true
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
@@ -112,7 +112,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/arm64
           file: docker/Dockerfile.config
           push: true
           tags: ${{ steps.extract-config-metadata.outputs.tags }}
@@ -133,7 +133,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/arm64
           file: docker/Dockerfile.stressgres
           push: true
           tags: ${{ steps.extract-stressgres-metadata.outputs.tags }}

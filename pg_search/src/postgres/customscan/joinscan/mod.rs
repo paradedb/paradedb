@@ -317,11 +317,11 @@ impl JoinScan {
             return None;
         }
 
-        if has_distinct && !distinct_columns_are_fast_fields(root, &all_sources) {
+        if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
             return None;
         }
 
-        if !order_by_columns_are_fast_fields(root, &all_sources) {
+        if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
             return None;
         }
 
@@ -394,7 +394,12 @@ impl JoinScan {
     ) -> Option<pg_sys::CustomPath> {
         let output_rtis = join_clause.plan.output_rtis();
         let current_sources = join_clause.plan.sources();
-        let order_by = extract_orderby(root, &current_sources, &output_rtis)?;
+        let order_by = extract_orderby(
+            root,
+            &current_sources,
+            &output_rtis,
+            join_clause.has_distinct,
+        )?;
         join_clause = join_clause.with_order_by(order_by);
 
         // --- Cost estimation ---
@@ -998,14 +1003,101 @@ impl CustomScan for JoinScan {
             }
 
             private_data.output_columns = output_columns;
+
+            // Build output_projection, enriching expression entries with metadata
+            // when DISTINCT is active.
+            //
+            // TODO(#4604): This is the second call to distinct_columns_are_fast_fields
+            // in the same planning phase (first in validate_and_build_clause). Both
+            // calls walk the same parse tree. Consider caching the result in a
+            // planning-phase-scoped structure to avoid redundant work.
+            let distinct_entries = if private_data.join_clause.has_distinct {
+                let all_sources = private_data.join_clause.plan.sources();
+                distinct_columns_are_fast_fields(root, &all_sources)
+            } else {
+                None
+            };
+
+            // Map ResolvedExpr to output columns by walking the parse tree's
+            // target list (which has original expressions and valid ressortgroupref).
+            // For ALL entries (Column, Score, Expression), use the parse-tree
+            // varnos so that distinct_col_map keys are consistent with
+            // extract_orderby's pathkey varnos.
+            let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::ResolvedExpr> =
+                Default::default();
+            if let Some(ref entries) = distinct_entries {
+                let parse = (*root).parse;
+                let parse_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+                let distinct_list =
+                    PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+
+                for (clause_ptr, entry) in distinct_list.iter_ptr().zip(entries.iter()) {
+                    let tle_ref = (*clause_ptr).tleSortGroupRef;
+                    if let Some(parse_te) = parse_tlist
+                        .iter_ptr()
+                        .find(|te| (**te).ressortgroupref == tle_ref)
+                    {
+                        let output_idx = ((*parse_te).resno - 1) as usize;
+                        if output_idx < private_data.output_columns.len() {
+                            entry_by_output_idx.insert(output_idx, entry);
+                        }
+                    }
+                }
+            }
+
             private_data.join_clause.output_projection = Some(
                 private_data
                     .output_columns
                     .iter()
-                    .map(|info| build::ChildProjection {
-                        rti: info.rti,
-                        attno: info.original_attno,
-                        is_score: info.is_score,
+                    .enumerate()
+                    .map(|(i, info)| {
+                        match entry_by_output_idx.get(&i) {
+                            Some(planning::ResolvedExpr::Expression {
+                                expr_node,
+                                input_vars,
+                                result_type,
+                            }) => {
+                                let expr_string = {
+                                    let node_str = pg_sys::nodeToString((*expr_node).cast());
+                                    std::ffi::CStr::from_ptr(node_str)
+                                        .to_string_lossy()
+                                        .into_owned()
+                                };
+                                let primary_rti = input_vars.first().map_or(0, |v| v.rti);
+                                build::ChildProjection::Expression {
+                                    rti: primary_rti,
+                                    pg_expr_string: expr_string,
+                                    input_vars: input_vars.clone(),
+                                    result_type_oid: *result_type,
+                                }
+                            }
+                            Some(planning::ResolvedExpr::Column { rti, attno }) => {
+                                build::ChildProjection::Column {
+                                    rti: *rti,
+                                    attno: *attno,
+                                }
+                            }
+                            Some(planning::ResolvedExpr::Score { rti }) => {
+                                build::ChildProjection::Score { rti: *rti }
+                            }
+                            Some(planning::ResolvedExpr::IndexedExpression { rti }) => {
+                                build::ChildProjection::IndexedExpression {
+                                    rti: *rti,
+                                    attno: info.original_attno,
+                                }
+                            }
+                            None => {
+                                // No ResolvedExpr match — use output_columns as-is
+                                if info.is_score {
+                                    build::ChildProjection::Score { rti: info.rti }
+                                } else {
+                                    build::ChildProjection::Column {
+                                        rti: info.rti,
+                                        attno: info.original_attno,
+                                    }
+                                }
+                            }
+                        }
                     })
                     .collect(),
             );

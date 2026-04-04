@@ -266,14 +266,31 @@ pub struct JoinLevelSearchPredicate {
     pub display_string: String,
 }
 
+pub use crate::postgres::customscan::expr_eval::InputVarInfo;
+
 /// Projection information for a child join.
 /// Maps an output attribute (by index in the vector) to the source column.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChildProjection {
-    pub rti: pg_sys::Index,
-    pub attno: pg_sys::AttrNumber,
-    #[serde(default)]
-    pub is_score: bool,
+pub enum ChildProjection {
+    /// Simple column reference
+    Column {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Score function
+    Score { rti: pg_sys::Index },
+    /// An indexed expression handled by existing fast field machinery
+    IndexedExpression {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Arbitrary PG expression evaluated via PgExprUdf
+    Expression {
+        rti: pg_sys::Index,
+        pg_expr_string: String,
+        input_vars: Vec<InputVarInfo>,
+        result_type_oid: pg_sys::Oid,
+    },
 }
 
 use crate::index::mvcc::MvccSatisfies;

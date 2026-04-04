@@ -256,10 +256,166 @@ ORDER BY p.name
     LIMIT 1;
 
 -- =============================================================================
--- TEST 8: Unsupported result type — graceful fallback to native PG
+-- TEST 8: Type coverage — verify all supported result types work
+-- =============================================================================
+-- Each subtest uses an expression whose PG return type matches one of the
+-- types in is_arrow_convertible. Compares JoinScan ON vs OFF for correctness.
+
+-- 8a: BOOL (via IS NOT NULL → returns boolean)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- 8b: INT4 (via length() → returns integer)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT length(s.name) AS name_len, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SELECT DISTINCT length(s.name) AS name_len, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT length(s.name) AS name_len, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- 8c: INT8 (via explicit cast → returns bigint)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.supplier_id::bigint * 100 AS big_id, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SELECT DISTINCT p.supplier_id::bigint * 100 AS big_id, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT p.supplier_id::bigint * 100 AS big_id, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- 8d: FLOAT8 (via explicit cast → returns double precision)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.supplier_id::float8 / 3.0 AS ratio, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SELECT DISTINCT p.supplier_id::float8 / 3.0 AS ratio, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT p.supplier_id::float8 / 3.0 AS ratio, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- 8e: TEXT (via upper() → returns text)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT upper(s.name) AS upper_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SELECT DISTINCT upper(s.name) AS upper_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT upper(s.name) AS upper_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- 8f: VARCHAR (via explicit cast → returns character varying)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST 9: Unsupported result type — graceful fallback to native PG
 -- =============================================================================
 -- to_jsonb returns JSONB which is not in is_arrow_convertible.
--- JoinScan should decline; PG handles it via native Hash Join / Unique.
+-- JoinScan should decline; PG handles it via native execution.
 
 EXPLAIN (COSTS OFF)
 SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name
@@ -269,13 +425,16 @@ WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
 
--- Verify: no crash, no error, correct results via native PG.
+-- Verify: EXPLAIN should NOT show "ParadeDB Join Scan".
+
 SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
+
+-- No crash, no error, correct results via native PG.
 
 -- =============================================================================
 -- CLEANUP

@@ -554,10 +554,451 @@ ORDER BY p.name
 (1 row)
 
 -- =============================================================================
--- TEST 8: Unsupported result type — graceful fallback to native PG
+-- TEST 8: Type coverage — verify all supported result types work
+-- =============================================================================
+-- Each subtest uses an expression whose PG return type matches one of the
+-- types in is_arrow_convertible. Compares JoinScan ON vs OFF for correctness.
+-- 8a: BOOL (via IS NOT NULL → returns boolean)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, ((s.name IS NOT NULL))
+               ->  Result
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Relation Tree: s INNER p
+                           Join Cond: p.supplier_id = s.id
+                           Limit: 10
+                           Distinct: true
+                           Order By: p.name asc
+                           DataFusion Physical Plan: 
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             :   TantivyLookupExec: decode=[name]
+                             :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
+                             :       VisibilityFilterExec: tables=[s, p]
+                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ has_name |      name       
+----------+-----------------
+ t        | 
+ t        | Headphones
+ t        | Keyboard
+ f        | USB Cable
+ t        | WIRELESS ROUTER
+ t        | Wireless Mouse
+ f        | tablet
+ f        | 
+ t        | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ has_name |      name       
+----------+-----------------
+ t        | 
+ t        | Headphones
+ t        | Keyboard
+ f        | USB Cable
+ t        | WIRELESS ROUTER
+ t        | Wireless Mouse
+ f        | tablet
+ f        | 
+ t        | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- 8b: INT4 (via length() → returns integer)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT length(s.name) AS name_len, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, (length(s.name))
+               ->  Result
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Relation Tree: s INNER p
+                           Join Cond: p.supplier_id = s.id
+                           Limit: 10
+                           Distinct: true
+                           Order By: p.name asc
+                           DataFusion Physical Plan: 
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             :   TantivyLookupExec: decode=[name]
+                             :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
+                             :       VisibilityFilterExec: tables=[s, p]
+                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT DISTINCT length(s.name) AS name_len, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ name_len |      name       
+----------+-----------------
+        8 | 
+        8 | Headphones
+        8 | Keyboard
+          | USB Cable
+        8 | WIRELESS ROUTER
+        8 | Wireless Mouse
+          | tablet
+        9 | 
+          | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT length(s.name) AS name_len, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ name_len |      name       
+----------+-----------------
+        8 | 
+        8 | Headphones
+        8 | Keyboard
+          | USB Cable
+        8 | WIRELESS ROUTER
+        8 | Wireless Mouse
+          | tablet
+        9 | 
+          | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- 8c: INT8 (via explicit cast → returns bigint)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.supplier_id::bigint * 100 AS big_id, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, (((p.supplier_id)::bigint * 100))
+               ->  Result
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Relation Tree: s INNER p
+                           Join Cond: p.supplier_id = s.id
+                           Limit: 10
+                           Distinct: true
+                           Order By: p.name asc
+                           DataFusion Physical Plan: 
+                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_0(supplier_id@2) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             :     VisibilityFilterExec: tables=[s, p]
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT DISTINCT p.supplier_id::bigint * 100 AS big_id, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ big_id |      name       
+--------+-----------------
+    100 | 
+    100 | Headphones
+    100 | Keyboard
+    200 | USB Cable
+    100 | WIRELESS ROUTER
+    100 | Wireless Mouse
+    200 | tablet
+    200 | 
+    300 | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT p.supplier_id::bigint * 100 AS big_id, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ big_id |      name       
+--------+-----------------
+    100 | 
+    100 | Headphones
+    100 | Keyboard
+    200 | USB Cable
+    100 | WIRELESS ROUTER
+    100 | Wireless Mouse
+    200 | tablet
+    200 | 
+    300 | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- 8d: FLOAT8 (via explicit cast → returns double precision)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT p.supplier_id::float8 / 3.0 AS ratio, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, (((p.supplier_id)::double precision / '3'::double precision))
+               ->  Result
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Relation Tree: s INNER p
+                           Join Cond: p.supplier_id = s.id
+                           Limit: 10
+                           Distinct: true
+                           Order By: p.name asc
+                           DataFusion Physical Plan: 
+                             : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_0(supplier_id@2) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             :     VisibilityFilterExec: tables=[s, p]
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
+
+SELECT DISTINCT p.supplier_id::float8 / 3.0 AS ratio, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+       ratio        |      name       
+--------------------+-----------------
+ 0.3333333333333333 | 
+ 0.3333333333333333 | Headphones
+ 0.3333333333333333 | Keyboard
+ 0.6666666666666666 | USB Cable
+ 0.3333333333333333 | WIRELESS ROUTER
+ 0.3333333333333333 | Wireless Mouse
+ 0.6666666666666666 | tablet
+ 0.6666666666666666 | 
+                  1 | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT p.supplier_id::float8 / 3.0 AS ratio, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+       ratio        |      name       
+--------------------+-----------------
+ 0.3333333333333333 | 
+ 0.3333333333333333 | Headphones
+ 0.3333333333333333 | Keyboard
+ 0.6666666666666666 | USB Cable
+ 0.3333333333333333 | WIRELESS ROUTER
+ 0.3333333333333333 | Wireless Mouse
+ 0.6666666666666666 | tablet
+ 0.6666666666666666 | 
+                  1 | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- 8e: TEXT (via upper() → returns text)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT upper(s.name) AS upper_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, (upper(s.name))
+               ->  Result
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Relation Tree: s INNER p
+                           Join Cond: p.supplier_id = s.id
+                           Limit: 10
+                           Distinct: true
+                           Order By: p.name asc
+                           DataFusion Physical Plan: 
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             :   TantivyLookupExec: decode=[name]
+                             :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
+                             :       VisibilityFilterExec: tables=[s, p]
+                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT DISTINCT upper(s.name) AS upper_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ upper_name |      name       
+------------+-----------------
+ TECHCORP   | 
+ TECHCORP   | Headphones
+ TECHCORP   | Keyboard
+            | USB Cable
+ TECHCORP   | WIRELESS ROUTER
+ TECHCORP   | Wireless Mouse
+            | tablet
+ FASTPARTS  | 
+            | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT upper(s.name) AS upper_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ upper_name |      name       
+------------+-----------------
+ TECHCORP   | 
+ TECHCORP   | Headphones
+ TECHCORP   | Keyboard
+            | USB Cable
+ TECHCORP   | WIRELESS ROUTER
+ TECHCORP   | Wireless Mouse
+            | tablet
+ FASTPARTS  | 
+            | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- 8f: VARCHAR (via explicit cast → returns character varying)
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, ((s.name)::character varying(5))
+               ->  Result
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Relation Tree: s INNER p
+                           Join Cond: p.supplier_id = s.id
+                           Limit: 10
+                           Distinct: true
+                           Order By: p.name asc
+                           DataFusion Physical Plan: 
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             :   TantivyLookupExec: decode=[name]
+                             :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
+                             :       VisibilityFilterExec: tables=[s, p]
+                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ short_name |      name       
+------------+-----------------
+ TechC      | 
+ TechC      | Headphones
+ TechC      | Keyboard
+            | USB Cable
+ TechC      | WIRELESS ROUTER
+ TechC      | Wireless Mouse
+            | tablet
+ FastP      | 
+            | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ short_name |      name       
+------------+-----------------
+ TechC      | 
+ TechC      | Headphones
+ TechC      | Keyboard
+            | USB Cable
+ TechC      | WIRELESS ROUTER
+ TechC      | Wireless Mouse
+            | tablet
+ FastP      | 
+            | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- TEST 9: Unsupported result type — graceful fallback to native PG
 -- =============================================================================
 -- to_jsonb returns JSONB which is not in is_arrow_convertible.
--- JoinScan should decline; PG handles it via native Hash Join / Unique.
+-- JoinScan should decline; PG handles it via native execution.
 EXPLAIN (COSTS OFF)
 SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name
 FROM dex_products p
@@ -589,7 +1030,7 @@ WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
 
--- Verify: no crash, no error, correct results via native PG.
+-- Verify: EXPLAIN should NOT show "ParadeDB Join Scan".
 SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name
 FROM dex_products p
          JOIN dex_suppliers s ON p.supplier_id = s.id
@@ -610,6 +1051,7 @@ WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast
                | 
 (9 rows)
 
+-- No crash, no error, correct results via native PG.
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================

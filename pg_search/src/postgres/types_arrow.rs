@@ -87,6 +87,18 @@ pub fn arrow_array_to_datum(
                 _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
             }
         }
+        DataType::Utf8 => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap();
+            let s = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
+                | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
+                _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
+            }
+        }
         DataType::BinaryView => {
             let arr = array.as_binary_view();
             let bytes = arr.value(index);
@@ -288,6 +300,170 @@ pub fn ts_nanos_to_date_time(ts_nanos: i64) -> tantivy::DateTime {
 
 pub fn date_time_to_ts_nanos(date_time: tantivy::DateTime) -> i64 {
     date_time.into_timestamp_nanos()
+}
+
+// ---------------------------------------------------------------------------
+// Datum → Arrow conversion (used by PgExprUdf for expression result output)
+// ---------------------------------------------------------------------------
+
+use arrow_array::builder::*;
+use std::sync::Arc;
+
+/// Returns true if this PG type OID can be converted to an Arrow array
+/// by [`datums_to_arrow`]. Used at planning time to decline JoinScan
+/// for unsupported expression result types, falling back to native PG.
+pub fn is_arrow_convertible(type_oid: pg_sys::Oid) -> bool {
+    matches!(
+        type_oid,
+        pg_sys::BOOLOID
+            | pg_sys::INT2OID
+            | pg_sys::INT4OID
+            | pg_sys::INT8OID
+            | pg_sys::FLOAT4OID
+            | pg_sys::FLOAT8OID
+            | pg_sys::TEXTOID
+            | pg_sys::VARCHAROID
+            | pg_sys::NAMEOID
+    )
+}
+
+/// Arrow DataType for UDF INPUTS — matches what Tantivy fast fields produce.
+/// Tantivy widens Int16/Int32 → Int64 and Float32 → Float64.
+pub fn pg_type_to_tantivy_arrow(type_oid: pg_sys::Oid) -> DataType {
+    match type_oid {
+        pg_sys::BOOLOID => DataType::Boolean,
+        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => DataType::Int64,
+        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => DataType::Float64,
+        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
+        pg_sys::TIMESTAMPOID => DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+        pg_sys::TIMESTAMPTZOID => {
+            DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("UTC".into()))
+        }
+        pg_sys::DATEOID => DataType::Date32,
+        _ => DataType::Utf8,
+    }
+}
+
+/// Arrow DataType for UDF OUTPUTS — preserves the PG expression result type
+/// without Tantivy widening.
+pub fn pg_type_to_arrow(type_oid: pg_sys::Oid) -> DataType {
+    match type_oid {
+        pg_sys::BOOLOID => DataType::Boolean,
+        pg_sys::INT2OID => DataType::Int16,
+        pg_sys::INT4OID => DataType::Int32,
+        pg_sys::INT8OID => DataType::Int64,
+        pg_sys::FLOAT4OID => DataType::Float32,
+        pg_sys::FLOAT8OID => DataType::Float64,
+        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
+        pg_sys::TIMESTAMPOID => DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+        pg_sys::TIMESTAMPTZOID => {
+            DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("UTC".into()))
+        }
+        pg_sys::DATEOID => DataType::Date32,
+        _ => DataType::Utf8,
+    }
+}
+
+/// Convert a batch of PG Datums into an Arrow array for the given result type.
+///
+/// Panics if `result_type_oid` is not supported — use [`is_arrow_convertible`]
+/// at planning time to prevent this.
+pub fn datums_to_arrow(
+    datums: &[pg_sys::Datum],
+    nulls: &[bool],
+    result_type_oid: pg_sys::Oid,
+) -> Arc<dyn arrow_array::Array> {
+    match result_type_oid {
+        pg_sys::BOOLOID => {
+            let mut builder = BooleanBuilder::with_capacity(datums.len());
+            for (i, datum) in datums.iter().enumerate() {
+                if nulls[i] {
+                    builder.append_null();
+                } else {
+                    builder.append_value(datum.value() != 0);
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        pg_sys::INT2OID => {
+            let mut builder = Int16Builder::with_capacity(datums.len());
+            for (i, datum) in datums.iter().enumerate() {
+                if nulls[i] {
+                    builder.append_null();
+                } else {
+                    builder.append_value(datum.value() as i16);
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        pg_sys::INT4OID => {
+            let mut builder = Int32Builder::with_capacity(datums.len());
+            for (i, datum) in datums.iter().enumerate() {
+                if nulls[i] {
+                    builder.append_null();
+                } else {
+                    builder.append_value(datum.value() as i32);
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        pg_sys::INT8OID => {
+            let mut builder = Int64Builder::with_capacity(datums.len());
+            for (i, datum) in datums.iter().enumerate() {
+                if nulls[i] {
+                    builder.append_null();
+                } else {
+                    builder.append_value(datum.value() as isize as i64);
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        pg_sys::FLOAT4OID => {
+            let mut builder = Float32Builder::with_capacity(datums.len());
+            for (i, datum) in datums.iter().enumerate() {
+                if nulls[i] {
+                    builder.append_null();
+                } else {
+                    builder.append_value(f32::from_bits(datum.value() as u32));
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        pg_sys::FLOAT8OID => {
+            let mut builder = Float64Builder::with_capacity(datums.len());
+            for (i, datum) in datums.iter().enumerate() {
+                if nulls[i] {
+                    builder.append_null();
+                } else {
+                    builder.append_value(f64::from_bits(datum.value() as u64));
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => {
+            let mut builder = StringBuilder::with_capacity(datums.len(), datums.len() * 32);
+            for (i, datum) in datums.iter().enumerate() {
+                if nulls[i] {
+                    builder.append_null();
+                } else {
+                    use pgrx::FromDatum;
+                    let text: String = unsafe {
+                        String::from_datum(*datum, false)
+                            .expect("non-null TEXT datum should convert to String")
+                    };
+                    builder.append_value(&text);
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        _ => {
+            panic!(
+                "datums_to_arrow: unsupported result type OID {} — \
+                 use is_arrow_convertible() at planning time to prevent this",
+                result_type_oid
+            );
+        }
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

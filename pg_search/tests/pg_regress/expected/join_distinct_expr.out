@@ -556,7 +556,7 @@ ORDER BY p.name
 -- =============================================================================
 -- TEST 8: Unsupported result type — graceful fallback to native PG
 -- =============================================================================
--- to_jsonb returns JSONB which is not in is_supported_result_type.
+-- to_jsonb returns JSONB which is not in is_arrow_convertible.
 -- JoinScan should decline; PG handles it via native Hash Join / Unique.
 EXPLAIN (COSTS OFF)
 SELECT DISTINCT to_jsonb(s.name) AS supplier_json, p.name

@@ -25,11 +25,15 @@
 //!
 //! The PG expression state is lazily initialized on the first invocation via
 //! `OnceLock` and reused for all subsequent calls.
+//!
+//! All Datum↔Arrow conversion logic is delegated to
+//! [`crate::postgres::types_arrow`] — this module is a consumer, not an
+//! implementor of type conversions.
 
 use std::any::Any;
 use std::collections::HashMap;
 use std::ptr::addr_of_mut;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use datafusion::arrow::array::*;
 use datafusion::arrow::datatypes::*;
@@ -40,6 +44,7 @@ use pgrx::PgMemoryContexts;
 use serde::{Deserialize, Serialize};
 
 use crate::postgres::customscan::joinscan::build::InputVarInfo;
+use crate::postgres::types_arrow;
 
 /// Prefix for PgExprUdf names. UDF names follow the pattern `{PREFIX}{index}`.
 pub const PG_EXPR_UDF_PREFIX: &str = "pdb_eval_expr_";
@@ -131,11 +136,11 @@ impl PgExprUdf {
 
     /// Rebuild derived fields after deserialization.
     pub fn fixup_after_deserialize(&mut self) {
-        self.return_type = pg_type_to_arrow_type(self.result_type_oid);
+        self.return_type = types_arrow::pg_type_to_arrow(self.result_type_oid);
         let input_types: Vec<DataType> = self
             .input_vars
             .iter()
-            .map(|v| pg_type_to_tantivy_arrow_type(v.type_oid))
+            .map(|v| types_arrow::pg_type_to_tantivy_arrow(v.type_oid))
             .collect();
         self.signature = Signature::exact(input_types, Volatility::Immutable);
     }
@@ -146,11 +151,11 @@ impl PgExprUdf {
         input_vars: Vec<InputVarInfo>,
         result_type_oid: pg_sys::Oid,
     ) -> Self {
-        let return_type = pg_type_to_arrow_type(result_type_oid);
+        let return_type = types_arrow::pg_type_to_arrow(result_type_oid);
 
         let input_types: Vec<DataType> = input_vars
             .iter()
-            .map(|v| pg_type_to_tantivy_arrow_type(v.type_oid))
+            .map(|v| types_arrow::pg_type_to_tantivy_arrow(v.type_oid))
             .collect();
         let signature = Signature::exact(input_types, Volatility::Immutable);
 
@@ -233,7 +238,7 @@ impl ScalarUDFImpl for PgExprUdf {
         // TODO(#4604): Per-row ExecEvalExpr allocations for pass-by-reference types
         // (TEXT, etc.) accumulate for the entire batch in CurrentMemoryContext.
         // For large batches, consider wrapping the loop in a dedicated memory context
-        // that is deleted after datums_to_arrow_array copies results to Arrow.
+        // that is deleted after datums_to_arrow copies results to Arrow.
         // Current impact: bounded by batch_size (typically 8192) × avg datum size.
         let mut results = Vec::with_capacity(num_rows);
         let mut nulls = Vec::with_capacity(num_rows);
@@ -260,7 +265,7 @@ impl ScalarUDFImpl for PgExprUdf {
             }
         }
 
-        let arrow_array = datums_to_arrow_array(&results, &nulls, self.result_type_oid);
+        let arrow_array = types_arrow::datums_to_arrow(&results, &nulls, self.result_type_oid);
 
         Ok(ColumnarValue::Array(arrow_array))
     }
@@ -299,6 +304,9 @@ unsafe fn build_tupdesc_for_inputs(input_vars: &[InputVarInfo]) -> *mut pg_sys::
 
 /// Convert an Arrow ColumnarValue at a given row to a PostgreSQL (Datum, is_null) pair.
 ///
+/// This is DataFusion-specific (wraps ColumnarValue). The actual Arrow→Datum
+/// conversion is delegated to [`types_arrow::arrow_array_to_datum`].
+///
 /// # Safety
 /// Caller must ensure `row_idx` is in bounds for the array.
 unsafe fn arrow_value_to_datum(
@@ -306,12 +314,22 @@ unsafe fn arrow_value_to_datum(
     row_idx: usize,
     type_oid: pg_sys::Oid,
 ) -> Result<(pg_sys::Datum, bool)> {
+    let pg_oid = pgrx::PgOid::from(type_oid);
     match col {
         ColumnarValue::Array(arr) => {
             if arr.is_null(row_idx) {
                 Ok((pg_sys::Datum::from(0), true))
             } else {
-                let datum = arrow_to_datum_single(arr.as_ref(), row_idx, type_oid)?;
+                let datum = types_arrow::arrow_array_to_datum(arr.as_ref(), row_idx, pg_oid, None)
+                    .map_err(|e| {
+                        DataFusionError::Internal(format!("arrow_array_to_datum failed: {e}"))
+                    })?
+                    .ok_or_else(|| {
+                        DataFusionError::Internal(format!(
+                            "arrow_array_to_datum returned None for type OID {}",
+                            type_oid
+                        ))
+                    })?;
                 Ok((datum, false))
             }
         }
@@ -322,232 +340,19 @@ unsafe fn arrow_value_to_datum(
                 let arr = scalar.to_array().map_err(|e| {
                     DataFusionError::Internal(format!("ScalarValue to array failed: {e}"))
                 })?;
-                let datum = arrow_to_datum_single(arr.as_ref(), 0, type_oid)?;
+                let datum = types_arrow::arrow_array_to_datum(arr.as_ref(), 0, pg_oid, None)
+                    .map_err(|e| {
+                        DataFusionError::Internal(format!("arrow_array_to_datum failed: {e}"))
+                    })?
+                    .ok_or_else(|| {
+                        DataFusionError::Internal(format!(
+                            "arrow_array_to_datum returned None for type OID {}",
+                            type_oid
+                        ))
+                    })?;
                 Ok((datum, false))
             }
         }
-    }
-}
-
-/// Convert a single value from an Arrow array to a PG Datum.
-///
-/// # Safety
-/// Caller must ensure `index` is in bounds and not null.
-unsafe fn arrow_to_datum_single(
-    array: &dyn Array,
-    index: usize,
-    type_oid: pg_sys::Oid,
-) -> Result<pg_sys::Datum> {
-    use pgrx::IntoDatum;
-
-    match array.data_type() {
-        DataType::Boolean => {
-            let arr = array.as_any().downcast_ref::<BooleanArray>().unwrap();
-            Ok(pg_sys::Datum::from(arr.value(index) as usize))
-        }
-        DataType::Int16 => {
-            let arr = array.as_any().downcast_ref::<Int16Array>().unwrap();
-            Ok(pg_sys::Datum::from(arr.value(index) as isize as usize))
-        }
-        DataType::Int32 => {
-            let arr = array.as_any().downcast_ref::<Int32Array>().unwrap();
-            Ok(pg_sys::Datum::from(arr.value(index) as isize as usize))
-        }
-        DataType::Int64 => {
-            let arr = array.as_any().downcast_ref::<Int64Array>().unwrap();
-            Ok(pg_sys::Datum::from(arr.value(index) as isize as usize))
-        }
-        DataType::UInt32 => {
-            let arr = array.as_any().downcast_ref::<UInt32Array>().unwrap();
-            Ok(pg_sys::Datum::from(arr.value(index) as usize))
-        }
-        DataType::UInt64 => {
-            let arr = array.as_any().downcast_ref::<UInt64Array>().unwrap();
-            Ok(pg_sys::Datum::from(arr.value(index) as usize))
-        }
-        DataType::Float32 => {
-            let arr = array.as_any().downcast_ref::<Float32Array>().unwrap();
-            Ok(pg_sys::Datum::from(arr.value(index).to_bits() as usize))
-        }
-        DataType::Float64 => {
-            let arr = array.as_any().downcast_ref::<Float64Array>().unwrap();
-            Ok(pg_sys::Datum::from(arr.value(index).to_bits() as usize))
-        }
-        DataType::Utf8 => {
-            let arr = array.as_any().downcast_ref::<StringArray>().unwrap();
-            let s = arr.value(index);
-            Ok(s.into_datum().unwrap_or(pg_sys::Datum::from(0)))
-        }
-        DataType::Utf8View => {
-            let arr = array.as_string_view();
-            let s = arr.value(index);
-            Ok(s.into_datum().unwrap_or(pg_sys::Datum::from(0)))
-        }
-        _ => {
-            let pg_oid = pgrx::PgOid::from(type_oid);
-            match crate::postgres::types_arrow::arrow_array_to_datum(array, index, pg_oid, None) {
-                Ok(Some(datum)) => Ok(datum),
-                Ok(None) => Err(DataFusionError::Internal(format!(
-                    "arrow_array_to_datum returned None for type OID {}",
-                    type_oid
-                ))),
-                Err(e) => Err(DataFusionError::Internal(format!(
-                    "arrow_array_to_datum failed for type OID {}: {e}",
-                    type_oid
-                ))),
-            }
-        }
-    }
-}
-
-/// Returns true if the given PG type OID is supported by `datums_to_arrow_array`.
-/// Used at planning time to decline JoinScan for unsupported expression result types.
-pub(crate) fn is_supported_result_type(oid: pg_sys::Oid) -> bool {
-    matches!(
-        oid,
-        pg_sys::BOOLOID
-            | pg_sys::INT2OID
-            | pg_sys::INT4OID
-            | pg_sys::INT8OID
-            | pg_sys::FLOAT4OID
-            | pg_sys::FLOAT8OID
-            | pg_sys::TEXTOID
-            | pg_sys::VARCHAROID
-            | pg_sys::NAMEOID
-    )
-}
-
-/// Convert a Vec of result Datums back into an Arrow array.
-///
-/// Uses the OUTPUT type mapping — preserves the PG expression result type
-/// without Tantivy widening.
-fn datums_to_arrow_array(
-    datums: &[pg_sys::Datum],
-    nulls: &[bool],
-    result_type_oid: pg_sys::Oid,
-) -> Arc<dyn Array> {
-    match result_type_oid {
-        pg_sys::BOOLOID => {
-            let mut builder = BooleanBuilder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(datum.value() != 0);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::INT2OID => {
-            let mut builder = Int16Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(datum.value() as i16);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::INT4OID => {
-            let mut builder = Int32Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(datum.value() as i32);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::INT8OID => {
-            let mut builder = Int64Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(datum.value() as isize as i64);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::FLOAT4OID => {
-            let mut builder = Float32Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(f32::from_bits(datum.value() as u32));
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::FLOAT8OID => {
-            let mut builder = Float64Builder::with_capacity(datums.len());
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    builder.append_value(f64::from_bits(datum.value() as u64));
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => {
-            let mut builder = StringBuilder::with_capacity(datums.len(), datums.len() * 32);
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    use pgrx::FromDatum;
-                    let text: String = unsafe {
-                        String::from_datum(*datum, false)
-                            .expect("non-null TEXT datum should convert to String")
-                    };
-                    builder.append_value(&text);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        _ => {
-            panic!(
-                "PgExprUdf: unsupported result type OID {} — add explicit handling \
-                 in datums_to_arrow_array",
-                result_type_oid
-            );
-        }
-    }
-}
-
-/// Arrow type for UDF INPUTS — matches what Tantivy fast fields produce.
-/// Tantivy widens Int16/Int32→Int64 and Float32→Float64.
-fn pg_type_to_tantivy_arrow_type(type_oid: pg_sys::Oid) -> DataType {
-    match type_oid {
-        pg_sys::BOOLOID => DataType::Boolean,
-        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => DataType::Int64,
-        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => DataType::Float64,
-        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
-        pg_sys::TIMESTAMPOID => DataType::Timestamp(TimeUnit::Microsecond, None),
-        pg_sys::TIMESTAMPTZOID => DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
-        pg_sys::DATEOID => DataType::Date32,
-        _ => DataType::Utf8,
-    }
-}
-
-/// Arrow type for UDF OUTPUTS — preserves the PG expression result type.
-fn pg_type_to_arrow_type(type_oid: pg_sys::Oid) -> DataType {
-    match type_oid {
-        pg_sys::BOOLOID => DataType::Boolean,
-        pg_sys::INT2OID => DataType::Int16,
-        pg_sys::INT4OID => DataType::Int32,
-        pg_sys::INT8OID => DataType::Int64,
-        pg_sys::FLOAT4OID => DataType::Float32,
-        pg_sys::FLOAT8OID => DataType::Float64,
-        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
-        pg_sys::TIMESTAMPOID => DataType::Timestamp(TimeUnit::Microsecond, None),
-        pg_sys::TIMESTAMPTZOID => DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
-        pg_sys::DATEOID => DataType::Date32,
-        _ => DataType::Utf8,
     }
 }
 
@@ -586,7 +391,6 @@ impl PreparedPgExpr {
 // Var node rewriting (private — only callable through PreparedPgExpr)
 // ---------------------------------------------------------------------------
 
-/// Context for the Var-rewriting walker.
 struct VarRewriteCtx {
     var_map: HashMap<(i32, pg_sys::AttrNumber), pg_sys::AttrNumber>,
 }

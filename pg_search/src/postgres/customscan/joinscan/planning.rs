@@ -1469,9 +1469,9 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
         // SAFETY: expr is a valid Node pointer from the parse tree.
         let result_type = pg_sys::exprType(expr);
 
-        // Decline if the expression result type is not supported by datums_to_arrow_array.
+        // Decline if the expression result type is not supported by datums_to_arrow.
         // JoinScan will not activate and PG handles the query natively.
-        if !super::pg_expr_udf::is_supported_result_type(result_type) {
+        if !crate::postgres::types_arrow::is_arrow_convertible(result_type) {
             return None;
         }
 

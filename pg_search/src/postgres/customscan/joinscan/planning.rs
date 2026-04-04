@@ -1317,6 +1317,54 @@ pub(super) enum ResolvedExpr {
     },
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostic helpers for DISTINCT expression decline messages
+// ---------------------------------------------------------------------------
+
+/// Human-readable PG type name (e.g., "jsonb", "integer").
+unsafe fn format_type_name(type_oid: pg_sys::Oid) -> String {
+    let c_str = pg_sys::format_type_be(type_oid);
+    if c_str.is_null() {
+        return format!("OID {}", type_oid);
+    }
+    std::ffi::CStr::from_ptr(c_str)
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Get table name from a source's heap relation OID.
+unsafe fn source_table_name(source: &JoinSource) -> String {
+    let relname = pg_sys::get_rel_name(source.scan_info.heaprelid);
+    if !relname.is_null() {
+        std::ffi::CStr::from_ptr(relname)
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        format!("rti {}", source.scan_info.heap_rti)
+    }
+}
+
+/// Get a "table.column" name for a Var reference, for diagnostic messages.
+unsafe fn column_name_for_var(
+    sources: &[&JoinSource],
+    varno: pg_sys::Index,
+    varattno: pg_sys::AttrNumber,
+) -> String {
+    for source in sources {
+        if source.contains_rti(varno) {
+            let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+            let td = hr.tuple_desc();
+            if varattno > 0 && (varattno as usize) <= td.len() {
+                if let Some(attr) = td.get((varattno - 1) as usize) {
+                    let tbl = source_table_name(source);
+                    return format!("{}.{}", tbl, attr.name());
+                }
+            }
+        }
+    }
+    format!("rti {}, attno {}", varno, varattno)
+}
+
 /// Check if all DISTINCT columns are fast fields in their respective BM25 indexes.
 ///
 /// DISTINCT requires all target columns to be available as fast fields so that
@@ -1334,6 +1382,13 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
     if (*parse).distinctClause.is_null() {
         return Some(vec![]);
     }
+
+    // Build table names once for diagnostic messages in Case 4 decline points.
+    let tables_str = sources
+        .iter()
+        .map(|s| source_table_name(s))
+        .collect::<Vec<_>>()
+        .join(", ");
 
     let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
     let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
@@ -1405,12 +1460,20 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
         // Case 4: Expression with Var dependencies — walk the expression tree
         // to find all referenced Var nodes and verify each is a fast field.
 
-        // Reject expressions containing aggregates or window functions —
-        // ExecEvalExpr cannot evaluate these.
         if pg_sys::contain_agg_clause(expr) {
+            pgrx::debug1!(
+                "JoinScan declined: DISTINCT expression contains an aggregate \
+                 function (tables: {})",
+                tables_str
+            );
             return None;
         }
         if pg_sys::contain_window_function(expr) {
+            pgrx::debug1!(
+                "JoinScan declined: DISTINCT expression contains a window \
+                 function (tables: {})",
+                tables_str
+            );
             return None;
         }
 
@@ -1421,8 +1484,11 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
         let vars = PgList::<pg_sys::Var>::from_pg(var_list);
 
         if vars.is_empty() {
-            // Expression with no Var dependencies (e.g., constant expression).
-            // Not useful for DISTINCT — decline.
+            pgrx::debug1!(
+                "JoinScan declined: DISTINCT expression is a constant with \
+                 no column dependencies (tables: {})",
+                tables_str
+            );
             return None;
         }
 
@@ -1432,8 +1498,6 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             let varno = (*var_ptr).varno as pg_sys::Index;
             let varattno = (*var_ptr).varattno;
 
-            // Deduplicate by (rti, attno) — pull_var_clause returns duplicates
-            // for expressions like `name || name`.
             if !seen.insert((varno, varattno)) {
                 continue;
             }
@@ -1445,15 +1509,19 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
                     let ir = PgSearchRelation::open(source.scan_info.indexrelid);
                     let td = hr.tuple_desc();
                     if resolve_fast_field(varattno as i32, &td, &ir).is_none() {
+                        let col = column_name_for_var(sources, varno, varattno);
                         pgrx::debug1!(
-                            "JoinScan: DISTINCT expression references non-fast-field column \
-                             (rti={}, attno={})",
+                            "JoinScan declined: DISTINCT expression depends on '{}' \
+                             which is not a fast field (rti={}, attno={}, heaprelid={}) \
+                             (tables: {})",
+                            col,
                             varno,
-                            varattno
+                            varattno,
+                            source.scan_info.heaprelid,
+                            tables_str
                         );
                         return None;
                     }
-                    // Resolve type info directly from the Var node.
                     input_vars.push(InputVarInfo {
                         rti: varno,
                         attno: varattno,
@@ -1462,16 +1530,36 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
                         collation: (*var_ptr).varcollid,
                     });
                 }
-                None => return None,
+                None => {
+                    pgrx::debug1!(
+                        "JoinScan declined: DISTINCT expression depends on column \
+                         (rti={}, attno={}) not found in any source (available: {:?}) \
+                         (tables: {})",
+                        varno,
+                        varattno,
+                        sources
+                            .iter()
+                            .map(|s| s.scan_info.heap_rti)
+                            .collect::<Vec<_>>(),
+                        tables_str
+                    );
+                    return None;
+                }
             }
         }
 
-        // SAFETY: expr is a valid Node pointer from the parse tree.
         let result_type = pg_sys::exprType(expr);
 
-        // Decline if the expression result type is not supported by datums_to_arrow.
-        // JoinScan will not activate and PG handles the query natively.
         if !crate::postgres::types_arrow::is_arrow_convertible(result_type) {
+            let type_name = format_type_name(result_type);
+            pgrx::debug1!(
+                "JoinScan declined: DISTINCT expression returns type '{}' \
+                 (OID {}) which is not supported for Arrow conversion \
+                 (tables: {})",
+                type_name,
+                result_type,
+                tables_str
+            );
             return None;
         }
 

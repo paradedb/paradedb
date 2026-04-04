@@ -6,6 +6,112 @@ canonical: https://docs.paradedb.com/documentation/getting-started/quickstart
 
 This guide will walk you through a few queries to give you a feel for ParadeDB.
 
+<Accordion title = "Set up with Django instead">
+To start you'll need a [Django](https://www.djangoproject.com/) project with [psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed.
+Run the following to create one:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install django psycopg django-paradedb
+python3 -m django startproject myproject .
+python3 manage.py startapp myapp
+```
+
+In `myproject/settings.py`, add `'django.contrib.postgres'` and `'myapp'` to `INSTALLED_APPS`, then configure `DATABASES["default"]` to point to Postgres:
+
+```python myproject/settings.py
+INSTALLED_APPS = [
+    ...,
+    'django.contrib.postgres',
+    'myapp',
+]
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "mydatabase",
+        "USER": "myuser",
+        "PASSWORD": "mypassword",
+        "HOST": "localhost",
+        "PORT": "5432",
+    }
+}
+```
+
+We can now add a model for ParadeDB's built-in test table and BM25 index:
+
+```python models.py
+from django.db import models
+
+from django.contrib.postgres.fields import IntegerRangeField
+from paradedb.indexes import BM25Index
+from paradedb.queryset import ParadeDBManager
+
+
+class MockItem(models.Model):
+    description = models.TextField(null=True, blank=True)
+    rating = models.IntegerField(null=True, blank=True)
+    category = models.CharField(max_length=255, null=True, blank=True)
+    in_stock = models.BooleanField(null=True, blank=True)
+    metadata = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+    last_updated_date = models.DateField(null=True, blank=True)
+    latest_available_time = models.TimeField(null=True, blank=True)
+    weight_range = IntegerRangeField(null=True, blank=True)
+
+    objects = ParadeDBManager()
+
+    class Meta:
+        db_table = "mock_items"
+        indexes = [
+            BM25Index(
+                fields={
+                    "id": {},
+                    "description": {"tokenizer": "unicode_words"},
+                    "category": {"tokenizer": "literal"},
+                    "rating": {},
+                    "in_stock": {},
+                    "metadata": {"json_fields": {"fast": True}},
+                    "created_at": {},
+                    "last_updated_date": {},
+                    "latest_available_time": {},
+                    "weight_range": {},
+                },
+                key_field="id",
+                name="search_idx",
+            ),
+        ]
+```
+
+Run the migrations to create the table and index:
+
+```bash
+python3 manage.py makemigrations
+python3 manage.py migrate
+```
+
+Now open a Python shell with `python3 manage.py shell` and run the following command to populate `mock_items`.
+
+```python
+from django.db import connection
+
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name  => 'mock_items_tmp'
+        );
+        INSERT INTO public.mock_items
+        SELECT * FROM public.mock_items_tmp;
+        DROP TABLE public.mock_items_tmp;
+    """)
+```
+
+You're all set! Try running a Django [match query](#match-query) in your Python shell now.
+
+</Accordion>
+
 ## Create Example Table
 
 ParadeDB comes with a helpful procedure that creates a table populated with mock data to help

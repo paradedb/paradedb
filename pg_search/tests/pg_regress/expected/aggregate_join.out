@@ -432,6 +432,67 @@ ORDER BY p.category;
  Toys        |     2 |  999.98
 (3 rows)
 
+-- Test 7.3: RIGHT JOIN with COUNT(left column) — includes tags without products
+INSERT INTO agg_join_tags (product_id, tag_name) VALUES (999, 'orphan_tag');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+                            QUERY PLAN                             
+-------------------------------------------------------------------
+ Sort
+   Sort Key: t.tag_name
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: agg_join_tags_idx (t), agg_join_products_idx (p)
+         Group By: tag_name
+         Aggregates: COUNT(category)
+(7 rows)
+
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+  tag_name  | count 
+------------+-------
+ orphan_tag |     0
+ tech       |     3
+(2 rows)
+
+-- Test 7.4: RIGHT JOIN parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+  tag_name  | count 
+------------+-------
+ orphan_tag |     0
+ tech       |     3
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+  tag_name  | count 
+------------+-------
+ orphan_tag |     0
+ tech       |     3
+(2 rows)
+
+DELETE FROM agg_join_tags
+WHERE product_id = 999 AND tag_name = 'orphan_tag';
 -- =====================================================================
 -- SECTION 8: Composite ON clause (T_List equi-key extraction)
 -- Postgres may wrap multi-condition ON clause quals in a T_List node

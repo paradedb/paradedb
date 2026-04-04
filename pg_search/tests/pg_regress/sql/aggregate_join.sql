@@ -288,6 +288,44 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
 
+-- Test 7.3: RIGHT JOIN with COUNT(left column) — includes tags without products
+INSERT INTO agg_join_tags (product_id, tag_name) VALUES (999, 'orphan_tag');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+-- Test 7.4: RIGHT JOIN parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+DELETE FROM agg_join_tags
+WHERE product_id = 999 AND tag_name = 'orphan_tag';
+
 -- =====================================================================
 -- SECTION 8: Composite ON clause (T_List equi-key extraction)
 -- Postgres may wrap multi-condition ON clause quals in a T_List node

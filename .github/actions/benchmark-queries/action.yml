@@ -65,6 +65,11 @@ runs:
         fi
         echo "ROWS_LABEL=${ROWS_LABEL}" >> $GITHUB_ENV
 
+    - name: Print the Postgres Logs
+      if: failure()
+      shell: bash
+      run: cat ~/.pgrx/${{ env.pg_version }}.log
+
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash

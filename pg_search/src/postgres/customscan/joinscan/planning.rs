@@ -1065,7 +1065,7 @@ pub(super) unsafe fn collect_required_fields(
     // that DISTINCT expressions depend on (e.g., `DISTINCT upper(name)` needs `name`).
     if let Some(projections) = &join_clause.output_projection {
         for proj in projections {
-            if let Some(input_vars) = &proj.input_vars {
+            if let super::build::ChildProjection::Expression { input_vars, .. } = proj {
                 for var_info in input_vars {
                     for source in &mut plan_sources {
                         ensure_column(source, var_info.rti, var_info.attno);
@@ -1298,7 +1298,7 @@ unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSour
 }
 
 /// Represents a parsed DISTINCT target list entry.
-pub(super) enum DistinctEntry {
+pub(super) enum ResolvedExpr {
     /// Simple column reference (existing behavior)
     Column {
         rti: pg_sys::Index,
@@ -1329,7 +1329,7 @@ pub(super) enum DistinctEntry {
 pub(super) unsafe fn distinct_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
-) -> Option<Vec<DistinctEntry>> {
+) -> Option<Vec<ResolvedExpr>> {
     let parse = (*root).parse;
     if (*parse).distinctClause.is_null() {
         return Some(vec![]);
@@ -1365,7 +1365,7 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             if !is_fast {
                 return None;
             }
-            entries.push(DistinctEntry::Column {
+            entries.push(ResolvedExpr::Column {
                 rti: varno,
                 attno: (*var).varattno,
             });
@@ -1374,7 +1374,7 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
 
         // Case 2: Score function
         if let Some(rti) = get_score_func_rti(expr.cast()) {
-            entries.push(DistinctEntry::Score { rti });
+            entries.push(ResolvedExpr::Score { rti });
             continue;
         }
 
@@ -1396,7 +1396,7 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             // Indexed expressions are handled by existing fast field machinery.
             // They don't need the UDF path. The attno=0 convention for indexed
             // expressions is already handled by build_projection_expr.
-            entries.push(DistinctEntry::IndexedExpression {
+            entries.push(ResolvedExpr::IndexedExpression {
                 rti: source.scan_info.heap_rti,
             });
             continue;
@@ -1469,7 +1469,13 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
         // SAFETY: expr is a valid Node pointer from the parse tree.
         let result_type = pg_sys::exprType(expr);
 
-        entries.push(DistinctEntry::Expression {
+        // Decline if the expression result type is not supported by datums_to_arrow_array.
+        // JoinScan will not activate and PG handles the query natively.
+        if !super::pg_expr_udf::is_supported_result_type(result_type) {
+            return None;
+        }
+
+        entries.push(ResolvedExpr::Expression {
             expr_node: expr.cast(),
             input_vars,
             result_type,

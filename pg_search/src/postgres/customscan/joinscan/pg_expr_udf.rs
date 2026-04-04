@@ -23,15 +23,13 @@
 //! 2. Calls ExecEvalExpr
 //! 3. Collects the result into an output Arrow array
 //!
-//! The PG expression state is lazily initialized on the first `invoke_batch` call
-//! and reused for all subsequent calls. This follows the same pattern as
-//! `HeapFieldFilter::initialized_expression` in `pg_search/src/query/heap_field_filter.rs`.
+//! The PG expression state is lazily initialized on the first invocation via
+//! `OnceLock` and reused for all subsequent calls.
 
 use std::any::Any;
-use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ptr::addr_of_mut;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use datafusion::arrow::array::*;
 use datafusion::arrow::datatypes::*;
@@ -56,15 +54,15 @@ pub struct PgExprUdf {
     input_vars: Vec<InputVarInfo>,
     /// PostgreSQL result type OID
     result_type_oid: pg_sys::Oid,
-    /// Arrow return type (derived from result_type_oid)
+    /// Arrow return type for UDF OUTPUT (preserves PG expression result type)
     #[serde(skip, default = "PgExprUdf::default_return_type")]
     return_type: DataType,
-    /// Pre-computed DataFusion Signature
+    /// Pre-computed DataFusion Signature (input types match Tantivy widening)
     #[serde(skip, default = "PgExprUdf::default_signature")]
     signature: Signature,
     /// Lazily initialized PG expression evaluation state.
     #[serde(skip)]
-    initialized_state: UnsafeCell<Option<PgExprState>>,
+    initialized_state: OnceLock<PgExprState>,
 }
 
 impl std::fmt::Debug for PgExprUdf {
@@ -104,11 +102,23 @@ struct PgExprState {
     slot: *mut pg_sys::TupleTableSlot,
 }
 
-// SAFETY: PgExprUdf is only used within a single thread. DataFusion executes
-// JoinScan plans single-threaded via target_partitions = 1. The UnsafeCell is
-// never accessed concurrently.
-unsafe impl Send for PgExprUdf {}
-unsafe impl Sync for PgExprUdf {}
+// SAFETY: PgExprState is only accessed within a single DataFusion partition
+// (target_partitions=1). The raw pointers are not shared across threads.
+unsafe impl Send for PgExprState {}
+unsafe impl Sync for PgExprState {}
+
+impl Drop for PgExprState {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
+        unsafe {
+            pg_sys::ExecDropSingleTupleTableSlot(self.slot);
+            pg_sys::FreeExprContext(self.econtext, true);
+            pg_sys::FreeExecutorState(self.estate);
+        }
+    }
+}
 
 impl PgExprUdf {
     fn default_return_type() -> DataType {
@@ -125,7 +135,7 @@ impl PgExprUdf {
         let input_types: Vec<DataType> = self
             .input_vars
             .iter()
-            .map(|v| pg_type_to_arrow_type(v.type_oid))
+            .map(|v| pg_type_to_tantivy_arrow_type(v.type_oid))
             .collect();
         self.signature = Signature::exact(input_types, Volatility::Immutable);
     }
@@ -140,7 +150,7 @@ impl PgExprUdf {
 
         let input_types: Vec<DataType> = input_vars
             .iter()
-            .map(|v| pg_type_to_arrow_type(v.type_oid))
+            .map(|v| pg_type_to_tantivy_arrow_type(v.type_oid))
             .collect();
         let signature = Signature::exact(input_types, Volatility::Immutable);
 
@@ -151,48 +161,30 @@ impl PgExprUdf {
             result_type_oid,
             return_type,
             signature,
-            initialized_state: UnsafeCell::new(None),
+            initialized_state: OnceLock::new(),
         }
     }
 
     /// Lazily initialize PG expression state on first call.
-    /// Follows the HeapFieldFilter pattern: allocate in TopTransactionContext
-    /// so the ExprState/slot survive across DataFusion batch boundaries.
-    ///
-    /// # Safety
-    /// Caller must ensure single-threaded access (guaranteed by target_partitions=1).
     unsafe fn get_or_init_state(&self) -> &PgExprState {
-        // SAFETY: UnsafeCell access is safe because PgExprUdf is only used within
-        // a single DataFusion partition (target_partitions=1).
-        let state_ptr = self.initialized_state.get();
-        if (*state_ptr).is_none() {
-            let state = PgMemoryContexts::TopTransactionContext.switch_to(|_| {
-                // Deserialize expression tree
-                let c_str = std::ffi::CString::new(self.pg_expr_string.as_str())
-                    .expect("pg_expr_string contains interior NUL byte");
-                let expr_node =
-                    pg_sys::stringToNode(c_str.as_ptr().cast_mut()) as *mut pg_sys::Expr;
+        self.initialized_state.get_or_init(|| {
+            PgMemoryContexts::TopTransactionContext.switch_to(|_| {
+                let prepared =
+                    PreparedPgExpr::from_serialized(&self.pg_expr_string, &self.input_vars);
 
-                // Rewrite Var nodes to reference sequential slot positions (INNER_VAR)
-                rewrite_var_nodes(expr_node.cast(), &self.input_vars);
-
-                // Build TupleDesc for the synthetic input slot
                 let tupdesc = build_tupdesc_for_inputs(&self.input_vars);
 
                 // SAFETY: tupdesc is valid, TTSOpsVirtual is a static PG global.
                 let slot = pg_sys::MakeSingleTupleTableSlot(tupdesc, &pg_sys::TTSOpsVirtual);
 
-                // Create executor state
                 let estate = pg_sys::CreateExecutorState();
                 let econtext = pg_sys::CreateExprContext(estate);
 
                 // Use ecxt_innertuple because Var nodes are rewritten to INNER_VAR.
                 (*econtext).ecxt_innertuple = slot;
 
-                // SAFETY: expr_node is a valid deserialized Node. Passing null PlanState
-                // is safe — ExecInitExpr only uses it for Param resolution, which our
-                // expressions don't contain.
-                let expr_state = pg_sys::ExecInitExpr(expr_node, std::ptr::null_mut());
+                // SAFETY: expr_node is a valid deserialized+rewritten Node.
+                let expr_state = pg_sys::ExecInitExpr(prepared.as_ptr(), std::ptr::null_mut());
 
                 PgExprState {
                     expr_state,
@@ -200,26 +192,8 @@ impl PgExprUdf {
                     econtext,
                     slot,
                 }
-            });
-            *state_ptr = Some(state);
-        }
-        (*state_ptr).as_ref().unwrap()
-    }
-}
-
-impl Drop for PgExprUdf {
-    fn drop(&mut self) {
-        let state = self.initialized_state.get_mut();
-        if let Some(s) = state.take() {
-            // SAFETY: These PG free functions are safe to call during transaction
-            // cleanup. The slot, econtext, and estate were allocated in
-            // TopTransactionContext and are still valid at Drop time.
-            unsafe {
-                pg_sys::ExecDropSingleTupleTableSlot(s.slot);
-                pg_sys::FreeExprContext(s.econtext, true);
-                pg_sys::FreeExecutorState(s.estate);
-            }
-        }
+            })
+        })
     }
 }
 
@@ -266,10 +240,8 @@ impl ScalarUDFImpl for PgExprUdf {
 
         for row_idx in 0..num_rows {
             unsafe {
-                // SAFETY: slot was allocated in get_or_init_state and is valid.
                 pg_sys::ExecClearTuple(pg_state.slot);
 
-                // SAFETY: tts_values and tts_isnull are arrays of size >= natts.
                 for (col_idx, arg) in arg_values.iter().enumerate() {
                     let (value, is_null) =
                         arrow_value_to_datum(arg, row_idx, self.input_vars[col_idx].type_oid)?;
@@ -279,11 +251,6 @@ impl ScalarUDFImpl for PgExprUdf {
                 (*pg_state.slot).tts_nvalid = arg_values.len() as i16;
                 pg_sys::ExecStoreVirtualTuple(pg_state.slot);
 
-                // SAFETY: expr_state and econtext are valid. ExecEvalExpr reads input
-                // values from the slot via rewritten INNER_VAR Var nodes.
-                //
-                // Error handling follows the HeapFieldFilter pattern: direct unsafe
-                // call under the #[pg_guard] boundary provided by exec_custom_scan().
                 let mut is_null = false;
                 let datum =
                     pg_sys::ExecEvalExpr(pg_state.expr_state, pg_state.econtext, &mut is_null);
@@ -293,8 +260,7 @@ impl ScalarUDFImpl for PgExprUdf {
             }
         }
 
-        let arrow_array =
-            datums_to_arrow_array(&results, &nulls, self.result_type_oid, &self.return_type);
+        let arrow_array = datums_to_arrow_array(&results, &nulls, self.result_type_oid);
 
         Ok(ColumnarValue::Array(arrow_array))
     }
@@ -316,10 +282,10 @@ unsafe fn build_tupdesc_for_inputs(input_vars: &[InputVarInfo]) -> *mut pg_sys::
         pg_sys::TupleDescInitEntry(
             tupdesc,
             (i + 1) as pg_sys::AttrNumber,
-            std::ptr::null(), // no column name needed for virtual slot
+            std::ptr::null(),
             var_info.type_oid,
             var_info.typmod,
-            0, // attdim
+            0,
         );
         pg_sys::TupleDescInitEntryCollation(
             tupdesc,
@@ -434,12 +400,31 @@ unsafe fn arrow_to_datum_single(
     }
 }
 
+/// Returns true if the given PG type OID is supported by `datums_to_arrow_array`.
+/// Used at planning time to decline JoinScan for unsupported expression result types.
+pub(crate) fn is_supported_result_type(oid: pg_sys::Oid) -> bool {
+    matches!(
+        oid,
+        pg_sys::BOOLOID
+            | pg_sys::INT2OID
+            | pg_sys::INT4OID
+            | pg_sys::INT8OID
+            | pg_sys::FLOAT4OID
+            | pg_sys::FLOAT8OID
+            | pg_sys::TEXTOID
+            | pg_sys::VARCHAROID
+            | pg_sys::NAMEOID
+    )
+}
+
 /// Convert a Vec of result Datums back into an Arrow array.
+///
+/// Uses the OUTPUT type mapping — preserves the PG expression result type
+/// without Tantivy widening.
 fn datums_to_arrow_array(
     datums: &[pg_sys::Datum],
     nulls: &[bool],
     result_type_oid: pg_sys::Oid,
-    _arrow_type: &DataType,
 ) -> Arc<dyn Array> {
     match result_type_oid {
         pg_sys::BOOLOID => {
@@ -448,40 +433,62 @@ fn datums_to_arrow_array(
                 if nulls[i] {
                     builder.append_null();
                 } else {
-                    // SAFETY: BOOLOID Datum is a valid bool value (0 or 1).
                     builder.append_value(datum.value() != 0);
                 }
             }
             Arc::new(builder.finish())
         }
-        // Tantivy fast fields widen all integers to i64, so output as Int64.
-        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => {
+        pg_sys::INT2OID => {
+            let mut builder = Int16Builder::with_capacity(datums.len());
+            for (i, datum) in datums.iter().enumerate() {
+                if nulls[i] {
+                    builder.append_null();
+                } else {
+                    builder.append_value(datum.value() as i16);
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        pg_sys::INT4OID => {
+            let mut builder = Int32Builder::with_capacity(datums.len());
+            for (i, datum) in datums.iter().enumerate() {
+                if nulls[i] {
+                    builder.append_null();
+                } else {
+                    builder.append_value(datum.value() as i32);
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        pg_sys::INT8OID => {
             let mut builder = Int64Builder::with_capacity(datums.len());
             for (i, datum) in datums.iter().enumerate() {
                 if nulls[i] {
                     builder.append_null();
                 } else {
-                    // Pass-by-value: sign-extend to i64 via isize
                     builder.append_value(datum.value() as isize as i64);
                 }
             }
             Arc::new(builder.finish())
         }
-        // Tantivy fast fields widen all floats to f64.
-        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => {
+        pg_sys::FLOAT4OID => {
+            let mut builder = Float32Builder::with_capacity(datums.len());
+            for (i, datum) in datums.iter().enumerate() {
+                if nulls[i] {
+                    builder.append_null();
+                } else {
+                    builder.append_value(f32::from_bits(datum.value() as u32));
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        pg_sys::FLOAT8OID => {
             let mut builder = Float64Builder::with_capacity(datums.len());
             for (i, datum) in datums.iter().enumerate() {
                 if nulls[i] {
                     builder.append_null();
                 } else {
-                    // For FLOAT4: datum holds f32 bits in low 32 bits
-                    // For FLOAT8: datum holds f64 bits in all 64 bits
-                    let f = if result_type_oid == pg_sys::FLOAT4OID {
-                        f32::from_bits(datum.value() as u32) as f64
-                    } else {
-                        f64::from_bits(datum.value() as u64)
-                    };
-                    builder.append_value(f);
+                    builder.append_value(f64::from_bits(datum.value() as u64));
                 }
             }
             Arc::new(builder.finish())
@@ -492,92 +499,103 @@ fn datums_to_arrow_array(
                 if nulls[i] {
                     builder.append_null();
                 } else {
-                    // SAFETY: Pass-by-reference varlena: detoast, then read as &str
-                    let text = unsafe {
-                        let detoasted = pg_sys::pg_detoast_datum(datum.cast_mut_ptr());
-                        let varlena = detoasted as *const pg_sys::varlena;
-                        let len = pgrx::varlena::varsize_any_exhdr(varlena);
-                        let data = pgrx::varlena::vardata_any(varlena);
-                        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                            data as *const u8,
-                            len,
-                        ))
-                    };
-                    builder.append_value(text);
-                }
-            }
-            Arc::new(builder.finish())
-        }
-        _ => {
-            // Fallback: convert to TEXT via PG's type output function, then store as Utf8.
-            // SAFETY: result_type_oid is a valid type OID from planning time.
-            let out_func_oid = unsafe {
-                let mut typoutput = pg_sys::InvalidOid;
-                let mut typisvarlena = false;
-                pg_sys::getTypeOutputInfo(result_type_oid, &mut typoutput, &mut typisvarlena);
-                typoutput
-            };
-
-            let mut builder = StringBuilder::with_capacity(datums.len(), datums.len() * 32);
-            for (i, datum) in datums.iter().enumerate() {
-                if nulls[i] {
-                    builder.append_null();
-                } else {
-                    // SAFETY: out_func_oid is the output function for result_type_oid.
-                    let text = unsafe {
-                        let c_str = pg_sys::OidOutputFunctionCall(out_func_oid, *datum);
-                        std::ffi::CStr::from_ptr(c_str)
-                            .to_string_lossy()
-                            .into_owned()
+                    use pgrx::FromDatum;
+                    let text: String = unsafe {
+                        String::from_datum(*datum, false)
+                            .expect("non-null TEXT datum should convert to String")
                     };
                     builder.append_value(&text);
                 }
             }
             Arc::new(builder.finish())
         }
+        _ => {
+            panic!(
+                "PgExprUdf: unsupported result type OID {} — add explicit handling \
+                 in datums_to_arrow_array",
+                result_type_oid
+            );
+        }
     }
 }
 
-/// Map a PostgreSQL type OID to the Arrow DataType that Tantivy fast fields
-/// produce. Tantivy widens narrow integers (Int16, Int32) to Int64 and
-/// narrow floats (Float32) to Float64, so the UDF signature must match
-/// the actual Arrow column types in the DataFusion plan.
-fn pg_type_to_arrow_type(type_oid: pg_sys::Oid) -> DataType {
+/// Arrow type for UDF INPUTS — matches what Tantivy fast fields produce.
+/// Tantivy widens Int16/Int32→Int64 and Float32→Float64.
+fn pg_type_to_tantivy_arrow_type(type_oid: pg_sys::Oid) -> DataType {
     match type_oid {
         pg_sys::BOOLOID => DataType::Boolean,
-        // Tantivy widens all integer fast fields to i64/u64.
         pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => DataType::Int64,
-        // Tantivy widens Float32 to Float64 for fast fields.
         pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => DataType::Float64,
         pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
         pg_sys::TIMESTAMPOID => DataType::Timestamp(TimeUnit::Microsecond, None),
         pg_sys::TIMESTAMPTZOID => DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
         pg_sys::DATEOID => DataType::Date32,
-        pg_sys::NUMERICOID => DataType::Utf8, // Fallback to string representation
-        _ => DataType::Utf8,                  // Default: convert to text representation
+        _ => DataType::Utf8,
+    }
+}
+
+/// Arrow type for UDF OUTPUTS — preserves the PG expression result type.
+fn pg_type_to_arrow_type(type_oid: pg_sys::Oid) -> DataType {
+    match type_oid {
+        pg_sys::BOOLOID => DataType::Boolean,
+        pg_sys::INT2OID => DataType::Int16,
+        pg_sys::INT4OID => DataType::Int32,
+        pg_sys::INT8OID => DataType::Int64,
+        pg_sys::FLOAT4OID => DataType::Float32,
+        pg_sys::FLOAT8OID => DataType::Float64,
+        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
+        pg_sys::TIMESTAMPOID => DataType::Timestamp(TimeUnit::Microsecond, None),
+        pg_sys::TIMESTAMPTZOID => DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+        pg_sys::DATEOID => DataType::Date32,
+        _ => DataType::Utf8,
     }
 }
 
 // ---------------------------------------------------------------------------
-// Var node rewriting
+// PreparedPgExpr — deserialize + Var rewriting wrapper
+// ---------------------------------------------------------------------------
+
+/// A deserialized and Var-rewritten PG expression, ready for ExecInitExpr.
+///
+/// `rewrite_var_nodes` mutates the expression tree in place. This struct
+/// guarantees it only runs on a freshly deserialized tree (from stringToNode),
+/// never on a shared parse-tree pointer.
+pub(crate) struct PreparedPgExpr {
+    expr_node: *mut pg_sys::Expr,
+}
+
+impl PreparedPgExpr {
+    /// Deserialize a PG expression and rewrite its Var nodes for a synthetic slot.
+    ///
+    /// # Safety
+    /// Must be called within a suitable PG memory context.
+    pub unsafe fn from_serialized(pg_expr_string: &str, input_vars: &[InputVarInfo]) -> Self {
+        let c_str = std::ffi::CString::new(pg_expr_string)
+            .expect("pg_expr_string contains interior NUL byte");
+        let expr_node = pg_sys::stringToNode(c_str.as_ptr().cast_mut()) as *mut pg_sys::Expr;
+        rewrite_var_nodes(expr_node.cast(), input_vars);
+        Self { expr_node }
+    }
+
+    pub fn as_ptr(&self) -> *mut pg_sys::Expr {
+        self.expr_node
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Var node rewriting (private — only callable through PreparedPgExpr)
 // ---------------------------------------------------------------------------
 
 /// Context for the Var-rewriting walker.
 struct VarRewriteCtx {
-    /// Maps (original_varno, original_varattno) → 1-based sequential slot position.
     var_map: HashMap<(i32, pg_sys::AttrNumber), pg_sys::AttrNumber>,
 }
 
 /// Rewrite all Var nodes in an expression tree to reference sequential positions
-/// in a synthetic tuple slot, based on the input_vars mapping.
-///
-/// Before: Var(varno=1, varattno=3) — references table 1, column 3
-/// After:  Var(varno=INNER_VAR, varattno=1) — references slot position 1
-///
-/// We use INNER_VAR because ecxt_innertuple is set to our synthetic slot.
+/// in a synthetic tuple slot.
 ///
 /// # Safety
-/// `expr` must be a valid, mutable PG Node tree.
+/// `expr` must be a valid, mutable PG Node tree (freshly deserialized).
 unsafe fn rewrite_var_nodes(expr: *mut pg_sys::Node, input_vars: &[InputVarInfo]) {
     use pgrx::pg_sys::expression_tree_walker;
 
@@ -600,10 +618,9 @@ unsafe fn rewrite_var_nodes(expr: *mut pg_sys::Node, input_vars: &[InputVarInfo]
                 (*var).varnosyn = pg_sys::INNER_VAR as pg_sys::Index;
                 (*var).varattnosyn = new_attno;
             }
-            return false; // Var is a leaf — no children to recurse into
+            return false;
         }
 
-        // Non-Var node: recurse into children
         expression_tree_walker(node, Some(walker), context)
     }
 
@@ -615,6 +632,5 @@ unsafe fn rewrite_var_nodes(expr: *mut pg_sys::Node, input_vars: &[InputVarInfo]
             .collect(),
     };
 
-    // Call walker directly on the root node (expression_tree_walker only visits children).
     walker(expr, addr_of_mut!(ctx).cast());
 }

@@ -1019,12 +1019,12 @@ impl CustomScan for JoinScan {
                 None
             };
 
-            // Map DistinctEntry to output columns by walking the parse tree's
+            // Map ResolvedExpr to output columns by walking the parse tree's
             // target list (which has original expressions and valid ressortgroupref).
             // For ALL entries (Column, Score, Expression), use the parse-tree
             // varnos so that distinct_col_map keys are consistent with
             // extract_orderby's pathkey varnos.
-            let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::DistinctEntry> =
+            let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::ResolvedExpr> =
                 Default::default();
             if let Some(ref entries) = distinct_entries {
                 let parse = (*root).parse;
@@ -1053,7 +1053,7 @@ impl CustomScan for JoinScan {
                     .enumerate()
                     .map(|(i, info)| {
                         match entry_by_output_idx.get(&i) {
-                            Some(planning::DistinctEntry::Expression {
+                            Some(planning::ResolvedExpr::Expression {
                                 expr_node,
                                 input_vars,
                                 result_type,
@@ -1065,59 +1065,37 @@ impl CustomScan for JoinScan {
                                         .into_owned()
                                 };
                                 let primary_rti = input_vars.first().map_or(0, |v| v.rti);
-                                build::ChildProjection {
+                                build::ChildProjection::Expression {
                                     rti: primary_rti,
-                                    attno: 0,
-                                    is_score: false,
-                                    pg_expr_string: Some(expr_string),
-                                    input_vars: Some(input_vars.clone()),
-                                    result_type_oid: Some(*result_type),
+                                    pg_expr_string: expr_string,
+                                    input_vars: input_vars.clone(),
+                                    result_type_oid: *result_type,
                                 }
                             }
-                            Some(planning::DistinctEntry::Column { rti, attno }) => {
-                                // Use parse-tree varnos for consistency with extract_orderby
-                                build::ChildProjection {
+                            Some(planning::ResolvedExpr::Column { rti, attno }) => {
+                                build::ChildProjection::Column {
                                     rti: *rti,
                                     attno: *attno,
-                                    is_score: info.is_score,
-                                    pg_expr_string: None,
-                                    input_vars: None,
-                                    result_type_oid: None,
                                 }
                             }
-                            Some(planning::DistinctEntry::Score { rti }) => {
-                                build::ChildProjection {
-                                    rti: *rti,
-                                    attno: 0,
-                                    is_score: true,
-                                    pg_expr_string: None,
-                                    input_vars: None,
-                                    result_type_oid: None,
-                                }
+                            Some(planning::ResolvedExpr::Score { rti }) => {
+                                build::ChildProjection::Score { rti: *rti }
                             }
-                            Some(planning::DistinctEntry::IndexedExpression { rti }) => {
-                                // Indexed expressions are handled by existing fast field
-                                // machinery. Use the original attno from OutputColumnInfo
-                                // which preserves whatever the existing code path produces
-                                // for indexed expressions.
-                                build::ChildProjection {
+                            Some(planning::ResolvedExpr::IndexedExpression { rti }) => {
+                                build::ChildProjection::IndexedExpression {
                                     rti: *rti,
                                     attno: info.original_attno,
-                                    is_score: false,
-                                    pg_expr_string: None,
-                                    input_vars: None,
-                                    result_type_oid: None,
                                 }
                             }
                             None => {
-                                // No DistinctEntry match — use output_columns as-is
-                                build::ChildProjection {
-                                    rti: info.rti,
-                                    attno: info.original_attno,
-                                    is_score: info.is_score,
-                                    pg_expr_string: None,
-                                    input_vars: None,
-                                    result_type_oid: None,
+                                // No ResolvedExpr match — use output_columns as-is
+                                if info.is_score {
+                                    build::ChildProjection::Score { rti: info.rti }
+                                } else {
+                                    build::ChildProjection::Column {
+                                        rti: info.rti,
+                                        attno: info.original_attno,
+                                    }
                                 }
                             }
                         }

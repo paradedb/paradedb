@@ -282,29 +282,26 @@ pub struct InputVarInfo {
 /// Projection information for a child join.
 /// Maps an output attribute (by index in the vector) to the source column.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChildProjection {
-    pub rti: pg_sys::Index,
-    pub attno: pg_sys::AttrNumber,
-    #[serde(default)]
-    pub is_score: bool,
-    /// Serialized PostgreSQL expression tree (via nodeToString).
-    /// Present when this projection is an expression, not a simple column reference.
-    #[serde(default)]
-    pub pg_expr_string: Option<String>,
-    /// The Var nodes this expression depends on, with resolved type metadata.
-    #[serde(default)]
-    pub input_vars: Option<Vec<InputVarInfo>>,
-    /// The PostgreSQL result type OID of the expression.
-    #[serde(default)]
-    pub result_type_oid: Option<pg_sys::Oid>,
-}
-
-impl ChildProjection {
-    /// Returns true if this projection represents an expression rather than
-    /// a simple column reference or score function.
-    pub fn is_expression(&self) -> bool {
-        self.pg_expr_string.is_some()
-    }
+pub enum ChildProjection {
+    /// Simple column reference
+    Column {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Score function
+    Score { rti: pg_sys::Index },
+    /// An indexed expression handled by existing fast field machinery
+    IndexedExpression {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Arbitrary PG expression evaluated via PgExprUdf
+    Expression {
+        rti: pg_sys::Index,
+        pg_expr_string: String,
+        input_vars: Vec<InputVarInfo>,
+        result_type_oid: pg_sys::Oid,
+    },
 }
 
 use crate::index::mvcc::MvccSatisfies;

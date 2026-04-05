@@ -17,8 +17,8 @@
 
 use crate::api::builder_fns::{parse, parse_with_field, proximity};
 use crate::api::operator::{
-    get_expr_result_type, pdb_query_typoid, request_simplify, searchqueryinput_typoid, RHSValue,
-    ReturnedNodePointer,
+    get_expr_result_type, is_text_like, pdb_query_typoid, request_simplify,
+    searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::proximity::ProximityClause;
@@ -97,10 +97,11 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                 let expr_type = get_expr_result_type(rhs);
                 let is_pdb_query = expr_type == pdb_query_typoid;
 
-                assert!(
-                    expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID || is_pdb_query,
-                    "The right-hand side of the `@@@` operator must be a text value"
-                );
+                if !(is_text_like(expr_type) || is_pdb_query) {
+                    panic!(
+                        "The right-hand side of the `@@@` operator must be a text value"
+                    );
+                }
 
 
                 let funcid = if is_pdb_query {

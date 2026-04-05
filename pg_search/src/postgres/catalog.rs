@@ -112,10 +112,6 @@ pub fn lookup_procoid(
 }
 
 /// Helper function to check if an OID corresponds to the ltree type.
-/// The ltree type can be installed in different schemas depending on configuration,
-/// so we check multiple common locations.
-#[inline]
 pub fn type_is_ltree(oid: pg_sys::Oid) -> bool {
-    lookup_typoid(c"public", c"ltree") == Some(oid)
-        || lookup_typoid(c"pg_catalog", c"ltree") == Some(oid)
+    matches!(lookup_type_name(oid).as_deref(), Some("ltree"))
 }

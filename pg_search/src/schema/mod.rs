@@ -552,6 +552,7 @@ impl SearchField {
             | (FieldType::F64(_), OwnedValue::F64(_))
             | (FieldType::Bool(_), OwnedValue::Bool(_))
             | (FieldType::Date(_), OwnedValue::Date(_))
+            | (FieldType::Facet(_), OwnedValue::Facet(_))
             | (FieldType::JsonObject(_), OwnedValue::Object(_)) => Ok(()),
             (FieldType::U64(_), OwnedValue::I64(v)) => {
                 *value = OwnedValue::U64(v.try_into()?);

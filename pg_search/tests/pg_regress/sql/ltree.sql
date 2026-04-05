@@ -28,6 +28,7 @@ INSERT INTO tbl_ltree (category) VALUES
 SELECT id, category FROM tbl_ltree WHERE category @@@ 'Top.Science.Astronomy' ORDER BY id;
 
 -- Test count aggregation with ltree filter
+-- ltree is indexed as a Tantivy Facet field, which stores ancestor terms at index time.
 SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
 
 -- Explain to verify index usage

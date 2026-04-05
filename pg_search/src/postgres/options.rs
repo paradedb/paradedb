@@ -895,7 +895,7 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
                 fast: true,
             }
         }
-        SearchFieldType::Text(_) | SearchFieldType::Uuid(_) | SearchFieldType::Ltree(_) => {
+        SearchFieldType::Text(_) | SearchFieldType::Uuid(_) => {
             SearchFieldConfig::Text {
                 indexed: true,
                 fast: true,
@@ -911,6 +911,7 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
                 column: None,
             }
         }
+        SearchFieldType::Ltree(_) => SearchFieldConfig::Facet,
         SearchFieldType::Tokenized(..) => {
             panic!("the key_field cannot use a custom tokenizer configuration")
         }

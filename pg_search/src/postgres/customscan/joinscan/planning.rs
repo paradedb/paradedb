@@ -1686,94 +1686,96 @@ enum JoinSortExprOutcome {
     NoMatch,
 }
 
-unsafe fn classify_join_sort_expr(
-    check_expr: *mut pg_sys::Expr,
-    direction: SortDirection,
-    sources: &[&JoinSource],
-    output_rtis: &[pg_sys::Index],
-    pathkey_equivalence_member: bool,
-) -> JoinSortExprOutcome {
-    for source in sources.iter() {
-        if is_score_func_recursive(check_expr.cast(), source) {
-            if !output_rtis.contains(&source.scan_info.heap_rti) {
-                continue;
-            }
-            return JoinSortExprOutcome::Resolved(OrderByInfo {
-                feature: OrderByFeature::Score {
-                    rti: source.scan_info.heap_rti,
-                },
-                direction,
-            });
-        }
-    }
-
-    if let Some(var) = nodecast!(Var, T_Var, check_expr) {
-        let varno = (*var).varno as pg_sys::Index;
-        let varattno = (*var).varattno;
-
-        if !output_rtis.contains(&varno) {
-            return if pathkey_equivalence_member {
-                JoinSortExprOutcome::SkipMember
-            } else {
-                JoinSortExprOutcome::NoMatch
-            };
-        }
-
-        for source in sources {
-            if source.contains_rti(varno) {
-                let name = find_base_info_recursive(source, varno).and_then(|info| {
-                    fieldname_from_var(info.heaprelid, var, varattno).map(|f| f.to_string())
-                });
-                return JoinSortExprOutcome::Resolved(OrderByInfo {
-                    feature: OrderByFeature::Var {
-                        rti: varno,
-                        attno: varattno,
-                        name,
+impl JoinSortExprOutcome {
+    unsafe fn classify(
+        check_expr: *mut pg_sys::Expr,
+        direction: SortDirection,
+        sources: &[&JoinSource],
+        output_rtis: &[pg_sys::Index],
+        pathkey_equivalence_member: bool,
+    ) -> Self {
+        for source in sources.iter() {
+            if is_score_func_recursive(check_expr.cast(), source) {
+                if !output_rtis.contains(&source.scan_info.heap_rti) {
+                    continue;
+                }
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Score {
+                        rti: source.scan_info.heap_rti,
                     },
                     direction,
                 });
             }
         }
 
-        if !sources.iter().any(|s| s.contains_rti(varno)) && output_rtis.contains(&varno) {
-            return JoinSortExprOutcome::Resolved(OrderByInfo {
-                feature: OrderByFeature::Var {
-                    rti: varno,
-                    attno: varattno,
-                    name: None,
-                },
-                direction,
-            });
+        if let Some(var) = nodecast!(Var, T_Var, check_expr) {
+            let varno = (*var).varno as pg_sys::Index;
+            let varattno = (*var).varattno;
+
+            if !output_rtis.contains(&varno) {
+                return if pathkey_equivalence_member {
+                    Self::SkipMember
+                } else {
+                    Self::NoMatch
+                };
+            }
+
+            for source in sources {
+                if source.contains_rti(varno) {
+                    let name = find_base_info_recursive(source, varno).and_then(|info| {
+                        fieldname_from_var(info.heaprelid, var, varattno).map(|f| f.to_string())
+                    });
+                    return Self::Resolved(OrderByInfo {
+                        feature: OrderByFeature::Var {
+                            rti: varno,
+                            attno: varattno,
+                            name,
+                        },
+                        direction,
+                    });
+                }
+            }
+
+            if !sources.iter().any(|s| s.contains_rti(varno)) && output_rtis.contains(&varno) {
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Var {
+                        rti: varno,
+                        attno: varattno,
+                        name: None,
+                    },
+                    direction,
+                });
+            }
+
+            return Self::NoMatch;
         }
 
-        return JoinSortExprOutcome::NoMatch;
+        for source in sources {
+            if !output_rtis.contains(&source.scan_info.heap_rti) {
+                continue;
+            }
+            let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+            let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+                continue;
+            };
+            if let Some(search_field) = find_matching_fast_field(
+                check_expr as *mut pg_sys::Node,
+                &index_rel.index_expressions(),
+                schema,
+                source.scan_info.heap_rti,
+            ) {
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Field {
+                        name: search_field.name().into(),
+                        rti: source.scan_info.heap_rti,
+                    },
+                    direction,
+                });
+            }
+        }
+
+        Self::NoMatch
     }
-
-    for source in sources {
-        if !output_rtis.contains(&source.scan_info.heap_rti) {
-            continue;
-        }
-        let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
-        let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
-            continue;
-        };
-        if let Some(search_field) = find_matching_fast_field(
-            check_expr as *mut pg_sys::Node,
-            &index_rel.index_expressions(),
-            schema,
-            source.scan_info.heap_rti,
-        ) {
-            return JoinSortExprOutcome::Resolved(OrderByInfo {
-                feature: OrderByFeature::Field {
-                    name: search_field.name().into(),
-                    rti: source.scan_info.heap_rti,
-                },
-                direction,
-            });
-        }
-    }
-
-    JoinSortExprOutcome::NoMatch
 }
 
 /// ORDER BY from `parse->sortClause` only. Used when JoinScan defers DISTINCT to a parent node
@@ -1796,7 +1798,7 @@ pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
         let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
         let check_expr = strip_wrappers(sort_expr.cast()).cast::<pg_sys::Expr>();
 
-        match classify_join_sort_expr(check_expr, direction, sources, output_rtis, false) {
+        match JoinSortExprOutcome::classify(check_expr, direction, sources, output_rtis, false) {
             JoinSortExprOutcome::Resolved(info) => result.push(info),
             JoinSortExprOutcome::SkipMember => unreachable!("sortClause entry is not an EC member"),
             JoinSortExprOutcome::NoMatch => return None,
@@ -1883,7 +1885,7 @@ pub(super) unsafe fn extract_orderby(
 
             let check_expr = strip_wrappers(expr.cast()).cast::<pg_sys::Expr>();
 
-            match classify_join_sort_expr(check_expr, direction, sources, output_rtis, true) {
+            match JoinSortExprOutcome::classify(check_expr, direction, sources, output_rtis, true) {
                 JoinSortExprOutcome::Resolved(info) => {
                     result.push(info);
                     pathkey_resolved = true;

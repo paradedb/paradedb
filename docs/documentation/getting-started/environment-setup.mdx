@@ -21,7 +21,7 @@ CALL paradedb.create_bm25_test_table(
 );
 ```
 
-Then inspect the first 3 rows:
+Then, inspect the first 3 rows:
 
 ```sql
 SELECT description, rating, category
@@ -62,8 +62,7 @@ You're all set! Try running some [basic queries](/documentation/getting-started/
 
 ## Django
 
-To start you'll need a [Django](https://www.djangoproject.com/) project with [psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed.
-Run the following to create one:
+To start you'll need a [Django](https://www.djangoproject.com/) project with [psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed. Run the following to create one:
 
 ```bash
 python3 -m venv .venv
@@ -73,7 +72,7 @@ python3 -m django startproject myproject .
 python3 manage.py startapp myapp
 ```
 
-In `myproject/settings.py`, add `'django.contrib.postgres'` and `'myapp'` to `INSTALLED_APPS`, then configure `DATABASES["default"]` to point to Postgres:
+In `myproject/settings.py`, add `'django.contrib.postgres'` and `'myapp'` to `INSTALLED_APPS`. Then, configure `DATABASES["default"]` to point to Postgres:
 
 ```python myproject/settings.py
 INSTALLED_APPS = [
@@ -158,7 +157,7 @@ python3 manage.py makemigrations
 python3 manage.py migrate
 ```
 
-Now open a Python shell with `python3 manage.py shell` and run the following command to populate `mock_items`.
+Now, open a Python shell with `python3 manage.py shell` and run the following command to populate `mock_items`.
 
 ```python
 from django.db import connection

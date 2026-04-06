@@ -31,7 +31,7 @@ on:
 jobs:
   antithesis-trigger-test-run:
     name: Test pg_search via Antithesis
-    runs-on: ubicloud-standard-8-arm-ubuntu-2404
+    runs-on: ubicloud-standard-8-ubuntu-2404
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'antithesis')
     strategy:
       matrix:
@@ -81,7 +81,7 @@ jobs:
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             COMMIT_SHA=${{ github.sha }}
             ENABLE_ANTITHESIS_INSTRUMENTATION=true
-          platforms: linux/arm64
+          platforms: linux/amd64
           file: docker/Dockerfile
           push: true
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
@@ -112,7 +112,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64
           file: docker/Dockerfile.config
           push: true
           tags: ${{ steps.extract-config-metadata.outputs.tags }}
@@ -133,7 +133,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64
           file: docker/Dockerfile.stressgres
           push: true
           tags: ${{ steps.extract-stressgres-metadata.outputs.tags }}

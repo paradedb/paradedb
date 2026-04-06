@@ -15,6 +15,25 @@ USING bm25 (
   rating
 )
 WITH (key_field='id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: description asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sleek running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
 SELECT description, rating
 FROM mock_items
 WHERE description ||| 'sleek running shoes'
@@ -33,11 +52,61 @@ USING bm25 (
   rating
 )
 WITH (key_field='id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating
 FROM mock_items
 WHERE description ||| 'sleek running shoes'
 ORDER BY lower(description)
 LIMIT 5;
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: literal_description asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"literal_description","value":"sleek running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY upper(description)
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (upper(description))
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
+               Table: mock_items
+               Index: search_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"literal_description","value":"sleek running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY upper(description)
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
      description     | rating 
 ---------------------+--------
  Sleek running shoes |      5
@@ -52,14 +121,23 @@ USING bm25 (
   rating
 )
 WITH (key_field='id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating
 FROM mock_items
 WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes'
 ORDER BY lower(description)
 LIMIT 5;
-     description     | rating 
----------------------+--------
- Sleek running shoes |      5
-(1 row)
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: literal_description asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"literal_description","value":"sleek running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
 
 DROP TABLE mock_items;

@@ -13,6 +13,13 @@ USING bm25 (
 )
 WITH (key_field='id');
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+
 SELECT description, rating
 FROM mock_items
 WHERE description ||| 'sleek running shoes'
@@ -29,10 +36,30 @@ USING bm25 (
 )
 WITH (key_field='id');
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating
 FROM mock_items
 WHERE description ||| 'sleek running shoes'
 ORDER BY lower(description)
+LIMIT 5;
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY upper(description)
+LIMIT 5;
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY upper(description)
 LIMIT 5;
 
 DROP INDEX search_idx;
@@ -46,6 +73,7 @@ USING bm25 (
 )
 WITH (key_field='id');
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating
 FROM mock_items
 WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes'

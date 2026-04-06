@@ -8,6 +8,26 @@ CALL paradedb.create_bm25_test_table(
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,
+  (lower(description)::pdb.literal),
+  rating
+)
+WITH (key_field='id');
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes';
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+
+DROP INDEX search_idx;
+
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
   (lower(description)::pdb.literal('alias=literal_description')),
   rating
 )
@@ -16,6 +36,12 @@ WITH (key_field='id');
 SELECT description, rating
 FROM mock_items
 WHERE description ||| 'sleek running shoes';
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
 
 DROP INDEX search_idx;
 
@@ -39,6 +65,13 @@ WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes';
 SELECT description, rating
 FROM mock_items
 WHERE description::pdb.alias('simple_description') ||| 'sleek running shoes';
+
+SELECT description, rating
+FROM mock_items
+WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+
 
 DROP TABLE mock_items;
 

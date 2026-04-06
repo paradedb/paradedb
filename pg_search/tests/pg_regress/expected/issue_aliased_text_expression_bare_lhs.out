@@ -11,6 +11,32 @@ CALL paradedb.create_bm25_test_table(
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,
+  (lower(description)::pdb.literal),
+  rating
+)
+WITH (key_field='id');
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes';
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+(1 row)
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+(1 row)
+
+DROP INDEX search_idx;
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
   (lower(description)::pdb.literal('alias=literal_description')),
   rating
 )
@@ -18,6 +44,17 @@ WITH (key_field='id');
 SELECT description, rating
 FROM mock_items
 WHERE description ||| 'sleek running shoes';
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+(1 row)
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
      description     | rating 
 ---------------------+--------
  Sleek running shoes |      5
@@ -53,5 +90,16 @@ WHERE description::pdb.alias('simple_description') ||| 'sleek running shoes';
  White jogging shoes |      3
  Generic shoes       |      4
 (3 rows)
+
+SELECT description, rating
+FROM mock_items
+WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+(1 row)
 
 DROP TABLE mock_items;

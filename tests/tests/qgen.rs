@@ -920,22 +920,63 @@ async fn generated_joinscan_semi_like(database: Db) {
         inner_term in proptest::sample::select(search_terms.clone()),
         is_anti_join in proptest::bool::ANY,
         limit in 1..=50usize,
+        nested_join in proptest::option::of(arb_semi_joins(all_tables.clone(), join_key_columns.clone())),
+        nested_term in proptest::sample::select(search_terms.clone()),
+        nested_is_anti in proptest::bool::ANY,
     )| {
         let outer = semi_join.outer_table();
         let inner = semi_join.inner_table();
         let join_col = semi_join.join_column();
+
+        // Skip nested cases where the nested inner table collides with the outer tables,
+        // since that would create a self-join which changes the semantics.
+        let nested = nested_join.as_ref().and_then(|nj| {
+            let nested_inner = nj.inner_table();
+            if nested_inner != outer && nested_inner != inner
+                && nj.outer_table() != nj.inner_table()
+            {
+                Some((nj, &nested_term, nested_is_anti))
+            } else {
+                None
+            }
+        });
 
         // Build the subquery clause parameterized by operator.
         // SEMI: IN (SELECT ...), ANTI: IS NOT NULL AND NOT EXISTS (SELECT 1 ... WHERE correlated)
         // PostgreSQL only uses an anti join plan with NOT EXISTS (not NOT IN) and
         // requires IS NOT NULL on the join column.
         let subquery_clause = |op: &str| {
+            let nested_clause = if let Some((nj, nterm, nis_anti)) = &nested {
+                let mid = inner;
+                let deep = nj.inner_table();
+                let ncol = nj.join_column();
+                if *nis_anti {
+                    format!(
+                        " AND {mid}.{ncol} IS NOT NULL AND NOT EXISTS (\
+                            SELECT 1 FROM {deep} \
+                            WHERE {deep}.{ncol} = {mid}.{ncol} \
+                            AND {deep}.name {op} '{nterm}'\
+                        )"
+                    )
+                } else {
+                    format!(
+                        " AND {mid}.{ncol} IN (\
+                            SELECT {deep}.{ncol} FROM {deep} \
+                            WHERE {deep}.name {op} '{nterm}'\
+                        )"
+                    )
+                }
+            } else {
+                String::new()
+            };
+
             if is_anti_join {
                 format!(
                     "{outer}.{join_col} IS NOT NULL AND NOT EXISTS (\
                         SELECT 1 FROM {inner} \
                         WHERE {inner}.{join_col} = {outer}.{join_col} \
                         AND {inner}.name {op} '{inner_term}'\
+                        {nested_clause}\
                     )"
                 )
             } else {
@@ -943,6 +984,7 @@ async fn generated_joinscan_semi_like(database: Db) {
                     "{outer}.{join_col} IN (\
                         SELECT {inner}.{join_col} FROM {inner} \
                         WHERE {inner}.name {op} '{inner_term}'\
+                        {nested_clause}\
                     )"
                 )
             }

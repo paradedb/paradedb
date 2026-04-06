@@ -1673,6 +1673,144 @@ unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) 
     false
 }
 
+/// Single-expression classification for join sort keys (score / heap Var / indexed `Field`).
+///
+/// `pathkey_equivalence_member`: when true, a `Var` outside `output_rtis` means "try the next
+/// equivalence member". When false (sortClause-only extraction), that situation fails the whole
+/// extraction.
+enum JoinSortExprKind {
+    Resolved(OrderByInfo),
+    /// Pathkeys only: this EC member is not usable.
+    SkipMember,
+    /// No encoding as Score, Var, or indexed Field.
+    NoMatch,
+}
+
+impl JoinSortExprKind {
+    unsafe fn classify(
+        check_expr: *mut pg_sys::Expr,
+        direction: SortDirection,
+        sources: &[&JoinSource],
+        output_rtis: &[pg_sys::Index],
+        pathkey_equivalence_member: bool,
+    ) -> Self {
+        for source in sources.iter() {
+            if is_score_func_recursive(check_expr.cast(), source) {
+                if !output_rtis.contains(&source.scan_info.heap_rti) {
+                    continue;
+                }
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Score {
+                        rti: source.scan_info.heap_rti,
+                    },
+                    direction,
+                });
+            }
+        }
+
+        if let Some(var) = nodecast!(Var, T_Var, check_expr) {
+            let varno = (*var).varno as pg_sys::Index;
+            let varattno = (*var).varattno;
+
+            if !output_rtis.contains(&varno) {
+                return if pathkey_equivalence_member {
+                    Self::SkipMember
+                } else {
+                    Self::NoMatch
+                };
+            }
+
+            for source in sources {
+                if source.contains_rti(varno) {
+                    let name = find_base_info_recursive(source, varno).and_then(|info| {
+                        fieldname_from_var(info.heaprelid, var, varattno).map(|f| f.to_string())
+                    });
+                    return Self::Resolved(OrderByInfo {
+                        feature: OrderByFeature::Var {
+                            rti: varno,
+                            attno: varattno,
+                            name,
+                        },
+                        direction,
+                    });
+                }
+            }
+
+            // At this point output_rtis.contains(&varno) is guaranteed — we already
+            // returned SkipMember/NoMatch above when !output_rtis.contains(&varno).
+            debug_assert!(output_rtis.contains(&varno));
+            if !sources.iter().any(|s| s.contains_rti(varno)) {
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Var {
+                        rti: varno,
+                        attno: varattno,
+                        name: None,
+                    },
+                    direction,
+                });
+            }
+
+            return Self::NoMatch;
+        }
+
+        for source in sources {
+            if !output_rtis.contains(&source.scan_info.heap_rti) {
+                continue;
+            }
+            let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+            let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+                continue;
+            };
+            if let Some(search_field) = find_matching_fast_field(
+                check_expr as *mut pg_sys::Node,
+                &index_rel.index_expressions(),
+                schema,
+                source.scan_info.heap_rti,
+            ) {
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Field {
+                        name: search_field.name().into(),
+                        rti: source.scan_info.heap_rti,
+                    },
+                    direction,
+                });
+            }
+        }
+
+        Self::NoMatch
+    }
+}
+
+/// ORDER BY from `parse->sortClause` only. Used when JoinScan defers DISTINCT to a parent node
+/// and `query_pathkeys` still list keys for the full DISTINCT row.
+pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[&JoinSource],
+    output_rtis: &[pg_sys::Index],
+) -> Option<Vec<OrderByInfo>> {
+    let parse = (*root).parse;
+    if (*parse).sortClause.is_null() {
+        return Some(Vec::new());
+    }
+
+    let sort_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    let mut result = Vec::new();
+
+    for sort_clause_ptr in sort_list.iter_ptr() {
+        let direction = SortDirection::from_sort_op((*sort_clause_ptr).sortop)?;
+        let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+        let check_expr = strip_wrappers(sort_expr.cast()).cast::<pg_sys::Expr>();
+
+        match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, false) {
+            JoinSortExprKind::Resolved(info) => result.push(info),
+            JoinSortExprKind::SkipMember => unreachable!("sortClause entry is not an EC member"),
+            JoinSortExprKind::NoMatch => return None,
+        }
+    }
+
+    Some(result)
+}
+
 /// Extract `ORDER BY` information from the Postgres query planner to pass down to the
 /// DataFusion execution plan.
 ///
@@ -1750,112 +1888,22 @@ pub(super) unsafe fn extract_orderby(
 
             let check_expr = strip_wrappers(expr.cast()).cast::<pg_sys::Expr>();
 
-            // Check if ordering by score
-            let mut score_found = false;
-            for source in sources.iter() {
-                if is_score_func_recursive(check_expr.cast(), source) {
-                    if !output_rtis.contains(&source.scan_info.heap_rti) {
-                        continue;
-                    }
-
-                    // Always emit Score regardless of which source owns it.
-                    // The Field("p.score") path was wrong — after GROUP BY renames
-                    // columns to col_N, qualified names no longer exist.
-                    result.push(OrderByInfo {
-                        feature: OrderByFeature::Score {
-                            rti: source.scan_info.heap_rti,
-                        },
-                        direction,
-                    });
-                    score_found = true;
-                    break;
+            match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, true) {
+                JoinSortExprKind::Resolved(info) => {
+                    result.push(info);
+                    pathkey_resolved = true;
                 }
+                JoinSortExprKind::SkipMember => continue,
+                JoinSortExprKind::NoMatch => {}
             }
-            if score_found {
+
+            // DISTINCT adds non-Var expression pathkeys; skip when deps are fast fields.
+            if !pathkey_resolved
+                && has_distinct
+                && nodecast!(Var, T_Var, check_expr).is_none()
+                && expression_vars_all_fast(check_expr.cast(), sources)
+            {
                 pathkey_resolved = true;
-                break;
-            }
-
-            if let Some(var) = nodecast!(Var, T_Var, check_expr) {
-                let varno = (*var).varno as pg_sys::Index;
-                let varattno = (*var).varattno;
-
-                if !output_rtis.contains(&varno) {
-                    continue;
-                }
-
-                for source in sources {
-                    if source.contains_rti(varno) {
-                        // Try to find a display name (optional)
-                        let name = find_base_info_recursive(source, varno).and_then(|info| {
-                            fieldname_from_var(info.heaprelid, var, varattno).map(|f| f.to_string())
-                        });
-
-                        result.push(OrderByInfo {
-                            feature: OrderByFeature::Var {
-                                rti: varno,
-                                attno: varattno,
-                                name,
-                            },
-                            direction,
-                        });
-                        pathkey_resolved = true;
-                        break;
-                    }
-                }
-                // The Var is in the output but doesn't belong to any BM25 source
-                // (e.g. products.id when products has no BM25 predicate).
-                // Emit it as a plain field — it's a projected output column.
-                if !sources.iter().any(|s| s.contains_rti(varno)) && output_rtis.contains(&varno) {
-                    result.push(OrderByInfo {
-                        feature: OrderByFeature::Var {
-                            rti: varno,
-                            attno: varattno,
-                            name: None,
-                        },
-                        direction,
-                    });
-                    pathkey_resolved = true;
-                }
-            } else {
-                // Non-Var expression — check if it matches an indexed expression
-                // so we can push the sort into the index.
-                for source in sources {
-                    if !output_rtis.contains(&source.scan_info.heap_rti) {
-                        continue;
-                    }
-                    let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                    let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
-                        continue;
-                    };
-                    if let Some(search_field) = find_matching_fast_field(
-                        check_expr as *mut pg_sys::Node,
-                        &index_rel.index_expressions(),
-                        schema,
-                        source.scan_info.heap_rti,
-                    ) {
-                        result.push(OrderByInfo {
-                            feature: OrderByFeature::Field {
-                                name: search_field.name().into(),
-                                rti: source.scan_info.heap_rti,
-                            },
-                            direction,
-                        });
-                        pathkey_resolved = true;
-                        break;
-                    }
-                }
-
-                // When DISTINCT is active, PG adds expression pathkeys (e.g.
-                // upper(name)) for the Unique node. If all Var dependencies are
-                // fast fields, skip this pathkey — DataFusion GROUP BY +
-                // PG's Sort+Unique above handles it.
-                if !pathkey_resolved
-                    && has_distinct
-                    && expression_vars_all_fast(check_expr.cast(), sources)
-                {
-                    pathkey_resolved = true;
-                }
             }
             if pathkey_resolved {
                 break;

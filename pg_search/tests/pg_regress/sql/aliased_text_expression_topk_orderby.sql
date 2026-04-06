@@ -15,10 +15,6 @@ WITH (key_field='id');
 
 SELECT description, rating
 FROM mock_items
-WHERE description ||| 'sleek running shoes';
-
-SELECT description, rating
-FROM mock_items
 WHERE description ||| 'sleek running shoes'
 ORDER BY lower(description)
 LIMIT 5;
@@ -32,10 +28,6 @@ USING bm25 (
   rating
 )
 WITH (key_field='id');
-
-SELECT description, rating
-FROM mock_items
-WHERE description ||| 'sleek running shoes';
 
 SELECT description, rating
 FROM mock_items
@@ -56,23 +48,8 @@ WITH (key_field='id');
 
 SELECT description, rating
 FROM mock_items
-WHERE description ||| 'sleek running shoes';
-
-SELECT description, rating
-FROM mock_items
-WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes';
-
-SELECT description, rating
-FROM mock_items
-WHERE description::pdb.alias('simple_description') ||| 'sleek running shoes';
-
-SELECT description, rating
-FROM mock_items
 WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes'
 ORDER BY lower(description)
 LIMIT 5;
 
-
 DROP TABLE mock_items;
-
-

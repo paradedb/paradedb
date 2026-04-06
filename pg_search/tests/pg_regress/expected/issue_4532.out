@@ -68,7 +68,7 @@ WHERE p.company_id IN (
 AND p.description @@@ 'widget OR gadget OR gizmo'
 ORDER BY p.id
 LIMIT 10;
-WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
                                                                                                             QUERY PLAN                                                                                                            
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -81,7 +81,7 @@ WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal par
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :       ProjectionExec: expr=[ctid@0 as ctid_0, company_id@1 as company_id, id@2 as id]
+           :       VisibilityFilterExec: tables=[p]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo","lenient":null,"conjunction_mode":null}}}}
            :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
@@ -105,7 +105,7 @@ WHERE p.company_id IN (
 AND p.description @@@ 'widget OR gadget OR gizmo'
 ORDER BY p.id
 LIMIT 10;
-WARNING:  For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id  |  description  
 -----+---------------
  100 | A fine widget
@@ -145,7 +145,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :       ProjectionExec: expr=[ctid@0 as ctid_0, company_id@1 as company_id, id@2 as id]
+           :       VisibilityFilterExec: tables=[p]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
@@ -217,7 +217,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :       ProjectionExec: expr=[ctid@0 as ctid_0, company_id@1 as company_id, id@2 as id]
+           :       VisibilityFilterExec: tables=[p]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
@@ -284,15 +284,14 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_0@3]
-           :         ProjectionExec: expr=[ctid@0 as ctid_1, company_id@1 as company_id, id@2 as id]
+           :     VisibilityFilterExec: tables=[c, p]
+           :       ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_0@3]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget","lenient":null,"conjunction_mode":null}}}}
-           :         ProjectionExec: expr=[ctid@0 as ctid_0, id@1 as id]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(16 rows)
 
 SELECT p.id, p.description
 FROM products p
@@ -345,7 +344,7 @@ LIMIT 10;
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :       ProjectionExec: expr=[ctid@0 as ctid_0, company_id@1 as company_id, id@2 as id]
+           :       VisibilityFilterExec: tables=[p]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
            :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]

@@ -253,6 +253,33 @@ ORDER BY p.category;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 
+-- Test 6.3: COUNT(DISTINCT) on the other join side (products table column)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT t.tag_name, COUNT(DISTINCT p.category)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+SELECT t.tag_name, COUNT(DISTINCT p.category)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+-- Test 6.4: COUNT(DISTINCT) on other side — parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT t.tag_name, COUNT(DISTINCT p.category)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 -- =====================================================================
 -- SECTION 7: LEFT JOIN aggregates
 -- =====================================================================

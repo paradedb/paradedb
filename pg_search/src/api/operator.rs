@@ -455,8 +455,11 @@ pub unsafe fn field_name_from_node(
         // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
 
         let expressions = indexrel.index_expressions();
-        // TODO: remove allocation?
+
+        // We collect all candidate field names so that if there are multiple valid ones
+        // that can't be disambiguated we can return an error.
         let mut candidate_field_names: Vec<FieldName> = vec![];
+
         let mut expr_no = 0;
         for i in 0..index_info.ii_NumIndexAttrs {
             let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
@@ -501,7 +504,6 @@ pub unsafe fn field_name_from_node(
                                 continue;
                             }
 
-                            // TODO update this here?
                             if var_matches_tokenizer_expr(var, arg.cast()) {
                                 return Some(FieldName::from(fields[position].field_name.clone()));
                             }
@@ -527,12 +529,9 @@ pub unsafe fn field_name_from_node(
         }
         match &candidate_field_names[..] {
             [] => {
-                // no candidate expressions
                 return None;
             }
             [field_name] => {
-                // Unambiguous match
-                // TODO: remove clone?
                 return Some(field_name.clone());
             }
             _ => {

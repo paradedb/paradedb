@@ -264,9 +264,16 @@ pub unsafe fn try_create_subplan_join_paths(
         return Vec::new();
     }
 
+    // Match `create_custom_path`: DISTINCT affects ORDER BY pathkey handling,
+    // `distinct_columns_are_fast_fields`, and `plan_custom_path` defer logic.
+    // Passing false here skipped those checks and made `extract_orderby` omit DISTINCT
+    // pathkey absorption, so `SELECT DISTINCT ...` with `IN (SELECT ...) OR col IS NULL`
+    // (SubPlan / LeftMark) never got a JoinScan path and fell back to Base Scan.
+    let has_distinct = !(*(*root).parse).distinctClause.is_null();
+
     // Phase 1: validate + build JoinCSClause.
     let (join_clause, limit_offset) =
-        match JoinScan::validate_and_build_clause(root, plan, &join_keys, false) {
+        match JoinScan::validate_and_build_clause(root, plan, &join_keys, has_distinct) {
             Some(res) => res,
             None => return Vec::new(),
         };

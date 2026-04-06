@@ -1,0 +1,143 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_columnar_exec = true;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
+  (lower(description)::pdb.literal),
+  rating
+)
+WITH (key_field='id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: description asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"sleek running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+(1 row)
+
+DROP INDEX search_idx;
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
+  (lower(description)::pdb.literal('alias=literal_description')),
+  rating
+)
+WITH (key_field='id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: literal_description asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"literal_description","value":"sleek running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY upper(description)
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (upper(description))
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
+               Table: mock_items
+               Index: search_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"literal_description","value":"sleek running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY upper(description)
+LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+(1 row)
+
+DROP INDEX search_idx;
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
+  (description::pdb.simple('alias=simple_description')),
+  (lower(description)::pdb.literal('alias=literal_description')),
+  rating
+)
+WITH (key_field='id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT description, rating
+FROM mock_items
+WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes'
+ORDER BY lower(description)
+LIMIT 5;
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: literal_description asc
+            TopK Limit: 5
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"literal_description","value":"sleek running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
+DROP TABLE mock_items;

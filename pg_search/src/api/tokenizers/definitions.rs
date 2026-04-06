@@ -868,8 +868,8 @@ fn literal_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
 
 extension_sql!(
     r#"
-        ALTER TYPE pdb.literal SET (TYPMOD_IN = literal_typmod_in);
+        ALTER TYPE pdb.literal SET (TYPMOD_IN = literal_typmod_in, TYPMOD_OUT = generic_typmod_out);
     "#,
     name = "literal_typmod",
-    requires = [literal_typmod_in, "literal_definition"]
+    requires = [literal_typmod_in, generic_typmod_out, "literal_definition"]
 );

@@ -973,12 +973,17 @@ pub(super) unsafe fn collect_required_fields(
 
     if plan_sources.len() >= 2 {
         let mut ensure_join_key_side = |rti: pg_sys::Index, attno: pg_sys::AttrNumber| {
-            let idx = plan_sources
-                .iter()
-                .position(|s| s.contains_rti(rti) && s.has_attno(attno));
-            if let Some(idx) = idx {
-                ensure_field(plan_sources[idx], attno);
-            } else {
+            // Ensure the field on ALL sources that match this RTI+attno.
+            // Multiple sources can share the same RTI when they originate
+            // from different planner roots (e.g., main query vs SubPlan).
+            let mut found = false;
+            for source in plan_sources.iter_mut() {
+                if source.contains_rti(rti) && source.has_attno(attno) {
+                    ensure_field(source, attno);
+                    found = true;
+                }
+            }
+            if !found {
                 for source in &mut plan_sources {
                     ensure_column(source, rti, attno);
                 }

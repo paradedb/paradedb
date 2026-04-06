@@ -399,29 +399,6 @@ impl JoinScan {
     ) -> Option<pg_sys::CustomPath> {
         let output_rtis = join_clause.plan.output_rtis();
 
-        // Verify that every Var in the joinrel's reltarget references a relation
-        // in our output-visible sources. Internal Semi/Anti joins (from SubPlan
-        // extraction or reconstructed flattened subqueries) prune some sources.
-        // If the joinrel's reltarget includes Vars from pruned sources, we cannot
-        // produce those values and plan_custom_path would panic.
-        if !rel.is_null() && !(*rel).reltarget.is_null() {
-            let exprs =
-                PgList::<pg_sys::Node>::from_pg((*(*rel).reltarget).exprs);
-            for expr in exprs.iter_ptr() {
-                let var_list = pg_sys::pull_var_clause(
-                    expr,
-                    (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
-                );
-                let vars = PgList::<pg_sys::Var>::from_pg(var_list);
-                for var_ptr in vars.iter_ptr() {
-                    let varno = (*var_ptr).varno as pg_sys::Index;
-                    if varno > 0 && !output_rtis.contains(&varno) {
-                        return None;
-                    }
-                }
-            }
-        }
-
         let current_sources = join_clause.plan.sources();
         let order_by = extract_orderby(
             root,
@@ -1001,21 +978,30 @@ impl CustomScan for JoinScan {
                     let var = (*te).expr as *mut pg_sys::Var;
                     let rti = (*var).varno as pg_sys::Index;
                     let attno = (*var).varattno;
-                    let plan_position = private_data
-                        .join_clause
-                        .plan_position(root.into(), rti, attno)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "Failed to resolve output Var to plan_position (rti={}, attno={})",
-                                rti, attno
-                            )
+                    if let Some(plan_position) =
+                        private_data
+                            .join_clause
+                            .plan_position(root.into(), rti, attno)
+                    {
+                        output_columns.push(privdat::OutputColumnInfo {
+                            plan_position,
+                            rti,
+                            original_attno: attno,
+                            is_score: false,
                         });
-                    output_columns.push(privdat::OutputColumnInfo {
-                        plan_position,
-                        rti,
-                        original_attno: attno,
-                        is_score: false,
-                    });
+                    } else {
+                        // Var references a relation pruned by an internal Semi/Anti
+                        // join (e.g., the inner side of a flattened EXISTS).
+                        // PostgreSQL's reltarget may include these Vars even though
+                        // they are not accessible after the Semi/Anti. Emit NULL;
+                        // the parent plan will not read this position.
+                        output_columns.push(privdat::OutputColumnInfo {
+                            plan_position: 0,
+                            rti: 0,
+                            original_attno: 0,
+                            is_score: false,
+                        });
+                    }
                 } else {
                     let mut is_score = false;
                     let mut rti = 0;

@@ -1,13 +1,13 @@
 ---
-title: Quickstart
-description: Get started with ParadeDB in five minutes
-canonical: https://docs.paradedb.com/documentation/getting-started/quickstart
+title: Environment Setup
+description: Set up your environment for querying ParadeDB
+canonical: https://docs.paradedb.com/documentation/getting-started/environment-setup
 ---
 
-This guide will walk you through setting up your preferred tool to run queries against ParadeDB.
+This guide will walk you through setting up your preferred tool to run queries against ParadeDB. Choose one:
+
 - [SQL](#sql)
 - [Django](#django)
-
 
 ## SQL
 
@@ -54,12 +54,14 @@ WITH (key_field='id');
 
 <Note>
   Note the mandatory `key_field` option. See [choosing a key
-  field](/documentation/indexing/create-index#choosing-a-key-field) for more details.
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
 </Note>
 
 You're all set! Try running some [basic queries](/documentation/getting-started/basic-queries).
 
 ## Django
+
 To start you'll need a [Django](https://www.djangoproject.com/) project with [psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed.
 Run the following to create one:
 
@@ -145,7 +147,8 @@ class MockItem(models.Model):
 
 <Note>
   Note the mandatory `key_field` option. See [choosing a key
-  field](/documentation/indexing/create-index#choosing-a-key-field) for more details.
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
 </Note>
 
 Run the migrations to create the table and index:

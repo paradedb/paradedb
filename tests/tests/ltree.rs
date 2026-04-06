@@ -394,11 +394,5 @@ fn ltree_aggregate_groupby(mut conn: PgConnection) {
     ORDER BY path
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-        rows,
-        vec![
-            ("A.B".to_string(), 2),
-            ("C.D".to_string(), 3),
-        ]
-    );
+    assert_eq!(rows, vec![("A.B".to_string(), 2), ("C.D".to_string(), 3),]);
 }

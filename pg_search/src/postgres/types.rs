@@ -17,8 +17,8 @@
 
 use crate::api::tokenizers::type_is_tokenizer;
 use crate::nodecast;
-use crate::postgres::catalog::type_is_ltree;
 use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::catalog::type_is_ltree;
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
@@ -371,7 +371,10 @@ impl TantivyValue {
                 let cstr = std::ffi::CStr::from_ptr(cstring_ptr);
                 // Copy the text before freeing the palloc'd CString to avoid a memory leak
                 // on bulk index builds iterating over many rows.
-                let text = cstr.to_str().map_err(|_| TantivyValueError::DatumDeref)?.to_owned();
+                let text = cstr
+                    .to_str()
+                    .map_err(|_| TantivyValueError::DatumDeref)?
+                    .to_owned();
                 pg_sys::pfree(cstring_ptr.cast());
                 // Convert ltree dot-separated path to Tantivy Facet
                 // e.g. "Top.Science.Astronomy" -> Facet with path ["Top", "Science", "Astronomy"]

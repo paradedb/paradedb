@@ -41,6 +41,7 @@ use tantivy::query::{
 use tantivy::schema::{FieldType, OwnedValue};
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
+
 use super::ltree_str_to_facet;
 
 #[pg_extern(immutable, parallel_safe)]
@@ -1763,8 +1764,6 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         }
         // If conversion fails, fall through to standard parsing (will likely error)
     }
-
-
 
     if let Some(search_field) = schema.search_field(field) {
         if matches!(search_field.field_entry().field_type(), FieldType::Facet(_)) {

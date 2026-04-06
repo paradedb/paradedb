@@ -77,4 +77,42 @@ SELECT path, name FROM tbl_ltree_key WHERE name @@@ 'Branch' ORDER BY path;
  Root.Branch2 | Second Branch
 (2 rows)
 
+-- Test columnar exec path (exercises arrow_array_to_datum ltree conversion)
+SET paradedb.enable_columnar_exec = true;
+SELECT id, category FROM tbl_ltree WHERE category @@@ 'Top.Science.Astronomy' ORDER BY id;
+ id |       category        
+----+-----------------------
+  1 | Top.Science.Astronomy
+(1 row)
+
+SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY id;
+ id |              category              
+----+------------------------------------
+  1 | Top.Science.Astronomy
+  2 | Top.Science.Biology
+  3 | Top.Science.Biology.Botany
+  4 | Top.Collections.Pictures
+  5 | Top.Collections.Pictures.Astronomy
+  6 | Top.Hobbies.Photography
+  7 | 
+(7 rows)
+
+RESET paradedb.enable_columnar_exec;
+-- Test &&& operator with ltree (exercises parse_with_field facet path)
+SELECT id, category FROM tbl_ltree WHERE category &&& 'Top.Science.Biology' ORDER BY id;
+ id |          category          
+----+----------------------------
+  2 | Top.Science.Biology
+  3 | Top.Science.Biology.Botany
+(2 rows)
+
+-- Test paradedb.term() query with ltree (exercises value_to_term facet branch)
+SELECT id, category FROM tbl_ltree
+WHERE tbl_ltree @@@ paradedb.term(field => 'category', value => 'Top.Hobbies.Photography')
+ORDER BY id;
+ id |        category         
+----+-------------------------
+  6 | Top.Hobbies.Photography
+(1 row)
+
 RESET paradedb.enable_aggregate_custom_scan;

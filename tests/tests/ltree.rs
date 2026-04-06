@@ -52,14 +52,16 @@ fn ltree_basic_index_and_search(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // Search for an exact ltree path using term query
+    // Search for an ltree path using term query.
+    // Tantivy Facets are hierarchical, so searching for 'Top.Science.Astronomy'
+    // also matches child paths like Astrophysics and Cosmology.
     let rows: Vec<(i32,)> = r#"
     SELECT id FROM test_ltree
     WHERE test_ltree @@@ paradedb.term(field => 'path', value => 'Top.Science.Astronomy')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(rows, vec![(1,)]);
+    assert_eq!(rows, vec![(1,), (2,), (3,)]);
 }
 
 #[rstest]
@@ -151,10 +153,10 @@ fn ltree_with_parse_query(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // Use parse query on the ltree field
+    // Use term query on the ltree field (paradedb.parse cannot handle dots in facet paths)
     let rows: Vec<(i32,)> = r#"
     SELECT id FROM test_ltree
-    WHERE test_ltree @@@ paradedb.parse(query_string => 'path:Top.Science.Biology')
+    WHERE test_ltree @@@ paradedb.term(field => 'path', value => 'Top.Science.Biology')
     ORDER BY id
     "#
     .fetch_collect(&mut conn);
@@ -198,4 +200,205 @@ fn ltree_combined_with_text_search(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,)]);
+}
+
+#[rstest]
+fn ltree_columnar_exec_reads(mut conn: PgConnection) {
+    setup_ltree(&mut conn);
+
+    r#"
+    CREATE TABLE test_ltree (
+        id SERIAL PRIMARY KEY,
+        path ltree
+    );
+
+    INSERT INTO test_ltree (path) VALUES
+        ('A.B.C'),
+        ('A.B.D'),
+        ('X.Y.Z');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX test_ltree_idx ON test_ltree
+    USING bm25 (id, path) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Enable columnar exec to exercise the arrow_array_to_datum ltree path
+    "SET paradedb.enable_columnar_exec = true;".execute(&mut conn);
+
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, path::text FROM test_ltree
+    WHERE id @@@ paradedb.all()
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+        rows,
+        vec![
+            (1, "A.B.C".to_string()),
+            (2, "A.B.D".to_string()),
+            (3, "X.Y.Z".to_string()),
+        ]
+    );
+
+    "RESET paradedb.enable_columnar_exec;".execute(&mut conn);
+}
+
+#[rstest]
+fn ltree_triple_ampersand_operator(mut conn: PgConnection) {
+    setup_ltree(&mut conn);
+
+    r#"
+    CREATE TABLE test_ltree (
+        id SERIAL PRIMARY KEY,
+        path ltree
+    );
+
+    INSERT INTO test_ltree (path) VALUES
+        ('Top.Science.Astronomy'),
+        ('Top.Science.Biology'),
+        ('Top.Hobbies.Reading');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX test_ltree_idx ON test_ltree
+    USING bm25 (id, path) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Test the &&& operator with ltree field
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_ltree
+    WHERE path &&& 'Top.Science.Biology'
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+}
+
+#[rstest]
+fn ltree_ordering(mut conn: PgConnection) {
+    setup_ltree(&mut conn);
+
+    r#"
+    CREATE TABLE test_ltree (
+        id SERIAL PRIMARY KEY,
+        path ltree
+    );
+
+    INSERT INTO test_ltree (path) VALUES
+        ('C.D.E'),
+        ('A.B.C'),
+        ('B.C.D');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX test_ltree_idx ON test_ltree
+    USING bm25 (id, path) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // ORDER BY ltree exercises PartialOrd for Facet values
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, path::text FROM test_ltree
+    WHERE id @@@ paradedb.all()
+    ORDER BY path ASC
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+        rows,
+        vec![
+            (2, "A.B.C".to_string()),
+            (3, "B.C.D".to_string()),
+            (1, "C.D.E".to_string()),
+        ]
+    );
+}
+
+#[rstest]
+fn ltree_null_handling(mut conn: PgConnection) {
+    setup_ltree(&mut conn);
+
+    r#"
+    CREATE TABLE test_ltree (
+        id SERIAL PRIMARY KEY,
+        path ltree
+    );
+
+    INSERT INTO test_ltree (path) VALUES
+        ('A.B'),
+        (NULL),
+        ('C.D');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX test_ltree_idx ON test_ltree
+    USING bm25 (id, path) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Ensure NULL ltree values don't cause issues
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_ltree
+    WHERE path @@@ 'A.B'
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    // All scan should still return all rows including NULL path
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_ltree
+    WHERE id @@@ paradedb.all()
+    ORDER BY id
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,), (2,), (3,)]);
+}
+
+#[rstest]
+fn ltree_aggregate_groupby(mut conn: PgConnection) {
+    setup_ltree(&mut conn);
+
+    r#"
+    CREATE TABLE test_ltree (
+        id SERIAL PRIMARY KEY,
+        path ltree
+    );
+
+    INSERT INTO test_ltree (path) VALUES
+        ('A.B'),
+        ('A.B'),
+        ('C.D'),
+        ('C.D'),
+        ('C.D');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CREATE INDEX test_ltree_idx ON test_ltree
+    USING bm25 (id, path) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // GROUP BY exercises Hash trait for Facet values
+    let rows: Vec<(String, i64)> = r#"
+    SELECT path::text, count(*) FROM test_ltree
+    WHERE id @@@ paradedb.all()
+    GROUP BY path
+    ORDER BY path
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+        rows,
+        vec![
+            ("A.B".to_string(), 2),
+            ("C.D".to_string(), 3),
+        ]
+    );
 }

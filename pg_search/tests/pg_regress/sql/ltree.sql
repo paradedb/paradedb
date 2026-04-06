@@ -52,4 +52,18 @@ INSERT INTO tbl_ltree_key (path, name) VALUES
 
 SELECT path, name FROM tbl_ltree_key WHERE name @@@ 'Branch' ORDER BY path;
 
+-- Test columnar exec path (exercises arrow_array_to_datum ltree conversion)
+SET paradedb.enable_columnar_exec = true;
+SELECT id, category FROM tbl_ltree WHERE category @@@ 'Top.Science.Astronomy' ORDER BY id;
+SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY id;
+RESET paradedb.enable_columnar_exec;
+
+-- Test &&& operator with ltree (exercises parse_with_field facet path)
+SELECT id, category FROM tbl_ltree WHERE category &&& 'Top.Science.Biology' ORDER BY id;
+
+-- Test paradedb.term() query with ltree (exercises value_to_term facet branch)
+SELECT id, category FROM tbl_ltree
+WHERE tbl_ltree @@@ paradedb.term(field => 'category', value => 'Top.Hobbies.Photography')
+ORDER BY id;
+
 RESET paradedb.enable_aggregate_custom_scan;

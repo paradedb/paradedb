@@ -398,6 +398,30 @@ impl JoinScan {
         consider_parallel: bool,
     ) -> Option<pg_sys::CustomPath> {
         let output_rtis = join_clause.plan.output_rtis();
+
+        // Verify that every Var in the joinrel's reltarget references a relation
+        // in our output-visible sources. Internal Semi/Anti joins (from SubPlan
+        // extraction or reconstructed flattened subqueries) prune some sources.
+        // If the joinrel's reltarget includes Vars from pruned sources, we cannot
+        // produce those values and plan_custom_path would panic.
+        if !rel.is_null() && !(*rel).reltarget.is_null() {
+            let exprs =
+                PgList::<pg_sys::Node>::from_pg((*(*rel).reltarget).exprs);
+            for expr in exprs.iter_ptr() {
+                let var_list = pg_sys::pull_var_clause(
+                    expr,
+                    (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
+                );
+                let vars = PgList::<pg_sys::Var>::from_pg(var_list);
+                for var_ptr in vars.iter_ptr() {
+                    let varno = (*var_ptr).varno as pg_sys::Index;
+                    if varno > 0 && !output_rtis.contains(&varno) {
+                        return None;
+                    }
+                }
+            }
+        }
+
         let current_sources = join_clause.plan.sources();
         let order_by = extract_orderby(
             root,

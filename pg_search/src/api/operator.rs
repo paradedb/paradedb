@@ -874,6 +874,59 @@ where
     rhs
 }
 
+/// Returns `true` if the given OID is a text-like scalar type (text, varchar, or citext).
+fn is_text_like(oid: pg_sys::Oid) -> bool {
+    oid == pg_sys::TEXTOID || oid == pg_sys::VARCHAROID || is_citext_oid(oid)
+}
+
+/// Returns `true` if the given OID is a text-like array type (text[] or varchar[]).
+fn is_text_array_like(oid: pg_sys::Oid) -> bool {
+    oid == pg_sys::TEXTARRAYOID || oid == pg_sys::VARCHARARRAYOID
+}
+
+/// Build a [`pg_sys::FuncExpr`] for a text-or-text-array RHS in an `exec_rewrite` callback.
+///
+/// Checks the RHS expression type and dispatches to the appropriate builder function.
+/// `text_fn` and `array_fn` are `regprocedure` strings for the scalar and array variants.
+unsafe fn build_text_funcexpr(
+    field: FieldName,
+    rhs: *mut pg_sys::Node,
+    operator_name: &str,
+    text_fn: &std::ffi::CStr,
+    array_fn: &std::ffi::CStr,
+) -> pg_sys::FuncExpr {
+    let expr_type = get_expr_result_type(rhs);
+    let is_array = is_text_array_like(expr_type);
+    if !(is_text_like(expr_type) || is_array) {
+        panic!(
+            "The right-hand side of the `{operator_name}` operator must be a text or text array value"
+        );
+    }
+
+    let sig = if is_array { array_fn } else { text_fn };
+    let funcid = direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[sig.into_datum()])
+        .unwrap_or_else(|| panic!("`{}` should exist", sig.to_str().unwrap()));
+
+    let mut args = PgList::<pg_sys::Node>::new();
+    args.push(field.into_const().cast());
+    args.push(rhs.cast());
+
+    pg_sys::FuncExpr {
+        xpr: pg_sys::Expr {
+            type_: pg_sys::NodeTag::T_FuncExpr,
+        },
+        funcid,
+        funcresulttype: searchqueryinput_typoid(),
+        funcretset: false,
+        funcvariadic: false,
+        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        funccollid: pg_sys::Oid::INVALID,
+        inputcollid: pg_sys::Oid::INVALID,
+        args: args.into_pg(),
+        location: -1,
+    }
+}
+
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that
 /// is referenced by the node.
 ///

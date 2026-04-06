@@ -376,4 +376,58 @@ SELECT id, content FROM citext_topk WHERE content ### 'QUICK BROWN' ORDER BY id;
 
 DROP TABLE citext_topk;
 
+-- ============================================================
+-- Test 13: Prepared statements with citext parameters under generic plan
+-- (covers build_text_funcexpr citext branch in exec_rewrite)
+-- ============================================================
+CREATE TABLE citext_prepared (
+    id      INT PRIMARY KEY,
+    content CITEXT
+);
+
+INSERT INTO citext_prepared (id, content) VALUES
+    (1, 'Hello World'),
+    (2, 'PostgreSQL Database'),
+    (3, 'ParadeDB Search');
+
+CREATE INDEX ON citext_prepared
+USING bm25 (id, content)
+WITH (key_field = 'id');
+
+SET plan_cache_mode = force_generic_plan;
+
+-- &&& with citext parameter
+PREPARE citext_and(citext) AS
+SELECT id FROM citext_prepared WHERE content &&& $1 ORDER BY id;
+EXECUTE citext_and('hello');
+DEALLOCATE citext_and;
+
+-- ||| with citext parameter
+PREPARE citext_or(citext) AS
+SELECT id FROM citext_prepared WHERE content ||| $1 ORDER BY id;
+EXECUTE citext_or('hello');
+DEALLOCATE citext_or;
+
+-- ### with citext parameter
+PREPARE citext_phrase(citext) AS
+SELECT id FROM citext_prepared WHERE content ### $1 ORDER BY id;
+EXECUTE citext_phrase('hello world');
+DEALLOCATE citext_phrase;
+
+-- === with citext parameter
+PREPARE citext_term(citext) AS
+SELECT id FROM citext_prepared WHERE content === $1 ORDER BY id;
+EXECUTE citext_term('hello');
+DEALLOCATE citext_term;
+
+-- @@@ with citext parameter
+PREPARE citext_parse(citext) AS
+SELECT id FROM citext_prepared WHERE content @@@ $1 ORDER BY id;
+EXECUTE citext_parse('hello');
+DEALLOCATE citext_parse;
+
+RESET plan_cache_mode;
+
+DROP TABLE citext_prepared;
+
 \i common/common_cleanup.sql

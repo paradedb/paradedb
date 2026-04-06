@@ -162,6 +162,7 @@ impl SearchFieldType {
             | SearchFieldType::Tokenized(..)
             | SearchFieldType::Uuid(_)
             | SearchFieldType::Inet(_)
+            | SearchFieldType::Ltree(_)
             | SearchFieldType::Json(_)
             | SearchFieldType::Range(_) => arrow_schema::DataType::Utf8View,
 
@@ -324,13 +325,11 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
             PgOid::Custom(custom) => {
                 if is_citext_oid(*custom) {
                     Ok(SearchFieldType::Text(*custom))
+                } else if type_is_ltree(*custom) {
+                    Ok(SearchFieldType::Ltree(*custom))
                 } else {
                     Err(SearchIndexSchemaError::InvalidPgOid(pg_oid))
                 }
-            }
-
-            PgOid::Custom(ltree_oid) if type_is_ltree(*ltree_oid) => {
-                Ok(SearchFieldType::Ltree(*ltree_oid))
             }
 
             _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),

@@ -109,37 +109,37 @@ impl TantivyValue {
                 if is_citext_oid(*custom) {
                     return Ok(String::try_from(self)?.into_datum());
                 }
-                Err(TantivyValueError::UnsupportedOid(oid.value()))
-            }
-            PgOid::Custom(custom) if type_is_ltree(*custom) => {
-                // Convert Facet back to ltree dot-separated text, then use PG's input function
-                let ltree_text = match self.0 {
-                    OwnedValue::Facet(ref facet) => facet.to_path().join("."),
-                    OwnedValue::Str(ref s) => {
-                        // Fast field reads may return the facet-encoded string (null-byte separated
-                        // with a leading null byte). Strip the leading null, then replace interior
-                        // null bytes with dots to reconstruct the dot-separated ltree path.
-                        if s.contains('\0') {
-                            s.trim_start_matches('\0').replace('\0', ".")
-                        } else {
-                            s.clone()
+                if type_is_ltree(*custom) {
+                    // Convert Facet back to ltree dot-separated text, then use PG's input function
+                    let ltree_text = match self.0 {
+                        OwnedValue::Facet(ref facet) => facet.to_path().join("."),
+                        OwnedValue::Str(ref s) => {
+                            // Facet field reads may return the facet-encoded string (null-byte separated
+                            // with a leading null byte). We need to strip the leading null, then replace interior
+                            // null bytes with dots to reconstruct the dot-separated ltree path.
+                            if s.contains('\0') {
+                                s.trim_start_matches('\0').replace('\0', ".")
+                            } else {
+                                s.clone()
+                            }
                         }
-                    }
-                    _ => return Err(TantivyValueError::InvalidOid),
-                };
-                // Use PostgreSQL's type input function to create the ltree datum
-                let mut typinput: pg_sys::Oid = pg_sys::InvalidOid;
-                let mut typioparam: pg_sys::Oid = pg_sys::InvalidOid;
-                pg_sys::getTypeInputInfo(*custom, &mut typinput, &mut typioparam);
-                let cstring = std::ffi::CString::new(ltree_text)
-                    .map_err(|_| TantivyValueError::DatumDeref)?;
-                let datum = pg_sys::OidInputFunctionCall(
-                    typinput,
-                    cstring.as_ptr() as *mut std::ffi::c_char,
-                    typioparam,
-                    -1,
-                );
-                Ok(Some(datum))
+                        _ => return Err(TantivyValueError::InvalidOid),
+                    };
+
+                    let mut typinput: pg_sys::Oid = pg_sys::InvalidOid;
+                    let mut typioparam: pg_sys::Oid = pg_sys::InvalidOid;
+                    pg_sys::getTypeInputInfo(*custom, &mut typinput, &mut typioparam);
+                    let cstring = std::ffi::CString::new(ltree_text)
+                        .map_err(|_| TantivyValueError::DatumDeref)?;
+                    let datum = pg_sys::OidInputFunctionCall(
+                        typinput,
+                        cstring.as_ptr() as *mut std::ffi::c_char,
+                        typioparam,
+                        -1,
+                    );
+                    return Ok(Some(datum));
+                }
+                Err(TantivyValueError::UnsupportedOid(oid.value()))
             }
             _ => Err(TantivyValueError::InvalidOid),
         }
@@ -380,7 +380,14 @@ impl TantivyValue {
                 Ok(TantivyValue(OwnedValue::Facet(facet)))
             }
 
-            PgOid::Custom(_) => Err(TantivyValueError::UnsupportedOid(oid.value())),
+            PgOid::Custom(custom) => {
+                if is_citext_oid(*custom) {
+                    return TantivyValue::try_from(
+                        String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+                    );
+                }
+                Err(TantivyValueError::UnsupportedOid(oid.value()))
+            }
 
             _ => Err(TantivyValueError::InvalidOid),
         }

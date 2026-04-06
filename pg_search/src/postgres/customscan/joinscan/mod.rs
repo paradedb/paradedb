@@ -313,7 +313,10 @@ impl JoinScan {
         }
 
         let limit_offset = LimitOffset::from_root(root);
-        limit_offset.limit?;
+        let is_subquery = !(*root).parent_root.is_null();
+        if limit_offset.limit.is_none() && !is_subquery {
+            return None;
+        }
 
         if join_keys.is_empty() {
             return None;

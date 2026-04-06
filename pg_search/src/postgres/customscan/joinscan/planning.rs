@@ -1166,16 +1166,50 @@ unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::Att
     None
 }
 
+/// Returns true if no equivalence class member for this pathkey references any
+/// relation in `source_rtis`. Such pathkeys are "outer-only" w.r.t. this join
+/// subtree — the parent plan owns sorting on those keys.
+unsafe fn pathkey_is_outer_only(
+    equivclass: *mut pg_sys::EquivalenceClass,
+    source_rtis: &[pg_sys::Index],
+) -> bool {
+    let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+    for member in members.iter_ptr() {
+        let check_expr = strip_wrappers((*member).em_expr.cast());
+
+        if let Some(var) = nodecast!(Var, T_Var, check_expr) {
+            if source_rtis.contains(&((*var).varno as pg_sys::Index)) {
+                return false;
+            }
+        } else {
+            let var_list = pg_sys::pull_var_clause(
+                check_expr,
+                (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
+            );
+            let vars = PgList::<pg_sys::Var>::from_pg(var_list);
+            for var_ptr in vars.iter_ptr() {
+                if source_rtis.contains(&((*var_ptr).varno as pg_sys::Index)) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
 /// Check if all ORDER BY columns are fast fields.
 ///
 /// For JoinScan to be proposed, all columns used in ORDER BY must be fast fields
 /// in their respective BM25 indexes (or be paradedb.score() which is handled separately).
 ///
+/// Pathkeys that reference only relations outside this join subtree ("outer-only")
+/// are skipped — the parent plan is responsible for sorting on those keys.
+///
 /// Returns true if:
 /// - No ORDER BY clause exists
-/// - All ORDER BY columns are fast fields or score functions
+/// - All relevant ORDER BY columns are fast fields or score functions
 ///
-/// Returns false if any ORDER BY column is not a fast field.
+/// Returns false if any relevant ORDER BY column is not a fast field.
 pub(super) unsafe fn order_by_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
@@ -1186,45 +1220,47 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         return true;
     }
 
-    for pathkey_ptr in pathkeys.iter_ptr() {
+    let source_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.scan_info.heap_rti).collect();
+
+    'pathkey: for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = (*pathkey_ptr).pk_eclass;
+
+        if pathkey_is_outer_only(equivclass, &source_rtis) {
+            continue;
+        }
+
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-
-            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
-                if !phv.is_null() && !(*phv).phexpr.is_null() {
-                    if let Some(_funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
-                        continue;
-                    }
-                }
-            }
-
             let check_expr = strip_wrappers(expr.cast());
+
+            if sources
+                .iter()
+                .any(|s| is_score_func_recursive(check_expr.cast(), s))
+            {
+                continue 'pathkey;
+            }
 
             if let Some(var) = nodecast!(Var, T_Var, check_expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
 
-                let mut found = false;
+                if !source_rtis.contains(&varno) {
+                    continue;
+                }
+
                 for source in sources {
                     if source.contains_rti(varno) {
                         let hr = PgSearchRelation::open(source.scan_info.heaprelid);
                         let ir = PgSearchRelation::open(source.scan_info.indexrelid);
-                        if resolve_fast_field(varattno as i32, &hr.tuple_desc(), &ir).is_none() {
-                            return false;
+                        if resolve_fast_field(varattno as i32, &hr.tuple_desc(), &ir).is_some() {
+                            continue 'pathkey;
                         }
-                        found = true;
                         break;
                     }
                 }
-                if !found {
-                    return false;
-                }
             } else {
-                // Non-Var expression — check if it matches an indexed expression
-                // so we can emit it directly from the index.
                 let mut found = false;
                 for source in sources {
                     let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
@@ -1244,19 +1280,17 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     }
                 }
 
-                // When DISTINCT is active, PG adds DISTINCT expression pathkeys
-                // (e.g., upper(name)) to the ORDER BY. Allow these if all their
-                // Var dependencies are fast fields — PG's Sort+Unique above the
-                // CustomScan handles the final ordering.
                 if !found && has_distinct && expression_vars_all_fast(expr.cast(), sources) {
                     found = true;
                 }
 
-                if !found {
-                    return false;
+                if found {
+                    continue 'pathkey;
                 }
             }
         }
+
+        return false;
     }
 
     true
@@ -1855,9 +1889,15 @@ pub(super) unsafe fn extract_orderby(
         return Some(result);
     }
 
+    let source_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.scan_info.heap_rti).collect();
+
     for pathkey_ptr in pathkeys.iter_ptr() {
         let pathkey = pathkey_ptr;
         let equivclass = (*pathkey).pk_eclass;
+
+        if pathkey_is_outer_only(equivclass, &source_rtis) {
+            continue;
+        }
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
         let nulls_first = (*pathkey).pk_nulls_first;

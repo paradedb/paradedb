@@ -1678,7 +1678,7 @@ unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) 
 /// `pathkey_equivalence_member`: when true, a `Var` outside `output_rtis` means "try the next
 /// equivalence member". When false (sortClause-only extraction), that situation fails the whole
 /// extraction.
-enum JoinSortExprOutcome {
+enum JoinSortExprKind {
     Resolved(OrderByInfo),
     /// Pathkeys only: this EC member is not usable.
     SkipMember,
@@ -1686,7 +1686,7 @@ enum JoinSortExprOutcome {
     NoMatch,
 }
 
-impl JoinSortExprOutcome {
+impl JoinSortExprKind {
     unsafe fn classify(
         check_expr: *mut pg_sys::Expr,
         direction: SortDirection,
@@ -1798,10 +1798,10 @@ pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
         let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
         let check_expr = strip_wrappers(sort_expr.cast()).cast::<pg_sys::Expr>();
 
-        match JoinSortExprOutcome::classify(check_expr, direction, sources, output_rtis, false) {
-            JoinSortExprOutcome::Resolved(info) => result.push(info),
-            JoinSortExprOutcome::SkipMember => unreachable!("sortClause entry is not an EC member"),
-            JoinSortExprOutcome::NoMatch => return None,
+        match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, false) {
+            JoinSortExprKind::Resolved(info) => result.push(info),
+            JoinSortExprKind::SkipMember => unreachable!("sortClause entry is not an EC member"),
+            JoinSortExprKind::NoMatch => return None,
         }
     }
 
@@ -1885,13 +1885,13 @@ pub(super) unsafe fn extract_orderby(
 
             let check_expr = strip_wrappers(expr.cast()).cast::<pg_sys::Expr>();
 
-            match JoinSortExprOutcome::classify(check_expr, direction, sources, output_rtis, true) {
-                JoinSortExprOutcome::Resolved(info) => {
+            match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, true) {
+                JoinSortExprKind::Resolved(info) => {
                     result.push(info);
                     pathkey_resolved = true;
                 }
-                JoinSortExprOutcome::SkipMember => continue,
-                JoinSortExprOutcome::NoMatch => {}
+                JoinSortExprKind::SkipMember => continue,
+                JoinSortExprKind::NoMatch => {}
             }
 
             // DISTINCT adds non-Var expression pathkeys; skip when deps are fast fields.

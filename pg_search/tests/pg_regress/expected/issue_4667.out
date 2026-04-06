@@ -1,0 +1,96 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_join_custom_scan = on;
+DROP TABLE IF EXISTS people CASCADE;
+DROP TABLE IF EXISTS companies CASCADE;
+CREATE TABLE people (
+    id bigint NOT NULL,
+    company_id bigint,
+    full_name text,
+    linkedin_followers integer,
+    seniority_slug text
+);
+CREATE TABLE companies (
+    id bigint NOT NULL
+);
+INSERT INTO companies (id) VALUES
+    (100),
+    (200);
+INSERT INTO people (id, company_id, full_name, linkedin_followers, seniority_slug) VALUES
+    (1, 100, 'Alice Director', 5000, 'director'),
+    (2, NULL, 'Bob Manager', 1200, 'manager'),
+    (3, 200, 'Carol Manager', 800, 'manager'),
+    (4, 100, 'Dan Staff', 300, 'staff'),
+    (5, 999, 'Eve Orphan', 100, 'manager');
+CREATE INDEX people_search_idx ON people USING bm25 (id, ((full_name)::pdb.literal_normalized), linkedin_followers, ((seniority_slug)::pdb.literal_normalized), company_id) WITH (key_field=id);
+CREATE INDEX companies_search_idx ON companies USING bm25 (id) WITH (key_field=id);
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT DISTINCT
+    p.id AS id,
+    p.full_name AS "nameSort",
+    p.full_name IS NULL AS "nameIsNull",
+    p.linkedin_followers AS "followersSort",
+    p.linkedin_followers IS NULL AS "followersIsNull",
+    p.seniority_slug AS "senioritySort",
+    p.seniority_slug IS NULL AS "seniorityIsNull"
+FROM people AS p
+WHERE p.id @@@ pdb.all()
+AND p.seniority_slug IN ('manager', 'director')
+AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
+ORDER BY id DESC
+LIMIT 26;
+                                                                                                                                              QUERY PLAN                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
+   ->  Sort
+         Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
+         Sort Key: p.id DESC
+         ->  HashAggregate
+               Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
+               Group Key: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
+               ->  Result
+                     Output: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Output: p.id, p.full_name, p.linkedin_followers, p.seniority_slug
+                           Relation Tree: p LEFTMARK c
+                           Join Cond: p.company_id = c.id
+                           Join Predicate: (mark = true OR col IS NULL)
+                           Limit: 26
+                           Order By: p.id desc
+                           DataFusion Physical Plan: 
+                             : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0]
+                             :   SortExec: TopK(fetch=26), expr=[id@1 DESC], preserve_partitioning=[false]
+                             :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
+                             :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@1)]
+                             :         VisibilityFilterExec: tables=[p]
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+                             :         VisibilityFilterExec: tables=[c]
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, query="all"
+(28 rows)
+
+SELECT DISTINCT
+    p.id AS id,
+    p.full_name AS "nameSort",
+    p.full_name IS NULL AS "nameIsNull",
+    p.linkedin_followers AS "followersSort",
+    p.linkedin_followers IS NULL AS "followersIsNull",
+    p.seniority_slug AS "senioritySort",
+    p.seniority_slug IS NULL AS "seniorityIsNull"
+FROM people AS p
+WHERE p.id @@@ pdb.all()
+AND p.seniority_slug IN ('manager', 'director')
+AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
+ORDER BY id DESC
+LIMIT 26;
+ id |    nameSort    | nameIsNull | followersSort | followersIsNull | senioritySort | seniorityIsNull 
+----+----------------+------------+---------------+-----------------+---------------+-----------------
+  3 | Carol Manager  | f          |           800 | f               | manager       | f
+  2 | Bob Manager    | f          |          1200 | f               | manager       | f
+  1 | Alice Director | f          |          5000 | f               | director      | f
+(3 rows)
+
+DROP TABLE people CASCADE;
+DROP TABLE companies CASCADE;
+RESET paradedb.enable_join_custom_scan;

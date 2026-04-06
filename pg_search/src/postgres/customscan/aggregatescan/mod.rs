@@ -296,12 +296,13 @@ impl CustomScan for AggregateScan {
                     .aggregates
                     .iter()
                     .map(|a| {
-                        let field = a
-                            .field_ref
-                            .as_ref()
-                            .map(|(_, _, n)| n.as_str())
-                            .unwrap_or("*");
-                        format!("{}({})", a.agg_kind, field)
+                        if a.field_refs.is_empty() {
+                            format!("{}(*)", a.agg_kind)
+                        } else {
+                            let fields: Vec<&str> =
+                                a.field_refs.iter().map(|(_, _, n)| n.as_str()).collect();
+                            format!("{}({})", a.agg_kind, fields.join(", "))
+                        }
                     })
                     .collect();
                 if !aggs.is_empty() {

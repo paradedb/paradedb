@@ -676,7 +676,7 @@ pub unsafe fn populate_required_fields(
         // Add fields referenced in aggregate arguments — same requirement:
         // DataFusion reads these from BM25 fast fields.
         for agg in &targetlist.aggregates {
-            if let Some((rti, attno, _)) = &agg.field_ref {
+            for (rti, attno, _) in &agg.field_refs {
                 if source.contains_rti(*rti) {
                     match resolve_fast_field(*attno as i32, &tupdesc, indexrel) {
                         Some(field) => source.scan_info.add_field(*attno, field),

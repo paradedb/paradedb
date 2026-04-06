@@ -92,11 +92,11 @@ pub async fn build_join_aggregate_plan(
                 AggKind::CountStar => Ok(count(lit(1))),
                 AggKind::Count => agg_field_col(agg, plan).map(count),
                 AggKind::CountDistinct => {
-                    let col_expr = agg_field_col(agg, plan)?;
+                    let col_exprs = agg_field_cols(agg, plan)?;
                     Ok(Expr::AggregateFunction(
                         datafusion::logical_expr::expr::AggregateFunction::new_udf(
                             count_udaf(),
-                            vec![col_expr],
+                            col_exprs,
                             true,   // distinct
                             None,   // filter
                             vec![], // order_by
@@ -289,13 +289,26 @@ fn resolve_source_column(
     }
 }
 
-/// Build a DataFusion column expression for an aggregate's field reference.
+/// Build a DataFusion column expression for an aggregate's first field reference.
 fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
-    let (rti, _attno, ref field_name) = agg.field_ref.as_ref().ok_or_else(|| {
+    let (rti, _attno, ref field_name) = agg.field_refs.first().ok_or_else(|| {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;
 
     let source = plan.source_for_rti_in_subtree(*rti);
     let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
     Ok(make_col(&alias, field_name))
+}
+
+/// Build DataFusion column expressions for all of an aggregate's field references.
+/// Used for multi-column DISTINCT (e.g. `COUNT(DISTINCT col1, col2)`).
+fn agg_field_cols(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Vec<Expr>> {
+    agg.field_refs
+        .iter()
+        .map(|(rti, _attno, field_name)| {
+            let source = plan.source_for_rti_in_subtree(*rti);
+            let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
+            Ok(make_col(&alias, field_name))
+        })
+        .collect()
 }

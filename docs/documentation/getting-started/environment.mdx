@@ -4,12 +4,9 @@ description: Configure your environment for querying ParadeDB
 canonical: https://docs.paradedb.com/documentation/getting-started/environment
 ---
 
-This guide will walk you through setting up your preferred tool to run queries against ParadeDB. Choose one:
+This guide will walk you through setting up your environment to run queries against ParadeDB. Choose your preferred tool below:
 
-- [SQL](#sql)
-- [Django](#django)
-
-## SQL
+<Accordion title="SQL">
 
 ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
 you get started. Run the following command to create this table.
@@ -60,8 +57,9 @@ WITH (key_field='id');
 
 You're all set! Try [running some queries](/documentation/getting-started/queries).
 
-## Django
+</Accordion>
 
+<Accordion title="Django">
 To start you'll need a [Django](https://www.djangoproject.com/) project with [psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed. Run the following to create one:
 
 ```bash
@@ -175,3 +173,5 @@ with connection.cursor() as cursor:
 ```
 
 You're all set! Try [running some queries](/documentation/getting-started/queries) in your Python shell.
+
+</Accordion>

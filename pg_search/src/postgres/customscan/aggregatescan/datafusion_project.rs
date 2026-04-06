@@ -197,13 +197,32 @@ fn arrow_value_to_datum(
             let val = col.as_any().downcast_ref::<BooleanArray>()?.value(row_idx);
             val.into_datum()
         }
-        DataType::Timestamp(_, _) => {
-            // Tantivy stores dates as TimestampNanosecond (i64 nanoseconds)
-            let val = col
-                .as_any()
-                .downcast_ref::<arrow_array::TimestampNanosecondArray>()?
-                .value(row_idx);
-            timestamp_nanos_to_datum(val, typoid)
+        DataType::Timestamp(unit, _) => {
+            let nanos = match unit {
+                arrow_schema::TimeUnit::Nanosecond => col
+                    .as_any()
+                    .downcast_ref::<TimestampNanosecondArray>()?
+                    .value(row_idx),
+                arrow_schema::TimeUnit::Microsecond => {
+                    col.as_any()
+                        .downcast_ref::<TimestampMicrosecondArray>()?
+                        .value(row_idx)
+                        * 1_000
+                }
+                arrow_schema::TimeUnit::Millisecond => {
+                    col.as_any()
+                        .downcast_ref::<TimestampMillisecondArray>()?
+                        .value(row_idx)
+                        * 1_000_000
+                }
+                arrow_schema::TimeUnit::Second => {
+                    col.as_any()
+                        .downcast_ref::<TimestampSecondArray>()?
+                        .value(row_idx)
+                        * 1_000_000_000
+                }
+            };
+            timestamp_nanos_to_datum(nanos, typoid, "UTC")
         }
         DataType::Date32 => {
             // Date32: days since epoch → convert to nanoseconds
@@ -212,7 +231,7 @@ fn arrow_value_to_datum(
                 .downcast_ref::<arrow_array::Date32Array>()?
                 .value(row_idx);
             let nanos = days as i64 * 86_400_000_000_000;
-            timestamp_nanos_to_datum(nanos, typoid)
+            timestamp_nanos_to_datum(nanos, typoid, "UTC")
         }
         DataType::Date64 => {
             // Date64: milliseconds since epoch → convert to nanoseconds
@@ -221,7 +240,7 @@ fn arrow_value_to_datum(
                 .downcast_ref::<arrow_array::Date64Array>()?
                 .value(row_idx);
             let nanos = millis * 1_000_000;
-            timestamp_nanos_to_datum(nanos, typoid)
+            timestamp_nanos_to_datum(nanos, typoid, "UTC")
         }
         DataType::Decimal128(_, scale) => {
             let val = col
@@ -300,7 +319,7 @@ fn float64_to_datum(val: f64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
 }
 
 /// Convert nanosecond timestamp to the appropriate Postgres date/time datum.
-fn timestamp_nanos_to_datum(nanos: i64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
+fn timestamp_nanos_to_datum(nanos: i64, typoid: pg_sys::Oid, tz: &str) -> Option<pg_sys::Datum> {
     use crate::postgres::types_arrow::ts_nanos_to_date_time;
     use pgrx::datum;
 
@@ -317,7 +336,7 @@ fn timestamp_nanos_to_datum(nanos: i64, typoid: pg_sys::Oid) -> Option<pg_sys::D
             h,
             m,
             fractional_sec,
-            "UTC",
+            tz,
         )
         .ok()?
         .into_datum(),

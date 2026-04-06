@@ -1736,7 +1736,10 @@ impl JoinSortExprKind {
                 }
             }
 
-            if !sources.iter().any(|s| s.contains_rti(varno)) && output_rtis.contains(&varno) {
+            // At this point output_rtis.contains(&varno) is guaranteed — we already
+            // returned SkipMember/NoMatch above when !output_rtis.contains(&varno).
+            debug_assert!(output_rtis.contains(&varno));
+            if !sources.iter().any(|s| s.contains_rti(varno)) {
                 return Self::Resolved(OrderByInfo {
                     feature: OrderByFeature::Var {
                         rti: varno,

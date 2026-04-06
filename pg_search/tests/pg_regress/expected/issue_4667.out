@@ -91,6 +91,21 @@ LIMIT 26;
   1 | Alice Director | f          |          5000 | f               | director      | f
 (3 rows)
 
+-- DISTINCT without ORDER BY + SubPlan: exercises sortClause.is_null() path
+SELECT DISTINCT
+    p.id AS id,
+    p.full_name IS NULL AS "nameIsNull"
+FROM people AS p
+WHERE p.id @@@ pdb.all()
+AND p.seniority_slug IN ('manager', 'director')
+AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
+ id | nameIsNull 
+----+------------
+  1 | f
+  2 | f
+  3 | f
+(3 rows)
+
 DROP TABLE people CASCADE;
 DROP TABLE companies CASCADE;
 RESET paradedb.enable_join_custom_scan;

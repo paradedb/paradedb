@@ -61,6 +61,15 @@ AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
 
+-- DISTINCT without ORDER BY + SubPlan: exercises sortClause.is_null() path
+SELECT DISTINCT
+    p.id AS id,
+    p.full_name IS NULL AS "nameIsNull"
+FROM people AS p
+WHERE p.id @@@ pdb.all()
+AND p.seniority_slug IN ('manager', 'director')
+AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
+
 DROP TABLE people CASCADE;
 DROP TABLE companies CASCADE;
 RESET paradedb.enable_join_custom_scan;

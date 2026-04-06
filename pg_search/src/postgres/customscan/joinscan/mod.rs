@@ -966,12 +966,10 @@ impl CustomScan for JoinScan {
             // The original_tlist has the SELECT's output columns, which is what ps_ResultTupleSlot is based on.
             // We store this mapping in PrivateData so build_result_tuple can use it during execution.
             let mut output_columns = Vec::new();
-            let mut scan_target_entries: Vec<*mut pg_sys::TargetEntry> = Vec::new();
             let mut private_data = PrivateData::from(node.custom_private);
             let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
 
             for te in original_entries.iter_ptr() {
-                scan_target_entries.push(te);
                 if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
                     let var = (*te).expr as *mut pg_sys::Var;
                     let rti = (*var).varno as pg_sys::Index;
@@ -1025,11 +1023,16 @@ impl CustomScan for JoinScan {
                 } else {
                     0
                 };
-            let scan_tlist_len = scan_target_entries.len();
 
             // Custom scan tlist can be shorter than parse DISTINCT (parent evaluates some exprs).
             // Then DataFusion GROUP BY can't match all pathkeys; defer DISTINCT and sort only by
             // parse sortClause inside JoinScan.
+            //
+            // Limitation: if distinctClause and scan tlist happen to have equal length but
+            // contain different expressions, this heuristic won't fire and the non-deferred
+            // path runs.  In practice the scan tlist is a strict subset of distinctClause
+            // columns, so a length mismatch is the reliable signal for "extra" expressions.
+            let scan_tlist_len = original_entries.len();
             let defer_distinct_to_parent =
                 private_data.join_clause.has_distinct && distinct_list_len > scan_tlist_len;
 
@@ -1039,9 +1042,26 @@ impl CustomScan for JoinScan {
                 let current_sources = private_data.join_clause.plan.sources();
                 private_data.join_clause.order_by =
                     extract_orderby_from_parse_sort_clause(root, &current_sources, &output_rtis)
-                        .expect(
-                        "JoinScan: ORDER BY from sortClause failed after DISTINCT/tlist mismatch",
-                    );
+                        .unwrap_or_else(|| {
+                            let sort_count = if (*parse).sortClause.is_null() {
+                                0
+                            } else {
+                                PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause)
+                                    .iter_ptr()
+                                    .count()
+                            };
+                            panic!(
+                                "JoinScan: ORDER BY from sortClause failed after DISTINCT/tlist \
+                             mismatch (sortClause has {} entries, scan_tlist_len={}, \
+                             distinct_list_len={})",
+                                sort_count, scan_tlist_len, distinct_list_len
+                            )
+                        });
+                // Non-Var, non-score expressions have rti=0, attno=0 here.  That is safe:
+                // has_distinct is cleared above, so DataFusion skips GROUP BY and
+                // build_projection_expr yields NULL for these slots.  build_result_tuple
+                // also treats rti=0 as NULL.  Postgres re-evaluates the real expressions
+                // on top of the result slot, so the NULLs are overwritten.
                 private_data.join_clause.output_projection = Some(
                     private_data
                         .output_columns
@@ -1100,6 +1120,8 @@ impl CustomScan for JoinScan {
                 }
 
                 // Key `entry_by_output_idx` by each scan tlist entry's `resno`, not list position.
+                let scan_target_entries: Vec<*mut pg_sys::TargetEntry> =
+                    original_entries.iter_ptr().collect();
                 private_data.join_clause.output_projection = Some(
                     private_data
                         .output_columns

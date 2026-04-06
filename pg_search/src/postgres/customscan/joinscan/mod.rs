@@ -839,7 +839,7 @@ impl CustomScan for JoinScan {
                 return Vec::new();
             }
 
-            if !plan.rewrite_pruned_join_keys() {
+            if !plan.rewrite_pruned_join_keys(root) {
                 Self::add_planner_warning(
                     "JoinScan not used: a semi/anti join prunes columns required by an outer join key and no equivalent output-visible column was found",
                     &aliases,

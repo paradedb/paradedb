@@ -7,7 +7,7 @@
 
 `pg_search` is a Postgres extension that enables full text search over heap tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`. Please refer to the [ParadeDB documentation](https://docs.paradedb.com/documentation/getting-started/quickstart) to get started.
 
-`pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at v14.
+`pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at PostgreSQL 15.
 
 Benchmarks can be found in the [`/benchmarks` directory](../benchmarks/README.md).
 
@@ -45,31 +45,22 @@ This enables the extension to spawn a background worker process that performs wr
 
 #### Debian/Ubuntu
 
-We provide prebuilt binaries for Debian-based Linux for Postgres 14+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+We provide prebuilt binaries for Debian-based Linux for Postgres 15+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
-#### RHEL/Rocky and Other Linux Distributions Using Pigsty
+#### RHEL/Rocky
 
-- `pg_search` can also be installed for various Linux distributions (using `apt` and `infra`) with the [Pigsty extension repository](https://pigsty.io/ext/repo/).
-- To install `pig` for `yum` / `dnf` compatible systems [follow these instructions](https://pigsty.io/ext/repo/yum/). Then:
+We provide prebuilt binaries for Red Hat-based Linux for Postgres 15+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+
+You can also install `pg_search` via [Pigsty](https://pigsty.io/ext/repo/). To install `pig` for `yum` / `dnf` compatible systems [follow these instructions](https://pigsty.io/ext/repo/yum/). Then:
 
 ```bash
 dnf install pig
 pig install pg_search
 ```
 
-You should then be able to run `CREATE EXTENSION pg_search;` as superuser in PostgreSQL.
-
 #### macOS
 
-We don't suggest running production workloads on macOS. As a result, we don't provide prebuilt binaries for macOS. If you are running Postgres on macOS and want to install `pg_search`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
-
-You can then create the extension in your database by running:
-
-```sql
-CREATE EXTENSION pg_search;
-```
-
-Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_search` until the Postgres service explicitly supports it.
+We provide prebuilt binaries for macOS for Postgres 15+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 #### Windows
 
@@ -92,12 +83,12 @@ Then, install the PostgreSQL version of your choice using your system package ma
 
 ```bash
 # macOS
-brew install postgresql@17
+brew install postgresql@18
 
 # Ubuntu
 wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
 sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-sudo apt-get update && sudo apt-get install -y postgresql-17 postgresql-server-dev-17
+sudo apt-get update && sudo apt-get install -y postgresql-18 postgresql-server-dev-18
 
 # Arch Linux
 sudo pacman -S extra/postgresql
@@ -113,7 +104,7 @@ Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg18 with your version of Postgres, if different (i.e. --pg17, etc.)
-cargo install --locked cargo-pgrx --version 0.16.1
+cargo install --locked cargo-pgrx --version 0.17.0
 
 # macOS arm64
 cargo pgrx init --pg18=/opt/homebrew/opt/postgresql@18/bin/pg_config
@@ -144,24 +135,24 @@ sudo pacman -S extra/clang
 
 #### pgvector
 
-`pgvector` needed for hybrid search unit tests.
+`pgvector` is needed for hybrid search integration tests.
 
 ```bash
-# Note: Replace 17 with your version of Postgres
+# Note: Replace 18 with your version of Postgres
 git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
 cd pgvector/
 
 # macOS arm64
-PG_CONFIG=/opt/homebrew/opt/postgresql@17/bin/pg_config make
-sudo PG_CONFIG=/opt/homebrew/opt/postgresql@17/bin/pg_config make install # may need sudo
+PG_CONFIG=/opt/homebrew/opt/postgresql@18/bin/pg_config make
+sudo PG_CONFIG=/opt/homebrew/opt/postgresql@18/bin/pg_config make install # may need sudo
 
 # macOS amd64
-PG_CONFIG=/usr/local/opt/postgresql@17/bin/pg_config make
-sudo PG_CONFIG=/usr/local/opt/postgresql@17/bin/pg_config make install # may need sudo
+PG_CONFIG=/usr/local/opt/postgresql@18/bin/pg_config make
+sudo PG_CONFIG=/usr/local/opt/postgresql@18/bin/pg_config make install # may need sudo
 
 # Ubuntu
-PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config make
-sudo PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config make install # may need sudo
+PG_CONFIG=/usr/lib/postgresql/18/bin/pg_config make
+sudo PG_CONFIG=/usr/lib/postgresql/18/bin/pg_config make install # may need sudo
 
 # Arch Linux
 PG_CONFIG=/usr/bin/pg_config make
@@ -203,17 +194,11 @@ CREATE EXTENSION pg_search;
 
 ### Testing
 
-We use `cargo test` as our runner for `pg_search` tests.
+This section covers the **unit tests** located in the `pg_search/src` directory. For a complete overview of ParadeDB's testing infrastructure (which includes integration tests, client property tests, and pg regress tests), please see the [Testing section in `CONTRIBUTING.md`](../CONTRIBUTING.md#testing).
 
-The tests require a `DATABASE_URL` envirobnment variable to be set. The easiest way to do this is to create a `.env` file with the following contents.
+Unit tests can be run using `cargo test -p pg_search -- a_specific_method_to_run`. These tests sometimes (if marked `#[pg_test]`) run inside the Postgres process, which allows them to use all of Postgres APIs via `pgrx`. There is no need to pre-install the extension for these: the `#[pg_test]` annotation on the test will re-install the extension automatically.
 
-```env
-DATABASE_URL=postgres://USER_NAME@localhost:PORT/pg_search
-```
-
-USER_NAME should be replaced with your system user name. (eg: output of `whoami`)
-
-PORT should be replaced with 28800 + your postgres version. (eg: 28817 for Postgres 17)
+_Note: For **pg regress tests**, please refer to [pg_search/tests/pg_regress/README.md](tests/pg_regress/README.md). For **integration tests** and **client property tests**, please refer to [tests/README.md](../tests/README.md)._
 
 ## License
 

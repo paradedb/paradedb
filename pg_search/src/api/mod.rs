@@ -28,7 +28,8 @@ pub mod tokenizers;
 pub mod window_aggregate;
 
 use pgrx::{
-    direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType, StringInfo,
+    direct_function_call, extension_sql, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType,
+    StringInfo,
 };
 
 pub use aggregate::{
@@ -101,9 +102,6 @@ macro_rules! nodecast {
 // came to life in pg15
 pub type Cardinality = f64;
 
-#[cfg(feature = "pg14")]
-pub type Varno = pgrx::pg_sys::Index;
-#[cfg(not(feature = "pg14"))]
 pub type Varno = i32;
 
 #[allow(dead_code)]
@@ -115,15 +113,6 @@ pub trait AsCStr {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr>;
 }
 
-#[cfg(feature = "pg14")]
-impl AsBool for *mut pgrx::pg_sys::Node {
-    unsafe fn as_bool(&self) -> Option<bool> {
-        let node = nodecast!(Value, T_Integer, *self)?;
-        Some((*node).val.ival != 0)
-    }
-}
-
-#[cfg(not(feature = "pg14"))]
 impl AsBool for *mut pgrx::pg_sys::Node {
     unsafe fn as_bool(&self) -> Option<bool> {
         let node = nodecast!(Boolean, T_Boolean, *self)?;
@@ -131,15 +120,6 @@ impl AsBool for *mut pgrx::pg_sys::Node {
     }
 }
 
-#[cfg(feature = "pg14")]
-impl AsCStr for *mut pgrx::pg_sys::Node {
-    unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
-        let node = nodecast!(Value, T_String, *self)?;
-        Some(std::ffi::CStr::from_ptr((*node).val.str_))
-    }
-}
-
-#[cfg(not(feature = "pg14"))]
 impl AsCStr for *mut pgrx::pg_sys::Node {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
         let node = nodecast!(String, T_String, *self)?;
@@ -247,6 +227,14 @@ fn text_to_fieldname(field: String) -> FieldName {
     FieldName(field)
 }
 
+extension_sql!(
+    r#"
+    CREATE CAST (varchar AS paradedb.fieldname) WITH INOUT AS IMPLICIT;
+    "#,
+    name = "varchar_to_fieldname_cast",
+    requires = [text_to_fieldname]
+);
+
 #[allow(unused)]
 pub fn fieldname_typoid() -> pg_sys::Oid {
     unsafe {
@@ -316,10 +304,79 @@ impl From<SortDirection> for tantivy::aggregation::bucket::Order {
     }
 }
 
+impl SortDirection {
+    /// Determines sort direction from a Postgres sort operator OID.
+    ///
+    /// Returns `None` if the operator properties cannot be resolved (should not
+    /// happen for valid `SortGroupClause` operators). Callers should bail out
+    /// of the TopK optimization rather than guessing a direction.
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+    pub unsafe fn from_sort_op(sortop: pg_sys::Oid) -> Option<Self> {
+        let mut opfamily = pg_sys::InvalidOid;
+        let mut opcintype = pg_sys::InvalidOid;
+        let mut strategy: i16 = 0;
+        if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut strategy)
+        {
+            if strategy as u32 == pg_sys::BTGreaterStrategyNumber {
+                Some(SortDirection::DescNullsFirst)
+            } else {
+                Some(SortDirection::AscNullsLast)
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Determines sort direction from a Postgres sort operator OID.
+    #[cfg(feature = "pg18")]
+    pub unsafe fn from_sort_op(sortop: pg_sys::Oid) -> Option<Self> {
+        let mut opfamily = pg_sys::InvalidOid;
+        let mut opcintype = pg_sys::InvalidOid;
+        let mut cmptype = pg_sys::CompareType::COMPARE_LT;
+        if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut cmptype) {
+            if cmptype == pg_sys::CompareType::COMPARE_GT {
+                Some(SortDirection::DescNullsFirst)
+            } else {
+                Some(SortDirection::AscNullsLast)
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn is_asc(self) -> bool {
+        matches!(self, Self::AscNullsFirst | Self::AscNullsLast)
+    }
+
+    pub fn is_nulls_first(self) -> bool {
+        matches!(self, Self::AscNullsFirst | Self::DescNullsFirst)
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum OrderByFeature {
-    Score,
-    Field(FieldName),
+    Score {
+        rti: u32,
+    },
+    Field {
+        name: FieldName,
+        rti: u32,
+    },
+    /// A reference to a PostgreSQL variable (column) by its Range Table Index (RTI) and Attribute Number.
+    ///
+    /// This variant is primarily used by `JoinScan` to unambiguously identify columns across multiple
+    /// relations in a join. Unlike `Field(FieldName)`, which relies on string matching and can be ambiguous
+    /// (e.g., distinguishing `table.column` from `column.json_key`), `Var` provides a precise handle
+    /// that maps directly to the plan's `RangeTblEntry`.
+    ///
+    /// It also allows for "deferred resolution" of column names, which is crucial for integration with
+    /// execution engines like DataFusion where the final schema and aliases might not be fully resolved
+    /// until execution time.
+    Var {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+        name: Option<String>,
+    },
 }
 
 /// Simple ORDER BY information for serialization in PrivateData
@@ -331,6 +388,6 @@ pub struct OrderByInfo {
 
 impl OrderByInfo {
     pub fn is_score(&self) -> bool {
-        matches!(self.feature, OrderByFeature::Score)
+        matches!(self.feature, OrderByFeature::Score { .. })
     }
 }

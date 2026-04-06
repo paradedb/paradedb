@@ -17,7 +17,6 @@
 
 use std::ptr::NonNull;
 
-use crate::postgres::customscan::qual_inspect::contains_exec_param;
 use crate::postgres::heap::HeapFetchState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
@@ -112,11 +111,9 @@ impl HeapFieldFilter {
 
         let mut call_again = false;
         let mut all_dead = false;
-        if !pg_sys::table_index_fetch_tuple(
-            heap_fetch_state.scan,
-            ctid,
+        if !heap_fetch_state.fetch_tuple(
+            &mut *ctid,
             pg_sys::GetActiveSnapshot(),
-            heap_fetch_state.slot(),
             &mut call_again,
             &mut all_dead,
         ) {
@@ -183,17 +180,6 @@ impl HeapFieldFilter {
     /// Get the PostgreSQL expression node
     pub unsafe fn get_expression_node(&self) -> *mut pg_sys::Node {
         self.expr_node.0.cast()
-    }
-
-    /// Check if this heap filter contains subqueries (PARAM_EXEC nodes)
-    pub fn contains_subqueries(&self) -> bool {
-        unsafe {
-            let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
-            if expr_node.is_null() {
-                return false;
-            }
-            contains_exec_param(expr_node)
-        }
     }
 
     // The new expression-based approach handles evaluation directly

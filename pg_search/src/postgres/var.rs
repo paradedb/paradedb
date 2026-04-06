@@ -1,3 +1,20 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::customscan::operator_oid;
@@ -10,6 +27,7 @@ use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
 
+#[derive(Clone, Copy)]
 pub enum VarContext {
     Planner(*mut pg_sys::PlannerInfo),
     Query(*mut pg_sys::Query),
@@ -96,6 +114,19 @@ impl VarContext {
 
                 if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
                     return ((*rte).relid, varattno);
+                } else if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY {
+                    let subquery = (*rte).subquery;
+                    if !subquery.is_null() {
+                        let targetlist =
+                            PgList::<pg_sys::TargetEntry>::from_pg((*subquery).targetList);
+                        if varattno > 0 && (varattno as usize) <= targetlist.len() {
+                            if let Some(te) = targetlist.get_ptr(varattno as usize - 1) {
+                                if (*te).resorigtbl != pg_sys::InvalidOid {
+                                    return ((*te).resorigtbl, (*te).resorigcol);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 #[cfg(feature = "pg18")]
@@ -304,6 +335,39 @@ pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> 
         Some(vars.pop().unwrap())
     } else {
         None
+    }
+}
+
+/// Find an `Aggref` node in an expression tree using Postgres's `expression_tree_walker`
+/// for robust traversal through all wrapper types (RelabelType, CoerceViaIO, FuncExpr, etc.).
+pub unsafe fn find_one_aggref(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Aggref> {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
+            (*(data as *mut Data)).found = node as *mut pg_sys::Aggref;
+            return true;
+        }
+        expression_tree_walker(node, Some(walker), data)
+    }
+
+    struct Data {
+        found: *mut pg_sys::Aggref,
+    }
+
+    let mut data = Data {
+        found: std::ptr::null_mut(),
+    };
+    walker(node, addr_of_mut!(data).cast());
+    if data.found.is_null() {
+        None
+    } else {
+        Some(data.found)
     }
 }
 

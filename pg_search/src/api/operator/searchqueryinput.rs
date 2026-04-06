@@ -186,7 +186,7 @@ pub fn search_with_query_input(
             .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let schema = search_reader.schema();
         let key_field_name = schema.key_field_name();
-        let key_field_type = schema.key_field_type().into();
+        let key_field_type = schema.key_field_type();
         let ff_helper =
             FFHelper::with_fields(&search_reader, &[(key_field_name, key_field_type).into()]);
 

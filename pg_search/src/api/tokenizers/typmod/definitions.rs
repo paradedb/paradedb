@@ -47,6 +47,7 @@ pub struct NgramTypmod {
     pub min_gram: usize,
     pub max_gram: usize,
     pub prefix_only: bool,
+    pub positions: bool,
     pub filters: SearchTokenizerFilters,
 }
 
@@ -60,6 +61,7 @@ pub struct RegexTypmod {
 pub struct LinderaTypmod {
     pub language: LinderaLanguage,
     pub filters: SearchTokenizerFilters,
+    pub keep_whitespace: bool,
 }
 
 // for pdb.unicode_words
@@ -117,6 +119,7 @@ impl TypmodRules for NgramTypmod {
                 positional = 1
             ),
             rule!("prefix_only", ValueConstraint::Boolean),
+            rule!("positions", ValueConstraint::Boolean),
         ]
     }
 }
@@ -134,12 +137,15 @@ impl TypmodRules for RegexTypmod {
 
 impl TypmodRules for LinderaTypmod {
     fn rules() -> Vec<PropertyRule> {
-        vec![rule!(
-            "language",
-            ValueConstraint::StringChoice(vec!["chinese", "japanese", "korean"]),
-            required,
-            positional = 0
-        )]
+        vec![
+            rule!(
+                "language",
+                ValueConstraint::StringChoice(vec!["chinese", "japanese", "korean"]),
+                required,
+                positional = 0
+            ),
+            rule!("keep_whitespace", ValueConstraint::Boolean),
+        ]
     }
 }
 
@@ -220,11 +226,16 @@ impl TryFrom<i32> for NgramTypmod {
             .get("prefix_only")
             .and_then(|p| p.as_bool())
             .unwrap_or(false);
+        let positions = parsed
+            .get("positions")
+            .and_then(|p| p.as_bool())
+            .unwrap_or(false);
 
         Ok(NgramTypmod {
             min_gram,
             max_gram,
             prefix_only,
+            positions,
             filters,
         })
     }
@@ -266,7 +277,15 @@ impl TryFrom<i32> for LinderaTypmod {
                 }
             })
             .ok_or(typmod::Error::MissingKey("language"))?;
-        Ok(LinderaTypmod { language, filters })
+        let keep_whitespace = parsed
+            .get("keep_whitespace")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        Ok(LinderaTypmod {
+            language,
+            filters,
+            keep_whitespace,
+        })
     }
 }
 

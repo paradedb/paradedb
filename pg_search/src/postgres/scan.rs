@@ -17,7 +17,7 @@
 
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::HashSet;
-use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
@@ -222,22 +222,13 @@ pub extern "C-unwind" fn amrescan(
             Bm25ScanState {
                 fast_fields: FFHelper::with_fields(
                     &search_reader,
-                    &[(
-                        schema.key_field_name(),
-                        FastFieldType::from(schema.key_field_type()),
-                    )
-                        .into()],
+                    &[(schema.key_field_name(), schema.key_field_type()).into()],
                 ),
                 reader: search_reader,
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
                 key_field_oid: PgOid::from({
-                    #[cfg(any(
-                        feature = "pg14",
-                        feature = "pg15",
-                        feature = "pg16",
-                        feature = "pg17"
-                    ))]
+                    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                     {
                         (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
                     }
@@ -349,7 +340,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
                                 heap_compute_data_size((*scan).xs_hitupdesc, values, nulls);
                             let td = (*(*scan).xs_hitup).t_data;
 
-                            // TODO:  seems like this could crash with a varlena "key_field" of varrying sizes per row
+                            // TODO:  seems like this could crash with a varlena "key_field" of varying sizes per row
                             heap_fill_tuple(
                                 (*scan).xs_hitupdesc,
                                 values,
@@ -439,7 +430,7 @@ unsafe fn get_parallel_scan_state(scan: IndexScanDesc) -> Option<&'static mut Pa
 
     let ps = (*scan).parallel_scan;
     let offset = {
-        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
         {
             (*ps).ps_offset
         }

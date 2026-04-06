@@ -243,7 +243,7 @@ unsafe fn aminsert_internal(
     ctid: pg_sys::ItemPointer,
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
+    #[cfg(any(feature = "pg15", feature = "pg16"))]
     {
         // Postgres 17 introduced the `aminsertcleanup()` function, which is critical for logical
         // replication to work.  As such, if this isn't v17+ and we're being called from a logical

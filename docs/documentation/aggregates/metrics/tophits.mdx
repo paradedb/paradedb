@@ -10,12 +10,62 @@ aggregation. It returns the top documents for each bucket of a terms aggregation
 For example, the following query answers "what are top 3 results sorted by `created_at` for each
 `rating` category?"
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}')
 FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating;
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).values('rating').annotate(
+    agg=Agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}')
+).values('agg')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.top_hits(
+                size=3,
+                sort=[{"created_at": "desc"}],
+                docvalue_fields=["id", "created_at"],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.top_hits(
+            size: 3,
+            sort: [{ created_at: "desc" }],
+            docvalue_fields: %w[id created_at]
+          )
+        )
+```
+
+</CodeGroup>
 
 ```ini Expected Response
       agg
@@ -32,24 +82,126 @@ The `sort` value returned by the aggregation is Tantivy's internal sort ID and s
 To get the actual fields, pass a list of fields to `docvalue_fields`.
 
 If a text or JSON field is passed to `docvalue_fields`, it must be indexed with the [literal](/documentation/tokenizers/available-tokenizers/literal)
-tokenizer.
+or [literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized) tokenizer.
 
 To specify an offset, use `from`:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"top_hits": {"size": 3, "from": 1, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}')
 FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating;
 ```
 
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).values('rating').annotate(
+    agg=Agg('{"top_hits": {"size": 3, "from": 1, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}')
+).values('agg')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.top_hits(
+                size=3,
+                from_=1,
+                sort=[{"created_at": "desc"}],
+                docvalue_fields=["id", "created_at"],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.top_hits(
+            size: 3,
+            from: 1,
+            sort: [{ created_at: "desc" }],
+            docvalue_fields: %w[id created_at]
+          )
+        )
+```
+
+</CodeGroup>
+
 If multiple fields are passed into `sort`, the additional fields are used as tiebreakers:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}')
 FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating;
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).values('rating').annotate(
+    agg=Agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}')
+).values('agg')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.top_hits(
+                size=3,
+                sort=[{"created_at": "desc"}, {"id": "asc"}],
+                docvalue_fields=["id", "created_at"],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .aggregate_by(
+          :rating,
+          agg: ParadeDB::Aggregations.top_hits(
+            size: 3,
+            sort: [{ created_at: "desc" }, { id: "asc" }],
+            docvalue_fields: %w[id created_at]
+          )
+        )
+```
+
+</CodeGroup>
 
 See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.TopHitsAggregationReq.html) for all available options.

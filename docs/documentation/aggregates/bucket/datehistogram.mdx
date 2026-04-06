@@ -6,11 +6,43 @@ canonical: https://docs.paradedb.com/documentation/aggregates/bucket/datehistogr
 
 The date histogram aggregation constructs a histogram for date fields.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.date_histogram(field="created_at", fixed_interval="30d")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.date_histogram(:created_at, fixed_interval: "30d"))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
 

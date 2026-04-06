@@ -1,0 +1,141 @@
+-- Regression test for pdb.score() panic when forced parallel execution
+-- causes the planner to choose a native Parallel Index Scan on the BM25
+-- index instead of ParadeDB's Parallel Custom Scan.
+--
+-- The bug: add_path() in hook.rs cleared rel->pathlist for forced parallel
+-- custom paths but did NOT clear rel->partial_pathlist. This left
+-- PostgreSQL's native Parallel Index Scan as a competing partial path.
+-- When the native path won the cost comparison, paradedb.score() was
+-- evaluated outside the custom scan and hit its panic stub.
+--
+-- The fix: when a path is forced, clear both pathlist and partial_pathlist
+-- before adding our custom path so neither regular nor partial native
+-- alternatives can outcompete it.
+--
+-- See: https://github.com/paradedb/paradedb/issues/new/choose
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS nhfs_big CASCADE;
+
+CREATE TABLE nhfs_big (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    description TEXT,
+    company_name TEXT,
+    profile_id UUID,
+    group_id UUID,
+    end_date DATE,
+    deleted_at TIMESTAMP,
+    is_current BOOLEAN,
+    is_verified BOOLEAN
+);
+
+INSERT INTO nhfs_big (title, description, company_name, profile_id, group_id, end_date, deleted_at, is_current, is_verified)
+SELECT
+  CASE WHEN gs % 10 = 0 THEN 'Software Developer' ELSE 'Other Role' END,
+  CASE WHEN gs % 10 = 0 THEN 'Building web apps' ELSE 'Misc desc' END,
+  CASE
+    WHEN gs % 20 = 0 THEN 'Jarvis Corp'
+    WHEN gs % 20 = 1 THEN 'Jarvik Medical'
+    WHEN gs % 20 = 2 THEN 'Jarvinen Tech'
+    WHEN gs % 20 = 3 THEN 'Jarvi Solutions'
+    ELSE 'Acme Corp ' || gs::text
+  END,
+  format('a0000000-0000-0000-0000-%012s', lpad(((gs % 5000)+1)::text, 12, '0'))::uuid,
+  CASE
+    WHEN gs % 5 < 4 THEN '952582b4-bb51-461e-b566-0e5f980f4660'::uuid
+    ELSE 'b0000000-0000-0000-0000-000000000001'::uuid
+  END,
+  CASE WHEN gs % 3 = 0 THEN NULL ELSE DATE '2025-12-31' END,
+  NULL,
+  (gs % 2 = 0),
+  CASE WHEN gs % 7 = 0 THEN NULL ELSE (gs % 2 = 0) END
+FROM generate_series(1, 300000) gs;
+
+-- Suppress PG18's "only N parallel workers were available for index build" warning
+SET client_min_messages = error;
+
+CREATE INDEX nhfs_big_bm25_idx ON nhfs_big USING bm25 (
+    id,
+    ((title)::pdb.simple('stemmer=english', 'ascii_folding=true')),
+    ((description)::pdb.simple('stemmer=english', 'ascii_folding=true')),
+    ((company_name)::pdb.ngram('3', '6')),
+    profile_id,
+    group_id
+) WITH (key_field = id)
+WHERE (deleted_at IS NULL);
+
+RESET client_min_messages;
+
+ANALYZE nhfs_big;
+
+-- Force aggressive parallelism: these GUCs make the planner strongly prefer
+-- parallel paths. Without the fix, this causes it to choose the native
+-- Parallel Index Scan over ParadeDB's Parallel Custom Scan for the ngram
+-- + heap filter combination.
+SET max_parallel_workers_per_gather = 4;
+SET debug_parallel_query = on;
+SET parallel_setup_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET min_parallel_index_scan_size = 0;
+SET parallel_tuple_cost = 0;
+
+-- Test 1: The plan MUST use Custom Scan, not native Index Scan.
+-- This is the deterministic assertion: with the fix, partial_pathlist is
+-- cleared for forced paths so the native Parallel Index Scan cannot exist as
+-- an alternative.
+-- Without the fix, this plan shows "Parallel Index Scan" instead.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT profile_id, MAX(paradedb.score(id)) as best_score
+FROM nhfs_big
+WHERE company_name &&& 'Jarvi'
+  AND group_id = '952582b4-bb51-461e-b566-0e5f980f4660'::uuid
+  AND deleted_at IS NULL
+  AND end_date IS NULL
+GROUP BY profile_id
+ORDER BY best_score DESC, profile_id
+LIMIT 5;
+
+-- Test 2: Execute the query to verify it returns results without panic.
+-- Without the fix: ERROR: Unsupported query shape / CONTEXT: parallel worker
+SELECT profile_id, MAX(paradedb.score(id)) as best_score
+FROM nhfs_big
+WHERE company_name &&& 'Jarvi'
+  AND group_id = '952582b4-bb51-461e-b566-0e5f980f4660'::uuid
+  AND deleted_at IS NULL
+  AND end_date IS NULL
+GROUP BY profile_id
+ORDER BY best_score DESC, profile_id
+LIMIT 5;
+
+-- Test 3: pdb.simple + same heap filter + parallel (control — always worked)
+SELECT profile_id, MAX(paradedb.score(id)) as best_score
+FROM nhfs_big
+WHERE title &&& 'developer'
+  AND group_id = '952582b4-bb51-461e-b566-0e5f980f4660'::uuid
+  AND deleted_at IS NULL
+  AND end_date IS NULL
+GROUP BY profile_id
+ORDER BY best_score DESC, profile_id
+LIMIT 5;
+
+-- Test 4: pdb.ngram without heap filter + parallel (control — always worked)
+SELECT profile_id, MAX(paradedb.score(id)) as best_score
+FROM nhfs_big
+WHERE company_name &&& 'Jarvi'
+  AND group_id = '952582b4-bb51-461e-b566-0e5f980f4660'::uuid
+  AND deleted_at IS NULL
+GROUP BY profile_id
+ORDER BY best_score DESC, profile_id
+LIMIT 5;
+
+-- Reset
+RESET max_parallel_workers_per_gather;
+RESET debug_parallel_query;
+RESET parallel_setup_cost;
+RESET min_parallel_table_scan_size;
+RESET min_parallel_index_scan_size;
+RESET parallel_tuple_cost;
+
+DROP TABLE IF EXISTS nhfs_big CASCADE;

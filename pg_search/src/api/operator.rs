@@ -38,8 +38,12 @@ use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
+use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::composite::get_composite_type_fields;
+use crate::postgres::customscan::opexpr::{
+    expr_matches_node, vars_equal_ignoring_varno, UnwrapFromExpr,
+};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
@@ -51,6 +55,7 @@ use crate::postgres::var::{
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
+use crate::scan::info::RowEstimate;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pg_sys::panic::ErrorReport;
@@ -122,6 +127,98 @@ pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
             &[c"@@@(anyelement, paradedb.searchqueryinput)".into_datum()],
         )
         .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist")
+    }
+}
+
+pub fn anyelement_pdb_query_opoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regoperatorin,
+            &[c"@@@(anyelement, pdb.query)".into_datum()],
+        )
+        .expect("the `@@@(anyelement, pdb.query)` operator should exist")
+    }
+}
+
+pub fn anyelement_search_opoids() -> [pg_sys::Oid; 2] {
+    [anyelement_query_input_opoid(), anyelement_pdb_query_opoid()]
+}
+
+pub fn is_anyelement_search_opoid(opno: pg_sys::Oid) -> bool {
+    // Fast path: check for common @@@(anyelement, searchqueryinput/pdb.query) first
+    if anyelement_search_opoids().contains(&opno) {
+        return true;
+    }
+
+    // Slow path: check operator name for all ParadeDB search operators (|||, &&&, ===, ###, ##, ##>)
+    // These operators have many type overloads, so checking by name is more practical than
+    // enumerating all OIDs.
+    is_paradedb_search_operator(opno)
+}
+
+/// Check if an operator OID belongs to a ParadeDB search operator by looking up its name
+/// and left argument type in the system catalog.
+///
+/// Recognizes: @@@, |||, &&&, ===, ### (left type = anyelement)
+///             ##, ##> (left type = proximityclause, a ParadeDB type)
+///
+/// Checks operator name regardless of right-hand argument types (text, text[], pdb.query,
+/// pdb.boost, pdb.fuzzy, etc.), covering all overload variants with a single name match.
+/// The left-type check prevents false positives against built-in operators with the same
+/// name (e.g., PostgreSQL's geometric ## or tsvector @@@).
+pub fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
+    unsafe {
+        let opertup = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::OPEROID as _,
+            opno.into_datum().unwrap(),
+        );
+
+        if opertup.is_null() {
+            return false;
+        }
+
+        let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
+        let opername = pgrx::name_data_to_str(&(*operform).oprname);
+        let oprleft = (*operform).oprleft;
+
+        let is_ours = match opername {
+            // These have anyelement as the left type.
+            // The left-type check excludes built-in @@ @/tsvector and geometric collisions.
+            "@@@" | "|||" | "&&&" | "===" | "###" => oprleft == pg_sys::ANYELEMENTOID,
+
+            // Proximity operators use proximityclause (a ParadeDB type) on the left.
+            // No built-in collision risk, but we still verify it's not a geometric ##
+            // by confirming the left type is NOT a built-in geometric type.
+            "##" | "##>" => {
+                oprleft != pg_sys::POINTOID
+                    && oprleft != pg_sys::LINEOID
+                    && oprleft != pg_sys::LSEGOID
+                    && oprleft != pg_sys::BOXOID
+            }
+
+            _ => false,
+        };
+
+        pg_sys::ReleaseSysCache(opertup);
+        is_ours
+    }
+}
+
+/// Look up the name of a PostgreSQL operator by its OID. Returns "unknown" if the OID
+/// is not found in the system catalog.
+pub fn operator_name_from_oid(opno: pg_sys::Oid) -> String {
+    unsafe {
+        let opertup = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::OPEROID as _,
+            opno.into_datum().unwrap(),
+        );
+        if opertup.is_null() {
+            return "unknown".to_string();
+        }
+        let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
+        let name = pgrx::name_data_to_str(&(*operform).oprname).to_string();
+        pg_sys::ReleaseSysCache(opertup);
+        name
     }
 }
 
@@ -217,15 +314,19 @@ pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<f64> {
-    let reltuples = indexrel
-        .heap_relation()
-        .expect("indexrel should be an index")
-        .reltuples()
-        .unwrap_or(1.0) as f64;
-    if !reltuples.is_normal() || reltuples.is_sign_negative() {
-        // we can't estimate against a non-normal or negative estimate of heap tuples
-        return None;
+    // For queries where scorer construction is expensive (fuzzy, regex, range),
+    // return a heuristic selectivity without opening the index.
+    if crate::gucs::enable_heuristic_selectivity() && search_query_input.is_expensive_to_estimate()
+    {
+        return Some(search_query_input.selectivity_heuristic());
     }
+
+    let heap_rel = indexrel
+        .heap_relation()
+        .expect("indexrel should be an index");
+    let reltuples = heap_rel.reltuples().map(|r| r as f64);
+
+    let row_estimate = RowEstimate::from_reltuples(reltuples);
 
     let search_reader = SearchIndexReader::open(
         indexrel,
@@ -234,8 +335,20 @@ pub(crate) fn estimate_selectivity(
         MvccSatisfies::LargestSegment,
     )
     .expect("estimate_selectivity: should be able to open a SearchIndexReader");
-    let estimate = search_reader.estimate_docs(reltuples) as f64;
-    let mut selectivity = estimate / reltuples;
+
+    // We estimate both the number of matching docs and the total number of docs.
+    // If reltuples is Known, total_rows will match it. If Unknown, total_rows
+    // will be estimated from the index (by scaling the largest segment).
+    let (estimate, total_rows) = search_reader.estimate_docs(row_estimate);
+    let total_rows = total_rows as f64;
+
+    if total_rows <= 0.0 {
+        // We still don't have a valid total count (e.g. index is empty), so we can't
+        // estimate selectivity.
+        return None;
+    }
+
+    let mut selectivity = estimate as f64 / total_rows;
     if selectivity > 1.0 {
         selectivity = 1.0;
     }
@@ -273,48 +386,12 @@ pub unsafe fn tantivy_field_name_from_node(
     Some((indexrel, Some(field_name)))
 }
 
-/// Compare two Vars for equality, ignoring varno and other context-dependent fields.
-///
-/// In CTE contexts, several fields may legitimately differ:
-/// - varno: points to different range table entries (CTE vs original table)
-/// - varnosyn, varattnosyn: syntactic variants that may differ in query rewriting
-/// - varlevelsup: may differ in nested subquery contexts
-/// - varnullingrels: nulling relationships may vary
-/// - location: source location in the query text
-///
-/// The essential fields that must match for the Vars to represent the same column:
-/// - varattno: the actual column number in the table
-/// - vartype: the column's data type
-/// - vartypmod: type modifier (e.g., varchar length)
-/// - varcollid: collation (important for text comparisons)
-unsafe fn vars_equal_ignoring_varno(a: *const pg_sys::Var, b: *const pg_sys::Var) -> bool {
-    (*a).varattno == (*b).varattno
-        && (*a).vartype == (*b).vartype
-        && (*a).vartypmod == (*b).vartypmod
-        && (*a).varcollid == (*b).varcollid
-}
-
-unsafe fn row_expr_from_indexed_expr(mut expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::RowExpr> {
+pub(crate) unsafe fn row_expr_from_indexed_expr(
+    mut expr: *mut pg_sys::Expr,
+) -> Option<*mut pg_sys::RowExpr> {
     loop {
         if let Some(row_expr) = nodecast!(RowExpr, T_RowExpr, expr) {
             return Some(row_expr);
-        }
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
-            expr = (*coerce).arg.cast();
-            continue;
-        }
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-            expr = (*relabel).arg.cast();
-            continue;
-        }
-        return None;
-    }
-}
-
-unsafe fn simple_var_from_expr(mut expr: *mut pg_sys::Expr) -> Option<*const pg_sys::Var> {
-    loop {
-        if let Some(var) = nodecast!(Var, T_Var, expr) {
-            return Some(var);
         }
         if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
             expr = (*coerce).arg.cast();
@@ -354,43 +431,6 @@ unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys:
     alias.is_none()
 }
 
-unsafe fn expr_matches_node(node: *mut pg_sys::Node, indexed_expr: *mut pg_sys::Expr) -> bool {
-    let mut reduced_expression = indexed_expr;
-    loop {
-        let inner_expression =
-            if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, reduced_expression) {
-                (*coerce).arg
-            } else {
-                reduced_expression
-            };
-
-        if pg_sys::equal(node.cast(), inner_expression.cast()) {
-            return true;
-        }
-
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, reduced_expression) {
-            reduced_expression = (*relabel).arg.cast();
-            continue;
-        }
-
-        // a cast to `pdb.alias` can make it a `FuncExpr` that we need to unwrap
-        // Only unwrap pdb.alias casts; unwrapping other FuncExprs like abs() causes false index matches (#3760).
-        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {
-            if type_is_alias((*func).funcresulttype) {
-                let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-                if args.len() == 1 {
-                    if let Some(arg) = args.get_ptr(0) {
-                        reduced_expression = arg.cast();
-                        continue;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-}
-
 pub unsafe fn field_name_from_node(
     context: VarContext,
     heaprel: &PgSearchRelation,
@@ -408,7 +448,7 @@ pub unsafe fn field_name_from_node(
         }
     }
 
-    let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+    let index_info = unsafe { *indexrel.index_info() };
     if let Some(var) = nodecast!(Var, T_Var, node) {
         // the expression we're looking for is just a simple Var.
 
@@ -424,7 +464,7 @@ pub unsafe fn field_name_from_node(
 
         // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
 
-        let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
+        let expressions = indexrel.index_expressions();
         let mut expr_no = 0;
         for i in 0..index_info.ii_NumIndexAttrs {
             let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
@@ -443,7 +483,8 @@ pub unsafe fn field_name_from_node(
                 let is_composite = crate::postgres::composite::is_composite_type(expr_type);
 
                 if is_composite {
-                    if let Some(row_expr) = row_expr_from_indexed_expr(expression) {
+                    if let Some(row_expr) = <*mut pg_sys::RowExpr>::unwrap_from_coercion(expression)
+                    {
                         let composite_oid = pg_sys::exprType(expression.cast());
                         let Ok(fields) = get_composite_type_fields(composite_oid) else {
                             expr_no += 1;
@@ -457,7 +498,9 @@ pub unsafe fn field_name_from_node(
                                 continue;
                             }
 
-                            if let Some(arg_var) = simple_var_from_expr(arg.cast()) {
+                            if let Some(arg_var) =
+                                <*mut pg_sys::Var>::unwrap_from_coercion(arg.cast())
+                            {
                                 if vars_equal_ignoring_varno(arg_var, var) {
                                     return Some(FieldName::from(
                                         fields[position].field_name.clone(),
@@ -473,11 +516,9 @@ pub unsafe fn field_name_from_node(
                     }
                     expr_no += 1;
                 } else if type_is_tokenizer(expr_type) {
-                    // Early return for non-tokenizable var types (preserves main branch behavior)
-                    if !type_can_be_tokenized((*var).vartype) {
-                        return None;
-                    }
-                    if var_matches_tokenizer_expr(var, expression.cast()) {
+                    if type_can_be_tokenized((*var).vartype)
+                        && var_matches_tokenizer_expr(var, expression.cast())
+                    {
                         return attname_from_var(heaprel, var);
                     }
                     expr_no += 1;
@@ -507,7 +548,9 @@ pub unsafe fn field_name_from_node(
             let is_composite = crate::postgres::composite::is_composite_type(expr_type);
 
             if is_composite {
-                if let Some(row_expr) = row_expr_from_indexed_expr(indexed_expression) {
+                if let Some(row_expr) =
+                    <*mut pg_sys::RowExpr>::unwrap_from_coercion(indexed_expression)
+                {
                     let composite_oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
                     let Ok(fields) = get_composite_type_fields(composite_oid) else {
                         continue;
@@ -520,12 +563,12 @@ pub unsafe fn field_name_from_node(
                             continue;
                         }
 
-                        if expr_matches_node(node, arg.cast()) {
+                        if expr_matches_node(node, arg.cast(), type_is_alias) {
                             return Some(FieldName::from(fields[position].field_name.clone()));
                         }
                     }
                 }
-            } else if expr_matches_node(node, indexed_expression) {
+            } else if expr_matches_node(node, indexed_expression, type_is_alias) {
                 let field_name =
                     if type_is_tokenizer(unsafe { pg_sys::exprType(indexed_expression.cast()) }) {
                         let oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
@@ -635,7 +678,7 @@ unsafe fn make_lhs_var(
     indexrel: &PgSearchRelation,
     lhs: *mut pg_sys::Node,
 ) -> *mut pg_sys::Var {
-    let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+    let index_info = unsafe { *indexrel.index_info() };
     let heap_attno = index_info.ii_IndexAttrNumbers[0];
 
     let vars = find_vars(lhs);
@@ -775,7 +818,10 @@ where
                 String::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs text value must not be NULL"),
             ),
-
+            other if is_citext_oid(other) => RHSValue::Text(
+                String::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs text value must not be NULL"),
+            ),
             // these arrays are only supported by the === operator
             pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => RHSValue::TextArray(
                 Vec::<String>::from_datum((*const_).constvalue, (*const_).constisnull)
@@ -826,6 +872,59 @@ where
         exec_rewrite(field, lhs, rhs).palloc().cast()
     };
     rhs
+}
+
+/// Returns `true` if the given OID is a text-like scalar type (text, varchar, or citext).
+fn is_text_like(oid: pg_sys::Oid) -> bool {
+    oid == pg_sys::TEXTOID || oid == pg_sys::VARCHAROID || is_citext_oid(oid)
+}
+
+/// Returns `true` if the given OID is a text-like array type (text[] or varchar[]).
+fn is_text_array_like(oid: pg_sys::Oid) -> bool {
+    oid == pg_sys::TEXTARRAYOID || oid == pg_sys::VARCHARARRAYOID
+}
+
+/// Build a [`pg_sys::FuncExpr`] for a text-or-text-array RHS in an `exec_rewrite` callback.
+///
+/// Checks the RHS expression type and dispatches to the appropriate builder function.
+/// `text_fn` and `array_fn` are `regprocedure` strings for the scalar and array variants.
+unsafe fn build_text_funcexpr(
+    field: FieldName,
+    rhs: *mut pg_sys::Node,
+    operator_name: &str,
+    text_fn: &std::ffi::CStr,
+    array_fn: &std::ffi::CStr,
+) -> pg_sys::FuncExpr {
+    let expr_type = get_expr_result_type(rhs);
+    let is_array = is_text_array_like(expr_type);
+    if !(is_text_like(expr_type) || is_array) {
+        panic!(
+            "The right-hand side of the `{operator_name}` operator must be a text or text array value"
+        );
+    }
+
+    let sig = if is_array { array_fn } else { text_fn };
+    let funcid = direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[sig.into_datum()])
+        .unwrap_or_else(|| panic!("`{}` should exist", sig.to_str().unwrap()));
+
+    let mut args = PgList::<pg_sys::Node>::new();
+    args.push(field.into_const().cast());
+    args.push(rhs.cast());
+
+    pg_sys::FuncExpr {
+        xpr: pg_sys::Expr {
+            type_: pg_sys::NodeTag::T_FuncExpr,
+        },
+        funcid,
+        funcresulttype: searchqueryinput_typoid(),
+        funcretset: false,
+        funcvariadic: false,
+        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        funccollid: pg_sys::Oid::INVALID,
+        inputcollid: pg_sys::Oid::INVALID,
+        args: args.into_pg(),
+        location: -1,
+    }
 }
 
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that

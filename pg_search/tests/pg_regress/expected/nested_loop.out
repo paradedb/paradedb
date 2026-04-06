@@ -1,0 +1,63 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- This test demonstrates an extremely expensive nested-loop join plan
+-- as described in https://github.com/paradedb/paradedb/issues/2733.
+-- TODO: The test cannot be scaled up to 10k rows per-table as shown
+-- in the original repro because the nested-loop plan runs in exponential time.
+-- We keep a minimal amount of data to reproduce the plan structure.
+DROP TABLE IF EXISTS users CASCADE;
+CREATE TABLE users (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR, age VARCHAR);
+CREATE INDEX idxusers ON users USING bm25 (id, name, color, age) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+INSERT INTO users (name, color, age) VALUES ('bob', 'blue', '20');
+ANALYZE;
+DROP TABLE IF EXISTS products CASCADE;
+CREATE TABLE products (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR);
+CREATE INDEX idxproducts ON products USING bm25 (id, name, color) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+INSERT INTO products (name, color) VALUES ('bob', 'blue');
+ANALYZE;
+DROP TABLE IF EXISTS orders CASCADE;
+CREATE TABLE orders (id SERIAL8 PRIMARY KEY, name TEXT, color VARCHAR);
+CREATE INDEX idxorders ON orders USING bm25 (id, name, color) WITH (key_field = 'id', text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true }, "color": { "tokenizer": { "type": "keyword" }, "fast": true } }');
+INSERT INTO orders (name, color) VALUES ('bob', 'blue');
+ANALYZE;
+-- When running under the joinscan, we get a `pdb_search_predicate` join filter.
+SET paradedb.enable_join_custom_scan = on;
+SET work_mem TO '64MB';
+EXPLAIN
+SELECT users.name, users.color, users.age
+FROM users JOIN products ON users.name = products.name JOIN orders ON products.color = orders.color
+WHERE ((orders.id @@@ '3') AND (orders.color @@@ 'blue')) OR ((users.color @@@ 'blue') AND (users.id @@@ '3'))
+LIMIT 10;
+                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..11.00 rows=10 width=12)
+   ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=10 width=12)
+         Relation Tree: users INNER (products INNER orders)
+         Join Cond: users.name = products.name, products.color = orders.color
+         Join Predicate: (orders:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"3","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}]}} OR users:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"3","lenient":null,"conjunction_mode":null}}}}]}})
+         Limit: 10
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[name@1 as col_1, NULL as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+           :   GlobalLimitExec: skip=0, fetch=10
+           :     VisibilityFilterExec: tables=[users, products, orders]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(color@3, color@1)], filter=pdb_search_predicate(ctid_2@1) OR pdb_search_predicate(ctid_0@0)
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(name@1, name@1)], projection=[ctid_0@0, name@1, ctid_1@2, color@4]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT users.name, users.color, users.age
+FROM users JOIN products ON users.name = products.name JOIN orders ON products.color = orders.color
+WHERE ((orders.id @@@ '3') AND (orders.color @@@ 'blue')) OR ((users.color @@@ 'blue') AND (users.id @@@ '3'))
+LIMIT 10;
+ name | color | age 
+------+-------+-----
+(0 rows)
+
+-- Cleanup
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS orders CASCADE;

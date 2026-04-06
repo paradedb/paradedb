@@ -1,0 +1,12 @@
+---
+title: 0.22.4
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Fix aggregate custom scan handling of `NULL` bool values in `GROUP BY`.
+- Fix joinscan pushdown for `DISTINCT` where fast fields have typmod casts.
+- Fix `pdb.agg()` with `solve_mvcc` argument to work with all search operators.
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.22.4).

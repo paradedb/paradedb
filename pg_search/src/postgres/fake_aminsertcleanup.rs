@@ -77,9 +77,9 @@ pub unsafe fn register() {
     pg_sys::ProcessUtility_hook = Some(process_utility_hook);
 
     PREV_EXECUTOR_RUN_HOOK = pg_sys::ExecutorRun_hook;
-    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     {
-        pg_sys::ExecutorRun_hook = Some(executor_run_hook_pg14_17);
+        pg_sys::ExecutorRun_hook = Some(executor_run_hook_pg15_17);
     }
     #[cfg(feature = "pg18")]
     {
@@ -112,9 +112,9 @@ pub unsafe fn register() {
         aminsertcleanup_stack();
     }
 
-    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     #[pg_guard]
-    unsafe extern "C-unwind" fn executor_run_hook_pg14_17(
+    unsafe extern "C-unwind" fn executor_run_hook_pg15_17(
         query_desc: *mut QueryDesc,
         direction: ScanDirection::Type,
         count: uint64,

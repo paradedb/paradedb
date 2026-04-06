@@ -13,11 +13,42 @@ Match disjunction uses the `|||` operator and means "find all documents that con
 
 To understand what this looks like in practice, let's consider the following query:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes';
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR'))
+).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .select(:description, :rating, :category)
+```
+
+</CodeGroup>
 
 This query returns:
 
@@ -61,11 +92,42 @@ These examples assume that the index uses the default tokenizer and token filter
 Suppose we want to find rows that contain both `running` **and** `shoes`. This is where the `&&&` match conjunction operator comes in.
 `&&&` means "find all documents that contain all terms tokenized from this text input."
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description &&& 'running shoes';
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='AND'))
+).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_all(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("running shoes")
+        .select(:description, :rating, :category)
+```
+
+</CodeGroup>
 
 This query returns:
 
@@ -119,19 +181,81 @@ WHERE description &&& 'shoes';
 By default, the match query automatically tokenizes the query string with the same tokenizer used by the field it's being searched against.
 This behavior can be overridden by explicitly casting the query to a different tokenizer.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'::pdb.whitespace;
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR', tokenizer='whitespace'))
+).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes", tokenizer="whitespace"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes", tokenizer: "whitespace")
+        .select(:description, :rating, :category)
+```
+
+</CodeGroup>
 
 ## Using Pretokenized Text
 
 The match operators also accept text arrays. If a text array is provided, each element of the array is treated as an exact token,
 which means that no further processing is done.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description &&& ARRAY['running', 'shoes'];
 ```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running', 'shoes', operator='AND'))
+).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_all(MockItem.description, "running", "shoes"))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("running", "shoes")
+        .select(:description, :rating, :category)
+```
+
+</CodeGroup>

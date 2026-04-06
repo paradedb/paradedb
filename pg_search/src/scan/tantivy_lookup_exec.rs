@@ -1,0 +1,537 @@
+use std::any::Any;
+use std::sync::Arc;
+
+use crate::index::fast_fields_helper::{
+    ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
+};
+use crate::scan::deferred_encode::unpack_doc_address;
+use crate::scan::execution_plan::UnsafeSendStream;
+
+use arrow_array::{new_null_array, Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
+use arrow_array::{StructArray, UInt32Array};
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_select::interleave::interleave;
+use datafusion::common::{DataFusionError, Result};
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::physical_expr::{EquivalenceProperties, PhysicalExpr};
+use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::filter_pushdown::{
+    ChildFilterDescription, ChildPushdownResult, FilterDescription, FilterPushdownPhase,
+    FilterPushdownPropagation,
+};
+use datafusion::physical_plan::metrics::{
+    BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
+};
+use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use tantivy::termdict::TermOrdinal;
+use tantivy::{DocId, SegmentOrdinal};
+
+/// Tracks a deferred column inside DataFusion's physical execution plan.
+///
+/// Unlike the logical `DeferredField` which uses the base column's string name, this struct
+/// identifies the column strictly by its `usize` index within the physical `RecordBatch`.
+/// This is necessary because DataFusion physical schemas (`arrow_schema::Schema`) drop
+/// all relation qualifiers and names are no longer used for strict identity.
+///
+/// The `display_name` is preserved purely for `EXPLAIN` rendering and debugging; it should
+/// never be used for matching columns in the physical plan.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PhysicalDeferredField {
+    /// The positional index of the column in the physical Arrow schema
+    pub col_idx: usize,
+    /// A human-readable name used purely for `EXPLAIN` formatting
+    pub display_name: String,
+    pub is_bytes: bool,
+    pub canonical: CanonicalColumn,
+}
+
+impl PhysicalDeferredField {
+    pub fn output_data_type(&self) -> DataType {
+        if self.is_bytes {
+            DataType::BinaryView
+        } else {
+            DataType::Utf8View
+        }
+    }
+}
+
+use crate::api::HashMap;
+
+pub struct TantivyLookupExec {
+    input: Arc<dyn ExecutionPlan>,
+    deferred_fields: Vec<PhysicalDeferredField>,
+    decoders: Vec<DecoderInfo>,
+    ffhelpers: HashMap<u32, Arc<FFHelper>>,
+    properties: Arc<PlanProperties>,
+    metrics: ExecutionPlanMetricsSet,
+}
+
+impl std::fmt::Debug for TantivyLookupExec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TantivyLookupExec")
+            .field("decode", &self.deferred_fields.len())
+            .finish()
+    }
+}
+// TODO: Replace this loop with a direct bulk `ords_to_strings` / `ords_to_bytes`
+// fetcher if the Tantivy fast field API exposes one in the future.
+impl TantivyLookupExec {
+    pub fn new(
+        input: Arc<dyn ExecutionPlan>,
+        deferred_fields: Vec<PhysicalDeferredField>,
+        ffhelpers: HashMap<u32, Arc<FFHelper>>,
+    ) -> Result<Self> {
+        let (output_schema, decoders) =
+            build_schema_and_decoders(input.schema(), &deferred_fields)?;
+        let mut eq_props = EquivalenceProperties::new(output_schema.clone());
+        // Propagate input ordering: TantivyLookupExec preserves row order
+        // within batches (uses interleave), so if the input is sorted the
+        // output retains that ordering.
+        if let Some(input_ordering) = input.properties().output_ordering() {
+            // Rewrite ordering expressions to reference the output schema
+            // (column names are preserved, only data types change for deferred cols).
+            use datafusion::physical_expr::expressions::Column;
+            let rewritten: Vec<_> = input_ordering
+                .iter()
+                .filter_map(|sort_expr| {
+                    if let Some(col) = sort_expr.expr.as_any().downcast_ref::<Column>() {
+                        if let Ok(new_idx) = output_schema.index_of(col.name()) {
+                            let new_col =
+                                Arc::new(Column::new(col.name(), new_idx)) as Arc<dyn PhysicalExpr>;
+                            return Some(datafusion::physical_expr::PhysicalSortExpr {
+                                expr: new_col,
+                                options: sort_expr.options,
+                            });
+                        }
+                    }
+                    None
+                })
+                .collect();
+            if rewritten.len() == input_ordering.len() {
+                if let Some(lex) = datafusion::physical_expr::LexOrdering::new(rewritten) {
+                    eq_props.add_ordering(lex);
+                }
+            }
+        }
+        let properties = Arc::new(PlanProperties::new(
+            eq_props,
+            input.properties().output_partitioning().clone(),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        ));
+        Ok(Self {
+            input,
+            deferred_fields,
+            decoders,
+            ffhelpers,
+            properties,
+            metrics: ExecutionPlanMetricsSet::new(),
+        })
+    }
+
+    pub fn deferred_fields(&self) -> &[PhysicalDeferredField] {
+        &self.deferred_fields
+    }
+
+    pub fn ffhelper(&self, indexrelid: u32) -> Option<&Arc<FFHelper>> {
+        self.ffhelpers.get(&indexrelid)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DecoderInfo {
+    pub col_idx: usize,
+    pub is_bytes: bool,
+    pub canonical: CanonicalColumn,
+}
+
+fn build_schema_and_decoders(
+    input_schema: SchemaRef,
+    deferred: &[PhysicalDeferredField],
+) -> Result<(SchemaRef, Vec<DecoderInfo>)> {
+    let mut fields: Vec<Field> = Vec::with_capacity(input_schema.fields().len());
+    let mut decoders = Vec::new();
+    let mut deferred_pool = deferred.to_vec();
+
+    // Iterate through the input schema exactly once.
+    // This pairs the first "description" in the schema with the first "description"
+    // in the deferred pool, removing it so the second one pairs correctly.
+    for (col_idx, field) in input_schema.fields().iter().enumerate() {
+        let is_union = matches!(field.data_type(), DataType::Union(_, _));
+
+        if is_union {
+            if let Some(pos) = deferred_pool.iter().position(|d| d.col_idx == col_idx) {
+                let d = deferred_pool.remove(pos);
+                fields.push(Field::new(field.name(), d.output_data_type(), true));
+                decoders.push(DecoderInfo {
+                    col_idx,
+                    is_bytes: d.is_bytes,
+                    canonical: d.canonical,
+                });
+            } else {
+                fields.push(field.as_ref().clone());
+            }
+        } else {
+            // Pass through fields that are not unions or not in our deferred pool
+            fields.push(field.as_ref().clone());
+        }
+    }
+
+    Ok((Arc::new(Schema::new(fields)), decoders))
+}
+
+impl DisplayAs for TantivyLookupExec {
+    fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "TantivyLookupExec: decode=[{}]",
+            self.deferred_fields
+                .iter()
+                .map(|d| d.display_name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+impl ExecutionPlan for TantivyLookupExec {
+    fn name(&self) -> &str {
+        "TantivyLookupExec"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
+    fn properties(&self) -> &Arc<PlanProperties> {
+        &self.properties
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
+        vec![&self.input]
+    }
+
+    fn with_new_children(
+        self: Arc<Self>,
+        mut children: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        Ok(Arc::new(TantivyLookupExec::new(
+            children.remove(0),
+            self.deferred_fields.clone(),
+            self.ffhelpers.clone(),
+        )?))
+    }
+
+    fn execute(
+        &self,
+        partition: usize,
+        context: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream> {
+        let mut input_stream = self.input.execute(partition, context)?;
+        let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
+        let decoders = self.decoders.clone();
+        let ffhelpers = self.ffhelpers.clone();
+        let schema = self.properties.eq_properties.schema().clone();
+
+        let stream_gen = async_stream::try_stream! {
+            use futures::StreamExt;
+            while let Some(batch_res) = input_stream.next().await {
+                let timer = baseline_metrics.elapsed_compute().timer();
+                let result = match batch_res {
+                    Ok(batch) => enrich_batch(batch, &decoders, &ffhelpers, &schema),
+                    Err(e) => Err(e),
+                };
+                timer.done();
+
+                yield result.record_output(&baseline_metrics)?;
+            }
+            baseline_metrics.done();
+        };
+
+        let stream = unsafe {
+            UnsafeSendStream::new(stream_gen, self.properties.eq_properties.schema().clone())
+        };
+        Ok(Box::pin(stream))
+    }
+
+    fn gather_filters_for_pushdown(
+        &self,
+        phase: FilterPushdownPhase,
+        parent_filters: Vec<Arc<dyn PhysicalExpr>>,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterDescription> {
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterDescription::all_unsupported(
+                &parent_filters,
+                &self.children(),
+            ));
+        }
+        let child_desc = ChildFilterDescription::from_child(&parent_filters, &self.input)?;
+        Ok(FilterDescription::new().with_child(child_desc))
+    }
+
+    fn handle_child_pushdown_result(
+        &self,
+        _phase: FilterPushdownPhase,
+        child_pushdown_result: ChildPushdownResult,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+    }
+}
+
+fn enrich_batch(
+    batch: RecordBatch,
+    decoders: &[DecoderInfo],
+    ffhelpers: &HashMap<u32, Arc<FFHelper>>,
+    schema: &SchemaRef,
+) -> Result<RecordBatch> {
+    let num_rows = batch.num_rows();
+    // Clone the input arrays. We will overwrite the deferred ones by exact index.
+    let mut output_columns: Vec<ArrayRef> = batch.columns().to_vec();
+
+    for decoder in decoders {
+        let union_array = output_columns[decoder.col_idx]
+            .as_any()
+            .downcast_ref::<arrow_array::UnionArray>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(format!(
+                    "expected UnionArray for deferred column at index {}",
+                    decoder.col_idx
+                ))
+            })?;
+
+        let ffhelper = ffhelpers
+            .get(&decoder.canonical.indexrelid)
+            .ok_or_else(|| {
+                DataFusionError::Execution(format!(
+                    "missing FFHelper for relation ID {}",
+                    decoder.canonical.indexrelid
+                ))
+            })?;
+
+        // Replace the raw UnionArray with the decoded String/Binary array
+        output_columns[decoder.col_idx] = materialize_deferred_column(
+            ffhelper,
+            union_array,
+            decoder.canonical.ff_index,
+            decoder.is_bytes,
+            num_rows,
+        )?;
+    }
+
+    RecordBatch::try_new(schema.clone(), output_columns)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+}
+
+/// Materializes deferred union values into their original text or bytes representation.
+///
+/// This function converts a 3-way `UnionArray` (containing either a packed `DocAddress`,
+/// `TermOrdinal`s, or already-materialized strings) into an Arrow `ArrayRef` matching the
+/// requested String or Binary view array type. To maximize efficiency, it groups requests
+/// by segment, sorts them for sequential dictionary access, fetches materialized columns
+/// per segment, and then uses Arrow's `interleave` to reconstruct the data in the
+/// original input row order.
+fn materialize_deferred_column(
+    ffhelper: &FFHelper,
+    union_array: &UnionArray,
+    ff_index: usize,
+    is_bytes: bool,
+    num_rows: usize,
+) -> Result<ArrayRef> {
+    // Dense union: each child is compact (contains only its type's rows).
+    // Partition original row indices by type, then iterate compact children.
+    let type_ids = union_array.type_ids();
+    let offsets = union_array.offsets().ok_or_else(|| {
+        DataFusionError::Execution("expected dense union with offsets in deferred column".into())
+    })?;
+
+    let mut state_0_rows: Vec<usize> = Vec::new();
+    let mut state_1_rows: Vec<usize> = Vec::new();
+    let mut state_2_rows: Vec<usize> = Vec::new();
+    for row in 0..num_rows {
+        match type_ids[row] {
+            0 => state_0_rows.push(row),
+            1 => state_1_rows.push(row),
+            2 => state_2_rows.push(row),
+            _ => unreachable!("Invalid Union State"),
+        }
+    }
+
+    // 1. Group requests by segment ordinal to process one segment at a time.
+    let mut state_0_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, DocId)>> =
+        crate::api::HashMap::default();
+    if !state_0_rows.is_empty() {
+        let doc_address_child = union_array
+            .child(0)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(
+                    "expected UInt64Array for doc_address child in deferred union".into(),
+                )
+            })?;
+        for &row in &state_0_rows {
+            let packed = doc_address_child.value(offsets[row] as usize);
+            let (seg_ord, doc_id) = unpack_doc_address(packed);
+            state_0_by_seg
+                .entry(seg_ord)
+                .or_default()
+                .push((row, doc_id));
+        }
+    }
+
+    let mut state_1_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, Option<TermOrdinal>)>> =
+        crate::api::HashMap::default();
+    if !state_1_rows.is_empty() {
+        let term_ord_child = union_array
+            .child(1)
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .ok_or_else(|| {
+                DataFusionError::Execution(
+                    "expected StructArray for term_ord child in deferred union".into(),
+                )
+            })?;
+        let seg_ord_array = term_ord_child
+            .column(0)
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution("expected UInt32Array for seg_ord column".into())
+            })?;
+        let ord_array = term_ord_child
+            .column(1)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Execution("expected UInt64Array for term_ord column".into())
+            })?;
+
+        for &row in &state_1_rows {
+            let ci = offsets[row] as usize;
+            let seg_ord = seg_ord_array.value(ci);
+            let term_ord = if ord_array.is_null(ci) {
+                None
+            } else {
+                Some(ord_array.value(ci))
+            };
+            state_1_by_seg
+                .entry(seg_ord)
+                .or_default()
+                .push((row, term_ord));
+        }
+    }
+
+    let mut segment_arrays: Vec<ArrayRef> = Vec::new();
+    let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
+
+    // Map pre-materialized rows (State 2) directly from the compact child.
+    if !state_2_rows.is_empty() {
+        let materialized_child = union_array.child(2);
+        segment_arrays.push(materialized_child.clone());
+        let array_idx = 0;
+        for &row_idx in &state_2_rows {
+            indices[row_idx] = (array_idx, offsets[row_idx] as usize);
+        }
+    }
+
+    // Helper closure to handle Step 3 and Step 4 cleanly for both State 0 and State 1
+    let mut process_ordinals =
+        |seg_ord: SegmentOrdinal, rows: Vec<(usize, Option<TermOrdinal>)>| -> Result<()> {
+            let ords: Vec<Option<TermOrdinal>> = rows.iter().map(|(_, ord)| *ord).collect();
+            let ords_array = UInt64Array::from(ords);
+
+            // 3. Perform a bulk dictionary lookup for the entire segment.
+            let array = if is_bytes {
+                if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
+                    ords_to_bytes_array(bytes_col.clone(), &ords_array)
+                } else {
+                    return Err(DataFusionError::Execution(format!(
+                        "Expected Bytes column for index {}",
+                        ff_index
+                    )));
+                }
+            } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
+                ords_to_string_array(str_col.clone(), &ords_array)
+            } else {
+                return Err(DataFusionError::Execution(format!(
+                    "Expected Text column for index {}",
+                    ff_index
+                )));
+            }?;
+
+            segment_arrays.push(array);
+            let array_idx = segment_arrays.len() - 1;
+
+            // 4. Map the sorted, segment-local results back to their original row indices
+            // in the global `RecordBatch` for interleaving.
+            for (idx_within_segment, (original_row_idx, _)) in rows.into_iter().enumerate() {
+                indices[original_row_idx] = (array_idx, idx_within_segment);
+            }
+            Ok(())
+        };
+
+    // Sort seg_ords to ensure deterministic behavior across executions.
+    let mut seg_ords_0: Vec<SegmentOrdinal> = state_0_by_seg.keys().copied().collect();
+    seg_ords_0.sort_unstable();
+
+    for seg_ord in seg_ords_0 {
+        let rows = state_0_by_seg.remove(&seg_ord).ok_or_else(|| {
+            DataFusionError::Execution(format!("Segment {} missing from state 0 map", seg_ord))
+        })?;
+
+        let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
+        let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; ids.len()];
+
+        if is_bytes {
+            if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
+                bytes_col.ords().first_vals(&ids, &mut term_ords);
+            }
+        } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
+            str_col.ords().first_vals(&ids, &mut term_ords);
+        }
+
+        let rows_with_ords: Vec<_> = rows
+            .into_iter()
+            .zip(term_ords)
+            .map(|((row_idx, _), ord)| (row_idx, ord))
+            .collect();
+
+        process_ordinals(seg_ord, rows_with_ords)?;
+    }
+
+    let mut seg_ords_1: Vec<SegmentOrdinal> = state_1_by_seg.keys().copied().collect();
+    seg_ords_1.sort_unstable();
+
+    for seg_ord in seg_ords_1 {
+        let rows = state_1_by_seg.remove(&seg_ord).ok_or_else(|| {
+            DataFusionError::Execution(format!("Segment {} missing from state 1 map", seg_ord))
+        })?;
+
+        process_ordinals(seg_ord, rows)?;
+    }
+
+    if segment_arrays.is_empty() {
+        // All rows were somehow unhandled — return a null array of the right type.
+        return Ok(new_null_array(
+            &if is_bytes {
+                DataType::BinaryView
+            } else {
+                DataType::Utf8View
+            },
+            num_rows,
+        ));
+    }
+
+    // 5. Use Arrow's interleave to perform zero-copy (for views) reassembly of the
+    // segment arrays into the final array matching the original row order.
+    let segment_arrays_refs: Vec<&dyn arrow_array::Array> =
+        segment_arrays.iter().map(|a| a.as_ref()).collect();
+    interleave(&segment_arrays_refs, &indices)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+}

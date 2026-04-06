@@ -17,15 +17,46 @@
 
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
+use crate::postgres::customscan::joinscan::build::RelNode;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
 
+/// TopK sort+limit info pushed into the DataFusion aggregate plan.
+/// Allows DataFusion to handle ORDER BY aggregate + LIMIT internally.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PrivateData {
-    pub indexrelid: pg_sys::Oid,
-    pub heap_rti: pg_sys::Index,
-    pub aggregate_clause: AggregateCSClause,
+pub struct DataFusionTopK {
+    /// Index into `JoinAggregateTargetList.aggregates` for the sort target.
+    pub sort_agg_idx: usize,
+    pub direction: crate::api::SortDirection,
+    /// Maximum number of rows to return (LIMIT + OFFSET).
+    pub k: usize,
+}
+
+/// Private data serialized between planning and execution for AggregateScan.
+///
+/// The `Tantivy` variant is the existing single-table path. The `DataFusion`
+/// variant is the new join aggregate path (and single-table fallback when
+/// Tantivy bucket limits are exceeded).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum PrivateData {
+    /// Existing single-table Tantivy aggregation path.
+    Tantivy {
+        indexrelid: pg_sys::Oid,
+        heap_rti: pg_sys::Index,
+        aggregate_clause: Box<AggregateCSClause>,
+    },
+
+    /// New DataFusion-backed aggregation path (for JOINs).
+    DataFusion {
+        /// The join tree (Scan/Join/Filter nodes).
+        plan: RelNode,
+        /// The aggregate target list (GROUP BY columns + aggregate functions).
+        targetlist: JoinAggregateTargetList,
+        /// Optional TopK sort+limit pushed down from Postgres.
+        topk: Option<DataFusionTopK>,
+    },
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

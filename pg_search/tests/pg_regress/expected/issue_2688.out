@@ -45,6 +45,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
  id |   title    |                          valid_period                           
 ----+------------+-----------------------------------------------------------------
   1 | Product 1  | ["Mon Jan 02 00:00:00 2023 PST","Thu Feb 02 00:00:00 2023 PST")
@@ -65,12 +66,13 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: valid_period
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState
@@ -83,6 +85,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY quantity_range
 LIMIT 10;
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
  id |   title    | quantity_range 
 ----+------------+----------------
  10 | Product 10 | [0,10)
@@ -103,12 +106,13 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY quantity_range
 LIMIT 10;
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: quantity_range
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState
@@ -121,6 +125,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY quantity_range, valid_period
 LIMIT 10;
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
  id |   title    | quantity_range |                          valid_period                           
 ----+------------+----------------+-----------------------------------------------------------------
  10 | Product 10 | [0,10)         | ["Wed Jan 11 00:00:00 2023 PST","Sat Feb 11 00:00:00 2023 PST")
@@ -141,12 +146,13 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY quantity_range, valid_period
 LIMIT 10;
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: quantity_range, valid_period
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState
@@ -159,6 +165,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price ASC, valid_period ASC
 LIMIT 10;
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
  id |   title    |  price   |                          valid_period                           
 ----+------------+----------+-----------------------------------------------------------------
   1 | Product 1  |  1000.00 | ["Mon Jan 02 00:00:00 2023 PST","Thu Feb 02 00:00:00 2023 PST")
@@ -179,12 +186,13 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price ASC, valid_period ASC
 LIMIT 10;
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (1 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: price, valid_period
-         ->  Custom Scan (ParadeDB Scan) on data_records
+         ->  Custom Scan (ParadeDB Base Scan) on data_records
                Table: data_records
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState

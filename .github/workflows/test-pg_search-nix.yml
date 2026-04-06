@@ -1,0 +1,80 @@
+# workflows/test-pg_search-nix.yml
+#
+# Test pg_search (Nix)
+# Test building and running the ParadeDB Docker Image using Determinate Nix.
+
+name: Test pg_search (Nix)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - 0.*.x # Release branches
+      - moe/** # Temporary: trigger CI on stacked PR chain
+    paths:
+      - ".github/workflows/test-pg_search-nix.yml"
+      - "nix/**"
+      - "tokenizers/Cargo.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "flake.nix"
+      - "flake.lock"
+  workflow_dispatch:
+
+concurrency:
+  group: test-pg_search-nix-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  nix-cargo-hash-check:
+    name: Verify Nix Cargo Hash
+    runs-on: ubuntu-latest
+    env:
+      PG_MAJOR_VERSION: "18"
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/determinate-nix-action@main
+
+      # This Action uses GitHub Actions' built-in cache to speed up Nix-related CI workflows
+      - name: Use Magic Nix Cache Action
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      # Build only cargo deps to surface cargoHash mismatches quickly, without
+      # compiling pg_search for every Postgres variant. If the hash is stale,
+      # compute the correct one and push a fix commit to the PR branch.
+      # The push uses PARADEDB_BOT_GITHUB_TOKEN (a PAT) so that GitHub fires a
+      # synchronize event, which re-triggers all CI workflows on the new HEAD.
+      # Pushes made with the default GITHUB_TOKEN do not fire events.
+      - name: Verify Nix Cargo Hash
+        run: |
+          if ! nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps" 2>/dev/null; then
+            echo "cargoHash mismatch detected, computing correct hash..."
+            chmod +x scripts/update-nix-cargo-hash.sh
+            scripts/update-nix-cargo-hash.sh "${{ env.PG_MAJOR_VERSION }}"
+
+            if git diff --quiet nix/pg_search.nix; then
+              echo "::error::cargoHash mismatch but auto-update failed"
+              exit 1
+            fi
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add nix/pg_search.nix
+            git commit -m "fix: update nix cargoHash for changed Cargo.lock"
+            git push
+            echo "::error::cargoHash was outdated and has been auto-fixed. CI will re-run on the updated commit."
+            exit 1
+          else
+            echo "cargoHash is correct"
+          fi

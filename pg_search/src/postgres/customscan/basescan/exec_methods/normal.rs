@@ -17,8 +17,6 @@
 
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::is_block_all_visible;
-use crate::postgres::customscan::basescan::parallel::checkout_segment;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
@@ -29,12 +27,8 @@ pub struct NormalScanExecState {
     can_use_visibility_map: bool,
     heaprel: Option<PgSearchRelation>,
     slot: *mut pg_sys::TupleTableSlot,
-    vmbuff: pg_sys::Buffer,
 
     search_results: Option<MultiSegmentSearchResults>,
-
-    // tracks our previous block visibility so we can elide checking again
-    blockvis: (pg_sys::BlockNumber, bool),
 
     did_query: bool,
 }
@@ -45,25 +39,12 @@ impl Default for NormalScanExecState {
             can_use_visibility_map: false,
             heaprel: None,
             slot: std::ptr::null_mut(),
-            vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
             search_results: None,
-            blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
         }
     }
 }
 
-impl Drop for NormalScanExecState {
-    fn drop(&mut self) {
-        unsafe {
-            if crate::postgres::utils::IsTransactionState()
-                && self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
-            {
-                pg_sys::ReleaseBuffer(self.vmbuff);
-            }
-        }
-    }
-}
 impl ExecMethod for NormalScanExecState {
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
         unsafe {
@@ -72,49 +53,40 @@ impl ExecMethod for NormalScanExecState {
                 (*cstate).ss.ps.ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );
-            self.can_use_visibility_map = state.targetlist_len == 0;
+            // Use the visibility map only when we have no columns to project AND no
+            // executor-level quals (e.g. RLS SubPlan expressions). Virtual slots lack
+            // the full scan tuple descriptor that ExecQual requires.
+            self.can_use_visibility_map =
+                state.targetlist_len == 0 && (*cstate).ss.ps.qual.is_null();
         }
     }
 
     fn uses_visibility_map(&self, state: &BaseScanState) -> bool {
-        // if we don't return any actual fields, then we'll use the visibility map
         state.targetlist_len == 0
     }
 
     fn query(&mut self, state: &mut BaseScanState) -> bool {
-        if let Some(parallel_state) = state.parallel_state {
-            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                self.search_results = Some(
-                    state
-                        .search_reader
-                        .as_ref()
-                        .unwrap()
-                        .search_segments([segment_id].into_iter()),
-                );
-                return true;
-            }
+        if self.did_query {
+            return false;
+        }
 
-            // no more segments to query
-            self.search_results = None;
-            false
-        } else if self.did_query {
-            // not parallel, so we're done
-            false
+        let search_reader = state.search_reader.as_ref().unwrap();
+
+        self.search_results = if let Some(parallel_state) = state.parallel_state {
+            // NormalScanExecState evaluates isolated batches directly, so it does not participate
+            // in global statistics planning for `estimated_rows`. Thus, we pass 0 here.
+            Some(search_reader.search_lazy(parallel_state, 0))
         } else {
             // not parallel, first time query
-            self.do_query(state);
-            self.did_query = true;
-            true
-        }
-    }
-
-    fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
-        let Some(search_results) = self.search_results.as_mut() else {
-            return ExecState::Eof;
+            Some(search_reader.search())
         };
 
-        match search_results.next() {
-            // no more rows
+        self.did_query = true;
+        true
+    }
+
+    fn internal_next(&mut self, state: &mut BaseScanState) -> ExecState {
+        match self.search_results.as_mut().and_then(|r| r.next()) {
             None => ExecState::Eof,
 
             // we have a row, and we're set up such that we can check it with the visibility map
@@ -123,21 +95,11 @@ impl ExecMethod for NormalScanExecState {
                 u64_to_item_pointer(scored.ctid, &mut tid);
 
                 let blockno = item_pointer_get_block_number(&tid);
-                let is_visible = if blockno == self.blockvis.0 {
-                    // we know the visibility of this block because we just checked it last time
-                    self.blockvis.1
-                } else {
-                    // new block so check its visibility
-                    self.blockvis.0 = blockno;
-                    self.blockvis.1 = is_block_all_visible(
-                        self.heaprel
-                            .as_ref()
-                            .expect("NormalScanExecState: heaprel should be initialized"),
-                        &mut self.vmbuff,
-                        blockno,
-                    );
-                    self.blockvis.1
-                };
+                // We only use `is_block_all_visible` here to determine if we can emit a virtual
+                // tuple. If not all rows on the block are visible, we return `FromHeap`, which
+                // will cause the consumer to perform a full visibility check by fetching from
+                // the heap.
+                let is_visible = state.visibility_checker().is_block_all_visible(blockno);
 
                 if is_visible {
                     // everything on this block is visible
@@ -149,8 +111,9 @@ impl ExecMethod for NormalScanExecState {
 
                     ExecState::Virtual { slot }
                 } else {
-                    // not sure about the block visibility so the tuple requires a heap check
-                    ExecState::RequiresVisibilityCheck {
+                    // some rows on this block are not visible, so we need to fetch it from
+                    // the heap to do a proper visibility check
+                    ExecState::FromHeap {
                         ctid: scored.ctid,
                         score: scored.bm25,
                         doc_address,
@@ -158,8 +121,8 @@ impl ExecMethod for NormalScanExecState {
                 }
             },
 
-            // we have a row, but we can't use the visibility map
-            Some((scored, doc_address)) => ExecState::RequiresVisibilityCheck {
+            // otherwise we'll always fetch from the heap
+            Some((scored, doc_address)) => ExecState::FromHeap {
                 ctid: scored.ctid,
                 score: scored.bm25,
                 doc_address,
@@ -168,29 +131,7 @@ impl ExecMethod for NormalScanExecState {
     }
 
     fn reset(&mut self, _state: &mut BaseScanState) {
-        // Reset state
-        self.search_results = None;
         self.did_query = false;
-
-        // Reset the block visibility cache
-        self.blockvis = (pg_sys::InvalidBlockNumber, false);
-    }
-}
-
-impl NormalScanExecState {
-    #[inline(always)]
-    fn do_query(&mut self, state: &BaseScanState) -> bool {
-        if self.did_query {
-            return false;
-        }
-        self.search_results = Some(
-            state
-                .search_reader
-                .as_ref()
-                .expect("must have a search_reader to do a query")
-                .search(),
-        );
-        self.did_query = true;
-        true
+        self.search_results = None;
     }
 }

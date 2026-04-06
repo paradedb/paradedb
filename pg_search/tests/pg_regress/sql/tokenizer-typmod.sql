@@ -22,10 +22,16 @@ SELECT 'Running Shoes.  olé'::pdb.lindera('language=japanese')::text[]; -- erro
 SELECT 'Running Shoes.  olé'::pdb.lindera('language=korean')::text[]; -- error, needs a language
 SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'keep_whitespace=true', 'lowercase=false')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'keep_whitespace=false', 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'keep_whitespace=true', 'lowercase=false')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'keep_whitespace=false', 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'keep_whitespace=true', 'lowercase=false')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'keep_whitespace=false', 'lowercase=false')::text[];
 
 SELECT 'Running Shoes.  olé'::pdb.jieba::text[];
 SELECT 'Running Shoes.  olé'::pdb.jieba('lowercase=false')::text[];
@@ -40,6 +46,7 @@ SELECT 'Running Shoes.  olé'::pdb.ngram(2, 3, 'lowercase=false', 'stemmer=engli
 SELECT 'Running Shoes.  olé'::pdb.ngram('min=2', 'max=3', 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=arabic')::text[];
+SELECT 'Novinka počasí funguje.'::pdb.simple('stemmer=czech')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=danish')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=dutch')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=english')::text[];

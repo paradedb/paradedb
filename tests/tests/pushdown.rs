@@ -1,3 +1,20 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 mod fixtures;
 
 use fixtures::*;
@@ -779,7 +796,7 @@ mod pushdown_is_bool_operator {
 
     /// Test for issue #2433: Pushdown `bool_field IS true|false`
     /// Verifies that the SQL IS operator for boolean fields is properly
-    /// pushed down to the ParadeDB scan operator.
+    /// pushed down to the ParadeDB Base Scan operator.
     #[rstest]
     fn test_bool_is_operator_pushdown(mut conn: PgConnection) {
         r#"
@@ -808,9 +825,9 @@ mod pushdown_is_bool_operator {
     /// This test checks the behavior of complex expressions (not just simple field references)
     /// with IS TRUE/FALSE operators.
     ///
-    /// Note: Currently, complex expressions won't be pushed down to the ParadeDB scan operator.
-    /// PostgreSQL will handle the evaluation of these expressions after the scan.
-    /// We're marking this test as ignored until we implement full support for complex expressions.
+    /// Note: Complex expressions are still evaluated by PostgreSQL after the scan instead of being
+    /// pushed down into the ParadeDB Base Scan operator. Keep this ignored until complex boolean
+    /// expression pushdown is implemented end-to-end.
     #[rstest]
     #[ignore]
     fn test_complex_bool_expressions_with_is_operator(mut conn: PgConnection) {

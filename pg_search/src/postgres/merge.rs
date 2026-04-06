@@ -18,17 +18,19 @@
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
+use crate::postgres::delete::VacuumSignal;
+use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::LinkedItemList;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
-use pgrx::{check_for_interrupts, pg_sys, PgTryBuilder};
-use pgrx::{pg_guard, FromDatum, IntoDatum};
+use pgrx::{check_for_interrupts, pg_guard, pg_sys, FromDatum, IntoDatum, PgTryBuilder};
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
 use tantivy::index::SegmentMeta;
@@ -56,27 +58,30 @@ impl TryFrom<u8> for MergeStyle {
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct BackgroundMergeArgs {
     index_oid: pg_sys::Oid,
-    blockno: pg_sys::BlockNumber,
+    slot_variant: MergeSlotVariant,
 }
 
 impl BackgroundMergeArgs {
-    pub fn new(index_oid: pg_sys::Oid, blockno: pg_sys::BlockNumber) -> Self {
-        Self { index_oid, blockno }
+    pub fn new(index_oid: pg_sys::Oid, slot_variant: MergeSlotVariant) -> Self {
+        Self {
+            index_oid,
+            slot_variant,
+        }
     }
 
     pub fn index_oid(&self) -> pg_sys::Oid {
         self.index_oid
     }
 
-    pub fn blockno(&self) -> pg_sys::BlockNumber {
-        self.blockno
+    pub fn slot_variant(&self) -> MergeSlotVariant {
+        self.slot_variant
     }
 }
 
 impl IntoDatum for BackgroundMergeArgs {
     fn into_datum(self) -> Option<pg_sys::Datum> {
         let upper = u32::from(self.index_oid) as u64; // top 32 bits
-        let lower = self.blockno as u64; // bottom 32 bits
+        let lower = self.slot_variant as u64; // bottom 32 bits
         let raw: u64 = (upper << 32) | (lower & 0xFFFF_FFFF);
         Some(pg_sys::Datum::from(raw as i64))
     }
@@ -98,11 +103,11 @@ impl FromDatum for BackgroundMergeArgs {
 
         let raw = i64::from_polymorphic_datum(datum, is_null, typoid).unwrap() as u64;
         let index_oid = ((raw >> 32) & 0xFFFF_FFFF) as std::os::raw::c_uint;
-        let blockno = (raw & 0xFFFF_FFFF) as u32;
+        let slot_variant = (raw & 0xFFFF_FFFF) as u8;
 
         Some(Self {
             index_oid: index_oid.into(),
-            blockno,
+            slot_variant: slot_variant.try_into().unwrap(),
         })
     }
 }
@@ -197,10 +202,6 @@ impl IndexLayerSizes {
         self.user_configured_bg_layers
     }
 
-    fn foreground(&self) -> &[u64] {
-        &self.foreground_layer_sizes
-    }
-
     fn combined(&self) -> Vec<u64> {
         let mut combined = self.foreground_layer_sizes.clone();
         combined.extend_from_slice(&self.background_layer_sizes);
@@ -208,6 +209,24 @@ impl IndexLayerSizes {
         combined.dedup();
         combined
     }
+}
+
+/// We need backpressure if there are more than 2 mutable segments present during an insert
+#[inline]
+fn need_backpressure(style: MergeStyle, segment_metas: LinkedItemList<SegmentMetaEntry>) -> bool {
+    if style != MergeStyle::Insert {
+        return false;
+    }
+
+    let mut count = 0usize;
+    unsafe {
+        segment_metas.list(None).into_iter().for_each(|entry| {
+            if entry.visible() && entry.is_mutable() {
+                count += 1;
+            }
+        });
+    }
+    count > 2
 }
 
 /// Kick off a merge of the index, if needed.
@@ -227,8 +246,13 @@ pub unsafe fn do_merge(
 
     let layer_sizes = IndexLayerSizes::from(index);
     let metadata = MetaPage::open(index);
+
+    // apply backpressure if there are too many mutable segments
+    // this means forcing a foreground merge of the mutable segments
+    let need_backpressure = need_backpressure(style, metadata.segment_metas());
     let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
+    let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
 
     let (needs_background_merge, largest_layer_size) =
         if layer_sizes.user_configured_background_layers() {
@@ -244,20 +268,28 @@ pub unsafe fn do_merge(
             (false, 0)
         };
 
-    if needs_background_merge {
+    if needs_background_merge && !need_backpressure {
         // if we need (and think we can do) a background merge then we prefer to do that
         // we no longer need to hold the [`MergeLock`] as we're not merging in the foreground
         drop(merge_lock);
         drop(cleanup_lock);
 
         try_launch_background_merger(index, largest_layer_size);
-    } else if style == MergeStyle::Insert && !layer_sizes.foreground().is_empty() {
-        let foreground_merge_policy = LayeredMergePolicy::new(layer_sizes.foreground_layer_sizes);
+    } else if style == MergeStyle::Insert
+        && (!foreground_layer_sizes.is_empty() || need_backpressure)
+    {
+        let foreground_layer_sizes = if foreground_layer_sizes.is_empty() {
+            vec![0]
+        } else {
+            foreground_layer_sizes
+        };
+        let foreground_merge_policy = LayeredMergePolicy::new(foreground_layer_sizes);
         merge_index(
             index,
             foreground_merge_policy,
             merge_lock,
             cleanup_lock,
+            false,
             false,
             current_xid.expect("foreground merging requires a current transaction id"),
             next_xid.expect("foreground merging requires a next transaction id"),
@@ -271,10 +303,8 @@ pub unsafe fn do_merge(
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
 unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_size: u64) {
-    let maybe_blockno = MetaPage::open(index)
-        .bgmerger()
-        .can_start(largest_layer_size);
-    if maybe_blockno.is_none() {
+    let slot = MergeSlot::for_layer_size(index.oid(), largest_layer_size);
+    if !slot.is_available() {
         return;
     }
 
@@ -293,7 +323,7 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(BackgroundMergeArgs::new(index.oid(), maybe_blockno.unwrap()).into_datum())
+        .set_argument(BackgroundMergeArgs::new(index.oid(), slot.variant()).into_datum())
         .set_extra(&dbname)
         .load_dynamic()
         .is_err()
@@ -333,10 +363,12 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             return;
         }
         let index = index.unwrap();
-        let sentinel_buffer = MetaPage::open(&index)
-            .bgmerger()
-            .try_starting(args.blockno());
-        if sentinel_buffer.is_none() {
+        // we allow up to 2 mergers per index: one for "small" layers and one for "large" layers
+        // this checks to see if a merger is already running for the given layer
+        let merge_slot = MergeSlot::new(index.oid(), args.slot_variant()).lock();
+        // todo: this could potentially wait instead of returning immediately if the lock is not available
+        // to avoid racing with other backends trying to probe the slot
+        if merge_slot.is_none() {
             return;
         }
         let metadata = MetaPage::open(&index);
@@ -345,6 +377,8 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
 
         let cleanup_lock = metadata.cleanup_lock_shared();
+        // this ensures there's only one merge running at a time for the given index,
+        // while the lock is held
         let merge_lock = metadata.acquire_merge_lock();
 
         PgTryBuilder::new(AssertUnwindSafe(|| {
@@ -353,6 +387,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 merge_policy,
                 merge_lock,
                 cleanup_lock,
+                true,
                 true,
                 current_xid,
                 next_xid,
@@ -363,11 +398,13 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
     merge_lock: MergeLock,
     cleanup_lock: Buffer,
+    is_background: bool,
     gc_after_merge: bool,
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
@@ -409,6 +446,11 @@ unsafe fn merge_index(
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
         for candidate in merge_candidates {
+            if is_background && VacuumSignal::new(indexrel.oid()).wants_cancel() {
+                pgrx::debug1!("VACUUM waiting, exiting merge early");
+                break;
+            }
+
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
             merge_result = merger.merge_segments(&candidate.0);
@@ -494,6 +536,87 @@ pub fn free_entries(
             .iter()
             .flat_map(move |entry| entry.freeable_blocks(indexrel)),
     );
+}
+
+// random key, ensures that this advisory slot key doesn't conflict
+// with other Postgres advisory locks
+const MERGE_SLOT_KEY_BASE: u32 = 0x5047534D;
+
+// We at most allow 2 concurrent background merges
+// The first background merge is for "small" merges, the second is for "large" merges
+// This makes it so that a long-running large merge doesn't block smaller merges from happening
+// We arbitrarily say that a merge is "large" if the largest layer size is greater than
+// or equal to this threshold
+const LARGE_MERGE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100mb
+const SLOT_BITS: u32 = 8; // slot is u8
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum MergeSlotVariant {
+    Small = 0,
+    Large = 1,
+}
+
+impl TryFrom<u8> for MergeSlotVariant {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => MergeSlotVariant::Small,
+            1 => MergeSlotVariant::Large,
+            _ => anyhow::bail!("invalid merge slot variant: {value}"),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MergeSlot {
+    index_oid: pg_sys::Oid,
+    variant: MergeSlotVariant,
+}
+
+impl MergeSlot {
+    fn new(index_oid: pg_sys::Oid, variant: MergeSlotVariant) -> Self {
+        Self { index_oid, variant }
+    }
+
+    fn for_layer_size(index_oid: pg_sys::Oid, largest_layer_size: u64) -> Self {
+        if largest_layer_size >= LARGE_MERGE_THRESHOLD {
+            MergeSlot::new(index_oid, MergeSlotVariant::Large)
+        } else {
+            MergeSlot::new(index_oid, MergeSlotVariant::Small)
+        }
+    }
+
+    fn lock(&self) -> Option<AdvisoryLock> {
+        let key = self.key();
+        AdvisoryLock::new_transaction(key)
+    }
+
+    // Checks to see if a merge is already running for the given slot
+    //
+    // NOTE: This only prevents concurrent merges from different backends,
+    // will always return true if called repeatedly from the same transaction
+    // See: https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS
+    fn is_available(&self) -> bool {
+        let key = self.key();
+        if let Some(lock) = AdvisoryLock::conditional_lock_session(key) {
+            drop(lock); // explicitly unlock immediately
+            true
+        } else {
+            false
+        }
+    }
+
+    fn key(&self) -> i64 {
+        let variant = self.variant as u8;
+        let payload = ((u32::from(self.index_oid) as u64) << SLOT_BITS) | (variant as u64);
+        ((MERGE_SLOT_KEY_BASE as i64) << 32) | (payload as i64)
+    }
+
+    fn variant(&self) -> MergeSlotVariant {
+        self.variant
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -594,19 +717,48 @@ mod tests {
 
     #[pg_test]
     fn test_background_merge_args() {
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(100), 200);
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(100), MergeSlotVariant::Large);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
 
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(0), 0);
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(0), MergeSlotVariant::Small);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
 
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), pg_sys::BlockNumber::MAX);
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), MergeSlotVariant::Large);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
+    }
+
+    #[pg_test]
+    unsafe fn test_merge_slot() {
+        let index_oid = create_index_with_layer_sizes(LayerSizes::Background("0".to_string()));
+        let small_layer = 1024;
+        let large_layer = 1024 * 1024 * 1024;
+
+        let small_slot = MergeSlot::for_layer_size(index_oid, small_layer);
+        let large_slot = MergeSlot::for_layer_size(index_oid, large_layer);
+        assert_eq!(small_slot.variant(), MergeSlotVariant::Small);
+        assert_eq!(large_slot.variant(), MergeSlotVariant::Large);
+        assert!(small_slot.is_available());
+        assert!(large_slot.is_available());
+
+        let small_locked = small_slot.lock();
+        assert!(small_locked.is_some());
+
+        let large_locked = large_slot.lock();
+        assert!(large_locked.is_some());
+
+        let pid = pg_sys::MyProcPid;
+        let cnt = Spi::get_one::<i64>(&format!(
+            "SELECT count(*)::bigint FROM pg_locks WHERE pid = {} AND locktype = 'advisory'",
+            pid
+        ))
+        .unwrap()
+        .unwrap();
+        assert_eq!(cnt, 2);
     }
 }

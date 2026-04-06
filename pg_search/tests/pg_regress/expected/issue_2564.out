@@ -1,13 +1,13 @@
--- uses the same schema as the mixed fast fields queries
-\i common/mixedff_queries_setup.sql
+-- uses the same schema as the columnar storage queries
+\i common/columnar_queries_setup.sql
 CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
--- The `mixedff` tests allow any number of columns to be used with fast fields, in order to test
+SET paradedb.enable_columnar_exec = true;
+-- The `columnar` tests allow any number of columns to be used with columnar storage, in order to test
 -- more permutations of selected columns.
-SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+SET paradedb.columnar_exec_column_threshold = 100;
 SET paradedb.enable_aggregate_custom_scan = false;
 -- Drop any existing test tables from this group
 DROP TABLE IF EXISTS documents CASCADE;
@@ -107,7 +107,7 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 -- by turning off this GUC we're forcing pg_search to choose its "NormalScanExecState", which is the method under test
-SET paradedb.enable_mixed_fast_field_exec = false;
+SET paradedb.enable_columnar_exec = false;
 -- this should return one row
 EXPLAIN (COSTS OFF) SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
 FROM documents d
@@ -117,38 +117,34 @@ WHERE d.parents @@@ 'Factures'
   AND f.title @@@ 'Receipt'
   AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Incremental Sort
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
    Sort Key: d.id, p.fileid, p.id
-   Presorted Key: d.id
-   ->  Nested Loop
-         Join Filter: (f.id = p.fileid)
-         ->  Merge Join
-               Merge Cond: (d.id = f.documentid)
-               ->  Sort
-                     Sort Key: d.id
-                     ->  Custom Scan (ParadeDB Scan) on documents d
-                           Table: documents
-                           Index: documents_search
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-               ->  Sort
-                     Sort Key: f.documentid
-                     ->  Custom Scan (ParadeDB Scan) on files f
-                           Table: files
-                           Index: files_search
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-         ->  Custom Scan (ParadeDB Scan) on pages p
-               Table: pages
-               Index: pages_search
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(29 rows)
+   ->  Hash Join
+         Hash Cond: (f.documentid = d.id)
+         ->  Nested Loop
+               Join Filter: (f.id = p.fileid)
+               ->  Custom Scan (ParadeDB Base Scan) on files f
+                     Table: files
+                     Index: files_search
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
+               ->  Custom Scan (ParadeDB Base Scan) on pages p
+                     Table: pages
+                     Index: pages_search
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
+         ->  Hash
+               ->  Custom Scan (ParadeDB Base Scan) on documents d
+                     Table: documents
+                     Index: documents_search
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
+(25 rows)
 
 SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
 FROM documents d
@@ -164,7 +160,7 @@ ORDER BY d.id, f.id, p.id;
 (1 row)
 
 -- this should return two rows
--- it's exercising "TopN" being a parameterized plan in the subselect
+-- it's exercising Top K being a parameterized plan in the subselect
 EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
        (
            SELECT f.title
@@ -179,7 +175,7 @@ ORDER BY d.id;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: d.id
-   ->  Custom Scan (ParadeDB Scan) on documents d
+   ->  Custom Scan (ParadeDB Base Scan) on documents d
          Table: documents
          Index: documents_search
          Exec Method: NormalScanExecState
@@ -187,13 +183,13 @@ ORDER BY d.id;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
          SubPlan 1
            ->  Limit
-                 ->  Custom Scan (ParadeDB Scan) on files f
+                 ->  Custom Scan (ParadeDB Base Scan) on files f
                        Table: files
                        Index: files_search
-                       Exec Method: TopNScanExecState
+                       Exec Method: TopKScanExecState
                        Scores: true
-                          TopN Order By: pdb.score() desc
-                          TopN Limit: 1
+                          TopK Order By: pdb.score() desc
+                          TopK Limit: 1
                        Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
 (18 rows)
 
@@ -216,7 +212,7 @@ ORDER BY d.id;
 -- be a good citizen
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
-\i common/mixedff_queries_cleanup.sql
+\i common/columnar_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)
 -- Drop the tables used in these tests
 DROP TABLE IF EXISTS pages CASCADE;
@@ -225,8 +221,8 @@ DROP TABLE IF EXISTS documents CASCADE;
 -- Reset parallel workers setting to default
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
-RESET paradedb.enable_mixed_fast_field_exec;
-RESET paradedb.mixed_fast_field_exec_column_threshold;
+RESET paradedb.enable_columnar_exec;
+RESET paradedb.columnar_exec_column_threshold;
 SELECT 'Relational query tests cleanup complete' AS status; 
                  status                  
 -----------------------------------------

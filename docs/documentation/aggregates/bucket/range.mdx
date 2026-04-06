@@ -6,11 +6,55 @@ canonical: https://docs.paradedb.com/documentation/aggregates/bucket/range
 
 The range aggregation counts the number of occurrences over user-defined buckets. The buckets must be continuous and cannot overlap.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"range": {"field": "rating", "ranges": [{"to": 3.0 }, {"from": 3.0, "to": 6.0} ]}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"range": {"field": "rating", "ranges": [{"to": 3.0}, {"from": 3.0, "to": 6.0}]}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(
+        pdb.agg(
+            facets.range(
+                field="rating",
+                ranges=[{"to": 3.0}, {"from": 3.0, "to": 6.0}],
+            )
+        )
+    )
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(
+          agg: ParadeDB::Aggregations.range(
+            :rating,
+            ranges: [{ to: 3.0 }, { from: 3.0, to: 6.0 }]
+          )
+        )
+```
+
+</CodeGroup>
 
 ```ini Expected Response
                                                                               agg

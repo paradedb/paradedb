@@ -1,0 +1,178 @@
+-- Tests for sort_by syntax in CREATE INDEX
+
+\i common/common_setup.sql
+
+-- SECTION 1: Basic syntax validation
+\echo '=== SECTION 1: Basic syntax validation ==='
+
+DROP TABLE IF EXISTS sort_by_test CASCADE;
+CREATE TABLE sort_by_test (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    score INTEGER,
+    created_at TIMESTAMP
+);
+
+INSERT INTO sort_by_test (name, score, created_at) VALUES
+    ('Alice', 100, '2023-01-01'),
+    ('Bob', 200, '2023-06-01'),
+    ('Charlie', 150, '2023-12-01');
+
+\echo 'Test 1.1: sort_by with id ASC'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='id ASC NULLS FIRST');
+DROP INDEX sort_by_test_idx;
+
+\echo 'Test 1.2: sort_by with id DESC'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='id DESC NULLS LAST');
+DROP INDEX sort_by_test_idx;
+
+\echo 'Test 1.3: sort_by = none (disables segment sorting)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='none');
+DROP INDEX sort_by_test_idx;
+
+\echo 'Test 1.4: Case insensitive - lowercase'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='score asc nulls first');
+DROP INDEX sort_by_test_idx;
+
+\echo 'Test 1.5: Case insensitive - mixed case'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='score Desc Nulls Last');
+DROP INDEX sort_by_test_idx;
+
+\echo 'Test 1.6: ctid field (implicit fast field)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='ctid ASC NULLS FIRST');
+DROP INDEX sort_by_test_idx;
+
+DROP TABLE sort_by_test CASCADE;
+
+-- SECTION 2: Default behavior (no sort_by specified)
+\echo '=== SECTION 2: Default behavior ==='
+
+DROP TABLE IF EXISTS sort_by_test CASCADE;
+CREATE TABLE sort_by_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    score INTEGER
+);
+
+\echo 'Test 2.1: No sort_by specified - defaults to none'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, category, score)
+    WITH (key_field='id');
+DROP INDEX sort_by_test_idx;
+
+DROP TABLE sort_by_test CASCADE;
+
+-- SECTION 3: Error cases
+\echo '=== SECTION 3: Error cases ==='
+
+DROP TABLE IF EXISTS sort_by_test CASCADE;
+CREATE TABLE sort_by_test (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    score INTEGER
+);
+
+\echo 'Test 3.1: sort_by with nonexistent field (should error)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='nonexistent ASC NULLS FIRST');
+
+\echo 'Test 3.2: sort_by with non-fast field (should error)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='name ASC NULLS FIRST');
+
+\echo 'Test 3.3: sort_by with invalid syntax (should error)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='id ASCENDING');
+
+\echo 'Test 3.4a: sort_by with ASC NULLS LAST (should error)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='id ASC NULLS LAST');
+
+\echo 'Test 3.4b: sort_by with DESC NULLS FIRST (should error)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='id DESC NULLS FIRST');
+
+\echo 'Test 3.5: sort_by with multiple fields (should error - not supported)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='score DESC NULLS LAST, id ASC NULLS FIRST');
+
+\echo 'Test 3.6: Empty string (treated as none)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='');
+DROP INDEX sort_by_test_idx;
+
+\echo 'Test 3.7: Whitespace only (should error)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='   ');
+
+DROP TABLE sort_by_test CASCADE;
+
+-- SECTION 4: Different field types
+\echo '=== SECTION 4: Different field types ==='
+
+DROP TABLE IF EXISTS sort_by_types_test CASCADE;
+CREATE TABLE sort_by_types_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    ts_val TIMESTAMP,
+    real_val REAL,
+    bigint_val BIGINT
+);
+
+\echo 'Test 4.1: sort_by with TIMESTAMP field'
+CREATE INDEX sort_by_types_test_idx ON sort_by_types_test
+    USING bm25 (id, category, ts_val, real_val, bigint_val)
+    WITH (key_field='id', sort_by='ts_val DESC NULLS LAST');
+DROP INDEX sort_by_types_test_idx;
+
+\echo 'Test 4.2: sort_by with REAL field'
+CREATE INDEX sort_by_types_test_idx ON sort_by_types_test
+    USING bm25 (id, category, ts_val, real_val, bigint_val)
+    WITH (key_field='id', sort_by='real_val ASC NULLS FIRST');
+DROP INDEX sort_by_types_test_idx;
+
+\echo 'Test 4.3: sort_by with BIGINT field'
+CREATE INDEX sort_by_types_test_idx ON sort_by_types_test
+    USING bm25 (id, category, ts_val, real_val, bigint_val)
+    WITH (key_field='id', sort_by='bigint_val DESC NULLS LAST');
+DROP INDEX sort_by_types_test_idx;
+
+DROP TABLE sort_by_types_test CASCADE;
+
+-- SECTION 5: Field naming
+\echo '=== SECTION 5: Field naming ==='
+
+\echo 'Test 5.1: Composite TYPE field'
+DROP TYPE IF EXISTS order_key CASCADE;
+CREATE TYPE order_key AS (cust_id INTEGER, order_dt DATE);
+CREATE TABLE sort_by_composite (id SERIAL PRIMARY KEY, cust_id INTEGER, order_dt DATE);
+CREATE INDEX idx ON sort_by_composite USING bm25 (id, (ROW(cust_id, order_dt)::order_key))
+    WITH (key_field='id', sort_by='cust_id ASC NULLS FIRST');
+DROP TABLE sort_by_composite CASCADE;
+DROP TYPE order_key CASCADE;
+
+\echo 'Test 5.2: pdb.alias expression'
+CREATE TABLE sort_by_alias (id SERIAL PRIMARY KEY, price INTEGER, qty INTEGER);
+CREATE INDEX idx ON sort_by_alias USING bm25 (id, ((price * qty)::pdb.alias('total')))
+    WITH (key_field='id', sort_by='total DESC NULLS LAST');
+DROP TABLE sort_by_alias CASCADE;

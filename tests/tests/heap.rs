@@ -54,11 +54,6 @@ fn mvcc_heap_filter(mut conn: PgConnection) {
 
 #[rstest]
 fn mvcc_snippet(mut conn: PgConnection) {
-    if pg_major_version(&mut conn) <= 14 {
-        // TODO: See https://github.com/paradedb/paradedb/issues/3358.
-        return;
-    }
-
     r#"
         CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
         

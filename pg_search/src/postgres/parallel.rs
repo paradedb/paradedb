@@ -36,10 +36,10 @@ pub unsafe extern "C-unwind" fn amparallelrescan(scan: pg_sys::IndexScanDesc) {
     }
 }
 
-#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
+#[cfg(any(feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amestimateparallelscan() -> pg_sys::Size {
-    ParallelScanState::size_of(u16::MAX as usize, &[], false)
+    ParallelScanState::size_of(&[u16::MAX as usize], 0, &[], false)
 }
 
 #[cfg(feature = "pg17")]
@@ -51,7 +51,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     // NB:  in this function, we have no idea how many segments we have.  We don't even know which
     // index we're querying.  So we choose a, hopefully, large enough value at 65536, or u16::MAX
     // TODO: This will result in a ~1MB allocation.
-    ParallelScanState::size_of(u16::MAX as usize, &[], false)
+    ParallelScanState::size_of(&[u16::MAX as usize], 0, &[], false)
 }
 
 #[cfg(feature = "pg18")]
@@ -68,7 +68,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     } else {
         crate::postgres::options::BM25IndexOptions::from_relation(rel).target_segment_count()
     };
-    ParallelScanState::size_of(nsegments, &[], false)
+    ParallelScanState::size_of(&[nsegments], 0, &[], false)
 }
 
 unsafe fn bm25_shared_state(
@@ -80,7 +80,7 @@ unsafe fn bm25_shared_state(
         scan.parallel_scan
             .cast::<std::ffi::c_void>()
             .add({
-                #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+                #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                 {
                     (*scan.parallel_scan).ps_offset
                 }
@@ -113,7 +113,7 @@ pub unsafe fn maybe_init_parallel_scan(
     let _mutex = state.acquire_mutex();
 
     if !state.is_initialized() {
-        state.populate(searcher.segment_readers(), &[], false);
+        state.populate(&[searcher.segment_readers()], 0, &[], false);
     }
     Some(unsafe { pg_sys::ParallelWorkerNumber })
 }

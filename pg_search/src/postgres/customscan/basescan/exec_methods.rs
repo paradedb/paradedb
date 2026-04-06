@@ -17,21 +17,28 @@
 
 pub(crate) mod fast_fields;
 pub(crate) mod normal;
-pub(crate) mod top_n;
+pub(crate) mod top_k;
 
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use pgrx::pg_sys;
 use tantivy::{DocAddress, Score};
 
 pub enum ExecState {
-    RequiresVisibilityCheck {
+    /// Causes a tuple to be fetched from the heap, which will implicitly cause it to be visibility
+    /// checked.
+    FromHeap {
         ctid: u64,
         score: Score,
         doc_address: DocAddress,
     },
-    Virtual {
-        slot: *mut pg_sys::TupleTableSlot,
-    },
+    /// Produces the given tuple directly.
+    ///
+    /// NOTE: A virtual tuple must already be MVCC-correct, as the consumer of ExecState does not
+    /// do any further checking. If it corresponds to a heap-tuple, and has been produced via a
+    /// covering index scan like the Columnar scan, then it should already have been proven
+    /// visible via the visibility map or our VisibilityChecker.
+    Virtual { slot: *mut pg_sys::TupleTableSlot },
+    /// Indicates that there are no more tuples available.
     Eof,
 }
 
@@ -51,7 +58,7 @@ pub trait ExecMethod {
         self.reset(state)
     }
 
-    fn uses_visibility_map(&self, state: &BaseScanState) -> bool {
+    fn uses_visibility_map(&self, _state: &BaseScanState) -> bool {
         true
     }
 

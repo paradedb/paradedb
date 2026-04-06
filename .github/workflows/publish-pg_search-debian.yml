@@ -140,6 +140,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false # Disable cache on publish workflows
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       # Note: We need to specify bash as the shell to ensure that it doesn't default to /bin/sh on Debian, since
       # /bin/sh does not support the `[[` syntax.
@@ -239,7 +240,7 @@ jobs:
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
       - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
@@ -275,4 +276,4 @@ jobs:
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           MESSAGE="<!here> \`publish-pg_search-debian\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
-          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

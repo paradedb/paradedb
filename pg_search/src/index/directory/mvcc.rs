@@ -127,6 +127,7 @@ pub struct MVCCDirectory {
     all_entries: Arc<Mutex<HashMap<SegmentId, LoadedSegmentMetaEntry>>>,
     pin_cushion: Arc<Mutex<Option<PinCushion>>>,
     total_segment_count: Arc<AtomicUsize>,
+    total_docs: Arc<AtomicUsize>,
     heap_fetch_state: Arc<OnceLock<HeapFetchState>>,
     expression_state: Arc<OnceLock<ExpressionState>>,
 }
@@ -153,6 +154,7 @@ impl MVCCDirectory {
             pin_cushion: Default::default(),
             all_entries: Default::default(),
             total_segment_count: Default::default(),
+            total_docs: Default::default(),
             heap_fetch_state: Default::default(),
             expression_state: Default::default(),
         }
@@ -281,6 +283,10 @@ impl MVCCDirectory {
     /// segments rather than `1` (one).
     pub(crate) fn total_segment_count(&self) -> Arc<AtomicUsize> {
         self.total_segment_count.clone()
+    }
+
+    pub(crate) fn total_docs(&self) -> Arc<AtomicUsize> {
+        self.total_docs.clone()
     }
 }
 
@@ -504,6 +510,7 @@ impl Directory for MVCCDirectory {
                     *self.pin_cushion.lock() = Some(loaded.pin_cushion);
                     self.total_segment_count
                         .store(loaded.total_segments, Ordering::Relaxed);
+                    self.total_docs.store(loaded.total_docs, Ordering::Relaxed);
                     Ok(loaded.meta)
                 }
             }
@@ -639,6 +646,20 @@ pub fn index_memory_segment(
     let mut isnull = vec![false; heaptupdesc.len()];
 
     'next_ctid: for ctid in ctids {
+        // Guard against stale ctids referencing heap blocks truncated by VACUUM.
+        if !unsafe {
+            crate::postgres::utils::ctid_satisfies_nblocks(
+                ctid,
+                heaprel.as_ptr(),
+                heaprel.fork_number(),
+            )
+        } {
+            writer.insert(tantivy::TantivyDocument::new(), ctid, || {
+                unreachable!("No limits configured: should not finalize.")
+            })?;
+            continue 'next_ctid;
+        }
+
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
 
@@ -811,7 +832,6 @@ mod tests {
         let SegmentMetaEntryContent::Immutable(entry) = entry.content else {
             todo!("test_list_meta_entries");
         };
-        assert!(entry.store.is_some());
         assert!(entry.field_norms.is_some());
         assert!(entry.fast_fields.is_some());
         assert!(entry.postings.is_some());

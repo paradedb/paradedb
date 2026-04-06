@@ -15,27 +15,42 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::datetime::MICROSECONDS_IN_SECOND;
 
 use arrow_array::cast::AsArray;
 use arrow_array::Array;
 use arrow_schema::DataType;
+use decimal_bytes::{Decimal, Decimal64NoScale};
 use pgrx::pg_sys;
-use pgrx::{datum, AnyNumeric, IntoDatum, PgBuiltInOids, PgOid};
+use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 
 /// Get a value of the given type from the given index/row of the given array.
 ///
 /// This effectively inlines `TantivyValue::try_into_datum` in order to avoid creating both
 /// `OwnedValue` and `TantivyValue` wrappers around primitives (but particularly around strings).
+///
+/// The input Arrow arrays have types corresponding to "widened" storage types (see
+/// [`WhichFastField`](crate::index::fast_fields_helper::WhichFastField)). This function is
+/// responsible for converting those widened types (e.g. `Utf8View`) back into specific
+/// Postgres OIDs where applicable. See the TODO on `WhichFastField` about increasing accuracy.
+///
+/// The `numeric_scale` parameter is used for `Numeric64` and `NumericBytes` fields.
+/// For `Numeric64`, the scale is used to convert scaled i64 values back to NUMERIC.
+/// For `NumericBytes`, the scale is used to format the output with proper trailing zeros.
 pub fn arrow_array_to_datum(
     array: &dyn Array,
     index: usize,
     oid: PgOid,
+    numeric_scale: Option<i16>,
 ) -> Result<Option<pg_sys::Datum>, String> {
     if array.is_null(index) {
         return Ok(None);
     }
 
+    // This switch statement primarily needs to support types which are produced by
+    // `WhichFastField`/`FFType` (including Score/TableOid which are f32/u32). We widen any
+    // narrower user types into those types. See the method docs about widening.
     let datum = match array.data_type() {
         DataType::Utf8View => {
             let arr = array.as_string_view();
@@ -61,7 +76,57 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::INETOID) => {
                     datum::Inet::from(s.to_string()).into_datum()
                 }
+
+                PgOid::Custom(custom) => {
+                    if is_citext_oid(*custom) {
+                        s.into_datum()
+                    } else {
+                        return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}"));
+                    }
+                }
                 _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Utf8 => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap();
+            let s = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
+                | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
+                _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::BinaryView => {
+            let arr = array.as_binary_view();
+            let bytes = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::BYTEAOID) => bytes.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    // Bytes are stored as Decimal::as_bytes() - convert back to AnyNumeric
+                    // via string representation since AnyNumeric implements FromStr
+                    let decimal = Decimal::from_bytes(bytes)
+                        .map_err(|e| format!("Failed to decode bytes as Decimal: {e:?}"))?;
+
+                    // Format decimal with proper scale to preserve trailing zeros
+                    let decimal_str = if let Some(scale) = numeric_scale {
+                        decimal.to_string_with_scale(scale as i32)
+                    } else {
+                        decimal.to_string()
+                    };
+
+                    decimal_str
+                        .parse::<pgrx::AnyNumeric>()
+                        .map_err(|e| format!("Failed to parse Decimal string as AnyNumeric: {e}"))?
+                        .into_datum()
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported OID for BinaryView Arrow type: {oid:?}"
+                    ))
+                }
             }
         }
         DataType::UInt64 => {
@@ -72,9 +137,16 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::OIDOID) => {
                     pgrx::pg_sys::Oid::from(val as u32).into_datum()
                 } // Cast u64 to u32 for OID
-                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::from(val).into_datum(),
                 // Consider other potential integer OIDs (INT2OID, INT4OID) if overflow is handled or guaranteed not to occur.
                 _ => return Err(format!("Unsupported OID for UInt64 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::UInt32 => {
+            let arr = array.as_primitive::<arrow_array::types::UInt32Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::OIDOID) => pgrx::pg_sys::Oid::from(val).into_datum(),
+                _ => return Err(format!("Unsupported OID for UInt32 Arrow type: {oid:?}")),
             }
         }
         DataType::Int64 => {
@@ -84,8 +156,26 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::INT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(), // Cast i64 to i32
                 PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(), // Cast i64 to i16
-                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::from(val).into_datum(),
-                _ => return Err(format!("Unsupported OID for Int64 Arrow type: {oid:?}")),
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    // Numeric64: convert scaled i64 back to NUMERIC
+                    let scale = numeric_scale.ok_or_else(|| {
+                        "NUMERICOID requires numeric_scale for Int64 conversion".to_string()
+                    })?;
+
+                    let numeric_str =
+                        Decimal64NoScale::from_raw(val).to_string_with_scale(scale as i32);
+                    numeric_str
+                        .parse::<pgrx::AnyNumeric>()
+                        .map_err(|e| format!("Failed to parse scaled i64 as AnyNumeric: {e}"))?
+                        .into_datum()
+                }
+                _ => {
+                    if let Some(res) = try_convert_timestamp_nanos_to_datum(val, &oid) {
+                        res?
+                    } else {
+                        return Err(format!("Unsupported OID for Int64 Arrow type: {oid:?}"));
+                    }
+                }
             }
         }
         DataType::Float64 => {
@@ -94,10 +184,16 @@ pub fn arrow_array_to_datum(
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(), // Cast f64 to f32
-                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::try_from(val)
-                    .map_err(|e| format!("Failed to encode: {e}"))?
-                    .into_datum(),
                 _ => return Err(format!("Unsupported OID for Float64 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Float32 => {
+            let arr = array.as_primitive::<arrow_array::types::Float32Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => val.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
+                _ => return Err(format!("Unsupported OID for Float32 Arrow type: {oid:?}")),
             }
         }
         DataType::Boolean => {
@@ -111,9 +207,32 @@ pub fn arrow_array_to_datum(
         DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None) => {
             let arr = array.as_primitive::<arrow_array::types::TimestampNanosecondType>();
             let ts_nanos = arr.value(index);
+            if let Some(res) = try_convert_timestamp_nanos_to_datum(ts_nanos, &oid) {
+                res?
+            } else {
+                return Err(format!(
+                    "Unsupported OID for TimestampNanosecond Arrow type: {oid:?}"
+                ));
+            }
+        }
+        dt => return Err(format!("Unsupported Arrow data type: {dt:?}")),
+    };
+    Ok(datum)
+}
+
+fn try_convert_timestamp_nanos_to_datum(
+    ts_nanos: i64,
+    oid: &PgOid,
+) -> Option<Result<Option<pg_sys::Datum>, String>> {
+    match &oid {
+        PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
+        | PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
+        | PgOid::BuiltIn(PgBuiltInOids::DATEOID)
+        | PgOid::BuiltIn(PgBuiltInOids::TIMEOID)
+        | PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
             let dt = ts_nanos_to_date_time(ts_nanos);
             let prim_dt = dt.into_primitive();
-            match &oid {
+            let res = match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID) => {
                     let (h, m, s, micro) = prim_dt.as_hms_micro();
                     datum::TimestampWithTimeZone::with_timezone(
@@ -125,8 +244,8 @@ pub fn arrow_array_to_datum(
                         s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
                         "UTC",
                     )
-                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
-                    .into_datum()
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))
+                    .map(|d| d.into_datum())
                 }
                 PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID) => {
                     let (h, m, s, micro) = prim_dt.as_hms_micro();
@@ -138,13 +257,13 @@ pub fn arrow_array_to_datum(
                         m,
                         s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
                     )
-                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
-                    .into_datum()
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))
+                    .map(|d| d.into_datum())
                 }
                 PgOid::BuiltIn(PgBuiltInOids::DATEOID) => {
                     datum::Date::new(prim_dt.year(), prim_dt.month().into(), prim_dt.day())
-                        .map_err(|e| format!("Failed to convert timestamp: {e}"))?
-                        .into_datum()
+                        .map_err(|e| format!("Failed to convert timestamp: {e}"))
+                        .map(|d| d.into_datum())
                 }
                 PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
                     let (h, m, s, micro) = prim_dt.as_hms_micro();
@@ -153,8 +272,8 @@ pub fn arrow_array_to_datum(
                         m,
                         s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
                     )
-                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
-                    .into_datum()
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))
+                    .map(|d| d.into_datum())
                 }
                 PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
                     let (h, m, s, micro) = prim_dt.as_hms_micro();
@@ -164,19 +283,15 @@ pub fn arrow_array_to_datum(
                         s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
                         "UTC",
                     )
-                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
-                    .into_datum()
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))
+                    .map(|d| d.into_datum())
                 }
-                _ => {
-                    return Err(format!(
-                        "Unsupported OID for TimestampNanosecond Arrow type: {oid:?}"
-                    ))
-                }
-            }
+                _ => unreachable!(),
+            };
+            Some(res)
         }
-        dt => return Err(format!("Unsupported Arrow data type: {dt:?}")),
-    };
-    Ok(datum)
+        _ => None,
+    }
 }
 
 pub fn ts_nanos_to_date_time(ts_nanos: i64) -> tantivy::DateTime {
@@ -187,10 +302,71 @@ pub fn date_time_to_ts_nanos(date_time: tantivy::DateTime) -> i64 {
     date_time.into_timestamp_nanos()
 }
 
+// ---------------------------------------------------------------------------
+// Type mapping helpers (used by PgExprUdf for expression DISTINCT support)
+// ---------------------------------------------------------------------------
+
+/// Returns true if this PG type OID can be converted to an Arrow array
+/// by the `eval_expr_to_arrow!` macro. Used at planning time to decline JoinScan
+/// for unsupported expression result types, falling back to native PG.
+pub fn is_arrow_convertible(type_oid: pg_sys::Oid) -> bool {
+    matches!(
+        type_oid,
+        pg_sys::BOOLOID
+            | pg_sys::INT2OID
+            | pg_sys::INT4OID
+            | pg_sys::INT8OID
+            | pg_sys::FLOAT4OID
+            | pg_sys::FLOAT8OID
+            | pg_sys::TEXTOID
+            | pg_sys::VARCHAROID
+            | pg_sys::NAMEOID
+    )
+}
+
+/// Arrow DataType for UDF INPUTS — matches what Tantivy fast fields produce.
+/// Tantivy widens Int16/Int32 → Int64 and Float32 → Float64.
+pub fn pg_type_to_tantivy_arrow(type_oid: pg_sys::Oid) -> DataType {
+    match type_oid {
+        pg_sys::BOOLOID => DataType::Boolean,
+        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => DataType::Int64,
+        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => DataType::Float64,
+        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
+        pg_sys::TIMESTAMPOID => DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+        pg_sys::TIMESTAMPTZOID => {
+            DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("UTC".into()))
+        }
+        pg_sys::DATEOID => DataType::Date32,
+        _ => DataType::Utf8,
+    }
+}
+
+/// Arrow DataType for UDF OUTPUTS — preserves the PG expression result type
+/// without Tantivy widening.
+pub fn pg_type_to_arrow(type_oid: pg_sys::Oid) -> DataType {
+    match type_oid {
+        pg_sys::BOOLOID => DataType::Boolean,
+        pg_sys::INT2OID => DataType::Int16,
+        pg_sys::INT4OID => DataType::Int32,
+        pg_sys::INT8OID => DataType::Int64,
+        pg_sys::FLOAT4OID => DataType::Float32,
+        pg_sys::FLOAT8OID => DataType::Float64,
+        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
+        pg_sys::TIMESTAMPOID => DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+        pg_sys::TIMESTAMPTZOID => {
+            DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("UTC".into()))
+        }
+        pg_sys::DATEOID => DataType::Date32,
+        _ => DataType::Utf8,
+    }
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+
+    use crate::postgres::datetime::{MAX_SAFE_TANTIVY_NANOS, MIN_SAFE_TANTIVY_NANOS};
 
     use std::sync::Arc;
 
@@ -203,6 +379,7 @@ mod tests {
     use arrow_array::Array;
     use pgrx::datum::{Date, Time, TimeWithTimeZone, Timestamp, TimestampWithTimeZone};
     use pgrx::pg_test;
+    use pgrx::Spi;
     use proptest::prelude::*;
     use serde_json::Value as JsonValue;
 
@@ -226,7 +403,7 @@ mod tests {
         R::Error: std::fmt::Debug,
     {
         let array = create_array(original_val.clone());
-        let datum = arrow_array_to_datum(&array, 0, oid).unwrap().unwrap();
+        let datum = arrow_array_to_datum(&array, 0, oid, None).unwrap().unwrap();
         let converted_val = unsafe { TantivyValue::try_from_datum(datum, oid) }.unwrap();
         let expected_val: TantivyValue = create_expected_value(original_val).try_into().unwrap();
         assert_eq!(expected_val, converted_val);
@@ -258,10 +435,86 @@ mod tests {
                 let oid_i16 = PgOid::from(PgBuiltInOids::INT2OID.value());
                 test_conversion_roundtrip(original_val, create_int64_array, oid_i16, |v| v as i16);
             }
+        });
+    }
+    fn do_test_arrow_int64_as_timestamp_to_datum(original_nanos: i64) {
+        let create_ts_array = |v: i64| {
+            let mut builder = Int64Builder::with_capacity(1);
+            builder.append_value(v);
+            Arc::new(builder.finish()) as Arc<dyn Array>
+        };
 
-            // Test NUMERICOID
-            let oid_numeric = PgOid::from(PgBuiltInOids::NUMERICOID.value());
-            test_conversion_roundtrip(original_val, create_int64_array, oid_numeric, AnyNumeric::from);
+        let pdt = ts_nanos_to_date_time(original_nanos).into_primitive();
+
+        // Test TIMESTAMPTZOID
+        let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamptz, |_| {
+            TimestampWithTimeZone::with_timezone(
+                pdt.year(),
+                pdt.month().into(),
+                pdt.day(),
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+                "UTC",
+            )
+            .unwrap()
+        });
+
+        // Test TIMESTAMPOID
+        let oid_timestamp = PgOid::from(PgBuiltInOids::TIMESTAMPOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamp, |_| {
+            Timestamp::new(
+                pdt.year(),
+                pdt.month().into(),
+                pdt.day(),
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+            )
+            .unwrap()
+        });
+
+        // Test DATEOID
+        let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_date, |_| {
+            Date::new(pdt.year(), pdt.month().into(), pdt.day()).unwrap()
+        });
+
+        // Test TIMEOID
+        let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_time, |_| {
+            Time::new(
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+            )
+            .unwrap()
+        });
+
+        // Test TIMETZOID
+        let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timetz, |_| {
+            TimeWithTimeZone::with_timezone(
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+                "UTC",
+            )
+            .unwrap()
+        });
+    }
+
+    #[pg_test]
+    fn test_arrow_int64_as_timestamp_to_datum_bounds() {
+        do_test_arrow_int64_as_timestamp_to_datum(MIN_SAFE_TANTIVY_NANOS);
+        do_test_arrow_int64_as_timestamp_to_datum(MAX_SAFE_TANTIVY_NANOS);
+    }
+
+    #[pg_test]
+    fn test_arrow_int64_as_timestamp_to_datum() {
+        proptest!(|(original_nanos in MIN_SAFE_TANTIVY_NANOS..=MAX_SAFE_TANTIVY_NANOS)| {
+            do_test_arrow_int64_as_timestamp_to_datum(original_nanos);
         });
     }
 
@@ -287,10 +540,6 @@ mod tests {
                 let oid_u32 = PgOid::from(PgBuiltInOids::OIDOID.value());
                 test_conversion_roundtrip(original_val, create_uint64_array, oid_u32, |v| v as u32);
             }
-
-            // Test NUMERICOID
-            let oid_numeric = PgOid::from(PgBuiltInOids::NUMERICOID.value());
-            test_conversion_roundtrip(original_val, create_uint64_array, oid_numeric, AnyNumeric::from);
         });
     }
 
@@ -313,10 +562,6 @@ mod tests {
                 let oid_f32 = PgOid::from(PgBuiltInOids::FLOAT4OID.value());
                 test_conversion_roundtrip(original_val, create_float64_array, oid_f32, |v| v as f32);
             }
-
-            // Test NUMERICOID
-            let oid_numeric = PgOid::from(PgBuiltInOids::NUMERICOID.value());
-            test_conversion_roundtrip(original_val, create_float64_array, oid_numeric, |v| AnyNumeric::try_from(v).unwrap());
         });
     }
 
@@ -335,12 +580,18 @@ mod tests {
 
     #[pg_test]
     fn test_arrow_string_to_datum_text() {
+        Spi::run("CREATE EXTENSION IF NOT EXISTS citext;").unwrap();
+        let citext_oid = PgOid::from(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'citext'::regtype::oid")
+                .expect("SPI failed")
+                .expect("citext extension not installed"),
+        );
         proptest!(|(ref s in ".*")| {
             let oid_text = PgOid::from(PgBuiltInOids::TEXTOID.value());
             let oid_varchar = PgOid::from(PgBuiltInOids::VARCHAROID.value());
-
             test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_text, |s| s);
             test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_varchar, |s| s);
+            test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), citext_oid, |s| s);
         });
     }
 
@@ -385,46 +636,84 @@ mod tests {
         });
     }
 
+    fn do_test_arrow_timestamp_to_datum(original_nanos: i64) {
+        let create_ts_array = |v: i64| {
+            let mut builder = TimestampNanosecondBuilder::with_capacity(1);
+            builder.append_value(v);
+            Arc::new(builder.finish()) as Arc<dyn Array>
+        };
+
+        let pdt = ts_nanos_to_date_time(original_nanos).into_primitive();
+
+        // Test TIMESTAMPTZOID
+        let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamptz, |_| {
+            TimestampWithTimeZone::with_timezone(
+                pdt.year(),
+                pdt.month().into(),
+                pdt.day(),
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+                "UTC",
+            )
+            .unwrap()
+        });
+
+        // Test TIMESTAMPOID
+        let oid_timestamp = PgOid::from(PgBuiltInOids::TIMESTAMPOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamp, |_| {
+            Timestamp::new(
+                pdt.year(),
+                pdt.month().into(),
+                pdt.day(),
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+            )
+            .unwrap()
+        });
+
+        // Test DATEOID
+        let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_date, |_| {
+            Date::new(pdt.year(), pdt.month().into(), pdt.day()).unwrap()
+        });
+
+        // Test TIMEOID
+        let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_time, |_| {
+            Time::new(
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+            )
+            .unwrap()
+        });
+
+        // Test TIMETZOID
+        let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
+        test_conversion_roundtrip(original_nanos, create_ts_array, oid_timetz, |_| {
+            TimeWithTimeZone::with_timezone(
+                pdt.hour(),
+                pdt.minute(),
+                pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0,
+                "UTC",
+            )
+            .unwrap()
+        });
+    }
+
+    #[pg_test]
+    fn test_arrow_timestamp_to_datum_bounds() {
+        do_test_arrow_timestamp_to_datum(MIN_SAFE_TANTIVY_NANOS);
+        do_test_arrow_timestamp_to_datum(MAX_SAFE_TANTIVY_NANOS);
+    }
+
     #[pg_test]
     fn test_arrow_timestamp_to_datum() {
-        proptest!(|(original_nanos in any::<i64>())| {
-            let create_ts_array = |v: i64| {
-                let mut builder = TimestampNanosecondBuilder::with_capacity(1);
-                builder.append_value(v);
-                Arc::new(builder.finish()) as Arc<dyn Array>
-            };
-
-            let pdt = ts_nanos_to_date_time(original_nanos).into_primitive();
-
-            // Test TIMESTAMPTZOID
-            let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamptz, |_| {
-                TimestampWithTimeZone::with_timezone(pdt.year(), pdt.month().into(), pdt.day(), pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0, "UTC").unwrap()
-            });
-
-            // Test TIMESTAMPOID
-            let oid_timestamp = PgOid::from(PgBuiltInOids::TIMESTAMPOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_timestamp, |_| {
-                Timestamp::new(pdt.year(), pdt.month().into(), pdt.day(), pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0).unwrap()
-            });
-
-            // Test DATEOID
-            let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_date, |_| {
-                Date::new(pdt.year(), pdt.month().into(), pdt.day()).unwrap()
-            });
-
-            // Test TIMEOID
-            let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_time, |_| {
-                Time::new(pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0).unwrap()
-            });
-
-            // Test TIMETZOID
-            let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
-            test_conversion_roundtrip(original_nanos, create_ts_array, oid_timetz, |_| {
-                TimeWithTimeZone::with_timezone(pdt.hour(), pdt.minute(), pdt.second() as f64 + pdt.microsecond() as f64 / 1_000_000.0, "UTC").unwrap()
-            });
+        proptest!(|(original_nanos in MIN_SAFE_TANTIVY_NANOS..=MAX_SAFE_TANTIVY_NANOS)| {
+            do_test_arrow_timestamp_to_datum(original_nanos);
         });
     }
 
@@ -435,12 +724,13 @@ mod tests {
     ) {
         append_null(&mut builder);
         let array = builder.finish();
-        let datum = arrow_array_to_datum(&array, 0, oid).unwrap();
+        let datum = arrow_array_to_datum(&array, 0, oid, None).unwrap();
         assert!(datum.is_none());
     }
 
     #[pg_test]
     fn test_arrow_to_datum_nulls() {
+        Spi::run("CREATE EXTENSION IF NOT EXISTS citext;").unwrap();
         test_null_conversion(
             Int64Builder::with_capacity(1),
             PgOid::from(PgBuiltInOids::INT8OID.value()),
@@ -471,5 +761,13 @@ mod tests {
             PgOid::from(PgBuiltInOids::TEXTOID.value()),
             |b| b.append_null(),
         );
+        let citext_oid = PgOid::from(
+            Spi::get_one::<pg_sys::Oid>("SELECT 'citext'::regtype::oid")
+                .expect("SPI failed")
+                .expect("citext extension not installed"),
+        );
+        test_null_conversion(StringViewBuilder::with_capacity(1), citext_oid, |b| {
+            b.append_null()
+        });
     }
 }

@@ -19,6 +19,7 @@ pub mod builder;
 pub mod estimate_tree;
 pub mod heap_field_filter;
 mod more_like_this;
+pub mod numeric;
 pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
@@ -223,11 +224,12 @@ where
 }
 
 impl SearchQueryInput {
-    pub fn postgres_expression(node: *mut pg_sys::Node) -> Self {
+    pub fn postgres_expression(node: *mut pg_sys::Node, expr_desc: String) -> Self {
         SearchQueryInput::PostgresExpression {
             expr: PostgresExpression {
                 node: PostgresPointer(node.cast()),
                 expr_state: PostgresPointer::default(),
+                expr_desc,
             },
         }
     }
@@ -321,6 +323,91 @@ impl SearchQueryInput {
 
             // All other variants are not full scans
             _ => false,
+        }
+    }
+
+    /// Returns `true` if constructing a Tantivy Scorer for this query would be expensive.
+    /// Used by `estimate_selectivity` to short-circuit and return a heuristic instead.
+    pub fn is_expensive_to_estimate(&self) -> bool {
+        match self {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => must
+                .iter()
+                .chain(should.iter())
+                .chain(must_not.iter())
+                .any(Self::is_expensive_to_estimate),
+            SearchQueryInput::Boost { query, .. } => Self::is_expensive_to_estimate(query),
+            SearchQueryInput::ConstScore { query, .. } => Self::is_expensive_to_estimate(query),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(Self::is_expensive_to_estimate)
+            }
+            SearchQueryInput::WithIndex { query, .. } => Self::is_expensive_to_estimate(query),
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                Self::is_expensive_to_estimate(indexed_query)
+            }
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => Self::is_expensive_to_estimate(query),
+
+            SearchQueryInput::MoreLikeThis { .. } => true,
+
+            SearchQueryInput::FieldedQuery { query, .. } => query.is_expensive_to_estimate(),
+
+            _ => false,
+        }
+    }
+
+    /// Returns a heuristic selectivity for this query, avoiding expensive scorer construction.
+    pub fn selectivity_heuristic(&self) -> f64 {
+        use crate::MORE_LIKE_THIS_SELECTIVITY;
+
+        match self {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not: _,
+            } => {
+                // AND: product of children selectivities; OR: max of children selectivities.
+                let must_sel = must
+                    .iter()
+                    .map(Self::selectivity_heuristic)
+                    .product::<f64>();
+                let should_sel = should
+                    .iter()
+                    .map(Self::selectivity_heuristic)
+                    .reduce(f64::max)
+                    .unwrap_or(1.0);
+
+                if !must.is_empty() {
+                    must_sel * should_sel
+                } else {
+                    should_sel
+                }
+            }
+
+            SearchQueryInput::Boost { query, .. } => Self::selectivity_heuristic(query),
+            SearchQueryInput::ConstScore { query, .. } => Self::selectivity_heuristic(query),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => disjuncts
+                .iter()
+                .map(Self::selectivity_heuristic)
+                .reduce(f64::max)
+                .unwrap_or(crate::UNKNOWN_SELECTIVITY),
+            SearchQueryInput::WithIndex { query, .. } => Self::selectivity_heuristic(query),
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                Self::selectivity_heuristic(indexed_query)
+            }
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => Self::selectivity_heuristic(query),
+
+            SearchQueryInput::MoreLikeThis { .. } => MORE_LIKE_THIS_SELECTIVITY,
+
+            SearchQueryInput::FieldedQuery { query, .. } => query.selectivity_heuristic(),
+
+            _ => crate::UNKNOWN_SELECTIVITY,
         }
     }
 
@@ -438,8 +525,17 @@ pub fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Val
                 }
             }
 
-            // Remove any field named "postgres_expression"
-            obj.remove("postgres_expression");
+            // Handle PostgresExpression: remove raw node (internal representation)
+            // Keep the expr_desc field which contains the human-readable SQL expression
+            if let Some(pg_expr_wrapper) = obj.get_mut("postgres_expression") {
+                if let Some(wrapper_obj) = pg_expr_wrapper.as_object_mut() {
+                    if let Some(pg_expr) = wrapper_obj.get_mut("expr") {
+                        if let Some(expr_obj) = pg_expr.as_object_mut() {
+                            expr_obj.remove("node");
+                        }
+                    }
+                }
+            }
 
             // Recursively process all values in the object
             for (_, value) in obj.iter_mut() {
@@ -543,6 +639,12 @@ fn check_range_bounds(
     upper_bound: Bound<OwnedValue>,
 ) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>), QueryError> {
     let one_day_nanos: i64 = 86_400_000_000_000;
+
+    // For NUMRANGEOID, convert numeric values to hex-encoded sortable bytes
+    // to match the indexed format (see SortableDecimal in range.rs)
+    let lower_bound = convert_numrange_bound(typeoid, lower_bound);
+    let upper_bound = convert_numrange_bound(typeoid, upper_bound);
+
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
         (_, Bound::Excluded(OwnedValue::U64(n))) => Bound::Included(OwnedValue::U64(n + 1)),
@@ -633,6 +735,51 @@ fn check_range_bounds(
         _ => upper_bound,
     };
     Ok((lower_bound, upper_bound))
+}
+
+/// Convert numeric values in NUMRANGEOID bounds to hex-encoded sortable bytes.
+/// This matches the format used for indexing (see SortableDecimal in range.rs).
+fn convert_numrange_bound(typeoid: PgOid, bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    use decimal_bytes::Decimal;
+    use std::str::FromStr;
+
+    // Only process NUMRANGEOID bounds
+    if !matches!(typeoid, PgOid::BuiltIn(PgBuiltInOids::NUMRANGEOID)) {
+        return bound;
+    }
+
+    // Helper to convert a numeric value to hex-encoded bytes
+    let convert_to_hex = |value: &OwnedValue| -> Option<OwnedValue> {
+        let numeric_str = match value {
+            OwnedValue::Str(s) => s.clone(),
+            OwnedValue::F64(f) => f.to_string(),
+            OwnedValue::I64(i) => i.to_string(),
+            OwnedValue::U64(u) => u.to_string(),
+            _ => return None,
+        };
+
+        Decimal::from_str(&numeric_str)
+            .ok()
+            .map(|dec| OwnedValue::Str(numeric::bytes_to_hex(dec.as_bytes())))
+    };
+
+    match bound {
+        Bound::Included(ref value) => {
+            if let Some(hex_value) = convert_to_hex(value) {
+                Bound::Included(hex_value)
+            } else {
+                bound
+            }
+        }
+        Bound::Excluded(ref value) => {
+            if let Some(hex_value) = convert_to_hex(value) {
+                Bound::Excluded(hex_value)
+            } else {
+                bound
+            }
+        }
+        Bound::Unbounded => Bound::Unbounded,
+    }
 }
 
 fn coerce_bound_to_field_type(
@@ -1046,6 +1193,10 @@ impl SearchQueryInput {
                             .expect("could not find search field");
                         let field_type = search_field.field_entry().field_type();
                         let is_datetime = search_field.is_datetime() || is_datetime;
+
+                        // Convert string numeric values to appropriate types for JSON fields
+                        let value = convert_for_field_type(&value, field_type);
+
                         value_to_term(
                             search_field.field(),
                             &value,
@@ -1148,6 +1299,27 @@ impl SearchQueryInput {
             expr_context,
             planstate,
         )
+    }
+}
+
+/// Convert a string-encoded numeric value to the appropriate type based on field type.
+/// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
+fn convert_for_field_type(value: &OwnedValue, field_type: &FieldType) -> OwnedValue {
+    use crate::query::numeric::{
+        string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
+    };
+
+    // Only convert string values - other types pass through unchanged
+    if !matches!(value, OwnedValue::Str(_)) {
+        return value.clone();
+    }
+
+    match field_type {
+        FieldType::JsonObject(_) => string_to_json_numeric(value.clone()),
+        FieldType::I64(_) => string_to_i64(value.clone()),
+        FieldType::U64(_) => string_to_u64(value.clone()),
+        FieldType::F64(_) => string_to_f64(value.clone()),
+        _ => value.clone(),
     }
 }
 
@@ -1416,15 +1588,17 @@ impl<'de> Deserialize<'de> for PostgresPointer {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PostgresExpression {
     node: PostgresPointer,
+    pub expr_desc: String,
     #[serde(skip)]
     expr_state: PostgresPointer,
 }
 
 impl PostgresExpression {
-    pub fn new(node: *mut pg_sys::Node) -> Self {
+    pub fn new(node: *mut pg_sys::Node, expr_desc: String) -> Self {
         Self {
             node: PostgresPointer(node.cast()),
             expr_state: PostgresPointer::default(),
+            expr_desc,
         }
     }
 

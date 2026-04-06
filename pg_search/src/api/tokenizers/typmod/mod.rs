@@ -48,7 +48,15 @@ fn generic_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
 #[pg_extern(immutable, parallel_safe)]
 pub fn generic_typmod_out(typmod: i32) -> CString {
     let parsed = load_typmod(typmod).expect("should not fail to load typmod");
-    CString::new(format!("({parsed})")).unwrap()
+
+    // make sure the typmods are string-quoted literals
+    let mut parts = Vec::with_capacity(parsed.len());
+    for prop in parsed.properties.iter() {
+        let s = prop.to_string();
+        parts.push(format!("'{}'", s));
+    }
+
+    CString::new(format!("({})", parts.join(", "))).unwrap()
 }
 
 pub type Typmod = i32;
@@ -225,6 +233,7 @@ impl Property {
                 let lcase = stemmer.to_lowercase();
                 match lcase.as_str() {
                     "arabic" => Ok(Language::Arabic),
+                    "czech" => Ok(Language::Czech),
                     "danish" => Ok(Language::Danish),
                     "dutch" => Ok(Language::Dutch),
                     "english" => Ok(Language::English),
@@ -260,6 +269,7 @@ impl Property {
                         let lcase = s.trim().to_lowercase();
                         match lcase.as_str() {
                             "arabic" => Ok(Language::Arabic),
+                            "czech" => Ok(Language::Czech),
                             "danish" => Ok(Language::Danish),
                             "dutch" => Ok(Language::Dutch),
                             "english" => Ok(Language::English),
@@ -352,6 +362,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                     let lcase = stemmer.to_lowercase();
                     match lcase.as_str() {
                         "arabic" => Language::Arabic,
+                        "czech" => Language::Czech,
                         "danish" => Language::Danish,
                         "dutch" => Language::Dutch,
                         "english" => Language::English,

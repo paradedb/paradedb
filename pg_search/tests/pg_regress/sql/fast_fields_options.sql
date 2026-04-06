@@ -1,5 +1,5 @@
 -- Test file to demonstrate how specifying fast:true for non-text/non-json fields
--- doesn't affect the usage of TopN executor or other FastField executors
+-- doesn't affect the usage of Top K executor or other FastField executors
 
 -- Setup
 \i common/common_setup.sql
@@ -74,7 +74,7 @@ WHERE title @@@ 'product'
 ORDER BY title
 LIMIT 10;
 
--- 'Test 2: ORDER BY with LIMIT (should use TopNScanExecState)'
+-- 'Test 2: ORDER BY with LIMIT (should use TopKScanExecState)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
 FROM data_records
@@ -103,6 +103,7 @@ WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
 
+-- TODO: Won't get Top K due to https://github.com/paradedb/paradedb/issues/2688.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
 FROM data_records
@@ -117,7 +118,7 @@ WHERE title @@@ 'product'
 ORDER BY created_at
 LIMIT 10;
 
--- 'Test 3: ORDER BY with no LIMIT (should use MixedFastFieldExecState)'
+-- 'Test 3: ORDER BY with no LIMIT (should use ColumnarExecState)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, price, in_stock, created_at, valid_period, quantity_range, tags
@@ -146,7 +147,7 @@ USING bm25 (
 
 -- '--- Tests with index WITH explicit fast:true for non-text fields ---'
 
--- 'Test 4: ORDER BY with LIMIT (should use TopNScanExecState)'
+-- 'Test 4: ORDER BY with LIMIT (should use TopKScanExecState)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -176,7 +177,7 @@ WHERE title @@@ 'product'
 ORDER BY created_at
 LIMIT 10;
 
--- 'Test 5: ORDER BY with no LIMIT (should use MixedFastFieldExecState)'
+-- 'Test 5: ORDER BY with no LIMIT (should use ColumnarExecState)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, price, in_stock, created_at, valid_period, quantity_range, tags
@@ -205,7 +206,7 @@ USING bm25 (
 
 -- '--- Tests with index WITH explicit fast:false for non-text fields ---'
 
--- 'Test 6: ORDER BY with LIMIT (should use TopNScanExecState)'
+-- 'Test 6: ORDER BY with LIMIT (should not use TopKScanExecState, because fast:false)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -235,7 +236,7 @@ WHERE title @@@ 'product'
 ORDER BY created_at
 LIMIT 10;
 
--- 'Test 7: ORDER BY with no LIMIT (should use MixedFastFieldExecState)'
+-- 'Test 7: ORDER BY with no LIMIT (should use ColumnarExecState)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, price, in_stock, created_at, valid_period, quantity_range, tags

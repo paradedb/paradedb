@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -57,8 +57,8 @@ pub struct UiArgs {
     #[arg(long, default_value = "false")]
     pub paused: bool,
 
-    /// PostgreSQL version to use (pg17 or pg18).
-    #[arg(long, default_value = "pg17")]
+    /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
+    #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
 }
 
@@ -77,8 +77,8 @@ pub struct HeadlessArgs {
     /// Runtime (in milliseconds)
     #[arg(long, default_value = "600000")]
     pub runtime: u128,
-    /// PostgreSQL version to use (pg17 or pg18).
-    #[arg(long, default_value = "pg17")]
+    /// PostgreSQL version to use (pg15, pg16, pg17, or pg18).
+    #[arg(long, default_value = "pg18")]
     pub pgversion: Option<PgVersion>,
 }
 

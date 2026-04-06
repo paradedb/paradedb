@@ -12,7 +12,8 @@ string as a **finalized token**. This means that the query string is taken as-is
 
 Term queries use the `===` operator. To understand exactly how it works, let's consider the following two term queries:
 
-```sql
+<CodeGroup>
+```sql SQL
 -- Term query 1
 SELECT description, rating, category
 FROM mock_items
@@ -23,6 +24,54 @@ SELECT description, rating, category
 FROM mock_items
 WHERE description === 'RUNNING';
 ```
+
+```python Django
+from paradedb import ParadeDB, Term
+
+# Term query 1
+MockItem.objects.filter(
+    description=ParadeDB(Term('running'))
+).values('description', 'rating', 'category')
+
+# Term query 2
+MockItem.objects.filter(
+    description=ParadeDB(Term('RUNNING'))
+).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+term_query_1 = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.term(MockItem.description, "running"))
+)
+
+term_query_2 = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.term(MockItem.description, "RUNNING"))
+)
+
+with Session(engine) as session:
+    rows_query_1 = session.execute(term_query_1).all()
+    rows_query_2 = session.execute(term_query_2).all()
+```
+
+```ruby Rails
+# Term query 1
+MockItem.search(:description)
+        .term("running")
+        .select(:description, :rating, :category)
+
+# Term query 2
+MockItem.search(:description)
+        .term("RUNNING")
+        .select(:description, :rating, :category)
+```
+
+</CodeGroup>
 
 The first query returns:
 
@@ -72,8 +121,44 @@ These examples assume that index uses the default tokenizer and token filters, a
 
 Passing a text array to the right-hand side of `===` means "find all documents containing any one of these tokens."
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description === ARRAY['shoes', 'running'];
 ```
+
+```python Django
+from paradedb import ParadeDB, TermSet
+
+MockItem.objects.filter(
+    description=ParadeDB(TermSet('shoes', 'running'))
+).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(
+        or_(
+            search.term(MockItem.description, "shoes"),
+            search.term(MockItem.description, "running"),
+        )
+    )
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .term_set("shoes", "running")
+        .select(:description, :rating, :category)
+```
+
+</CodeGroup>

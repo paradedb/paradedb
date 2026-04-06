@@ -9,7 +9,7 @@ your primary Postgres is in a virtual private cloud (VPC), we recommend deployin
 instance within your VPC to avoid exposing public IP addresses and needing to provision traffic routing
 rules.
 
-**Note**: ParadeDB supports Postgres 14+, and the `latest` tag ships with Postgres 18. To specify a different Postgres version, please refer to the available tags on [Docker Hub](https://hub.docker.com/r/paradedb/paradedb/tags).
+**Note**: ParadeDB supports Postgres 15+, and the `latest` tag ships with Postgres 18. To specify a different Postgres version, please refer to the available tags on [Docker Hub](https://hub.docker.com/r/paradedb/paradedb/tags).
 
 ```bash
 docker run \
@@ -26,7 +26,7 @@ docker run \
 You may replace `myuser`, `mypassword`, and `mydatabase` with whatever values you want. These will be your database
 connection credentials.
 
-To connect to ParadeDB, install the `psql` client and run
+To connect to ParadeDB, run
 
 ```bash
 docker exec -it paradedb psql -U myuser -d mydatabase -W

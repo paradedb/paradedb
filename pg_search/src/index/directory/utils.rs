@@ -1,3 +1,20 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
@@ -311,6 +328,7 @@ pub struct LoadedMetas {
     pub meta: IndexMeta,
     pub pin_cushion: PinCushion,
     pub total_segments: usize,
+    pub total_docs: usize,
 }
 
 pub unsafe fn load_metas(
@@ -320,6 +338,7 @@ pub unsafe fn load_metas(
     tantivy_schema: &Schema,
 ) -> tantivy::Result<LoadedMetas> {
     let mut total_segments = 0;
+    let mut total_docs = 0usize;
     let mut alive_segments = vec![];
     let mut alive_entries = vec![];
     let mut opstamp = None;
@@ -355,6 +374,7 @@ pub unsafe fn load_metas(
             };
 
             total_segments += 1;
+            total_docs += entry.num_docs();
 
             let mut need_entry = true;
             if is_largest_only {
@@ -448,6 +468,7 @@ pub unsafe fn load_metas(
         },
         pin_cushion,
         total_segments,
+        total_docs,
     })
 }
 

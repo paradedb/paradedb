@@ -1,0 +1,37 @@
+---
+title: 0.22.0
+noindex: true
+---
+
+## New Features 🎉
+
+- Beta release of native support for JOIN pushdown! See [the docs](/documentation/joins/overview) for more information.
+- All text column types now support optionally being marked `columnar=true`, allowing them to be used as the input to aggregates, joins, or covering index scans.
+- Support for pushdown of queries on NUMERIC columns to the index.
+  - NOTE: Pushdown for NUMERIC columns requires [a reindex](/documentation/indexing/reindexing).
+- You can now specify a [separate tokenizer for use at search-time](/documentation/tokenizers/search-tokenizer).
+- Support for [indexing more than 32 columns in one index](https://github.com/paradedb/paradedb/pull/3776).
+- Stopwords for multiple languages may be specified per-field.
+- Following the model of the `amcheck` extension, you can now explicitly verify the integrity of an index using [`pdb.verify_index`](/documentation/indexing/verify-index).
+- Added support for Citus 14, with support for Postgres 18.
+- Support for JSONB exists (`?`) operator pushdown.
+- Support for using index expressions and UNNEST in aggregate queries.
+- Support for tokenining UUID columns.
+
+## Performance Improvements 🚀
+
+- When visibility filtering is not able to use the visibility map, it now executes the minimal safe heap check, showing up to 50% speedup on MVCC-safe aggregates.
+- Queries on small tables run up to 6x faster by using appropriate numbers of parallel workers.
+- Writes to mutable segments will now apply backpressure, avoiding performance degradation during extended write traffic.
+- 4-5x faster planning for regex and fuzzy queries.
+- VACUUMs now cooperatively cancel background merges, to ensure that the visibility map is up to date for read queries.
+
+## Stability Improvements 💪
+
+- The ICU tokenizer is now implemented in Rust via the [`icu_segmenter` crate](https://crates.io/crates/icu_segmenter), which avoids a runtime dependency on a particular ICU version being installed on the target system.
+- Significantly improved warnings when Top-K or aggregate queries do not meet the requirements for pushdown.
+- Audited all sources of double panics to ensure helpful error messages are rendered.
+- Improved validation of indexed datetime columns.
+- Improved validation of `pdb.agg` arguments.
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.22.0).

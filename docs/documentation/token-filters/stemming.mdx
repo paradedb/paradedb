@@ -5,7 +5,8 @@ canonical: https://docs.paradedb.com/documentation/token-filters/stemming
 ---
 
 Stemming is the process of reducing words to their root form. In English, for example, the root form of "running" and "runs" is "run".
-Stemming can be configured for any tokenizer besides the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer.
+Stemming can be configured for any tokenizer besides the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer. Stemmers
+in ParadeDB are based on stemming algorithms obtained from the official [Snowball website](https://snowballstem.org/).
 
 To set a stemmer, append `stemmer=<language>` to the tokenizer's arguments.
 
@@ -15,7 +16,7 @@ USING bm25 (id, (description::pdb.simple('stemmer=english')))
 WITH (key_field='id');
 ```
 
-Valid languages are `arabic`, `danish`, `dutch`, `english`, `finnish`, `french`, `german`, `greek`, `hungarian`, `italian`, `norwegian`, `polish`, `portuguese`, `romanian`, `russian`, `spanish`, `swedish`, `tamil`, and `turkish`.
+Valid languages are `arabic`, `czech`, `danish`, `dutch`, `english`, `finnish`, `french`, `german`, `greek`, `hungarian`, `italian`, `norwegian`, `polish`, `portuguese`, `romanian`, `russian`, `spanish`, `swedish`, `tamil`, and `turkish`.
 
 To demonstrate this token filter, let's compare the output of the following two statements:
 

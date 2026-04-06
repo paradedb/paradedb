@@ -229,6 +229,7 @@ pub mod pdb {
                     pg_sys::INT4OID, // element type OID (integer)
                     4,               // typlen (int4 is 4 bytes)
                     true,            // typbyval (int4 is passed by value)
+                    #[allow(clippy::useless_conversion)]
                     pg_sys::TYPALIGN_INT.try_into().unwrap(), // typalign (char type, architecture-specific)
                 );
 
@@ -259,6 +260,7 @@ pub mod pdb {
         }
     }
 
+    #[allow(unused_variables)]
     #[pg_extern(name = "snippet", stable, parallel_safe)]
     fn snippet_from_relation(
         field: AnyElement,
@@ -268,9 +270,10 @@ pub mod pdb {
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> String {
-        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 
+    #[allow(unused_variables)]
     #[pg_extern(name = "snippets", stable, parallel_safe)]
     fn snippets_from_relation(
         field: AnyElement,
@@ -281,9 +284,10 @@ pub mod pdb {
         offset: default!(Option<i32>, "NULL"),
         sort_by: default!(String, "'score'"),
     ) -> Vec<String> {
-        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 
+    #[allow(unused_variables)]
     #[pg_extern(
         name = "snippet_positions",
         stable,
@@ -300,17 +304,18 @@ AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
 "#
     )]
     fn snippet_positions_from_relation(
-        _field: AnyElement,
-        _limit: default!(Option<i32>, "NULL"),
-        _offset: default!(Option<i32>, "NULL"),
+        field: AnyElement,
+        limit: default!(Option<i32>, "NULL"),
+        offset: default!(Option<i32>, "NULL"),
     ) -> IntArray2D {
-        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 }
 
 // In `0.19.0`, we renamed `paradedb.snippet*` functions to `pdb.snippet*`.
 // This is a backwards compatibility shim to ensure that old queries continue to work.
 #[warn(deprecated)]
+#[allow(unused_variables)]
 #[pg_extern(name = "snippet", stable, parallel_safe)]
 fn paradedb_snippet_from_relation(
     field: AnyElement,
@@ -320,10 +325,11 @@ fn paradedb_snippet_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> Option<String> {
-    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 #[warn(deprecated)]
+#[allow(unused_variables)]
 #[pg_extern(name = "snippets", stable, parallel_safe)]
 fn paradedb_snippets_from_relation(
     field: AnyElement,
@@ -334,10 +340,11 @@ fn paradedb_snippets_from_relation(
     offset: default!(Option<i32>, "NULL"),
     sort_by: default!(String, "'score'"),
 ) -> Option<Vec<String>> {
-    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 #[warn(deprecated)]
+#[allow(unused_variables)]
 #[pg_extern(
     name = "snippet_positions",
     stable,
@@ -354,11 +361,11 @@ AS 'MODULE_PATHNAME', 'paradedb_snippet_positions_from_relation_wrapper';
 "#
 )]
 fn paradedb_snippet_positions_from_relation(
-    _field: AnyElement,
-    _limit: default!(Option<i32>, "NULL"),
-    _offset: default!(Option<i32>, "NULL"),
+    field: AnyElement,
+    limit: default!(Option<i32>, "NULL"),
+    offset: default!(Option<i32>, "NULL"),
 ) -> pdb::IntArray2D {
-    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 extension_sql!(

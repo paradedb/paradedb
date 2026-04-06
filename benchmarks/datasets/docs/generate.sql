@@ -357,7 +357,7 @@ INSERT INTO pages (
 SELECT
     uuid_text(s.id) AS "id",
     uuid_text(ceil(random() * :rows / 8.0)::integer) AS "fileId", -- A random file in the range that we know exists.
-    CASE (random() * 10)::INT -- Introduce 'Single Number Reach' in roughly 10% of rows
+    CASE (random() * 25)::INT -- Introduce 'Single Number Reach' in roughly 4% of rows
         WHEN 0 THEN 'Single Number Reach configuration details: ' || md5(random()::text) || E'\nInstructions for setup: ' || md5(random()::text)
         WHEN 1 THEN 'Page Chapter 1: Introduction - ' || md5(random()::text) || E'\nKey Points: ' || md5(random()::text)
         ELSE 'Page Content block Alpha: ' || md5(random()::text) || E'\nPage Content block Beta: ' || md5(random()::text) || E'\nPage Content block Gamma. Ref ID: ' || (random()*100000)::INT

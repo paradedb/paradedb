@@ -44,9 +44,9 @@ pub extern "C-unwind" fn plan_custom_path<CS: CustomScan>(
 /// adjust_appendrel_attrs or adjust_appendrel_attrs_multilevel as required.
 #[pg_guard]
 pub extern "C-unwind" fn reparameterize_custom_path_by_child<CS: CustomScan>(
-    root: *mut pg_sys::PlannerInfo,
-    custom_private: *mut pg_sys::List,
-    child_rel: *mut pg_sys::RelOptInfo,
+    _root: *mut pg_sys::PlannerInfo,
+    _custom_private: *mut pg_sys::List,
+    _child_rel: *mut pg_sys::RelOptInfo,
 ) -> *mut pg_sys::List {
     todo!("reparameterize_custom_path_by_child")
 }

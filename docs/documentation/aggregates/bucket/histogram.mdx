@@ -10,11 +10,43 @@ in each bucket.
 Each value is rounded down to its bucket. For instance, a rating of `18` with an interval of `5` rounds down to a bucket
 with key `15`.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"histogram": {"field": "rating", "interval": "1"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"histogram": {"field": "rating", "interval": "1"}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.histogram(field="rating", interval=1)))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: ParadeDB::Aggregations.histogram(:rating, interval: 1))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
                                                                                   agg

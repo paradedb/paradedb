@@ -58,8 +58,18 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
                 obj.remove("expr_node");
             }
 
-            // Remove any field named "postgres_expression" (contains pointers)
-            obj.remove("postgres_expression");
+            // Handle PostgresExpression: remove raw node (internal representation)
+            // Keep the expr_desc field which contains the human-readable SQL expression
+            if let Some(pg_expr_wrapper) = obj.get_mut("postgres_expression") {
+                if let Some(wrapper_obj) = pg_expr_wrapper.as_object_mut() {
+                    if let Some(pg_expr) = wrapper_obj.get_mut("expr") {
+                        if let Some(expr_obj) = pg_expr.as_object_mut() {
+                            expr_obj.remove("node");
+                        }
+                    }
+                }
+            }
+
             obj.remove("indexrelid");
 
             // Recursively process all values in the object
@@ -341,9 +351,19 @@ mod tests {
     fn test_cleanup_removes_postgres_expression() {
         let mut value = json!({
             "query": "test",
-            "postgres_expression": "0x123456",
+            "postgres_expression": {
+                "expr": {
+                    "node": "0x123456",
+                    "expr_desc": "description"
+                }
+            },
             "nested": {
-                "postgres_expression": "0xABCDEF",
+                "postgres_expression": {
+                    "expr": {
+                        "node": "0xABCDEF",
+                        "expr_desc": "nested description"
+                    }
+                },
                 "data": "value"
             }
         });
@@ -354,7 +374,17 @@ mod tests {
             value,
             json!({
                 "query": "test",
+                "postgres_expression": {
+                    "expr": {
+                        "expr_desc": "description"
+                    }
+                },
                 "nested": {
+                    "postgres_expression": {
+                        "expr": {
+                            "expr_desc": "nested description"
+                        }
+                    },
                     "data": "value"
                 }
             })
@@ -365,7 +395,15 @@ mod tests {
     fn test_cleanup_handles_arrays() {
         let mut value = json!([
             { "oid": 123, "name": "a" },
-            { "postgres_expression": "ptr", "value": "b" }
+            {
+                "postgres_expression": {
+                    "expr": {
+                        "node": "ptr",
+                        "expr_desc": "desc"
+                    }
+                },
+                "value": "b"
+            }
         ]);
 
         cleanup_json_for_explain(&mut value);
@@ -374,7 +412,14 @@ mod tests {
             value,
             json!([
                 { "oid": 123, "name": "a" },
-                { "value": "b" }
+                {
+                    "postgres_expression": {
+                        "expr": {
+                            "expr_desc": "desc"
+                        }
+                    },
+                    "value": "b"
+                }
             ])
         );
     }

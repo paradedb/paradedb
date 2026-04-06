@@ -16,44 +16,13 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
-use crate::postgres::customscan::exec::{
-    begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
-    shutdown_custom_scan,
-};
-use crate::postgres::customscan::{wrap_custom_scan_state, CustomScan, ExecMethod};
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
+use crate::postgres::customscan::{wrap_custom_scan_state, CustomScan};
+use pgrx::{pg_guard, pg_sys};
 
-pub trait ParallelQueryCapable: ExecMethod
+pub trait ParallelQueryCapable
 where
     Self: CustomScan,
 {
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
-
-            if METHODS.is_null() {
-                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomExecMethods {
-                        CustomName: Self::NAME.as_ptr(),
-                        BeginCustomScan: Some(begin_custom_scan::<Self>),
-                        ExecCustomScan: Some(exec_custom_scan::<Self>),
-                        EndCustomScan: Some(end_custom_scan::<Self>),
-                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
-                        MarkPosCustomScan: None,
-                        RestrPosCustomScan: None,
-                        EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<Self>),
-                        InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<Self>),
-                        ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<Self>),
-                        InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<Self>),
-                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
-                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
-                    },
-                );
-            }
-            METHODS
-        }
-    }
-
     fn estimate_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         pcxt: *mut pg_sys::ParallelContext,

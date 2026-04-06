@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::catalog::{lookup_type_category, lookup_type_name, lookup_typoid};
+use crate::postgres::catalog::{
+    is_citext_oid, lookup_type_category, lookup_type_name, lookup_typoid,
+};
 use once_cell::sync::Lazy;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -25,6 +27,7 @@ use pgrx::{pg_sys, set_varsize_4b, FromDatum, IntoDatum};
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
+use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 use tokenizers::SearchTokenizer;
 
@@ -64,6 +67,7 @@ pub fn type_can_be_tokenized(oid: pg_sys::Oid) -> bool {
         pg_sys::VARCHARARRAYOID,
     ]
     .contains(&oid)
+        || is_citext_oid(oid)
 }
 // given an oid and typmod, return the alias name if it is an alias, otherwise return None
 #[inline]
@@ -77,24 +81,14 @@ pub fn try_get_alias(oid: pg_sys::Oid, typmod: Typmod) -> Option<String> {
     }
 }
 
-pub fn search_field_config_from_type(
-    oid: pg_sys::Oid,
-    typmod: Typmod,
-    inner_typoid: pg_sys::Oid,
-) -> Option<SearchFieldConfig> {
-    let type_name = lookup_type_name(oid)?;
-
-    if type_name.as_str() == "alias" && !type_can_be_tokenized(oid) {
-        return None;
-    }
-
-    let mut tokenizer = match type_name.as_str() {
-        "alias" => panic!("`pdb.alias` is not allowed in index definitions"),
+fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
+    Some(match name {
         "simple" => SearchTokenizer::Simple(SearchTokenizerFilters::default()),
-        "lindera" => SearchTokenizer::Lindera(
-            LinderaLanguage::default(),
-            SearchTokenizerFilters::default(),
-        ),
+        "lindera" => SearchTokenizer::Lindera {
+            language: LinderaLanguage::default(),
+            filters: SearchTokenizerFilters::default(),
+            keep_whitespace: false,
+        },
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         "jieba" => SearchTokenizer::Jieba {
             chinese_convert: None,
@@ -104,6 +98,7 @@ pub fn search_field_config_from_type(
             min_gram: 0,
             max_gram: 0,
             prefix_only: false,
+            positions: false,
             filters: SearchTokenizerFilters::default(),
         },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
@@ -119,24 +114,200 @@ pub fn search_field_config_from_type(
             filters: Default::default(),
         },
         "source_code" => SearchTokenizer::SourceCode(SearchTokenizerFilters::default()),
-        "unicode_words" => SearchTokenizer::UnicodeWords {
+        "unicode_words" | "unicode" => SearchTokenizer::UnicodeWords {
             remove_emojis: false,
             filters: SearchTokenizerFilters::default(),
         },
         _ => return None,
+    })
+}
+
+pub(crate) fn tokenizer_from_expression(expr: &str) -> Option<SearchTokenizer> {
+    let (name, inner) = match expr.find('(') {
+        Some(idx) => (&expr[..idx], Some(&expr[idx + 1..expr.len() - 1])),
+        None => (expr, None),
     };
+
+    let mut tokenizer = tokenizer_from_name(name)?;
+
+    if let Some(params_str) = inner {
+        let parsed = parse_tokenizer_params(params_str);
+        apply_expression_params(&mut tokenizer, &parsed);
+    }
+
+    Some(tokenizer)
+}
+
+fn parse_tokenizer_params(inner: &str) -> typmod::ParsedTypmod {
+    let mut parsed = typmod::ParsedTypmod::new();
+    for part in inner.split(',') {
+        let trimmed = part.trim();
+        if !trimmed.is_empty() {
+            if let Ok(prop) = trimmed.parse::<typmod::Property>() {
+                parsed.add_property(prop);
+            }
+        }
+    }
+    parsed
+}
+
+fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::ParsedTypmod) {
+    match tokenizer {
+        SearchTokenizer::Ngram {
+            min_gram,
+            max_gram,
+            prefix_only,
+            positions,
+            filters,
+        } => {
+            if let Some(v) = parsed.try_get("min", 0).and_then(|p| p.as_usize()) {
+                *min_gram = v;
+            }
+            if let Some(v) = parsed.try_get("max", 1).and_then(|p| p.as_usize()) {
+                *max_gram = v;
+            }
+            if let Some(v) = parsed.get("prefix_only").and_then(|p| p.as_bool()) {
+                *prefix_only = v;
+            }
+            if let Some(v) = parsed.get("positions").and_then(|p| p.as_bool()) {
+                *positions = v;
+            }
+            *filters = SearchTokenizerFilters::from(parsed);
+        }
+        SearchTokenizer::RegexTokenizer { pattern, filters } => {
+            if let Some(Ok(r)) = parsed.try_get("pattern", 0).and_then(|p| p.as_regex()) {
+                *pattern = r.as_str().to_string();
+            }
+            *filters = SearchTokenizerFilters::from(parsed);
+        }
+        SearchTokenizer::Lindera {
+            language,
+            filters,
+            keep_whitespace,
+        } => {
+            if let Some(s) = parsed.try_get("language", 0).and_then(|p| p.as_str()) {
+                let lcase = s.to_lowercase();
+                *language = match lcase.as_str() {
+                    "chinese" => LinderaLanguage::Chinese,
+                    "japanese" => LinderaLanguage::Japanese,
+                    "korean" => LinderaLanguage::Korean,
+                    _ => LinderaLanguage::default(),
+                };
+            }
+            *filters = SearchTokenizerFilters::from(parsed);
+            if let Some(v) = parsed.get("keep_whitespace").and_then(|p| p.as_bool()) {
+                *keep_whitespace = v;
+            }
+        }
+        SearchTokenizer::Jieba {
+            chinese_convert,
+            filters,
+        } => {
+            *chinese_convert = parsed
+                .get("chinese_convert")
+                .and_then(|p| p.as_str())
+                .map(|s| {
+                    let lcase = s.to_lowercase();
+                    match lcase.as_str() {
+                        "t2s" => ConvertMode::T2S,
+                        "s2t" => ConvertMode::S2T,
+                        "tw2s" => ConvertMode::TW2S,
+                        "tw2sp" => ConvertMode::TW2SP,
+                        "s2tw" => ConvertMode::S2TW,
+                        "s2twp" => ConvertMode::S2TWP,
+                        other => panic!("unknown chinese convert mode: {other}"),
+                    }
+                });
+            *filters = SearchTokenizerFilters::from(parsed);
+        }
+        SearchTokenizer::UnicodeWords {
+            remove_emojis,
+            filters,
+        }
+        | SearchTokenizer::UnicodeWordsDeprecated {
+            remove_emojis,
+            filters,
+        } => {
+            if let Some(v) = parsed.try_get("remove_emojis", 0).and_then(|p| p.as_bool()) {
+                *remove_emojis = v;
+            }
+            *filters = SearchTokenizerFilters::from(parsed);
+        }
+        SearchTokenizer::ICUTokenizer(filters)
+        | SearchTokenizer::Simple(filters)
+        | SearchTokenizer::WhiteSpace(filters)
+        | SearchTokenizer::SourceCode(filters)
+        | SearchTokenizer::ChineseCompatible(filters)
+        | SearchTokenizer::LiteralNormalized(filters) => {
+            *filters = SearchTokenizerFilters::from(parsed);
+        }
+        SearchTokenizer::Keyword => {}
+        #[allow(deprecated)]
+        SearchTokenizer::KeywordDeprecated
+        | SearchTokenizer::Raw(_)
+        | SearchTokenizer::ChineseLinderaDeprecated(_)
+        | SearchTokenizer::ChineseLindera { .. }
+        | SearchTokenizer::JapaneseLinderaDeprecated(_)
+        | SearchTokenizer::JapaneseLindera { .. }
+        | SearchTokenizer::KoreanLinderaDeprecated(_)
+        | SearchTokenizer::KoreanLindera { .. }
+        | SearchTokenizer::LinderaDeprecated { .. } => {}
+    }
+}
+
+pub fn search_field_config_from_type(
+    oid: pg_sys::Oid,
+    typmod: Typmod,
+    inner_typoid: pg_sys::Oid,
+) -> Option<SearchFieldConfig> {
+    let type_name = lookup_type_name(oid)?;
+
+    if type_name.as_str() == "alias" && !type_can_be_tokenized(oid) {
+        return None;
+    }
+
+    if type_name.as_str() == "alias" {
+        panic!("`pdb.alias` is not allowed in index definitions");
+    }
+
+    let mut tokenizer = tokenizer_from_name(type_name.as_str())?;
 
     apply_typmod(&mut tokenizer, typmod);
 
     let normalizer = tokenizer.normalizer().unwrap_or_default();
 
-    let (fast, fieldnorms, record) = if type_name == "literal" {
-        // non-tokenized fields get to be fast
-        (true, false, IndexRecordOption::Basic)
+    let parsed_typmod = typmod::load_typmod(typmod).unwrap_or_default();
+
+    let parsed_fieldnorms = parsed_typmod.get("fieldnorms").and_then(|p| p.as_bool());
+    // columnar=true/false is our renaming of Tantivy's `fast` option
+    // fast is default to true for any field that's not text or JSON
+    // if it is text or JSON, it also default to true for literal and literal_normalized
+    // otherwise the user needs to explicitly set it to true
+    let columnar_explicit = parsed_typmod.get("columnar").and_then(|p| p.as_bool());
+
+    let (fast, fieldnorms, record) = if type_name == "literal" || type_name == "literal_normalized"
+    {
+        // literal and literal_normalized default to fast=true (columnar=true)
+        let fast = columnar_explicit.unwrap_or(true);
+
+        // literal and literal_normalized default to fieldnorms=false
+        let fieldnorms = parsed_fieldnorms.unwrap_or(false);
+        (fast, fieldnorms, IndexRecordOption::Basic)
     } else {
-        // all others do not
-        (false, true, IndexRecordOption::WithFreqsAndPositions)
+        // all others default to fast=false (columnar=false)
+        let fast = columnar_explicit.unwrap_or(false);
+        // all others default to fieldnorms=true
+        let fieldnorms = parsed_fieldnorms.unwrap_or(true);
+        (fast, fieldnorms, IndexRecordOption::WithFreqsAndPositions)
     };
+
+    let search_tokenizer = parsed_typmod
+        .get("search_tokenizer")
+        .and_then(|p| p.as_str())
+        .map(|expr| {
+            tokenizer_from_expression(expr)
+                .unwrap_or_else(|| panic!("unknown search_tokenizer: {expr}"))
+        });
 
     if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
         Some(SearchFieldConfig::Json {
@@ -144,6 +315,7 @@ pub fn search_field_config_from_type(
             fast,
             fieldnorms,
             tokenizer,
+            search_tokenizer,
             record,
             normalizer,
             column: None,
@@ -155,6 +327,7 @@ pub fn search_field_config_from_type(
             fast,
             fieldnorms,
             tokenizer,
+            search_tokenizer,
             record,
             normalizer,
             column: None,
@@ -168,6 +341,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             min_gram,
             max_gram,
             prefix_only,
+            positions,
             filters,
         } => {
             let ngram_typmod = NgramTypmod::try_from(typmod).unwrap_or_else(|e| {
@@ -176,6 +350,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *min_gram = ngram_typmod.min_gram;
             *max_gram = ngram_typmod.max_gram;
             *prefix_only = ngram_typmod.prefix_only;
+            *positions = ngram_typmod.positions;
             *filters = ngram_typmod.filters;
         }
         SearchTokenizer::RegexTokenizer { pattern, filters } => {
@@ -186,12 +361,43 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *filters = regex_typmod.filters;
         }
 
-        SearchTokenizer::Lindera(style, filters) => {
+        SearchTokenizer::LinderaDeprecated(style, filters) => {
             let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
             *style = lindera_typmod.language;
             *filters = lindera_typmod.filters;
+        }
+        SearchTokenizer::Lindera {
+            language,
+            filters,
+            keep_whitespace,
+        } => {
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *language = lindera_typmod.language;
+            *filters = lindera_typmod.filters;
+            *keep_whitespace = lindera_typmod.keep_whitespace;
+        }
+
+        SearchTokenizer::ChineseLindera {
+            filters,
+            keep_whitespace,
+        }
+        | SearchTokenizer::JapaneseLindera {
+            filters,
+            keep_whitespace,
+        }
+        | SearchTokenizer::KoreanLindera {
+            filters,
+            keep_whitespace,
+        } => {
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *filters = lindera_typmod.filters;
+            *keep_whitespace = lindera_typmod.keep_whitespace;
         }
 
         #[allow(deprecated)]
@@ -201,9 +407,9 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         | SearchTokenizer::SourceCode(filters)
         | SearchTokenizer::WhiteSpace(filters)
         | SearchTokenizer::ChineseCompatible(filters)
-        | SearchTokenizer::ChineseLindera(filters)
-        | SearchTokenizer::JapaneseLindera(filters)
-        | SearchTokenizer::KoreanLindera(filters) => {
+        | SearchTokenizer::ChineseLinderaDeprecated(filters)
+        | SearchTokenizer::JapaneseLinderaDeprecated(filters)
+        | SearchTokenizer::KoreanLinderaDeprecated(filters) => {
             // | SearchTokenizer::Jieba(filters) =>  {
             let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
@@ -480,6 +686,11 @@ impl SqlNameMarker for JsonMarker {
 pub struct JsonbMarker;
 impl SqlNameMarker for JsonbMarker {
     const SQL_NAME: &'static str = "jsonb";
+}
+
+pub struct UuidMarker;
+impl SqlNameMarker for UuidMarker {
+    const SQL_NAME: &'static str = "uuid";
 }
 
 //

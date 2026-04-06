@@ -10,6 +10,7 @@ USING bm25 (
 )
 WITH (
     key_field = 'id',
+    sort_by = 'fileId ASC NULLS FIRST',
     text_fields = '{
         "fileId": {
             "tokenizer": {"type": "keyword"}, "fast": true
@@ -38,6 +39,7 @@ USING bm25 (
 )
 WITH (
     key_field = 'id',
+    sort_by = 'documentId ASC NULLS FIRST',
     text_fields = '{
         "documentId": {
             "tokenizer": {"type": "keyword"}, "fast": true
@@ -64,6 +66,7 @@ USING bm25 (
 )
 WITH (
     key_field = 'id',
+    sort_by = 'id ASC NULLS FIRST',
     text_fields = '{
         "content": {
             "tokenizer": {"type": "default"}, "fast": true

@@ -132,7 +132,7 @@ destinations = ["Subscriber", "WalReceiver"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Top N"
+title = "Top K"
 on_connect = """
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;

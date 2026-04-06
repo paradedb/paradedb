@@ -1,0 +1,28 @@
+---
+title: Integrate with AI
+description: Teach your coding assistant to use ParadeDB
+canonical: https://docs.paradedb.com/welcome/ai-agents
+---
+
+Before getting started, let's give your coding agent full context of ParadeDB by adding the ParadeDB agent skill.
+
+```bash
+npx skills add paradedb/agent-skills
+```
+
+This installs `paradedb-skill` into your agent's skills directory (for example, Codex uses `$CODEX_HOME/skills/paradedb-skill`) and works with all major
+coding assistants like Claude Code, Cursor, Codex, Windsurf, Gemini, and more.
+
+For manual and tool-specific setup instructions, see the [agent-skills repository](https://github.com/paradedb/agent-skills).
+
+## MCP Integration
+
+ParadeDB documentation is available via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for direct integration with MCP-compatible agents.
+
+**MCP Endpoint:**
+
+```
+https://docs.paradedb.com/mcp
+```
+
+This allows MCP-enabled tools to query ParadeDB documentation programmatically and provide contextual assistance.

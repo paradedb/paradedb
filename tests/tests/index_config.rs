@@ -945,21 +945,21 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
     .collect::<Vec<String>>()
     .join("\n");
 
-    // Check for TopNScanExecState in the plan
+    // Check for TopKScanExecState in the plan
     assert!(
-        explain_output.contains("TopNScanExecState"),
-        "Expected TopNScanExecState in the execution plan"
+        explain_output.contains("TopKScanExecState"),
+        "Expected TopKScanExecState in the execution plan"
     );
 
     // Verify sort field and direction
     assert!(
-        explain_output.contains("TopN Order By: sale_date asc"),
+        explain_output.contains("TopK Order By: sale_date asc"),
         "Expected sort field to be sale_date"
     );
 
     // Verify the limit is pushed down
     assert!(
-        explain_output.contains("TopN Limit: 5"),
+        explain_output.contains("TopK Limit: 5"),
         "Expected limit 5 to be pushed down"
     );
 
@@ -1007,7 +1007,7 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     .collect::<Vec<String>>()
     .join("\n");
 
-    // Verify NormalScanExecState is used. We can't use TopN because there the limit occurs _after_
+    // Verify NormalScanExecState is used. We can't use Top K because there the limit occurs _after_
     // the union. And we can't use fast fields, because there are non-fast fields.
     assert!(
         explain_output.contains("NormalScanExecState"),
@@ -1015,8 +1015,8 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
     );
 
     assert!(
-        !explain_output.contains("TopNScanExecState"),
-        "TopNScanExecState should not be present in the execution plan"
+        !explain_output.contains("TopKScanExecState"),
+        "TopKScanExecState should not be present in the execution plan"
     );
 
     // Even without the optimization, verify the query returns correct results
@@ -1101,15 +1101,15 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     // Print the explain plan for debugging
     println!("EXPLAIN output:\n{explain_output}");
 
-    // Verify NormalScanExecState is used (not TopNScanExecState)
+    // Verify NormalScanExecState is used (not TopKScanExecState)
     assert!(
         explain_output.contains("NormalScanExecState"),
         "Expected NormalScanExecState in the execution plan"
     );
 
     assert!(
-        !explain_output.contains("TopNScanExecState"),
-        "TopNScanExecState should not be present in the execution plan"
+        !explain_output.contains("TopKScanExecState"),
+        "TopKScanExecState should not be present in the execution plan"
     );
 
     // Ensure the query works and returns correct results

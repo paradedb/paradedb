@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Disable parallel workers to avoid differences in plans
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
-SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_columnar_exec = true;
 -- Setup test table
 DROP TABLE IF EXISTS products;
 CREATE TABLE products (
@@ -55,7 +55,7 @@ ORDER BY score DESC;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -88,7 +88,7 @@ SELECT
 FROM products 
 WHERE category_name = 'Electronics'
 ORDER BY id;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test Case 1.6: Simple test with just non-indexed predicate to isolate the issue
 SELECT 
     id,
@@ -121,7 +121,7 @@ ORDER BY score DESC;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -159,7 +159,7 @@ ORDER BY score DESC;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -201,7 +201,7 @@ ORDER BY score DESC;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -255,7 +255,7 @@ FROM products
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test Case 3: Another example with price filter (non-indexed)
 -- Should show the same issue - scores become null due to non-indexed predicate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -272,7 +272,7 @@ ORDER BY score DESC;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -311,7 +311,7 @@ ORDER BY score DESC;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -348,7 +348,7 @@ ORDER BY score DESC;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -388,7 +388,7 @@ ORDER BY score DESC;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -434,7 +434,7 @@ ORDER BY score DESC;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -480,7 +480,7 @@ ORDER BY score DESC;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -522,7 +522,7 @@ ORDER BY score DESC;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -561,7 +561,7 @@ ORDER BY score DESC;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -597,7 +597,7 @@ ORDER BY score DESC;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -637,7 +637,7 @@ ORDER BY score DESC;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -681,7 +681,7 @@ ORDER BY score DESC;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -724,7 +724,7 @@ ORDER BY score DESC;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -776,7 +776,7 @@ FROM products
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
 ORDER BY score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test Case 14: Array operations (if supported)
 -- Tests heap filtering with array predicates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -793,7 +793,7 @@ ORDER BY score DESC;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -832,7 +832,7 @@ ORDER BY score DESC;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -875,7 +875,7 @@ ORDER BY score DESC;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -918,7 +918,7 @@ ORDER BY score DESC;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -961,7 +961,7 @@ ORDER BY score DESC;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -1015,7 +1015,7 @@ ORDER BY score DESC;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
@@ -1060,7 +1060,7 @@ FROM products
 WHERE description @@@ 'Apple'
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test edge case: Query with only indexed predicates should still work when GUC is disabled
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
@@ -1074,7 +1074,7 @@ ORDER BY score DESC;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: products_bm25_idx
          Exec Method: NormalScanExecState

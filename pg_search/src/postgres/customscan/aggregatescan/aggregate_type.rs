@@ -15,17 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{
-    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, HashSet,
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, FieldName, HashSet,
     MvccVisibility,
 };
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
+use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
+use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::{
@@ -119,11 +120,11 @@ impl AggregateType {
     pub unsafe fn try_from(
         aggref: *mut pg_sys::Aggref,
         heaprelid: pg_sys::Oid,
-        bm25_index: &crate::postgres::PgSearchRelation,
+        bm25_index: &PgSearchRelation,
         root: *mut pg_sys::PlannerInfo,
         heap_rti: pg_sys::Index,
         qual_state: &mut QualExtractState,
-    ) -> Option<Self> {
+    ) -> Result<Self, String> {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
 
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
@@ -136,7 +137,6 @@ impl AggregateType {
                 &context,
                 heap_rti,
                 (*aggref).aggfilter as *mut pg_sys::Node,
-                anyelement_query_input_opoid(),
                 RestrictInfoType::BaseRelation,
                 bm25_index,
                 false,
@@ -152,13 +152,15 @@ impl AggregateType {
 
         if aggfnoid == agg_oid || aggfnoid == agg_with_mvcc_oid {
             // Extract JSON argument (first arg)
-            let arg = args.get_ptr(0)?;
+            let arg = args.get_ptr(0).expect("pdb.agg missing argument");
             let expr = (*arg).expr;
             let json_value = if let Some(const_node) = nodecast!(Const, T_Const, expr) {
                 let json_datum = (*const_node).constvalue;
-                pgrx::JsonB::from_datum(json_datum, false)?.0
+                pgrx::JsonB::from_datum(json_datum, false)
+                    .expect("invalid JSON in pdb.agg")
+                    .0
             } else {
-                return None;
+                panic!("pdb.agg argument must be a constant");
             };
 
             // Extract solve_mvcc bool argument (second arg) if using the two-arg overload
@@ -177,7 +179,25 @@ impl AggregateType {
                 MvccVisibility::Disabled
             };
 
-            return Some(AggregateType::Custom {
+            // Check if any existing fields in the custom aggregate are NUMERIC
+            // NUMERIC fields do not support aggregate pushdown
+            // Note: Non-existent fields are caught by validate_fields() with proper error
+            let schema = bm25_index.schema().expect("could not get index schema");
+            let mut fields = HashSet::default();
+            extract_fields_from_agg_json(&json_value, &mut fields);
+            for field_name in &fields {
+                // Only check NUMERIC support if field exists in schema
+                if schema.search_field(field_name).is_some()
+                    && !schema.field_supports_aggregate(field_name)
+                {
+                    return Err(format!(
+                        "field '{}' does not support aggregate pushdown (NUMERIC)",
+                        field_name
+                    ));
+                }
+            }
+
+            return Ok(AggregateType::Custom {
                 agg_json: json_value,
                 filter: filter_query,
                 indexrelid: bm25_index.oid(),
@@ -186,22 +206,33 @@ impl AggregateType {
         }
 
         if aggfnoid == F_COUNT_ && (*aggref).aggstar {
-            return Some(AggregateType::CountAny {
+            return Ok(AggregateType::CountAny {
                 filter: filter_query,
                 indexrelid: bm25_index.oid(),
             });
         }
 
         if args.is_empty() {
-            return None;
+            return Err("aggregate missing arguments".into());
         }
 
-        let first_arg = args.get_ptr(0)?;
+        let first_arg = args.get_ptr(0).ok_or("aggregate missing argument")?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
-        let agg_type =
-            create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())?;
 
-        Some(agg_type)
+        // Check if aggregate pushdown is supported for this field type
+        // NUMERIC fields are not supported - they fall back to PostgreSQL
+        if !bm25_index.field_supports_aggregate(&field).unwrap_or(false) {
+            return Err(format!(
+                "field '{}' does not support aggregate pushdown",
+                field
+            ));
+        }
+
+        let agg_type =
+            create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())
+                .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
+
+        Ok(agg_type)
     }
 
     pub fn can_use_doc_count(&self) -> bool {
@@ -309,6 +340,37 @@ impl AggregateType {
         }
     }
 
+    /// Determines if MVCC filtering should be enabled for a group of aggregates.
+    /// Validates that there are no contradicting solve_mvcc settings among custom aggregates.
+    pub fn resolve_mvcc_enabled<'a>(aggregates: impl Iterator<Item = &'a AggregateType>) -> bool {
+        let custom_mvcc_settings: Vec<MvccVisibility> = aggregates
+            .filter_map(|agg_type| {
+                if let AggregateType::Custom {
+                    mvcc_visibility, ..
+                } = agg_type
+                {
+                    Some(*mvcc_visibility)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if !custom_mvcc_settings.is_empty() {
+            let has_enabled = custom_mvcc_settings.contains(&MvccVisibility::Enabled);
+            let has_disabled = custom_mvcc_settings.contains(&MvccVisibility::Disabled);
+            if has_enabled && has_disabled {
+                pgrx::error!(
+                    "pdb.agg() calls have contradicting solve_mvcc settings. \
+                     All pdb.agg() calls in a query must use the same solve_mvcc value. \
+                     Either use solve_mvcc=true (or omit) for all, or solve_mvcc=false for all."
+                );
+            }
+        }
+
+        !custom_mvcc_settings.contains(&MvccVisibility::Disabled)
+    }
+
     pub fn result_type_oid(&self) -> pg_sys::Oid {
         match &self {
             AggregateType::CountAny { .. } | AggregateType::Count { .. } => pg_sys::INT8OID,
@@ -320,63 +382,96 @@ impl AggregateType {
         }
     }
 
-    /// Validate that all fields referenced in a Custom aggregate exist in the index schema.
-    /// Returns an error if any field is invalid.
-    /// TODO: remove this once the Tantivy aggregation validation issue is fixed.
+    /// Validate that fields referenced by this aggregate exist in the schema
+    /// and are supported for aggregate pushdown.
+    ///
+    /// Returns an error if:
+    /// - Any referenced field doesn't exist in the index
+    /// - Any referenced field is a NUMERIC type (not supported for aggregation)
+    ///
+    /// TODO: remove field existence check once Tantivy aggregation validation is fixed.
     /// https://github.com/quickwit-oss/tantivy/issues/2767
     pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
-        if let AggregateType::Custom { agg_json, .. } = self {
-            let fields = extract_fields_from_agg_json(agg_json);
-            let indexed_fields: HashSet<String> = schema
-                .fields()
-                .map(|(_, entry)| entry.name().to_string())
-                .collect();
-
-            for field in &fields {
-                if !indexed_fields.contains(field) {
-                    // Build a sorted list of available fields for the error message
-                    let mut available: Vec<_> = indexed_fields
-                        .iter()
-                        .filter(|f| *f != "ctid") // Don't show internal ctid field
-                        .cloned()
-                        .collect();
-                    available.sort();
-                    return Err(format!(
-                        "pdb.agg() references invalid field '{}'. Available indexed fields are: [{}]",
-                        field,
-                        available.join(", ")
-                    ));
-                }
+        // Check NUMERIC field support for standard aggregates
+        if let Some(field) = self.field_name() {
+            if !schema.field_supports_aggregate(&field) {
+                return Err(format!(
+                    "Aggregate on NUMERIC field '{}' cannot be pushed down. \
+                     NUMERIC columns do not support aggregate pushdown.",
+                    field
+                ));
             }
+        }
+
+        // For Custom aggregates, validate field existence and NUMERIC support
+        if let AggregateType::Custom { agg_json, .. } = self {
+            validate_agg_json_fields(agg_json, schema)?;
         }
         Ok(())
     }
 }
 
-/// Recursively extract all "field" values from an aggregation JSON structure.
-/// Handles nested aggregations via the "aggs" key.
-fn extract_fields_from_agg_json(json: &serde_json::Value) -> HashSet<String> {
+/// Validate that all fields referenced in a JSON aggregation request exist in the
+/// index schema and are supported for aggregate pushdown.
+///
+/// Returns an error if:
+/// - Any referenced field doesn't exist in the index
+/// - Any referenced field is a NUMERIC type (not supported for aggregation)
+pub(crate) fn validate_agg_json_fields(
+    agg_json: &serde_json::Value,
+    schema: &SearchIndexSchema,
+) -> Result<(), String> {
     let mut fields = HashSet::default();
-    extract_fields_recursive(json, &mut fields);
-    fields
+    extract_fields_from_agg_json(agg_json, &mut fields);
+    let indexed_fields: HashSet<String> = schema
+        .fields()
+        .map(|(_, entry)| entry.name().to_string())
+        .collect();
+
+    for field in &fields {
+        // Check field exists
+        if !indexed_fields.contains(field) {
+            let mut available: Vec<_> = indexed_fields
+                .iter()
+                .filter(|f| *f != "ctid")
+                .cloned()
+                .collect();
+            available.sort();
+            return Err(format!(
+                "Aggregation references invalid field '{}'. Available indexed fields are: [{}]",
+                field,
+                available.join(", ")
+            ));
+        }
+        // Check NUMERIC support
+        if !schema.field_supports_aggregate(field) {
+            return Err(format!(
+                "Aggregation references NUMERIC field '{}' which cannot be aggregated. \
+                 NUMERIC columns do not support aggregate pushdown.",
+                field
+            ));
+        }
+    }
+    Ok(())
 }
 
-fn extract_fields_recursive(json: &serde_json::Value, fields: &mut HashSet<String>) {
+fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<String>) {
     match json {
         serde_json::Value::Object(map) => {
             // Check for a "field" key at this level
-            if let Some(serde_json::Value::String(field_name)) = map.get("field") {
-                fields.insert(field_name.clone());
+            if let Some(serde_json::Value::String(f)) = map.get("field") {
+                let field_name = FieldName::from(f);
+                fields.insert(field_name.root());
             }
 
             // Recurse into all values
-            for (key, value) in map {
-                extract_fields_recursive(value, fields);
+            for value in map.values() {
+                extract_fields_from_agg_json(value, fields);
             }
         }
         serde_json::Value::Array(arr) => {
             for item in arr {
-                extract_fields_recursive(item, fields);
+                extract_fields_from_agg_json(item, fields);
             }
         }
         _ => {}
@@ -458,40 +553,58 @@ impl F64Lossless for i64 {
 unsafe fn parse_aggregate_field(
     first_arg: *mut pg_sys::TargetEntry,
     heaprelid: pg_sys::Oid,
-) -> Option<(String, Option<f64>)> {
-    let (var, missing) =
-        if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr) {
-            parse_coalesce_expression(coalesce_node)?
-        } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
-            (var, None)
-        } else {
-            return None;
-        };
+) -> Result<(String, Option<f64>), String> {
+    let (var, missing) = if let Some(coalesce_node) =
+        nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr)
+    {
+        parse_coalesce_expression(coalesce_node)?
+    } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
+        (var, None)
+    } else {
+        return Err("argument to aggregate function is neither a direct column reference nor a COALESCE expression".into());
+    };
 
-    let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
-    Some((field, missing))
+    let field = fieldname_from_var(heaprelid, var, (*var).varattno)
+        .ok_or("could not map variable to field name (may not be in the index)")?
+        .into_inner();
+    Ok((field, missing))
 }
 
 /// Parse COALESCE expression to extract variable and missing value
 pub unsafe fn parse_coalesce_expression(
     coalesce_node: *mut pg_sys::CoalesceExpr,
-) -> Option<(*mut pg_sys::Var, Option<f64>)> {
+) -> Result<(*mut pg_sys::Var, Option<f64>), String> {
     let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
     if args.is_empty() {
-        return None;
+        return Err("COALESCE expression has no arguments".into());
     }
 
-    let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
-    let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
+    // First argument might be wrapped in type coercion (RelabelType, CoerceViaIO)
+    // when PostgreSQL needs to cast FLOAT4 → FLOAT8 for COALESCE consistency
+    let first_arg = args
+        .get_ptr(0)
+        .ok_or("COALESCE expression missing first argument")?;
+    let var = <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)
+        .ok_or("first argument of COALESCE must resolve to a variable")?;
+
+    // Second argument (the default value) might also be wrapped in type coercion
+    let second_arg = args
+        .get_ptr(1)
+        .ok_or("COALESCE expression missing second argument")?;
+    let const_node = ConstNode::unwrap_from_expr(second_arg as *mut pg_sys::Expr)
+        .ok_or("second argument of COALESCE must resolve to a constant")?;
+
     let missing = match TantivyValue::try_from(const_node) {
         Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),
         Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),
         Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
         Ok(TantivyValue(OwnedValue::Null)) => None,
-        _ => return None,
+        // Handle string values from NUMERIC - parse to f64 for missing value
+        Ok(TantivyValue(OwnedValue::Str(s))) => s.parse::<f64>().ok(),
+        _ => return Err("unsupported constant type in COALESCE default value".into()),
     };
 
-    Some((var, missing))
+    Ok((var, missing))
 }
 
 /// Create appropriate AggregateType from function OID

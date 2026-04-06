@@ -20,6 +20,30 @@ use pgrx::datum::datetime_support::DateTimeConversionError;
 
 pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 
+/// The minimum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
+/// converted between Postgres types and Tantivy without underflowing i64 when floored to the
+/// day.
+#[allow(dead_code)]
+pub const MIN_SAFE_TANTIVY_NANOS: i64 =
+    (i64::MIN / 1_000_000_000 / 86_400) * 86_400 * 1_000_000_000;
+
+/// The maximum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
+/// converted between Postgres types and Tantivy without overflowing i64 when floored to the
+/// day.
+#[allow(dead_code)]
+pub const MAX_SAFE_TANTIVY_NANOS: i64 =
+    (i64::MAX / 1_000_000_000 / 86_400) * 86_400 * 1_000_000_000;
+
+#[inline]
+pub fn micros_to_tantivy_datetime(
+    micros: i64,
+) -> Result<tantivy::DateTime, DateTimeConversionError> {
+    let nanos = micros
+        .checked_mul(1_000)
+        .ok_or(DateTimeConversionError::OutOfRange)?;
+    Ok(tantivy::DateTime::from_timestamp_nanos(nanos))
+}
+
 pub fn datetime_components_to_tantivy_date(
     ymd: Option<(i32, u8, u8)>,
     hms_micro: (u8, u8, u8, u32),
@@ -39,6 +63,6 @@ pub fn datetime_components_to_tantivy_date(
     .and_utc();
 
     Ok(tantivy::schema::OwnedValue::Date(
-        tantivy::DateTime::from_timestamp_micros(naive_dt.timestamp_micros()),
+        micros_to_tantivy_datetime(naive_dt.timestamp_micros())?,
     ))
 }

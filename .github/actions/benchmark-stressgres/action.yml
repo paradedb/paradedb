@@ -109,7 +109,7 @@ runs:
       run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish TPS Metrics
-      uses: paradedb/github-action-benchmark@paradedb-v1
+      uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "pg_search ${{ inputs.test_file }} Performance - TPS"
         ref: ${{ inputs.ref }}
@@ -120,7 +120,7 @@ runs:
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}
         benchmark-data-dir-path: stressgres
-        alert-threshold: "110%"
+        alert-threshold: "115%"
         comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: ${{ github.event_name == 'pull_request' }}
@@ -137,7 +137,7 @@ runs:
       run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish Other Metrics
-      uses: paradedb/github-action-benchmark@paradedb-v1
+      uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "pg_search ${{ inputs.test_file }} Performance - Other Metrics"
         ref: ${{ inputs.ref }}

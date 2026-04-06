@@ -7,7 +7,7 @@ name: Test Stressgres (Docker)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
     branches:
       - main
     paths:
@@ -23,14 +23,14 @@ concurrency:
 jobs:
   test-stressgres-docker:
     name: Test Stressgres Docker Image
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8-arm
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           platforms: linux/amd64,linux/arm64
 

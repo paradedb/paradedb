@@ -114,6 +114,13 @@ impl ScorerIter {
     pub fn segment_ord(&self) -> SegmentOrdinal {
         self.segment_ord
     }
+
+    /// Returns the estimated number of documents that will be yielded by this iterator.
+    ///
+    /// This is used for query planning statistics and uses Tantivy's `size_hint`.
+    pub fn estimated_doc_count(&self) -> u32 {
+        self.deferred.size_hint()
+    }
 }
 
 impl Iterator for ScorerIter {
@@ -153,7 +160,7 @@ impl Iterator for ScorerIter {
         // NOTE: We do not implement size_hint for `ScorerIter`, because the implementation of
         // `Scorer::size_hint` can take a lot longer to execute than is usually expected from
         // `Iterator::size_hint`. We also never consume a `ScorerIter` in a way that requires an
-        // accurate size: when consuming for top-n, we consume a precise amount, and in all other
+        // accurate size: when consuming for Top K, we consume a precise amount, and in all other
         // cases the iterator is consumed as streaming.
         (0, None)
     }

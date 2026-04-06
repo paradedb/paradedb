@@ -23,7 +23,7 @@ use sqlx::PgConnection;
 
 /// `sqlsmith` generated a query that crashed due to us dereferencing a null pointer
 ///
-/// The query itself it completely nonsensical but we shouldn't crash no matter what
+/// The query itself is completely nonsensical, but we shouldn't crash no matter what
 /// the user (or sqlsmith) throws at us.
 #[rstest]
 fn crash_in_subquery(mut conn: PgConnection) {
@@ -76,13 +76,8 @@ fn crash_in_subquery(mut conn: PgConnection) {
     "#
     .execute_result(&mut conn);
 
-    let pg_ver = pg_major_version(&mut conn);
-    if pg_ver == 14 {
-        assert!(result.is_ok());
-    } else {
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(format!("{err}")
-            .contains("unable to determine Var relation as it belongs to a NULL subquery"))
-    }
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(format!("{err}")
+        .contains("unable to determine Var relation as it belongs to a NULL subquery"))
 }

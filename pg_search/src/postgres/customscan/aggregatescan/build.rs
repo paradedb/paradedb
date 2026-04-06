@@ -15,26 +15,33 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{FieldName, HashSet, MvccVisibility, OrderByFeature};
+use crate::api::SortDirection;
+use crate::api::{FieldName, HashSet, OrderByFeature};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
 use crate::postgres::customscan::aggregatescan::filterquery::{new_filter_query, FilterQuery};
-use crate::postgres::customscan::aggregatescan::limit_offset::LimitOffsetClause;
 use crate::postgres::customscan::aggregatescan::orderby::OrderByClause;
 use crate::postgres::customscan::aggregatescan::searchquery::SearchQueryClause;
-use crate::postgres::customscan::aggregatescan::targetlist::{TargetList, TargetListEntry};
-use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::targetlist::{
+    find_single_aggref_in_expr, TargetList, TargetListEntry,
+};
+use crate::postgres::customscan::aggregatescan::{
+    AggregateScan, CustomScanBuildError, CustomScanClause,
+};
 use crate::postgres::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
+use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::sort_json_keys;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use anyhow::Result;
 use pgrx::pg_sys;
+use pgrx::PgList;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::bucket::{CustomOrder, OrderTarget, TermsAggregation};
@@ -59,14 +66,35 @@ impl AggregationKey for FilterSentinelKey {
     const NAME: &'static str = "filter_sentinel";
 }
 
+/// Identifies which aggregate metric the ORDER BY targets.
+///
+/// Currently only `Count` is used — non-COUNT aggregates (SUM, AVG, etc.)
+/// are rejected by `detect_aggregate_orderby` because Tantivy treats NULL
+/// aggregates differently from Postgres (see that function's comments).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum AggregateMetricTarget {
+    /// COUNT(*) — uses `OrderTarget::Count`. Cannot produce NULLs,
+    /// so the `size=K` and ordering optimizations are safe.
+    Count,
+}
+
+/// ORDER BY on an aggregate metric for TopK optimization.
+/// Allows pushing LIMIT into Tantivy's TermsAggregation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AggregateOrderBy {
+    pub target: AggregateMetricTarget,
+    pub direction: SortDirection,
+}
+
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggregateCSClause {
     targetlist: TargetList,
     orderby: OrderByClause,
-    limit_offset: LimitOffsetClause,
+    limit_offset: LimitOffset,
     quals: SearchQueryClause,
     indexrelid: pg_sys::Oid,
     is_execution_time: bool,
+    aggregate_orderby: Option<AggregateOrderBy>,
 }
 
 trait CollectNested<Key: AggregationKey> {
@@ -124,22 +152,8 @@ pub trait CollectAggregations {
 
 impl CollectAggregations for AggregateCSClause {
     fn collect(&self) -> Result<Aggregations> {
-        // Validate that no custom aggregate has solve_mvcc=false in GROUP BY context.
-        // solve_mvcc=false is only allowed in TopN (window function) context.
-        for agg in self.aggregates() {
-            if let AggregateType::Custom {
-                mvcc_visibility, ..
-            } = agg
-            {
-                if *mvcc_visibility == MvccVisibility::Disabled {
-                    pgrx::error!(
-                        "pdb.agg() with solve_mvcc=false is only supported in window function context \
-                         (with OVER clause). GROUP BY aggregates always use MVCC filtering for correctness. \
-                         Remove the second argument or use solve_mvcc=true."
-                    );
-                }
-            }
-        }
+        // Validate that no contradicting solve_mvcc settings exist among custom aggregates
+        self.mvcc_enabled();
 
         // Validate that all fields referenced in custom aggregates exist in the index schema
         if self.indexrelid != pg_sys::InvalidOid {
@@ -302,6 +316,12 @@ impl AggregateCSClause {
         !self.targetlist.grouping_columns().is_empty()
     }
 
+    /// Determines if MVCC filtering should be enabled for this aggregate scan.
+    /// Also validates that there are no contradicting solve_mvcc settings among custom aggregates.
+    pub fn mvcc_enabled(&self) -> bool {
+        AggregateType::resolve_mvcc_enabled(self.aggregates())
+    }
+
     pub fn planner_should_replace_aggrefs(&self) -> bool {
         self.targetlist.grouping_columns().is_empty()
             && self.orderby.orderby_info().is_empty()
@@ -340,8 +360,8 @@ impl AggregateCSClause {
                 SortDirection::AscNullsLast | SortDirection::DescNullsFirst => false,
             })
             .filter_map(|info| match &info.feature {
-                OrderByFeature::Field(name) => Some(name.to_string()),
-                OrderByFeature::Score => None,
+                OrderByFeature::Field { name, .. } => Some(name.to_string()),
+                OrderByFeature::Score { .. } | OrderByFeature::Var { .. } => None,
             })
             .collect()
     }
@@ -386,10 +406,23 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             ))
         };
 
+        let topk_output: Vec<(String, String)> = if let (true, Some(ref agg_order)) =
+            (self.limit_offset.limit().is_some(), &self.aggregate_orderby)
+        {
+            let dir = match agg_order.direction {
+                SortDirection::DescNullsFirst | SortDirection::DescNullsLast => "DESC",
+                _ => "ASC",
+            };
+            vec![(String::from("TopK Order"), format!("COUNT(*) {}", dir))]
+        } else {
+            vec![]
+        };
+
         Box::new(
             aggregate_types
                 .chain(self.groupby().explain_output())
                 .chain(self.limit_offset.explain_output())
+                .chain(topk_output)
                 .chain(aggregate_json),
         )
     }
@@ -398,41 +431,186 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         args: &Self::Args,
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
-    ) -> Option<Self> {
+    ) -> Result<Self, CustomScanBuildError> {
         let targetlist = TargetList::from_pg(args, heap_rti, index)?;
         // OrderBy is optional - if we can't extract it but there IS a sort clause,
         // use unpushable() to remember that ordering exists
-        let orderby = OrderByClause::from_pg(args, heap_rti, index).unwrap_or_else(|| {
-            let has_sort_clause = unsafe {
-                !args.root().parse.is_null() && !(*args.root().parse).sortClause.is_null()
-            };
-            if has_sort_clause {
-                OrderByClause::unpushable()
-            } else {
-                OrderByClause::default()
+        let orderby = match OrderByClause::from_pg(args, heap_rti, index) {
+            Ok(o) => o,
+            Err(_) => {
+                let has_sort_clause = unsafe {
+                    !args.root().parse.is_null() && !(*args.root().parse).sortClause.is_null()
+                };
+                if has_sort_clause {
+                    OrderByClause::unpushable()
+                } else {
+                    OrderByClause::default()
+                }
             }
-        });
+        };
         // LimitOffset is optional
-        let limit_offset = LimitOffsetClause::from_pg(args, heap_rti, index)
-            .unwrap_or_else(LimitOffsetClause::default);
+        let limit_offset = unsafe { LimitOffset::from_parse(args.root().parse) };
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
         if !gucs::enable_custom_scan_without_operator()
             && !quals.uses_our_operator()
             && !targetlist.uses_our_operator()
         {
-            return None;
+            return Err(CustomScanBuildError::NotInteresting);
         }
 
-        Some(Self {
+        // Detect ORDER BY on aggregate for TopK optimization
+        let aggregate_orderby = if orderby.has_orderby() && orderby.orderby_info().is_empty() {
+            unsafe { detect_aggregate_orderby(args, &targetlist) }
+        } else {
+            None
+        };
+
+        Ok(Self {
             targetlist,
             orderby,
             limit_offset,
             quals,
             indexrelid: index.oid(),
             is_execution_time: false,
+            aggregate_orderby,
         })
     }
+}
+
+/// Returns true when the query has ORDER BY on any aggregate + LIMIT.
+/// These queries are routed to DataFusion instead of Tantivy because:
+/// - Tantivy's max_buckets (65000) silently drops groups beyond that limit,
+///   which could exclude groups that belong in the top-K.
+/// - DataFusion has no bucket cap and provides native TopK via SortExec(fetch=K).
+///
+/// This is a lightweight parse-tree check used before building the full
+/// AggregateCSClause — it only looks at the sort clause structure.
+pub(super) unsafe fn has_aggregate_orderby_with_limit(args: &CreateUpperPathsHookArgs) -> bool {
+    let parse = args.root().parse;
+    if parse.is_null() || (*parse).sortClause.is_null() || (*parse).groupClause.is_null() {
+        return false;
+    }
+    // Must have a LIMIT for TopK to matter
+    if (*parse).limitCount.is_null() {
+        return false;
+    }
+    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    if sort_clauses.len() != 1 {
+        return false;
+    }
+    let Some(sort_clause_ptr) = sort_clauses.get_ptr(0) else {
+        return false;
+    };
+    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+
+    // The sort expression must BE an aggregate — not merely contain one.
+    let Some(aggref) = find_single_aggref_in_expr(sort_expr) else {
+        return false;
+    };
+    if aggref as *mut pg_sys::Node != sort_expr {
+        return false;
+    }
+
+    // Verify GROUP BY uses simple column references (Var nodes).
+    // Complex expressions like `metadata->>'category'` (OpExpr) can't be handled
+    // by the DataFusion aggregate path which requires Var or Aggref target entries.
+    // TODO: extend the DataFusion path to support JSON sub-field GROUP BY expressions.
+    // This requires PgSearchTableProvider to expose JSON sub-fields (e.g., `metadata.category`)
+    // as separate Arrow columns, and populate_required_fields to register them by field name
+    // rather than attno. Until then, these queries stay in Tantivy which handles JSON
+    // sub-paths natively via TermsAggregation.
+    let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
+    for group_clause_ptr in group_clauses.iter_ptr() {
+        let group_expr = pg_sys::get_sortgroupclause_expr(group_clause_ptr, (*parse).targetList);
+        if !group_expr.is_null() && (*group_expr).type_ != pg_sys::NodeTag::T_Var {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Detects ORDER BY on aggregate metrics (e.g., ORDER BY COUNT(*) DESC)
+/// for TopK optimization in TermsAggregation.
+///
+/// Returns `Some(AggregateOrderBy)` when the sort clause targets a single aggregate
+/// that can be pushed down to Tantivy's TermsAggregation ordering.
+unsafe fn detect_aggregate_orderby(
+    args: &CreateUpperPathsHookArgs,
+    targetlist: &TargetList,
+) -> Option<AggregateOrderBy> {
+    let parse = args.root().parse;
+    if parse.is_null() || (*parse).sortClause.is_null() || (*parse).groupClause.is_null() {
+        return None;
+    }
+
+    // Only support single sort clause for TopK
+    let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    if sort_clauses.len() != 1 {
+        return None;
+    }
+
+    // Don't support TopK with aggregate filters (different tree structure)
+    if targetlist.aggregates().any(|agg| agg.has_filter()) {
+        return None;
+    }
+
+    let sort_clause_ptr = sort_clauses.get_ptr(0)?;
+    let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+
+    // The sort expression must BE an aggregate — not merely contain one.
+    // e.g. ORDER BY COUNT(*) DESC is safe, but ORDER BY ABS(SUM(score)) DESC
+    // is not: ABS() breaks monotonicity, so Tantivy's ordering wouldn't match.
+    let aggref = find_single_aggref_in_expr(sort_expr)?;
+    if aggref as *mut pg_sys::Node != sort_expr {
+        return None;
+    }
+
+    // Determine sort direction; bail out if the operator is unrecognized
+    // so we fall back to the un-optimized path rather than risk wrong results.
+    let direction = SortDirection::from_sort_op((*sort_clause_ptr).sortop)?;
+
+    // Find matching position in output_rel target using structural equality
+    let reltarget = args.output_rel().reltarget;
+    if reltarget.is_null() {
+        return None;
+    }
+    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*reltarget).exprs);
+
+    let mut match_pos = None;
+    for (pos, target_expr) in target_exprs.iter_ptr().enumerate() {
+        if pg_sys::equal(
+            sort_expr as *const core::ffi::c_void,
+            target_expr as *const core::ffi::c_void,
+        ) {
+            match_pos = Some(pos);
+            break;
+        }
+    }
+
+    let pos = match_pos?;
+
+    // Check if this position is an Aggregate in our TargetList
+    let entry = targetlist.entries().nth(pos)?;
+    let agg = match entry {
+        TargetListEntry::Aggregate(agg) => agg,
+        _ => return None,
+    };
+
+    // Only COUNT(*) is safe for TopK ordering pushdown. Non-COUNT
+    // aggregates (SUM, AVG, MIN, MAX) can produce NULL when all values
+    // in a group are NULL. Tantivy treats NULL sums as 0 / omits them,
+    // which differs from Postgres's NULL semantics. This causes groups
+    // to be mis-ordered or pruned, so we bail out for non-COUNT targets.
+    if agg.can_use_doc_count() {
+        return Some(AggregateOrderBy {
+            target: AggregateMetricTarget::Count,
+            direction,
+        });
+    }
+
+    None
 }
 
 impl CollectNested<GroupedKey> for AggregateCSClause {
@@ -440,15 +618,28 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
         let orderby_info = self.orderby.orderby_info();
         let grouping_columns = self.targetlist.grouping_columns();
 
+        let max_buckets = gucs::max_term_agg_buckets() as u32;
+
+        // `size` controls how many buckets the final merge returns.
+        // `segment_size` controls per-segment collection. We always keep
+        // segment_size = max_buckets so every segment contributes accurate
+        // counts — setting segment_size = K causes per-segment approximation
+        // errors where groups distributed across segments get undercounted.
+        //
+        // With segment_size = max_buckets, correctness is the same as the
+        // non-TopK path: exact counts as long as distinct groups ≤ max_buckets.
+        // The only optimization is `size = K` limiting the merged output.
+        // Postgres still adds Sort + Limit above us for final ordering.
         let size = {
             let limit = self.limit_offset.limit();
             let offset = self.limit_offset.offset();
-            let max_buckets = gucs::max_term_agg_buckets() as u32;
 
-            // We can only use LIMIT-based size optimization when:
+            // We can use LIMIT-based size optimization when:
             // 1. There's exactly one grouping column (multiple columns need all combinations)
-            // 2. There's no ORDER BY (we can't ask Tantivy to sort grouping columns reliably)
-            let can_limit_buckets = grouping_columns.len() == 1 && !self.orderby.has_orderby();
+            // 2. Either no ORDER BY, or ORDER BY targets COUNT (the only safe aggregate
+            //    for TopK — see detect_aggregate_orderby for why non-COUNT is excluded)
+            let can_limit_buckets = grouping_columns.len() == 1
+                && (!self.orderby.has_orderby() || self.aggregate_orderby.is_some());
 
             if can_limit_buckets {
                 if let Some(limit) = limit {
@@ -461,9 +652,19 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
             }
         };
 
+        // Only apply aggregate ordering for single grouping column
+        let aggregate_orderby = if grouping_columns.len() == 1 {
+            self.aggregate_orderby.clone()
+        } else {
+            None
+        };
+
         Ok(grouping_columns.into_iter().map(move |column| {
             let orderby = orderby_info.iter().find(|info| {
-                if let OrderByFeature::Field(field_name) = &info.feature {
+                if let OrderByFeature::Field {
+                    name: field_name, ..
+                } = &info.feature
+                {
                     field_name == &FieldName::from(column.field_name.clone())
                 } else {
                     false
@@ -473,11 +674,20 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
             let mut terms_agg = TermsAggregation {
                 field: column.field_name.clone(),
                 size: Some(size),
-                segment_size: Some(size),
+                // Always collect all buckets per segment for accurate counts.
+                // Only the final merge output is limited to `size`.
+                segment_size: Some(max_buckets),
                 ..Default::default()
             };
 
-            if let Some(orderby) = orderby {
+            if let Some(ref agg_order) = aggregate_orderby {
+                // Only COUNT-based ordering is pushed down (detect_aggregate_orderby
+                // rejects non-COUNT targets due to Tantivy/Postgres NULL semantics mismatch).
+                terms_agg.order = Some(CustomOrder {
+                    target: OrderTarget::Count,
+                    order: agg_order.direction.into(),
+                });
+            } else if let Some(orderby) = orderby {
                 terms_agg.order = Some(CustomOrder {
                     target: OrderTarget::Key,
                     order: orderby.direction.into(),

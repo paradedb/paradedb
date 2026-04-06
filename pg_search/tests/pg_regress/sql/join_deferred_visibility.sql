@@ -1,0 +1,223 @@
+-- Tests for deferred visibility in JoinScan
+--
+-- Verifies that packed DocAddresses are correctly resolved to real heap TIDs
+-- by VisibilityFilterExec across different join topologies:
+--   1. Basic INNER JOIN with VisibilityFilterExec in EXPLAIN
+--   2. Mixed INNER + SEMI join tree with join-level search predicates
+--   3. Self-join (repeated indexrelid) where one branch is ctid-only
+--   4. INNER JOIN with concurrent dead tuples (LIMIT counts only visible rows)
+--   5. Mixed INNER + ANTI join with per-predicate deferred visibility
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan TO OFF;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =============================================================================
+-- SETUP
+-- =============================================================================
+
+DROP TABLE IF EXISTS items CASCADE;
+DROP TABLE IF EXISTS tags CASCADE;
+DROP TABLE IF EXISTS reviews CASCADE;
+
+CREATE TABLE items (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    tag_id INTEGER
+);
+
+CREATE TABLE tags (
+    id INTEGER PRIMARY KEY,
+    label TEXT,
+    category TEXT
+);
+
+CREATE TABLE reviews (
+    id INTEGER PRIMARY KEY,
+    item_id INTEGER,
+    body TEXT,
+    rating INTEGER
+);
+
+INSERT INTO items (id, name, description, tag_id) VALUES
+(1, 'Wireless Mouse', 'ergonomic wireless mouse with Bluetooth', 10),
+(2, 'USB Cable', 'high-speed USB-C cable for data transfer', 20),
+(3, 'Keyboard', 'mechanical keyboard with RGB lighting', 10),
+(4, 'Monitor Stand', 'adjustable monitor stand for ergonomic setup', 30),
+(5, 'Webcam', 'HD webcam for video conferencing', 20),
+(6, 'Headphones', 'wireless noise-canceling headphones', 10),
+(7, 'Mouse Pad', 'large gaming mouse pad', 30),
+(8, 'Cable Organizer', 'desktop cable organizer', 20);
+
+INSERT INTO tags (id, label, category) VALUES
+(10, 'peripherals', 'hardware accessories for computers'),
+(20, 'cables', 'connectivity and data transfer cables'),
+(30, 'stands', 'ergonomic desk accessories and stands');
+
+INSERT INTO reviews (id, item_id, body, rating) VALUES
+(100, 1, 'great wireless mouse very ergonomic', 5),
+(101, 1, 'decent mouse but battery drains fast', 3),
+(102, 2, 'perfect cable for fast charging', 5),
+(103, 3, 'amazing keyboard love the RGB', 5),
+(104, 4, 'solid monitor stand adjustable', 4),
+(105, 5, 'webcam works great for meetings', 4),
+(106, 6, 'noise canceling is excellent', 5),
+(107, 7, 'nice large mouse pad', 4),
+(108, 8, 'keeps cables organized and tidy', 4);
+
+CREATE INDEX items_idx ON items USING bm25 (id, name, description, tag_id)
+WITH (
+    key_field = 'id',
+    numeric_fields = '{"tag_id": {"fast": true}}'
+);
+
+CREATE INDEX tags_idx ON tags USING bm25 (id, label, category)
+WITH (key_field = 'id');
+
+CREATE INDEX reviews_idx ON reviews USING bm25 (id, item_id, body, rating)
+WITH (
+    key_field = 'id',
+    numeric_fields = '{"item_id": {"fast": true}, "rating": {"fast": true}}'
+);
+
+-- =============================================================================
+-- TEST 1: Basic INNER JOIN — verify VisibilityFilterExec appears in plan
+-- =============================================================================
+
+-- The physical plan should contain VisibilityFilterExec when deferred
+-- visibility is active.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, t.label
+FROM items i
+JOIN tags t ON i.tag_id = t.id
+WHERE i.description @@@ 'wireless'
+ORDER BY i.id
+LIMIT 5;
+
+-- Verify results are correct
+SELECT i.id, i.name, t.label
+FROM items i
+JOIN tags t ON i.tag_id = t.id
+WHERE i.description @@@ 'wireless'
+ORDER BY i.id
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 2: Mixed INNER + SEMI join tree
+-- (items INNER JOIN tags) with EXISTS on reviews
+-- The SEMI join is a barrier — visibility resolved per-child below it.
+-- The INNER join defers visibility to root.
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name
+FROM items i
+JOIN tags t ON i.tag_id = t.id
+WHERE i.description @@@ 'wireless OR keyboard'
+  AND EXISTS (
+    SELECT 1 FROM reviews r
+    WHERE r.item_id = i.id
+      AND r.body @@@ 'great'
+  )
+ORDER BY i.id
+LIMIT 5;
+
+SELECT i.id, i.name
+FROM items i
+JOIN tags t ON i.tag_id = t.id
+WHERE i.description @@@ 'wireless OR keyboard'
+  AND EXISTS (
+    SELECT 1 FROM reviews r
+    WHERE r.item_id = i.id
+      AND r.body @@@ 'great'
+  )
+ORDER BY i.id
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 3: Self-join — same index scanned twice with different predicates
+-- One branch searches for 'wireless', the other for 'keyboard'.
+-- Both share the same indexrelid but have different FFHelper layouts.
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT a.id, a.name AS wireless_name, b.id, b.name AS keyboard_name
+FROM items a
+JOIN items b ON a.tag_id = b.tag_id
+WHERE a.description @@@ 'wireless'
+  AND b.description @@@ 'keyboard'
+ORDER BY a.id, b.id
+LIMIT 5;
+
+SELECT a.id, a.name AS wireless_name, b.id, b.name AS keyboard_name
+FROM items a
+JOIN items b ON a.tag_id = b.tag_id
+WHERE a.description @@@ 'wireless'
+  AND b.description @@@ 'keyboard'
+ORDER BY a.id, b.id
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 4: INNER JOIN with dead tuples (LIMIT must count only visible rows)
+-- Insert rows, delete some, then query. VisibilityFilterExec must filter
+-- the dead rows so LIMIT returns the correct count.
+-- =============================================================================
+
+-- Add extra rows then delete some to create dead tuples
+INSERT INTO items (id, name, description, tag_id) VALUES
+(9, 'Deleted Wireless Speaker', 'portable wireless speaker with bass', 10),
+(10, 'Deleted Wireless Charger', 'fast wireless charging pad', 20);
+
+DELETE FROM items WHERE id IN (9, 10);
+
+-- The deleted rows should NOT appear in results
+SELECT i.id, i.name, t.label
+FROM items i
+JOIN tags t ON i.tag_id = t.id
+WHERE i.description @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 5: Mixed INNER + ANTI join
+-- Find items that have NO reviews with rating < 4
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name
+FROM items i
+JOIN tags t ON i.tag_id = t.id
+WHERE i.description @@@ 'wireless OR mouse'
+  AND NOT EXISTS (
+    SELECT 1 FROM reviews r
+    WHERE r.item_id = i.id
+      AND r.rating < 4
+  )
+ORDER BY i.id
+LIMIT 5;
+
+SELECT i.id, i.name
+FROM items i
+JOIN tags t ON i.tag_id = t.id
+WHERE i.description @@@ 'wireless OR mouse'
+  AND NOT EXISTS (
+    SELECT 1 FROM reviews r
+    WHERE r.item_id = i.id
+      AND r.rating < 4
+  )
+ORDER BY i.id
+LIMIT 5;
+
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+DROP TABLE IF EXISTS reviews CASCADE;
+DROP TABLE IF EXISTS tags CASCADE;
+DROP TABLE IF EXISTS items CASCADE;
+
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_join_custom_scan;

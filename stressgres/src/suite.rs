@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -53,7 +53,7 @@ impl PgConfigStyle {
                 let pgrx = Pgrx::from_config().expect("is pgrx configured?");
                 let base_pg_config = pgrx
                     .get(&version.to_string())
-                    .expect("is pgrx configured with Postgres v17?");
+                    .expect("is pgrx configured with the requested Postgres version?");
                 PgConfig::new(
                     base_pg_config.path().unwrap(),
                     port.unwrap_or_else(default_port),
@@ -118,8 +118,8 @@ impl PostgresqlConf {
 pub enum PgVersion {
     V15,
     V16,
-    #[default]
     V17,
+    #[default]
     V18,
 }
 
@@ -144,7 +144,7 @@ impl FromStr for PgVersion {
             "pg17" | "17" => Ok(PgVersion::V17),
             "pg18" | "18" => Ok(PgVersion::V18),
             _ => Err(format!(
-                "Invalid PostgreSQL version: {}. Expected 'pg17' or 'pg18'",
+                "Invalid PostgreSQL version: {}. Expected one of 'pg15', 'pg16', 'pg17', or 'pg18'",
                 s
             )),
         }
@@ -344,16 +344,24 @@ fn default_log_tps() -> bool {
 /// A full suite of jobs, plus optional name, setup, teardown, monitor.
 #[derive(Deserialize, Debug)]
 pub struct SuiteDefinition {
+    /// The file path to the suite definition.
     #[serde(skip_serializing)]
     pub path: Option<PathBuf>,
 
+    /// The display name of the suite.
     pub name: Option<String>,
 
+    /// The list of jobs to run as part of the suite.
     pub jobs: Vec<Job>,
 
+    /// The list of servers (Postgres instances) involved in the suite.
     #[serde(deserialize_with = "validate_server_list")]
     #[serde(rename = "server")]
     pub servers: Vec<Server>,
+
+    /// A list of error message substrings that should be ignored during execution and termination.
+    #[serde(default)]
+    pub ignore_errors: Vec<String>,
 }
 
 pub struct Suite {
@@ -427,6 +435,10 @@ impl Suite {
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "<no name>".to_string())
         })
+    }
+
+    pub fn ignore_errors(&self) -> &[String] {
+        &self.definition.ignore_errors
     }
 
     pub fn jobs(&self) -> impl Iterator<Item = &Job> {

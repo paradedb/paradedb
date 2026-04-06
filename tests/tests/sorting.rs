@@ -36,6 +36,7 @@ fn field_sort_fixture(conn: &mut PgConnection) -> Value {
             text_fields = '{
                 "description": {},
                 "category": {
+                    "tokenizer": {"type": "keyword"},
                     "fast": true,
                     "normalizer": "lowercase"
                 }
@@ -71,7 +72,7 @@ fn sort_by_lower(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     assert_eq!(
-        plan.get("   TopN Order By"),
+        plan.get("   TopK Order By"),
         Some(&Value::String(String::from("category asc")))
     );
 }
@@ -93,7 +94,7 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     assert_eq!(
-        plan.get("   TopN Order By"),
+        plan.get("   TopK Order By"),
         Some(&Value::String(String::from("category asc")))
     );
 }
@@ -112,6 +113,7 @@ fn sort_by_raw(mut conn: PgConnection) {
             text_fields = '{
                 "description": {},
                 "category": {
+                    "tokenizer": {"type": "keyword"},
                     "fast": true,
                     "normalizer": "raw"
                 }
@@ -141,7 +143,7 @@ fn sort_by_raw(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     assert_eq!(
-        plan.get("   TopN Order By"),
+        plan.get("   TopK Order By"),
         Some(&Value::String(String::from("category asc")))
     );
 }
@@ -162,7 +164,7 @@ async fn test_compound_sort(mut conn: PgConnection) {
 
     // Since both ORDER-BY fields are fast, they should be pushed down.
     assert_eq!(
-        plan.pointer("/0/Plan/Plans/0/   TopN Order By"),
+        plan.pointer("/0/Plan/Plans/0/   TopK Order By"),
         Some(&Value::String(String::from("rating desc, created_at desc")))
     );
 }
@@ -181,7 +183,7 @@ async fn compound_sort_expression(mut conn: PgConnection) {
 
     eprintln!("plan: {plan:#?}");
 
-    // Since the ORDER BY contains an expression, we should not attempt TopN, even if other
+    // Since the ORDER BY contains an expression, we should not attempt Top K, even if other
     // fields could be pushed down.
     assert_eq!(
         plan.pointer("/0/Plan/Plans/0/Plans/0/Exec Method"),
@@ -226,7 +228,7 @@ async fn compound_sort_partitioned(mut conn: PgConnection) {
     assert_eq!(custom_scan_nodes.len(), 2);
     for node in custom_scan_nodes {
         assert_eq!(
-            node.get("   TopN Order By"),
+            node.get("   TopK Order By"),
             Some(&Value::String(String::from("sale_date asc, amount asc")))
         );
     }

@@ -17,10 +17,14 @@
 
 use crate::customscan::aggregatescan::{GroupByClause, GroupingColumn};
 use crate::postgres::customscan::aggregatescan::aggregate_type::AggregateType;
-use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
+use crate::postgres::customscan::aggregatescan::{
+    AggregateScan, CustomScanBuildError, CustomScanClause,
+};
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::qual_inspect::QualExtractState;
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::utils::strip_unnest_and_relabel;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
@@ -30,7 +34,9 @@ use std::ptr::addr_of_mut;
 /// Find the single Aggref node in an expression tree (handles wrapped aggregates like COALESCE(COUNT(*), 0))
 /// Returns the pointer to the Aggref if exactly one is found, None if zero or multiple Aggrefs exist.
 /// Expressions like COUNT(*) + SUM(x) will return None since we can't handle multiple aggregates.
-unsafe fn find_single_aggref_in_expr(expr: *mut pg_sys::Node) -> Option<*mut pg_sys::Aggref> {
+pub(super) unsafe fn find_single_aggref_in_expr(
+    expr: *mut pg_sys::Node,
+) -> Option<*mut pg_sys::Aggref> {
     use pgrx::pg_guard;
 
     struct WalkerContext {
@@ -154,25 +160,30 @@ impl CustomScanClause<AggregateScan> for TargetList {
         args: &Self::Args,
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
-    ) -> Option<Self> {
+    ) -> Result<Self, CustomScanBuildError> {
         // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
             let parse = args.root().parse;
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
-                return None;
+                return Err("Query has DISTINCT clause (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
             }
         }
 
-        let schema = index.schema().ok()?;
+        let schema = index.schema().expect("Could not get index schema");
         let target_list =
             unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
         if target_list.is_empty() {
-            return None;
+            return Err("Target list is empty".into());
         }
 
         let heap_rte = unsafe {
             let rt = PgList::<pg_sys::RangeTblEntry>::from_pg((*args.root().parse).rtable);
-            rt.get_ptr((heap_rti - 1) as usize)?
+            match rt.get_ptr((heap_rti - 1) as usize) {
+                Some(ptr) => ptr,
+                None => {
+                    return Err("Could not get heap RTE".into());
+                }
+            }
         };
         let heap_oid = unsafe { (*heap_rte).relid };
 
@@ -181,66 +192,100 @@ impl CustomScanClause<AggregateScan> for TargetList {
         let mut entries = Vec::new();
         let mut uses_our_operator = false;
 
+        let index_expressions = index.index_expressions();
+
         for expr in target_list.iter_ptr() {
             unsafe {
-                let node_tag = (*expr).type_;
                 let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
-                // Try to extract field name from the expression (handles both Var and JSON operators)
-                if let Some((var, field_name)) =
-                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
+                let (actual_expr, _) = strip_unnest_and_relabel(expr as *mut pg_sys::Node);
+
+                let maybe_field_name = if let Some((_, field_name)) =
+                    find_one_var_and_fieldname(var_context, actual_expr)
                 {
+                    Some(field_name.into_inner())
+                } else {
+                    find_matching_fast_field(
+                        actual_expr,
+                        &index_expressions,
+                        schema.clone(),
+                        heap_rti,
+                    )
+                    .map(|ff| ff.name())
+                };
+
+                // Try to extract field name from the expression (handles both Var and JSON operators)
+                if let Some(field_name) = maybe_field_name {
                     // This could be a Var or a JSON projection (OpExpr) - check if it's a grouping column
                     // Find which grouping column this is
                     let mut found = false;
                     for (i, gc) in grouping_columns.iter().enumerate() {
                         // For JSON projections, the field_name will be like "metadata_json.value"
                         // and gc.field_name should match
-                        if gc.field_name == field_name.clone().into_inner() {
+                        if gc.field_name == field_name {
                             entries.push(TargetListEntry::GroupingColumn(i));
                             found = true;
                             break;
                         }
                     }
                     if !found {
-                        return None;
+                        return Err(
+                            format!("Field '{}' is not a grouping column", field_name).into()
+                        );
                     }
                 } else if let Some(aggref) = find_single_aggref_in_expr(expr as *mut pg_sys::Node) {
                     // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
                     // TODO: Support DISTINCT
                     if !(*aggref).aggdistinct.is_null() {
-                        return None;
+                        return Err("DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
                     }
 
                     let mut qual_state = QualExtractState::default();
-                    let aggregate = AggregateType::try_from(
+                    let aggregate = match AggregateType::try_from(
                         aggref,
                         heap_oid,
                         index,
                         args.root,
                         heap_rti,
                         &mut qual_state,
-                    )?;
+                    ) {
+                        Ok(a) => a,
+                        Err(e) => {
+                            return Err(e.into());
+                        }
+                    };
                     uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
+
+                    // If we identified a pdb.agg() custom aggregate, we MUST handle it
+                    // via AggregateScan regardless of which operator is in the WHERE clause.
+                    // The placeholder pdb.agg() state function will error if PostgreSQL's
+                    // standard aggregate machinery tries to process it.
+                    if matches!(aggregate, AggregateType::Custom { .. }) {
+                        uses_our_operator = true;
+                    }
 
                     if let Some(field_name) = aggregate.field_name() {
                         if let Some(search_field) = schema.search_field(&field_name) {
                             if !search_field.is_fast() {
-                                return None;
+                                return Err(format!("Field '{}' is not fast", field_name).into());
                             }
                         } else {
-                            return None;
+                            return Err(
+                                format!("Field '{}' not found in schema", field_name).into()
+                            );
                         }
                     }
 
                     entries.push(TargetListEntry::Aggregate(aggregate));
                 } else {
-                    return None;
+                    return Err(
+                        "Expression is neither a grouping column nor a single Aggref".into(),
+                    );
                 }
             }
         }
 
-        Some(TargetList {
+        Ok(TargetList {
             entries,
             groupby: groupby_clause,
             uses_our_operator,

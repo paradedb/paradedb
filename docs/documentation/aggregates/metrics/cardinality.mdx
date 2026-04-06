@@ -6,10 +6,42 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/cardinalit
 
 The cardinality aggregation estimates the number of distinct values in a field.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT pdb.agg('{"cardinality": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb import Agg, All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"cardinality": {"field": "rating"}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(pdb.agg({"cardinality": {"field": "rating"}}))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(agg: { cardinality: { field: "rating" } })
+```
+
+</CodeGroup>
 
 ```ini Expected Response
       agg

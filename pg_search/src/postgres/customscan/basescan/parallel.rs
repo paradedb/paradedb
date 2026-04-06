@@ -17,21 +17,17 @@
 
 use std::os::raw::c_void;
 
-use crate::api::Cardinality;
-use crate::api::HashSet;
-use crate::customscan::basescan::ExecMethodType;
 use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::ParallelScanState;
 
-use pgrx::pg_sys::{self, shm_toc, ParallelContext, Size};
-use tantivy::index::SegmentId;
+use pgrx::pg_sys::{shm_toc, ParallelContext, Size};
 
 impl ParallelQueryCapable for BaseScan {
     fn estimate_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        pcxt: *mut ParallelContext,
+        _pcxt: *mut ParallelContext,
     ) -> Size {
         if state.custom_state().search_reader.is_none() {
             BaseScan::init_search_reader(state);
@@ -39,7 +35,8 @@ impl ParallelQueryCapable for BaseScan {
 
         let args = state.custom_state().parallel_scan_args();
         ParallelScanState::size_of(
-            args.segment_readers.len(),
+            &args.all_nsegments(),
+            args.partitioning_source_idx,
             &args.query,
             args.with_aggregates,
         )
@@ -47,7 +44,7 @@ impl ParallelQueryCapable for BaseScan {
 
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        pcxt: *mut ParallelContext,
+        _pcxt: *mut ParallelContext,
         coordinate: *mut c_void,
     ) {
         let args = state.custom_state().parallel_scan_args();
@@ -61,17 +58,20 @@ impl ParallelQueryCapable for BaseScan {
     }
 
     fn reinitialize_dsm_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        pcxt: *mut ParallelContext,
+        _state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut ParallelContext,
         coordinate: *mut c_void,
     ) {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
+        unsafe {
+            (*pscan_state).reset();
+        }
     }
 
     fn initialize_worker_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        toc: *mut shm_toc,
+        _toc: *mut shm_toc,
         coordinate: *mut c_void,
     ) {
         let pscan_state = coordinate.cast::<ParallelScanState>();
@@ -88,76 +88,4 @@ impl ParallelQueryCapable for BaseScan {
             }
         }
     }
-}
-
-///
-/// Compute the number of workers that should be used for the given ExecMethod, segment_count, and
-/// presence of external vars (indicating a join), or return 0 if workers cannot or should not be
-/// used.
-///
-pub fn compute_nworkers(
-    exec_method: &ExecMethodType,
-    limit: Option<Cardinality>,
-    estimated_total_rows: Cardinality,
-    segment_count: usize,
-    contains_external_var: bool,
-    contains_exec_param: bool,
-) -> usize {
-    // We will try to parallelize based on the number of index segments. The leader is not included
-    // in `nworkers`, so exclude it here. For example: if we expect to need to query 1 segment, then
-    // we don't need any workers.
-    let mut nworkers = segment_count.saturating_sub(1);
-
-    // parallel workers available to a gather node are limited by max_parallel_workers_per_gather
-    // and max_parallel_workers
-    nworkers = unsafe {
-        nworkers
-            .min(pg_sys::max_parallel_workers_per_gather as usize)
-            .min(pg_sys::max_parallel_workers as usize)
-    };
-
-    // if we are not sorting the data (which always requires fetching data from all segments), then
-    // limit the number of workers to the number of segments we expect to have to query to reach
-    // the limit.
-    if let (false, Some(limit)) = (exec_method.is_sorted_topn(), limit) {
-        let rows_per_segment = estimated_total_rows / segment_count.max(1) as f64;
-        let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;
-        // See above re: the leader not being included in `nworkers`.
-        let nworkers_for_limited_segments = segments_to_reach_limit.saturating_sub(1);
-        nworkers = nworkers.min(nworkers_for_limited_segments);
-    }
-
-    if contains_external_var {
-        // Don't attempt to parallelize during a join.
-        // TODO: Re-evaluate.
-        nworkers = 0;
-    }
-
-    if contains_exec_param {
-        // Don't attempt to parallelize when we have PARAM_EXEC nodes (from scalar subqueries,
-        // correlated subqueries, InitPlans, etc.). These parameters are evaluated by the leader
-        // and need special handling to be made available to parallel workers. Currently, we don't
-        // support this, so we disable parallelism to avoid crashes when workers try to access
-        // these parameters.
-        // TODO: Implement proper PARAM_EXEC parameter sharing with parallel workers.
-        nworkers = 0;
-    }
-
-    #[cfg(not(any(feature = "pg14", feature = "pg15")))]
-    unsafe {
-        if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
-            // force a parallel worker if the `debug_parallel_query` GUC is on
-            nworkers = 1;
-        }
-    }
-
-    nworkers
-}
-
-pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<SegmentId> {
-    (*pscan_state).checkout_segment()
-}
-
-pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {
-    (*pscan_state).segments().into_keys().collect()
 }

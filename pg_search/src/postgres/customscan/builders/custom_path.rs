@@ -17,22 +17,31 @@
 
 use crate::api::{Cardinality, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::options::SortByField;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub enum OrderByStyle {
-    Score(*mut pg_sys::PathKey),
-    Field(*mut pg_sys::PathKey, FieldName),
+    Score {
+        pathkey: *mut pg_sys::PathKey,
+        rti: u32,
+    },
+    Field {
+        pathkey: *mut pg_sys::PathKey,
+        name: FieldName,
+        rti: u32,
+    },
 }
 
 impl OrderByStyle {
     pub fn pathkey(&self) -> *mut pg_sys::PathKey {
         match self {
-            OrderByStyle::Score(pathkey) => *pathkey,
-            OrderByStyle::Field(pathkey, _) => *pathkey,
+            OrderByStyle::Score { pathkey, .. } => *pathkey,
+            OrderByStyle::Field { pathkey, .. } => *pathkey,
         }
     }
 
@@ -42,7 +51,7 @@ impl OrderByStyle {
             assert!(!pathkey.is_null());
             let nulls_first = (*pathkey).pk_nulls_first;
 
-            #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
             let is_asc = match (*pathkey).pk_strategy as u32 {
                 pg_sys::BTLessStrategyNumber => true,
                 pg_sys::BTGreaterStrategyNumber => false,
@@ -78,8 +87,11 @@ impl OrderByStyle {
 impl From<&OrderByStyle> for OrderByInfo {
     fn from(value: &OrderByStyle) -> Self {
         let feature = match value {
-            OrderByStyle::Field(_, name) => OrderByFeature::Field(name.to_owned()),
-            OrderByStyle::Score(_) => OrderByFeature::Score,
+            OrderByStyle::Field { name, rti, .. } => OrderByFeature::Field {
+                name: name.to_owned(),
+                rti: *rti,
+            },
+            OrderByStyle::Score { rti, .. } => OrderByFeature::Score { rti: *rti },
         };
         OrderByInfo {
             feature,
@@ -102,30 +114,38 @@ impl From<&OrderByStyle> for OrderByInfo {
 pub enum ExecMethodType {
     #[default]
     Normal,
-    TopN {
+    TopK {
         heaprelid: pg_sys::Oid,
-        limit: usize,
+        limit: Limit,
         orderby_info: Option<Vec<OrderByInfo>>,
         window_aggregates: Vec<WindowAggregateInfo>,
     },
-    FastFieldMixed {
+    Columnar {
         which_fast_fields: HashSet<WhichFastField>,
-        limit: Option<usize>,
+        limit: Option<Limit>,
+        sort_order: Option<SortByField>,
     },
 }
 
 impl ExecMethodType {
-    ///
-    /// Returns true if this is a sorted TopN execution.
-    ///
-    pub fn is_sorted_topn(&self) -> bool {
-        matches!(
-            self,
-            ExecMethodType::TopN {
+    /// Returns true if this execution method type can support sorted output via sort_by index.
+    /// This is specifically for the sorted index feature (SortPreservingMergeExec).
+    /// Top K has its own separate pathkey handling and is not included here.
+    pub fn supports_sorted_index_merge(&self) -> bool {
+        matches!(self, ExecMethodType::Columnar { .. })
+    }
+
+    /// Returns true if this execution method declares sorted output.
+    /// This checks if sorted output is actually ENABLED for this instance.
+    pub fn declares_sorted_output(&self) -> bool {
+        match self {
+            ExecMethodType::TopK {
                 orderby_info: Some(..),
                 ..
-            }
-        )
+            } => true,
+            ExecMethodType::Columnar { sort_order, .. } => sort_order.is_some(),
+            ExecMethodType::Normal | ExecMethodType::TopK { .. } => false,
+        }
     }
 }
 
@@ -263,6 +283,11 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
         self
     }
 
+    pub fn set_pathkeys(mut self, pathkeys: *mut pg_sys::List) -> Self {
+        self.custom_path_node.path.pathkeys = pathkeys;
+        self
+    }
+
     pub fn set_force_path(mut self, force: bool) -> Self {
         if force {
             self.flags.insert(Flags::Force);
@@ -272,12 +297,27 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
         self
     }
 
+    /// Configures the path for Parallel-Aware (Partial) execution.
+    ///
+    /// Setting this to `nworkers > 0` marks the path as:
+    /// - `parallel_safe`: It can execute in a worker.
+    /// - `parallel_aware`: It will coordinate with other workers to divide the work.
     pub fn set_parallel(mut self, nworkers: usize) -> Self {
         self.custom_path_node.path.parallel_aware = true;
         self.custom_path_node.path.parallel_safe = true;
         self.custom_path_node.path.parallel_workers =
             nworkers.try_into().expect("nworkers should be a valid i32");
 
+        self
+    }
+
+    /// Configures whether the path is safe to run in a worker backend.
+    ///
+    /// If `safe` is true but `parallel_aware` is false (and `workers` is 0), the path
+    /// can still run inside a worker (e.g. inner side of a Parallel Hash Join), but
+    /// it will be a "replicated" execution where the worker performs the full scan.
+    pub fn set_parallel_safe(mut self, safe: bool) -> Self {
+        self.custom_path_node.path.parallel_safe = safe;
         self
     }
 

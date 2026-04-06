@@ -1162,3 +1162,228 @@ async fn direct_prepared_statement_replanning_custom_scan(mut conn: PgConnection
         assert_eq!((score, id), (3.2668595, 2))
     }
 }
+
+struct PreparedStmtTestCase<'a> {
+    stmt_name: &'a str,
+    column: &'a str,
+    operator: &'a str,
+    param_type: &'a str,
+    prepared_rhs: &'a str,
+    execute_arg: &'a str,
+    literal_rhs: &'a str,
+}
+
+/// Prepares a statement with a parameter, executes it under force_generic_plan,
+/// and verifies the result matches the equivalent literal query.
+fn verify_prepared_stmt_matches_literal(conn: &mut PgConnection, tc: PreparedStmtTestCase) {
+    let PreparedStmtTestCase {
+        stmt_name,
+        column,
+        operator,
+        param_type,
+        prepared_rhs,
+        execute_arg,
+        literal_rhs,
+    } = tc;
+    let expected: Vec<(i32,)> = format!(
+        "SELECT id FROM paradedb.bm25_search \
+         WHERE {column} {operator} {literal_rhs} ORDER BY id"
+    )
+    .fetch(conn);
+
+    format!(
+        "PREPARE {stmt_name}({param_type}) AS \
+         SELECT id FROM paradedb.bm25_search \
+         WHERE {column} {operator} {prepared_rhs} ORDER BY id"
+    )
+    .execute(conn);
+
+    let actual: Vec<(i32,)> = format!("EXECUTE {stmt_name}({execute_arg})").fetch(conn);
+
+    assert_eq!(
+        actual, expected,
+        "{stmt_name}: generic plan result must match literal query"
+    );
+
+    format!("DEALLOCATE {stmt_name}").execute(conn);
+}
+
+#[rstest]
+async fn generic_plan_text_and_text_array_params_issue_3900(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    "SET plan_cache_mode = force_generic_plan".execute(&mut conn);
+
+    for tc in [
+        // &&& with text, varchar, text[], varchar[]
+        PreparedStmtTestCase {
+            stmt_name: "stmt_and_text",
+            column: "description",
+            operator: "&&&",
+            param_type: "text",
+            prepared_rhs: "$1",
+            execute_arg: "'keyboard'",
+            literal_rhs: "'keyboard'",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_and_varchar",
+            column: "description",
+            operator: "&&&",
+            param_type: "varchar",
+            prepared_rhs: "$1",
+            execute_arg: "'keyboard'",
+            literal_rhs: "'keyboard'",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_and_text_array",
+            column: "description",
+            operator: "&&&",
+            param_type: "text[]",
+            prepared_rhs: "$1",
+            execute_arg: "ARRAY['keyboard']",
+            literal_rhs: "ARRAY['keyboard']",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_and_varchar_array",
+            column: "description",
+            operator: "&&&",
+            param_type: "varchar[]",
+            prepared_rhs: "$1",
+            execute_arg: "ARRAY['keyboard']::varchar[]",
+            literal_rhs: "ARRAY['keyboard']::varchar[]",
+        },
+        // ||| with text, varchar, text[], varchar[]
+        PreparedStmtTestCase {
+            stmt_name: "stmt_or_text",
+            column: "description",
+            operator: "|||",
+            param_type: "text",
+            prepared_rhs: "$1",
+            execute_arg: "'keyboard'",
+            literal_rhs: "'keyboard'",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_or_varchar",
+            column: "description",
+            operator: "|||",
+            param_type: "varchar",
+            prepared_rhs: "$1",
+            execute_arg: "'keyboard'",
+            literal_rhs: "'keyboard'",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_or_text_array",
+            column: "description",
+            operator: "|||",
+            param_type: "text[]",
+            prepared_rhs: "$1",
+            execute_arg: "ARRAY['keyboard']",
+            literal_rhs: "ARRAY['keyboard']",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_or_varchar_array",
+            column: "description",
+            operator: "|||",
+            param_type: "varchar[]",
+            prepared_rhs: "$1",
+            execute_arg: "ARRAY['keyboard']::varchar[]",
+            literal_rhs: "ARRAY['keyboard']::varchar[]",
+        },
+        // ### with text, varchar, text[], varchar[]
+        PreparedStmtTestCase {
+            stmt_name: "stmt_phrase_text",
+            column: "description",
+            operator: "###",
+            param_type: "text",
+            prepared_rhs: "$1",
+            execute_arg: "'ergonomic keyboard'",
+            literal_rhs: "'ergonomic keyboard'",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_phrase_varchar",
+            column: "description",
+            operator: "###",
+            param_type: "varchar",
+            prepared_rhs: "$1",
+            execute_arg: "'ergonomic keyboard'",
+            literal_rhs: "'ergonomic keyboard'",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_phrase_text_array",
+            column: "description",
+            operator: "###",
+            param_type: "text[]",
+            prepared_rhs: "$1",
+            execute_arg: "ARRAY['ergonomic', 'keyboard']",
+            literal_rhs: "ARRAY['ergonomic', 'keyboard']",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_phrase_varchar_array",
+            column: "description",
+            operator: "###",
+            param_type: "varchar[]",
+            prepared_rhs: "$1",
+            execute_arg: "ARRAY['ergonomic', 'keyboard']::varchar[]",
+            literal_rhs: "ARRAY['ergonomic', 'keyboard']::varchar[]",
+        },
+        // === with text, varchar, text[], varchar[] (already worked, confirm)
+        PreparedStmtTestCase {
+            stmt_name: "stmt_term_text",
+            column: "category",
+            operator: "===",
+            param_type: "text",
+            prepared_rhs: "$1",
+            execute_arg: "'Electronics'",
+            literal_rhs: "'Electronics'",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_term_varchar",
+            column: "category",
+            operator: "===",
+            param_type: "varchar",
+            prepared_rhs: "$1",
+            execute_arg: "'Electronics'",
+            literal_rhs: "'Electronics'",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_term_text_array",
+            column: "category",
+            operator: "===",
+            param_type: "text[]",
+            prepared_rhs: "$1",
+            execute_arg: "ARRAY['Electronics', 'Footwear']",
+            literal_rhs: "ARRAY['Electronics', 'Footwear']",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_term_varchar_array",
+            column: "category",
+            operator: "===",
+            param_type: "varchar[]",
+            prepared_rhs: "$1",
+            execute_arg: "ARRAY['Electronics', 'Footwear']::varchar[]",
+            literal_rhs: "ARRAY['Electronics', 'Footwear']::varchar[]",
+        },
+        // @@@ with text, varchar (already worked, confirm)
+        PreparedStmtTestCase {
+            stmt_name: "stmt_parse_text",
+            column: "description",
+            operator: "@@@",
+            param_type: "text",
+            prepared_rhs: "$1",
+            execute_arg: "'keyboard'",
+            literal_rhs: "'keyboard'",
+        },
+        PreparedStmtTestCase {
+            stmt_name: "stmt_parse_varchar",
+            column: "description",
+            operator: "@@@",
+            param_type: "varchar",
+            prepared_rhs: "$1",
+            execute_arg: "'keyboard'",
+            literal_rhs: "'keyboard'",
+        },
+    ] {
+        verify_prepared_stmt_matches_literal(&mut conn, tc);
+    }
+
+    "RESET plan_cache_mode".execute(&mut conn);
+}

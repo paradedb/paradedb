@@ -20,7 +20,7 @@ Both `citus` and `pg_search` must be added to `shared_preload_libraries` in the 
 ```bash
 # Install Citus first
 curl https://install.citusdata.com/community/deb.sh | sudo bash
-apt-get install -y postgresql-17-citus-13.0
+apt-get install -y postgresql-18-citus-14.0
 
 # Add both extensions to shared_preload_libraries
 sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" /var/lib/postgresql/data/postgresql.conf
@@ -91,7 +91,7 @@ ORDER BY id;
 The plan should show:
 
 1. **Citus Adaptive Custom Scan** — Coordinating distributed query execution across shards
-2. **ParadeDB Scan** — Using the BM25 index within each shard
+2. **ParadeDB Base Scan** — Using the BM25 index within each shard
 3. **Task Count: 32** — Query distributed across 32 shards (default Citus shard count)
 
 <Accordion title="Example EXPLAIN Output">
@@ -107,7 +107,7 @@ Sort  (cost=11041.82..11291.82 rows=100000 width=36)
         ->  Task
               Query: SELECT id, title FROM public.articles_102008 articles WHERE (id OPERATOR(pg_catalog.@@@) ...)
               Node: host=localhost port=5432 dbname=postgres
-              ->  Custom Scan (ParadeDB Scan) on public.articles_102008 articles  (cost=10.00..10.01 rows=1 width=36)
+              ->  Custom Scan (ParadeDB Base Scan) on public.articles_102008 articles  (cost=10.00..10.01 rows=1 width=36)
                     Output: id, title
                     Table: articles_102008
                     Index: articles_search_idx_102008
@@ -173,7 +173,7 @@ Sort  (cost=12067.32..12317.32 rows=100000 width=64)
               ->  Nested Loop  (cost=10.15..18.20 rows=1 width=64)
                     Output: a.name, ar.title
                     Inner Unique: true
-                    ->  Custom Scan (ParadeDB Scan) on public.articles_102008 ar  (cost=10.00..10.01 rows=1 width=36)
+                    ->  Custom Scan (ParadeDB Base Scan) on public.articles_102008 ar  (cost=10.00..10.01 rows=1 width=36)
                           Output: ar.title, ar.author_id
                           Table: articles_102008
                           Index: articles_search_idx_102008
@@ -186,7 +186,7 @@ Sort  (cost=12067.32..12317.32 rows=100000 width=64)
 Key indicators:
 
 - `Nested Loop` shows efficient JOIN execution on each shard
-- `Custom Scan (ParadeDB Scan)` on the outer side of the JOIN uses BM25 for filtering
+- `Custom Scan (ParadeDB Base Scan)` on the outer side of the JOIN uses BM25 for filtering
 - `Index Scan` on authors table uses the primary key for lookups
 - JOINs execute **locally on each shard** for optimal performance
 
@@ -204,4 +204,4 @@ When using ParadeDB with Citus:
 - **Search queries** execute in parallel across shards and results are merged by the coordinator
 - **Distribution column** should be chosen based on your query patterns to minimize cross-shard operations
 
-For more guidance on optimizing distributed search workloads, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw) or via [email](mailto:support@paradedb.com).
+For more guidance on optimizing distributed search workloads, please reach out to us in the [ParadeDB Community Slack](https://www.paradedb.com/slack) or via [email](mailto:support@paradedb.com).

@@ -1,4 +1,21 @@
-use crate::runner::SuiteRunner;
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use crate::runner::{SuiteRunner, HARDCODED_IGNORE_ERRORS};
 use crate::MetricsLine;
 use postgres::Row;
 use rust_decimal::prelude::ToPrimitive;
@@ -150,11 +167,13 @@ pub fn run(
             let mut reported_errors = 0;
             for error in errors {
                 let errstr = error.to_string();
-                if errstr.contains("failed to merge: User requested cancel")
-                    || errstr.contains("Merge cancelled")
-                    || errstr.contains("canceling statement due to conflict with recovery")
+                if HARDCODED_IGNORE_ERRORS.iter().any(|p| errstr.contains(p))
+                    || suite_runner
+                        .suite()
+                        .ignore_errors()
+                        .iter()
+                        .any(|pattern| errstr.contains(pattern))
                 {
-                    // hack to detect this error message -- it's harmless and shouldn't cause an unsuccessful exit
                     eprintln!("IGNORING TERMINATION ERROR: {errstr}");
                     continue;
                 }

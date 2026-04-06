@@ -32,6 +32,8 @@ pub use crate::fixtures::tables::*;
 
 #[fixture]
 pub fn database() -> Db {
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+        .try_init();
     block_on(async { Db::new().await })
 }
 

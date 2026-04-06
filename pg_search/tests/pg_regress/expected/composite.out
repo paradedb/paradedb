@@ -16,14 +16,14 @@ SET search_path TO composite_test, public;
 CREATE TYPE product_info AS (
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 -- Create table with composite type in index
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 -- Create index using composite type expression
 CREATE INDEX idx_products
@@ -40,7 +40,7 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: idx_products
          Exec Method: NormalScanExecState
@@ -60,7 +60,7 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on products
+   ->  Custom Scan (ParadeDB Base Scan) on products
          Table: products
          Index: idx_products
          Exec Method: NormalScanExecState
@@ -74,6 +74,70 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
      1
 (1 row)
 
+------------------------------------------------------------
+-- TEST: ColumnarExecState with ROW expression fields
+------------------------------------------------------------
+SET paradedb.enable_columnar_exec = true;
+SET paradedb.columnar_exec_column_threshold = 100;
+-- Composite type using pdb.literal to enable fast fields
+CREATE TYPE fast_article_search AS (
+    title pdb.literal,
+    body pdb.literal
+);
+CREATE TABLE articles_fast (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    body TEXT
+);
+CREATE INDEX idx_articles_fast_bm25
+ON articles_fast
+USING bm25 (id, (ROW(title, body)::fast_article_search))
+WITH (key_field='id');
+INSERT INTO articles_fast (title, body) VALUES
+    ('PostgreSQL_Guide', 'Learn_PostgreSQL_basics'),
+    ('Search_Tutorial', 'Full_text_search_techniques');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('title:PostgreSQL_Guide');
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on articles_fast
+   Table: articles_fast
+   Index: idx_articles_fast_bm25
+   Exec Method: ColumnarExecState
+   Fast Fields: body, title
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:PostgreSQL_Guide","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('title:PostgreSQL_Guide');
+      title       |          body           
+------------------+-------------------------
+ PostgreSQL_Guide | Learn_PostgreSQL_basics
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Base Scan) on articles_fast
+         Table: articles_fast
+         Index: idx_articles_fast_bm25
+         Exec Method: ColumnarExecState
+         Fast Fields: body, id, title
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"body:Full_text_search_techniques","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
+      title      |            body             
+-----------------+-----------------------------
+ Search_Tutorial | Full_text_search_techniques
+(1 row)
+
+RESET paradedb.enable_columnar_exec;
+RESET paradedb.columnar_exec_column_threshold;
 ------------------------------------------------------------
 -- TEST: Composite type with more than 32 fields
 ------------------------------------------------------------
@@ -112,7 +176,7 @@ SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_1:alpha');
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on large_table
+   ->  Custom Scan (ParadeDB Base Scan) on large_table
          Table: large_table
          Index: idx_large
          Exec Method: NormalScanExecState
@@ -131,7 +195,7 @@ SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_35:gamma');
                                                              QUERY PLAN                                                             
 ------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on large_table
+   ->  Custom Scan (ParadeDB Base Scan) on large_table
          Table: large_table
          Index: idx_large
          Exec Method: NormalScanExecState
@@ -177,7 +241,7 @@ SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f001:first_field');
                                                               QUERY PLAN                                                              
 --------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on huge_table
+   ->  Custom Scan (ParadeDB Base Scan) on huge_table
          Table: huge_table
          Index: idx_huge
          Exec Method: NormalScanExecState
@@ -196,7 +260,7 @@ SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f050:middle_field');
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on huge_table
+   ->  Custom Scan (ParadeDB Base Scan) on huge_table
          Table: huge_table
          Index: idx_huge
          Exec Method: NormalScanExecState
@@ -215,7 +279,7 @@ SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f100:last_field');
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on huge_table
+   ->  Custom Scan (ParadeDB Base Scan) on huge_table
          Table: huge_table
          Index: idx_huge
          Exec Method: NormalScanExecState
@@ -352,12 +416,12 @@ DROP TYPE dup_field_comp;
 ------------------------------------------------------------
 -- TEST: NULL handling in composite fields
 ------------------------------------------------------------
-CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price NUMERIC);
+CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price FLOAT);
 CREATE TABLE nullable_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 CREATE INDEX idx_nullable ON nullable_test USING bm25 (
     id, (ROW(name, description, price)::nullable_comp)
@@ -372,7 +436,7 @@ SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
                                                                QUERY PLAN                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on nullable_test
+   ->  Custom Scan (ParadeDB Base Scan) on nullable_test
          Table: nullable_test
          Index: idx_nullable
          Exec Method: NormalScanExecState
@@ -389,12 +453,12 @@ SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
 ------------------------------------------------------------
 -- TEST: REINDEX with composite types
 ------------------------------------------------------------
-CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price NUMERIC);
+CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price FLOAT);
 CREATE TABLE reindex_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 CREATE INDEX idx_reindex ON reindex_test USING bm25 (
     id, (ROW(name, description, price)::reindex_comp)
@@ -408,7 +472,7 @@ SELECT COUNT(*) FROM reindex_test WHERE id @@@ pdb.parse('name:Widget');
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on reindex_test
+   ->  Custom Scan (ParadeDB Base Scan) on reindex_test
          Table: reindex_test
          Index: idx_reindex
          Exec Method: NormalScanExecState
@@ -446,7 +510,7 @@ SELECT COUNT(*) FROM large_val_test WHERE id @@@ pdb.parse('title:Large');
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on large_val_test
+   ->  Custom Scan (ParadeDB Base Scan) on large_val_test
          Table: large_val_test
          Index: idx_large_val
          Exec Method: NormalScanExecState
@@ -492,7 +556,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('name:Laptop');
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
          Table: full_pipeline_test
          Index: idx_full_pipeline
          Exec Method: NormalScanExecState
@@ -511,7 +575,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('description:Wire
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
          Table: full_pipeline_test
          Index: idx_full_pipeline
          Exec Method: NormalScanExecState
@@ -530,7 +594,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:Electro
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
          Table: full_pipeline_test
          Index: idx_full_pipeline
          Exec Method: NormalScanExecState
@@ -549,7 +613,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('tags:office');
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
          Table: full_pipeline_test
          Index: idx_full_pipeline
          Exec Method: NormalScanExecState
@@ -569,7 +633,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:books O
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
          Table: full_pipeline_test
          Index: idx_full_pipeline
          Exec Method: NormalScanExecState
@@ -588,7 +652,7 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:electro
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on full_pipeline_test
+   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
          Table: full_pipeline_test
          Index: idx_full_pipeline
          Exec Method: NormalScanExecState
@@ -635,7 +699,7 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:PostgreSQL');
                                                               QUERY PLAN                                                              
 --------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on multi_comp_test
+   ->  Custom Scan (ParadeDB Base Scan) on multi_comp_test
          Table: multi_comp_test
          Index: idx_multi_comp
          Exec Method: NormalScanExecState
@@ -654,7 +718,7 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('body:pasta');
                                                            QUERY PLAN                                                           
 --------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on multi_comp_test
+   ->  Custom Scan (ParadeDB Base Scan) on multi_comp_test
          Table: multi_comp_test
          Index: idx_multi_comp
          Exec Method: NormalScanExecState
@@ -673,7 +737,7 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('author:Alice');
                                                             QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on multi_comp_test
+   ->  Custom Scan (ParadeDB Base Scan) on multi_comp_test
          Table: multi_comp_test
          Index: idx_multi_comp
          Exec Method: NormalScanExecState
@@ -692,7 +756,7 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('category:food');
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on multi_comp_test
+   ->  Custom Scan (ParadeDB Base Scan) on multi_comp_test
          Table: multi_comp_test
          Index: idx_multi_comp
          Exec Method: NormalScanExecState
@@ -712,7 +776,7 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:guide AND aut
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on multi_comp_test
+   ->  Custom Scan (ParadeDB Base Scan) on multi_comp_test
          Table: multi_comp_test
          Index: idx_multi_comp
          Exec Method: NormalScanExecState
@@ -756,7 +820,7 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:Widget');
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on hybrid_test
+   ->  Custom Scan (ParadeDB Base Scan) on hybrid_test
          Table: hybrid_test
          Index: idx_hybrid
          Exec Method: NormalScanExecState
@@ -776,7 +840,7 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('description:amazing');
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on hybrid_test
+   ->  Custom Scan (ParadeDB Base Scan) on hybrid_test
          Table: hybrid_test
          Index: idx_hybrid
          Exec Method: NormalScanExecState
@@ -796,7 +860,7 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('category:tools');
                                                              QUERY PLAN                                                             
 ------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on hybrid_test
+   ->  Custom Scan (ParadeDB Base Scan) on hybrid_test
          Table: hybrid_test
          Index: idx_hybrid
          Exec Method: NormalScanExecState
@@ -816,7 +880,7 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('tags:tech');
                                                           QUERY PLAN                                                           
 -------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on hybrid_test
+   ->  Custom Scan (ParadeDB Base Scan) on hybrid_test
          Table: hybrid_test
          Index: idx_hybrid
          Exec Method: NormalScanExecState
@@ -836,7 +900,7 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:widget AND descrip
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on hybrid_test
+   ->  Custom Scan (ParadeDB Base Scan) on hybrid_test
          Table: hybrid_test
          Index: idx_hybrid
          Exec Method: NormalScanExecState
@@ -881,7 +945,7 @@ SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ pdb.parse('title:Firs
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on articles
+   ->  Custom Scan (ParadeDB Base Scan) on articles
          Table: articles
          Index: idx_articles
          Exec Method: NormalScanExecState
@@ -901,7 +965,7 @@ SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ pdb.parse('titl
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on articles
+   ->  Custom Scan (ParadeDB Base Scan) on articles
          Table: articles
          Index: idx_articles
          Exec Method: NormalScanExecState
@@ -951,7 +1015,7 @@ SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ pdb.parse('medium:m
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on mixed_data
+   ->  Custom Scan (ParadeDB Base Scan) on mixed_data
          Table: mixed_data
          Index: idx_mixed
          Exec Method: NormalScanExecState
@@ -970,7 +1034,7 @@ SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ pdb.parse('small:tiny
                                                            QUERY PLAN                                                           
 --------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on mixed_data
+   ->  Custom Scan (ParadeDB Base Scan) on mixed_data
          Table: mixed_data
          Index: idx_mixed
          Exec Method: NormalScanExecState
@@ -1020,7 +1084,7 @@ SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ pdb.parse('
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on verify_table
+   ->  Custom Scan (ParadeDB Base Scan) on verify_table
          Table: verify_table
          Index: verify_idx
          Exec Method: NormalScanExecState
@@ -1039,7 +1103,7 @@ SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse(
                                                                QUERY PLAN                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on verify_table
+   ->  Custom Scan (ParadeDB Base Scan) on verify_table
          Table: verify_table
          Index: verify_idx
          Exec Method: NormalScanExecState
@@ -1059,13 +1123,13 @@ SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse(
 CREATE TYPE product_schema AS (
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC
+    product_price FLOAT
 );
 CREATE TABLE products_schema (
     id SERIAL PRIMARY KEY,
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC
+    product_price FLOAT
 );
 CREATE INDEX idx_products_schema
 ON products_schema
@@ -1097,7 +1161,7 @@ SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ pdb.parse('prod
                                                                   QUERY PLAN                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on products_schema
+   ->  Custom Scan (ParadeDB Base Scan) on products_schema
          Table: products_schema
          Index: idx_products_schema
          Exec Method: NormalScanExecState
@@ -1116,7 +1180,7 @@ SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ pdb.parse('prod
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on products_schema
+   ->  Custom Scan (ParadeDB Base Scan) on products_schema
          Table: products_schema
          Index: idx_products_schema
          Exec Method: NormalScanExecState
@@ -1162,7 +1226,7 @@ SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ pdb.
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on tokenized_test
+   ->  Custom Scan (ParadeDB Base Scan) on tokenized_test
          Table: tokenized_test
          Index: idx_tokenized
          Exec Method: NormalScanExecState
@@ -1182,7 +1246,7 @@ SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ pdb.pars
                                                             QUERY PLAN                                                             
 -----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on tokenized_test
+   ->  Custom Scan (ParadeDB Base Scan) on tokenized_test
          Table: tokenized_test
          Index: idx_tokenized
          Exec Method: NormalScanExecState
@@ -1228,7 +1292,7 @@ SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ pdb.parse('
                                                                QUERY PLAN                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on ngram_test
+   ->  Custom Scan (ParadeDB Base Scan) on ngram_test
          Table: ngram_test
          Index: idx_ngram
          Exec Method: NormalScanExecState
@@ -1248,7 +1312,7 @@ SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ pdb.parse('co
                                                             QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on ngram_test
+   ->  Custom Scan (ParadeDB Base Scan) on ngram_test
          Table: ngram_test
          Index: idx_ngram
          Exec Method: NormalScanExecState
@@ -1296,7 +1360,7 @@ SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ pdb.parse('cont
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on stemmer_test
+   ->  Custom Scan (ParadeDB Base Scan) on stemmer_test
          Table: stemmer_test
          Index: idx_stemmer
          Exec Method: NormalScanExecState
@@ -1316,7 +1380,7 @@ SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('con
                                                            QUERY PLAN                                                            
 ---------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on stemmer_test
+   ->  Custom Scan (ParadeDB Base Scan) on stemmer_test
          Table: stemmer_test
          Index: idx_stemmer
          Exec Method: NormalScanExecState
@@ -1346,7 +1410,7 @@ CREATE TABLE smoke_test (
     description TEXT,
     category TEXT,
     rating FLOAT,
-    price NUMERIC,
+    price FLOAT,
     in_stock BOOLEAN
 );
 -- Insert test data
@@ -1360,7 +1424,7 @@ INSERT INTO smoke_test (name, description, category, rating, price, in_stock) VA
     ('Bluetooth Speaker', 'Portable bluetooth speaker waterproof', 'Electronics', 4.3, 39.99, true),
     ('Tennis Racket', 'Professional tennis racket lightweight', 'Sports', 4.1, 149.99, false);
 -- Create BM25 index on composite type
--- Numeric fields (rating, price) are automatically fast
+-- FLOAT fields (rating, price) are automatically fast
 -- category uses pdb.literal (keyword tokenizer with fast) defined in composite type
 CREATE INDEX smoke_idx ON smoke_test
 USING bm25 (id, (ROW(name, description, category)::smoke_product), rating, price)
@@ -1380,7 +1444,7 @@ ORDER BY score DESC, id;
 ---------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC, id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1407,7 +1471,7 @@ ORDER BY score DESC, id;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC, id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1440,7 +1504,7 @@ ORDER BY id;
 ---------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1467,7 +1531,7 @@ ORDER BY id;
 ------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1485,11 +1549,11 @@ ORDER BY id;
 (1 row)
 
 ------------------------------------------------------------
--- TEST: TopN Scan (ORDER BY with LIMIT)
+-- TEST: Top K Scan (ORDER BY with LIMIT)
 ------------------------------------------------------------
-\echo '=== TEST: TopN Scan ==='
-=== TEST: TopN Scan ===
--- Basic TopN with EXPLAIN
+\echo '=== TEST: Top K Scan ==='
+=== TEST: Top K Scan ===
+-- Basic Top K with EXPLAIN
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test
@@ -1499,17 +1563,17 @@ LIMIT 3;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: rating desc, id asc
-            TopN Limit: 3
+            TopK Order By: rating desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes OR name:Keyboard OR name:Mouse","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
--- Execute TopN query
+-- Execute Top K query
 SELECT id, name, rating
 FROM smoke_test
 WHERE id @@@ pdb.parse('name:Shoes OR name:Keyboard OR name:Mouse')
@@ -1522,7 +1586,7 @@ LIMIT 3;
   2 | Wireless Keyboard |    4.2
 (3 rows)
 
--- TopN with score ordering
+-- Top K with score ordering
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test
@@ -1532,13 +1596,13 @@ LIMIT 2;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 2
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:keyboard","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -1564,7 +1628,7 @@ SELECT COUNT(*) as total FROM smoke_test WHERE id @@@ pdb.parse('category:Electr
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1584,10 +1648,10 @@ SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('categor
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: price
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
@@ -1605,10 +1669,10 @@ SELECT AVG(rating) as avg_rating FROM smoke_test WHERE id @@@ pdb.parse('descrip
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: rating
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}}
@@ -1628,10 +1692,10 @@ WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: MixedFastFieldExecState
+         Exec Method: ColumnarExecState
          Fast Fields: price, rating
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics OR category:Footwear","lenient":null,"conjunction_mode":null}}}}
@@ -1640,9 +1704,9 @@ WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
 SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
- count | total  | avg_rating | min_price | max_price 
--------+--------+------------+-----------+-----------
-     5 | 399.95 |       4.48 |     39.99 |    129.99
+ count |       total        | avg_rating | min_price | max_price 
+-------+--------------------+------------+-----------+-----------
+     5 | 399.95000000000005 |       4.48 |     39.99 |    129.99
 (1 row)
 
 ------------------------------------------------------------
@@ -1663,10 +1727,10 @@ ORDER BY count DESC, category;
    Sort Key: (count(*)) DESC, category
    ->  HashAggregate
          Group Key: category
-         ->  Custom Scan (ParadeDB Scan) on smoke_test
+         ->  Custom Scan (ParadeDB Base Scan) on smoke_test
                Table: smoke_test
                Index: smoke_idx
-               Exec Method: MixedFastFieldExecState
+               Exec Method: ColumnarExecState
                Fast Fields: category, rating
                Scores: false
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
@@ -1690,7 +1754,7 @@ ORDER BY count DESC, category;
 ------------------------------------------------------------
 \echo '=== TEST: pdb.agg() Window Function ==='
 === TEST: pdb.agg() Window Function ===
--- pdb.agg with terms aggregation (requires TopN query)
+-- pdb.agg with terms aggregation (requires Top K query)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, category,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as category_facets
@@ -1701,13 +1765,13 @@ LIMIT 3;
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -1724,7 +1788,7 @@ LIMIT 3;
   3 | Gaming Mouse      | Electronics | {"buckets": [{"key": "Electronics", "doc_count": 3}, {"key": "Footwear", "doc_count": 2}, {"key": "Sports", "doc_count": 2}, {"key": "Kitchen", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (3 rows)
 
--- pdb.agg with avg aggregation (requires TopN query)
+-- pdb.agg with avg aggregation (requires Top K query)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating,
        pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER () as avg_rating
@@ -1735,13 +1799,13 @@ LIMIT 3;
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -1769,13 +1833,13 @@ LIMIT 3;
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -1797,7 +1861,7 @@ LIMIT 3;
 ------------------------------------------------------------
 \echo '=== TEST: Range Queries ==='
 === TEST: Range Queries ===
--- Range on numeric field using PostgreSQL range type
+-- Range on FLOAT field using PostgreSQL range type
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, price FROM smoke_test
 WHERE price @@@ pdb.range(numrange(50.0, 100.0, '[]'))
@@ -1806,12 +1870,12 @@ ORDER BY price, id;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: price, id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":{"included":100.0},"is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":"50"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
 (8 rows)
 
 SELECT id, name, price FROM smoke_test
@@ -1833,7 +1897,7 @@ ORDER BY rating DESC, id;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC, id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1864,7 +1928,7 @@ ORDER BY id;
 -----------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1888,7 +1952,7 @@ ORDER BY id;
 ------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1917,7 +1981,7 @@ ORDER BY id;
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1942,7 +2006,7 @@ ORDER BY id;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1973,7 +2037,7 @@ ORDER BY rating DESC, id;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC, id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -1998,16 +2062,16 @@ SELECT id, name, price
 FROM smoke_test
 WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND price BETWEEN 50 AND 150
 ORDER BY price, id;
-                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: price, id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(price >= '50'::numeric)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(price <= '150'::numeric)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":150.0},"is_datetime":false}}]}}
 (8 rows)
 
 SELECT id, name, price
@@ -2030,7 +2094,7 @@ ORDER BY id;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2056,13 +2120,13 @@ ORDER BY id;
 ------------------------------------------------------------
 \echo '=== TEST: EXPLAIN Plans ==='
 === TEST: EXPLAIN Plans ===
--- NormalScanExecState / MixedFastFieldExecState - basic search
+-- NormalScanExecState / ColumnarExecState - basic search
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM smoke_test
 WHERE id @@@ pdb.parse('name:Shoes');
                                                         QUERY PLAN                                                        
 --------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on smoke_test
+ Custom Scan (ParadeDB Base Scan) on smoke_test
    Table: smoke_test
    Index: smoke_idx
    Exec Method: NormalScanExecState
@@ -2070,7 +2134,7 @@ WHERE id @@@ pdb.parse('name:Shoes');
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes","lenient":null,"conjunction_mode":null}}}}
 (6 rows)
 
--- TopNScanExecState - search with ORDER BY score DESC and LIMIT
+-- TopKScanExecState - search with ORDER BY score DESC and LIMIT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test
@@ -2080,17 +2144,17 @@ LIMIT 3;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 3
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:keyboard","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
--- TopNScanExecState - search with ORDER BY fast field and LIMIT
+-- TopKScanExecState - search with ORDER BY fast field and LIMIT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test
@@ -2100,13 +2164,13 @@ LIMIT 3;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: rating desc, id asc
-            TopN Limit: 3
+            TopK Order By: rating desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes OR name:Keyboard OR name:Mouse","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -2117,7 +2181,7 @@ WHERE id @@@ pdb.parse('category:Electronics');
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2125,7 +2189,7 @@ WHERE id @@@ pdb.parse('category:Electronics');
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
 (7 rows)
 
--- Verify TopN with pdb.agg window function
+-- Verify Top K with pdb.agg window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name,
        pdb.agg('{"terms": {"field": "category"}}'::jsonb) OVER () as facets
@@ -2136,13 +2200,13 @@ LIMIT 3;
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: id asc
-            TopN Limit: 3
+            TopK Order By: id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
@@ -2160,7 +2224,7 @@ ORDER BY id;
 ---------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2195,7 +2259,7 @@ SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
 -----------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2216,7 +2280,7 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.match('shoes') ORDER B
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2237,7 +2301,7 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.regex('.*shoes.*') ORD
 ---------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2258,7 +2322,7 @@ SELECT id, name FROM smoke_test WHERE name @@@ pdb.fuzzy_term('runnin', distance
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2279,7 +2343,7 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase('running shoes'
 -----------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2300,7 +2364,7 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['l
 -------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2314,19 +2378,19 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['l
   1 | Running Shoes
 (1 row)
 
--- pdb.range() on numeric field (not composite, but verify it works alongside)
+-- pdb.range() on FLOAT field (not composite, but verify it works alongside)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
                                                                            QUERY PLAN                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4.0},"upper_bound":{"included":5.0},"is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":"4"},"upper_bound":{"included":"5"},"is_datetime":false}}}}
 (8 rows)
 
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
@@ -2350,7 +2414,7 @@ ORDER BY id;
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2373,7 +2437,7 @@ SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY
 ----------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
          Exec Method: NormalScanExecState
@@ -2389,11 +2453,11 @@ SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY
 (2 rows)
 
 ------------------------------------------------------------
--- TEST: TopN queries with pdb functions on composite fields
+-- TEST: Top K queries with pdb functions on composite fields
 ------------------------------------------------------------
-\echo '=== TEST: TopN with pdb functions on composite fields ==='
-=== TEST: TopN with pdb functions on composite fields ===
--- TopN with pdb.term() on composite field, ORDER BY score
+\echo '=== TEST: Top K with pdb functions on composite fields ==='
+=== TEST: Top K with pdb functions on composite fields ===
+-- Top K with pdb.term() on composite field, ORDER BY score
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('shoes')
@@ -2401,13 +2465,13 @@ ORDER BY score DESC, id LIMIT 3;
                                                   QUERY PLAN                                                   
 ---------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 3
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"shoes","is_datetime":false}}}}
 (9 rows)
 
@@ -2419,7 +2483,7 @@ ORDER BY score DESC, id LIMIT 3;
   1 | Running Shoes | 1.7917595
 (1 row)
 
--- TopN with pdb.match() on composite field, ORDER BY rating (fast field)
+-- Top K with pdb.match() on composite field, ORDER BY rating (fast field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating
 FROM smoke_test WHERE description @@@ pdb.match('wireless OR shoes')
@@ -2427,13 +2491,13 @@ ORDER BY rating DESC, id LIMIT 3;
                                                                                                      QUERY PLAN                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: false
-            TopN Order By: rating desc, id asc
-            TopN Limit: 3
+            TopK Order By: rating desc, id asc
+            TopK Limit: 3
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"wireless OR shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
 (9 rows)
 
@@ -2446,7 +2510,7 @@ ORDER BY rating DESC, id LIMIT 3;
   2 | Wireless Keyboard |    4.2
 (2 rows)
 
--- TopN with pdb.regex() on composite field
+-- Top K with pdb.regex() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE description @@@ pdb.regex('.*boot.*')
@@ -2454,13 +2518,13 @@ ORDER BY score DESC, id LIMIT 2;
                                                QUERY PLAN                                               
 --------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 2
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
          Tantivy Query: {"with_index":{"query":{"regex":{"field":"description","pattern":".*boot.*"}}}}
 (9 rows)
 
@@ -2472,7 +2536,7 @@ ORDER BY score DESC, id LIMIT 2;
   6 | Hiking Boots |     1
 (1 row)
 
--- TopN with multiple composite field conditions
+-- Top K with multiple composite field conditions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')
@@ -2480,13 +2544,13 @@ ORDER BY score DESC, id LIMIT 2;
                                                                                                                                                           QUERY PLAN                                                                                                                                                          
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Scan) on smoke_test
+   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: TopNScanExecState
+         Exec Method: TopKScanExecState
          Scores: true
-            TopN Order By: pdb.score() desc, id asc
-            TopN Limit: 2
+            TopK Order By: pdb.score() desc, id asc
+            TopK Limit: 2
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"term":{"field":"name","value":"wireless","is_datetime":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 
@@ -2532,7 +2596,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.title:PostgreSQL');
                                                                QUERY PLAN                                                                
 -----------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on json_test
+ Custom Scan (ParadeDB Base Scan) on json_test
    Table: json_test
    Index: idx_json_composite
    Exec Method: NormalScanExecState
@@ -2551,7 +2615,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, metadata FROM json_test WHERE metadata->>'title' @@@ 'PostgreSQL';
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on json_test
+ Custom Scan (ParadeDB Base Scan) on json_test
    Table: json_test
    Index: idx_json_composite
    Exec Method: NormalScanExecState
@@ -2570,7 +2634,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, metadata FROM json_test WHERE id @@@ pdb.parse('metadata.author:John');
                                                              QUERY PLAN                                                             
 ------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on json_test
+ Custom Scan (ParadeDB Base Scan) on json_test
    Table: json_test
    Index: idx_json_composite
    Exec Method: NormalScanExecState
@@ -2589,7 +2653,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, metadata FROM json_test WHERE metadata->>'author' @@@ 'John';
                                                                        QUERY PLAN                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on json_test
+ Custom Scan (ParadeDB Base Scan) on json_test
    Table: json_test
    Index: idx_json_composite
    Exec Method: NormalScanExecState
@@ -2611,7 +2675,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, tags FROM json_test WHERE id @@@ pdb.parse('tags:database');
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on json_test
+ Custom Scan (ParadeDB Base Scan) on json_test
    Table: json_test
    Index: idx_json_composite
    Exec Method: NormalScanExecState
@@ -2630,7 +2694,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, tags FROM json_test WHERE tags @@@ pdb.parse('database');
                                                        QUERY PLAN                                                       
 ------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on json_test
+ Custom Scan (ParadeDB Base Scan) on json_test
    Table: json_test
    Index: idx_json_composite
    Exec Method: NormalScanExecState
@@ -2678,7 +2742,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description FROM multi_tokenizer_test WHERE description @@@ pdb.parse('powerful');
                                                        QUERY PLAN                                                       
 ------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on multi_tokenizer_test
+ Custom Scan (ParadeDB Base Scan) on multi_tokenizer_test
    Table: multi_tokenizer_test
    Index: idx_multi_tokenizer
    Exec Method: NormalScanExecState
@@ -2697,7 +2761,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description FROM multi_tokenizer_test WHERE id @@@ pdb.parse('desc_ngram:owe');
                                                           QUERY PLAN                                                          
 ------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on multi_tokenizer_test
+ Custom Scan (ParadeDB Base Scan) on multi_tokenizer_test
    Table: multi_tokenizer_test
    Index: idx_multi_tokenizer
    Exec Method: NormalScanExecState
@@ -2716,7 +2780,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) @@@ pdb.parse('owe');
                                                     QUERY PLAN                                                     
 -------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on multi_tokenizer_test
+ Custom Scan (ParadeDB Base Scan) on multi_tokenizer_test
    Table: multi_tokenizer_test
    Index: idx_multi_tokenizer
    Exec Method: NormalScanExecState
@@ -2735,7 +2799,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) @@@ 'owe';
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on multi_tokenizer_test
+ Custom Scan (ParadeDB Base Scan) on multi_tokenizer_test
    Table: multi_tokenizer_test
    Index: idx_multi_tokenizer
    Exec Method: NormalScanExecState
@@ -2753,12 +2817,12 @@ SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,
 -- TEST: Non-text expressions in composite fields
 ------------------------------------------------------------
 CREATE TYPE numeric_expr_composite AS (
-    original_price NUMERIC,
-    discounted_price NUMERIC
+    original_price FLOAT,
+    discounted_price FLOAT
 );
 CREATE TABLE numeric_expr_test (
     id SERIAL PRIMARY KEY,
-    price NUMERIC
+    price FLOAT
 );
 CREATE INDEX idx_numeric_expr ON numeric_expr_test USING bm25 (
     id,
@@ -2780,18 +2844,19 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on numeric_expr_test
+ Custom Scan (ParadeDB Base Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
-   Exec Method: NormalScanExecState
+   Exec Method: ColumnarExecState
+   Fast Fields: id, original_price
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":75.0},"upper_bound":{"included":150.0},"is_datetime":false}}}}
-(6 rows)
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"},"is_datetime":false}}}}
+(7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
- id | price  
-----+--------
-  1 | 100.00
+ id | price 
+----+-------
+  1 |   100
 (1 row)
 
 -- Range query on calculated discounted price (use the expression 'price * 0.9' which maps to 'discounted_price' field)
@@ -2799,18 +2864,19 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));
                                                                               QUERY PLAN                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on numeric_expr_test
+ Custom Scan (ParadeDB Base Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
-   Exec Method: NormalScanExecState
+   Exec Method: ColumnarExecState
+   Fast Fields: id, original_price
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":80.0},"upper_bound":{"included":100.0},"is_datetime":false}}}}
-(6 rows)
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
+(7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));
- id | price  
-----+--------
-  1 | 100.00
+ id | price 
+----+-------
+  1 |   100
 (1 row)
 
 \i common/composite_cleanup.sql

@@ -16,7 +16,7 @@ concurrency:
 jobs:
   publish-stressgres-docker:
     name: Publish Stressgres Docker Image to Docker Hub
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
 
     steps:
       - name: Checkout Git Repository
@@ -29,18 +29,18 @@ jobs:
         uses: depot/setup-action@v1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Setup Docker Image tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: paradedb/stressgres
           tags: |
             type=raw,value=${{ github.sha }}
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}

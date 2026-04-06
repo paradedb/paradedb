@@ -7,7 +7,7 @@ name: Lint Rust
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
     paths:
       - "**/*.rs"
       - "**/*.toml"
@@ -21,7 +21,7 @@ concurrency:
 jobs:
   lint-rust:
     name: Lint Rust Files
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4-arm
     strategy:
       matrix:
         pg_version: [18]

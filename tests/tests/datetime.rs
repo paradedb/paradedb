@@ -141,3 +141,71 @@ fn datetime_term_second(mut conn: PgConnection) {
     let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE id @@@ paradedb.range('t', tsrange('2025-01-28T18:19:14.001Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
     assert_eq!(rows, expected);
 }
+
+#[rstest]
+#[case::date(
+    "DATE",
+    "'2200-06-15'",
+    "'1700-01-01'",
+    "'1980-07-04'",
+    "'2200-06-15'::date"
+)]
+#[case::timestamp(
+    "TIMESTAMP",
+    "'2200-06-15 12:00:00'",
+    "'1700-01-01 00:00:00'",
+    "'1980-07-04 12:30:00'",
+    "'2200-06-15 12:00:00'::timestamp"
+)]
+fn datetime_wide_range(
+    mut conn: PgConnection,
+    #[case] col_type: &str,
+    #[case] val_future: &str,
+    #[case] val_past: &str,
+    #[case] val_mid: &str,
+    #[case] search_val: &str,
+) {
+    format!(
+        r#"
+        CREATE TABLE wide_range (id SERIAL, v {col_type});
+        INSERT INTO wide_range (v) VALUES ({val_future});
+        INSERT INTO wide_range (v) VALUES ({val_past});
+        INSERT INTO wide_range (v) VALUES ({val_mid});
+        CREATE INDEX wide_range_idx ON wide_range USING bm25 (id, v) WITH (key_field = 'id');
+        "#
+    )
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        format!("SELECT id FROM wide_range WHERE id @@@ paradedb.term('v', {search_val})")
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let all_rows: Vec<(i32,)> = "SELECT id FROM wide_range ORDER BY id".fetch(&mut conn);
+    assert_eq!(all_rows.len(), 3);
+}
+
+#[rstest]
+#[case::future_date("DATE", "'57439-03-01'")]
+#[case::ancient_date("DATE", "'0001-01-01'")]
+#[case::future_timestamp("TIMESTAMP", "'57439-03-01 00:00:00'")]
+#[case::ancient_timestamp("TIMESTAMP", "'0001-01-01 00:00:00'")]
+fn datetime_overflow_reports_error(
+    mut conn: PgConnection,
+    #[case] col_type: &str,
+    #[case] val: &str,
+) {
+    format!(
+        r#"
+        CREATE TABLE overflow_test (id SERIAL, v {col_type});
+        INSERT INTO overflow_test (v) VALUES ({val});
+        "#
+    )
+    .execute(&mut conn);
+
+    let result = "CREATE INDEX overflow_test_idx ON overflow_test USING bm25 (id, v) WITH (key_field = 'id')".execute_result(&mut conn);
+    assert!(
+        result.is_err(),
+        "expected error for {col_type} value {val} beyond Tantivy nanosecond range"
+    );
+}

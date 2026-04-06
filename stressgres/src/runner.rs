@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -35,6 +35,48 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 type PostgresResult<T> = std::result::Result<T, Arc<postgres::Error>>;
 
 pub type BackendPid = i32;
+
+fn format_postgres_error(error: &postgres::Error) -> String {
+    let Some(db_error) = error.as_db_error() else {
+        return error.to_string();
+    };
+
+    let mut message = format!(
+        "{} (SQLState: {})",
+        db_error.message(),
+        db_error.code().code()
+    );
+
+    if let Some(detail) = db_error.detail() {
+        message.push_str("\nDETAIL: ");
+        message.push_str(detail);
+    }
+    if let Some(hint) = db_error.hint() {
+        message.push_str("\nHINT: ");
+        message.push_str(hint);
+    }
+    if let Some(where_) = db_error.where_() {
+        message.push_str("\nWHERE: ");
+        message.push_str(where_);
+    }
+
+    let location = match (db_error.file(), db_error.line(), db_error.routine()) {
+        (Some(file), Some(line), Some(routine)) => Some(format!("{file}:{line} ({routine})")),
+        (Some(file), Some(line), None) => Some(format!("{file}:{line}")),
+        (Some(file), None, Some(routine)) => Some(format!("{file} ({routine})")),
+        (Some(file), None, None) => Some(file.to_string()),
+        (None, Some(line), Some(routine)) => Some(format!("line {line} ({routine})")),
+        (None, Some(line), None) => Some(format!("line {line}")),
+        (None, None, Some(routine)) => Some(routine.to_string()),
+        (None, None, None) => None,
+    };
+    if let Some(location) = location {
+        message.push_str("\nLOCATION: ");
+        message.push_str(&location);
+    }
+
+    message
+}
 
 /// A thread handle paired with its corresponding JobRunner for error reporting
 struct ThreadHandle {
@@ -530,6 +572,10 @@ impl SuiteRunner {
         &self.pgver
     }
 
+    pub fn suite(&self) -> &Suite {
+        &self.suite
+    }
+
     pub fn monitor_runners(&self) -> impl Iterator<Item = Arc<JobRunner>> + '_ {
         self.monitors.iter().cloned()
     }
@@ -629,7 +675,7 @@ impl SuiteRunner {
             let job_errors = job.collect_errors().into_iter().filter(|e| {
                 e.source()
                     .and_then(|e| e.downcast_ref::<postgres::Error>())
-                    .map(is_ignorable_error)
+                    .map(|e| is_ignorable_error(e, self.suite.ignore_errors()))
                     .unwrap_or(false)
             });
 
@@ -648,6 +694,13 @@ impl SuiteRunner {
         Ok(all_errors)
     }
 }
+
+pub const HARDCODED_IGNORE_ERRORS: &[&str] = &[
+    "failed to merge: User requested cancel",
+    "Merge cancelled",
+    "canceling statement due to conflict with recovery",
+    "(SQLState: 57014)", // query_canceled
+];
 
 type Index = usize;
 
@@ -836,15 +889,7 @@ impl JobRunner {
                     Some(Arc::new(anyhow!(stats.assert_error.clone().unwrap())))
                 } else if stats.results.is_err() {
                     let postgres_error = Clone::clone(stats.results.as_ref().err().unwrap());
-                    let msg = if let Some(db_error) = postgres_error.as_db_error() {
-                        format!(
-                            "{} (SQLState: {})",
-                            db_error.message(),
-                            db_error.code().code()
-                        )
-                    } else {
-                        postgres_error.to_string()
-                    };
+                    let msg = format_postgres_error(&postgres_error);
                     Some(Arc::new(anyhow!(msg)))
                 } else {
                     None
@@ -945,7 +990,7 @@ impl JobRunner {
                 let mut assert_error = None;
                 if rows.is_err() {
                     rows = rows.inspect_err(|e| {
-                        if !is_ignorable_error(e) {
+                        if !is_ignorable_error(e, self.suite.ignore_errors()) {
                             last_error = Some(Clone::clone(e));
                         }
                     });
@@ -983,15 +1028,7 @@ impl JobRunner {
             }
 
             if let Some(last_error) = last_error {
-                let msg = if let Some(db_error) = last_error.as_db_error() {
-                    format!(
-                        "{} (SQLState: {})",
-                        db_error.message(),
-                        db_error.code().code()
-                    )
-                } else {
-                    last_error.to_string()
-                };
+                let msg = format_postgres_error(&last_error);
                 return Err(anyhow!(msg));
             }
         }
@@ -1000,9 +1037,26 @@ impl JobRunner {
     }
 }
 
-fn is_ignorable_error(e: &postgres::Error) -> bool {
+fn is_ignorable_error(e: &postgres::Error, ignore_patterns: &[String]) -> bool {
     // user cancel request
-    e.as_db_error()
+    if e.as_db_error()
         .map(|dberror| dberror.code() == &SqlState::from_code("57014"))
         .unwrap_or_default()
+    {
+        return true;
+    }
+
+    let error_string = e.to_string();
+    for pattern in HARDCODED_IGNORE_ERRORS {
+        if error_string.contains(pattern) {
+            return true;
+        }
+    }
+    for pattern in ignore_patterns {
+        if error_string.contains(pattern) {
+            return true;
+        }
+    }
+
+    false
 }

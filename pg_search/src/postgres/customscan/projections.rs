@@ -54,16 +54,24 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
     }
 }
 
-/// Create a placeholder target list with Const nodes replacing our FuncExpr placeholders.
-/// This is called AFTER replace_aggrefs_in_target_list has replaced Aggrefs with FuncExprs.
-/// For wrapped expressions, we replace those FuncExprs with Const nodes that will be
-/// mutated with actual aggregate values before each ExecBuildProjectionInfo call.
-/// This follows the basescan pattern where Const values are baked in when projection is built.
+/// Create a placeholder target list for aggregate custom scans.
+///
+/// This is called AFTER `replace_aggrefs_in_target_list` has replaced Aggrefs with FuncExprs.
+/// It performs two main tasks:
+/// 1. Replaces `pdb.agg_fn` FuncExprs with Const nodes that will be mutated with actual
+///    aggregate values before each `ExecBuildProjectionInfo` call. This follows the basescan
+///    pattern where Const values are baked in when projection is built.
+/// 2. Replaces grouping column expressions with `INDEX_VAR` nodes. Because `AggregateScan`
+///    groups by columns directly in Tantivy, it yields a virtual scan slot with only the
+///    grouping column and aggregate results (unlike `BaseScan` which yields the heap relation).
+///    By converting the original base relation Vars into `INDEX_VAR`s, `ExecProject` knows to
+///    fetch the value from the virtual slot's attributes instead of attempting to evaluate
+///    the original expressions (which would otherwise fail due to missing base columns).
 ///
 /// Returns: (placeholder_targetlist, const_nodes, needs_projection)
-/// - placeholder_targetlist: target list with FuncExprs replaced by Const nodes
-/// - const_nodes: Vec of Const node pointers for later mutation, indexed by target entry position
-/// - needs_projection: true if projection is needed (wrapped expressions exist)
+/// - placeholder_targetlist: target list with FuncExprs replaced by Const nodes and grouping columns converted to `INDEX_VAR`s.
+/// - const_nodes: Vec of Const node pointers for later mutation, indexed by target entry position.
+/// - needs_projection: true if projection is needed (e.g., wrapped expressions exist).
 pub(crate) unsafe fn create_placeholder_targetlist(
     targetlist: *mut pg_sys::List,
 ) -> (*mut pg_sys::List, Vec<Option<*mut pg_sys::Const>>, bool) {
@@ -189,6 +197,21 @@ pub(crate) unsafe fn create_placeholder_targetlist(
             let ctx_ptr = &mut ctx as *mut ConstPlaceholderContext as *mut core::ffi::c_void;
             let new_expr = const_placeholder_mutator((*te).expr as *mut pg_sys::Node, ctx_ptr);
             (*new_te).expr = new_expr as *mut pg_sys::Expr;
+        } else {
+            // It's a grouping column!
+            // The value for this column will be placed directly in the scan_slot at attribute (i + 1).
+            // We must replace the original expression with an INDEX_VAR that reads from the virtual scan_slot,
+            // otherwise ExecProject will try to evaluate the original expression (which usually refers
+            // to the base relation tuple) against our virtual scan_slot and fail with "attribute number exceeds number of columns".
+            let var = pg_sys::makeVar(
+                pg_sys::INDEX_VAR,
+                (i + 1) as pg_sys::AttrNumber,
+                pg_sys::exprType((*te).expr as *mut pg_sys::Node),
+                pg_sys::exprTypmod((*te).expr as *mut pg_sys::Node),
+                pg_sys::exprCollation((*te).expr as *mut pg_sys::Node),
+                0,
+            );
+            (*new_te).expr = var as *mut pg_sys::Expr;
         }
 
         new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
@@ -263,6 +286,22 @@ unsafe fn make_placeholder_const_from_funcexpr(
     )
 }
 
+/// Walker callback for [`expression_tree_walker`] that returns `true` (abort)
+/// when it encounters a [`pg_sys::JoinExpr`] node.
+#[pg_guard]
+unsafe extern "C-unwind" fn find_join_expr_walker(
+    node: *mut pg_sys::Node,
+    _context: *mut std::ffi::c_void,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    if (*node).type_ == pg_sys::NodeTag::T_JoinExpr {
+        return true;
+    }
+    expression_tree_walker(node, Some(find_join_expr_walker), _context)
+}
+
 #[pg_extern(immutable, parallel_safe)]
 pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
     // We "simplify" calls to `pdb.score(<anyelement>)` by wrapping (a copy of) its `FuncExpr`
@@ -284,12 +323,17 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
         }
 
         let root = (*srs).root;
-        let has_joins = (*root).hasJoinRTEs;
         let has_aggs = !(*root).parse.is_null() && (*(*root).parse).hasAggs;
 
-        // Use PlaceHolderVar when the query has joins OR aggregates.
-        // - Joins: to preserve score across join nodes
-        // - Aggregates: to preserve score across Gather nodes in parallel plans
+        // We walk the jointree instead of checking hasJoinRTEs because
+        // anti/semi-joins (from NOT EXISTS/EXISTS sublinks pulled up by
+        // pull_up_sublinks) create JoinExpr nodes without setting hasJoinRTEs.
+        let has_joins = !(*root).parse.is_null()
+            && find_join_expr_walker(
+                (*(*root).parse).jointree as *mut pg_sys::Node,
+                std::ptr::null_mut(),
+            );
+
         if !has_joins && !has_aggs {
             // No joins and no aggregates - PlaceHolderVar provides no benefit
             return ReturnedNodePointer(None);
@@ -316,7 +360,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
 
         // copy these properties up from the Var to its placeholder
         (*phv).phlevelsup = (*var).varlevelsup;
-        #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+        #[cfg(not(feature = "pg15"))]
         {
             (*phv).phnullingrels = (*var).varnullingrels;
         }
@@ -445,7 +489,7 @@ pub unsafe fn inject_placeholders(
     snippets_funcoids: [pg_sys::Oid; 2],
     snippet_positions_funcoids: [pg_sys::Oid; 2],
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
-    snippet_generators: &HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+    snippet_generators: &HashMap<SnippetType, Option<SnippetGenerator>>,
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
@@ -463,7 +507,6 @@ pub unsafe fn inject_placeholders(
         #[inline(always)]
         unsafe fn inner(node: *mut pg_sys::Node, data: &mut Data) -> Option<*mut pg_sys::Node> {
             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
 
             if data.score_funcoids.contains(&(*funcexpr).funcid) {
                 return Some(data.const_score_node.cast());
@@ -554,8 +597,7 @@ pub unsafe fn inject_placeholders(
         snippet_positions_funcoids: [pg_sys::Oid; 2],
         attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 
-        snippet_generators:
-            &'a HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+        snippet_generators: &'a HashMap<SnippetType, Option<SnippetGenerator>>,
         const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
     }
 

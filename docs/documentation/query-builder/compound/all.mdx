@@ -12,19 +12,75 @@ without changing the query's meaning.
 
 To use it, pass the [key field](/documentation/indexing/create-index#choosing-a-key-field) to the left-hand side of `@@@` and `pdb.all()` to the right-hand side.
 
-```sql
--- Top N executed by standard Postgres
-SELECT * FROM mock_items
+<CodeGroup>
+```sql SQL
+-- Top K executed by standard Postgres
+SELECT id, description, rating, category
+FROM mock_items
 WHERE rating IS NOT NULL
 ORDER BY rating
 LIMIT 5;
 
--- Top N executed by ParadeDB
-SELECT * FROM mock_items
+-- Top K executed by ParadeDB
+SELECT id, description, rating, category
+FROM mock_items
 WHERE rating IS NOT NULL AND id @@@ pdb.all()
 ORDER BY rating
 LIMIT 5;
 ```
 
+```python Django
+from paradedb import All, ParadeDB
+
+# Top K executed by standard Postgres
+MockItem.objects.filter(
+    rating__isnull=False
+).order_by('rating')[:5]
+
+# Top K executed by ParadeDB
+MockItem.objects.filter(
+    rating__isnull=False,
+    id=ParadeDB(All())
+).order_by('rating')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+standard_topn_stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.rating.is_not(None))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+paradedb_topn_stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.rating.is_not(None), search.all(MockItem.id))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    standard_rows = session.execute(standard_topn_stmt).all()
+    paradedb_rows = session.execute(paradedb_topn_stmt).all()
+```
+
+```ruby Rails
+# Top N executed by standard Postgres
+MockItem.where.not(rating: nil).order(:rating).limit(5)
+
+# Top N executed by ParadeDB
+MockItem.search(:id)
+        .match_all
+        .where.not(rating: nil)
+        .order(:rating)
+        .limit(5)
+```
+
+</CodeGroup>
+
 This is useful for cases where queries that don't contain a ParadeDB operator can be more efficiently executed by ParadeDB vs. standard Postgres,
-like [Top N](/documentation/sorting/topn) or [aggregate](/documentation/aggregates/overview) queries.
+like [Top K](/documentation/sorting/topk) or [aggregate](/documentation/aggregates/overview) queries.

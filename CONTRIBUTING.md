@@ -4,7 +4,7 @@ Welcome! We're excited that you're interested in contributing to ParadeDB and wa
 
 ## Technical Info
 
-Before submitting a pull request, please review this document, which outlines what conventions to follow when submitting changes. If you have any questions not covered in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw) or via [email](mailto:support@paradedb.com).
+Before submitting a pull request, please review this document, which outlines what conventions to follow when submitting changes. If you have any questions not covered in this document, please reach out to us in the [ParadeDB Community Slack](https://paradedb.com/slack) or via [email](mailto:support@paradedb.com).
 
 ### Selecting GitHub Issues
 
@@ -24,7 +24,7 @@ from a maintainer to pick an issue.
 
 2. To claim an unassigned issue, comment `/take` on the issue. This will automatically assign the issue to you.
 
-If you find yourself unable to make progress, don't hesitate to seek help in the issue comments or the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw). If you no longer wish to
+If you find yourself unable to make progress, don't hesitate to seek help in the issue comments or the [ParadeDB Community Slack](https://paradedb.com/slack). If you no longer wish to
 work on the issue(s) you self-assigned, please use the `unassign me` link at the top of the issue(s) page to release it.
 
 ### Development Workflow
@@ -38,7 +38,7 @@ All changes to ParadeDB happen through GitHub Pull Requests. Here is the recomme
 1. Before working on a change, please check if there is already a GitHub issue open for it.
 2. If there is not, please open an issue first. This gives the community visibility into your work and allows others to make suggestions and leave comments.
 3. Fork the ParadeDB repo and branch out from the `main` branch.
-4. Install [pre-commit](https://pre-commit.com/) hooks within your fork with `pre-commit install` to ensure code quality and consistency with upstream.
+4. Install [prek](https://github.com/j178/prek) hooks within your fork with `prek install` to ensure code quality and consistency with upstream.
 5. Make your changes. If you've added new functionality, please add tests. We will not merge a feature without appropriate tests.
 6. Open a pull request towards the `main` branch. Ensure that all tests and checks pass. Note that the ParadeDB repository has pull request title linting in place and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
 7. Congratulations! Our team will review your pull request.
@@ -46,6 +46,36 @@ All changes to ParadeDB happen through GitHub Pull Requests. Here is the recomme
 ### Documentation
 
 ParadeDB's public-facing documentation is stored in the `docs` folder. If you are adding a new feature that requires new documentation, please add the documentation as part of your pull request. We will not merge a feature without appropriate documentation.
+
+### Testing
+
+ParadeDB has three main categories of tests. For a full overview of how and when to use them, please see their respective documentation:
+
+#### 1. pg regress tests
+
+Located in `pg_search/tests/pg_regress`.
+
+- **Purpose:** These are for output / golden testing, and are useful when the output is small enough that you can inspect it visually to determine correctness.
+- **Running:** Run them with `cargo pgrx regress -p pg_search --auto -- pg18 one_file_name`. There is no need to manually install the extension: it is handled automatically.
+- **Details:** See [`pg_search/tests/pg_regress/README.md`](pg_search/tests/pg_regress/README.md) for more details.
+
+#### 2. Integration tests
+
+Located in the `tests/` directory.
+
+- **Purpose:** These tests run outside the Postgres process as a client. They should be used to assert things when output is too complicated to visually inspect, or is non-deterministic (such as property testing).
+- **Running:** Since these run outside the process, they need the extension to already be installed. Run them with `cargo test -p tests -- a_specific_method_to_run`.
+- **Details:** See [`tests/README.md`](tests/README.md) for more details.
+
+#### 3. Unit tests
+
+Located in the `pg_search/src` directory.
+
+- **Purpose:** They are either:
+  - **Unit tests without Postgres** if they are not marked `#[pg_test]`.
+  - **Unit tests which run in Postgres as UDFs** if they are marked `#[pg_test]`. These use all of Postgres APIs via `pgrx`.
+- **Running:** Run them with `cargo test -p pg_search -- a_specific_method_to_run`. There is no need to pre-install the extension for `#[pg_test]` annotated tests (the annotation automatically handles it).
+- **Details:** See [`pg_search/README.md`](pg_search/README.md#testing) for more details.
 
 ## Legal Info
 
@@ -55,7 +85,7 @@ In order for us, ParadeDB, Inc., to accept patches and other contributions from 
 
 ParadeDB uses a tool called CLA Assistant to help us track contributors' CLA status. CLA Assistant will post a comment to your pull request indicating whether you have signed the CLA. If you have not signed the CLA, you must do so before we can accept your contribution. Signing the CLA is a one-time process, is valid for all future contributions to ParadeDB, and can be done in under a minute by signing in with your GitHub account.
 
-If you have any questions about the CLA, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw) or via email at [legal@paradedb.com](mailto:legal@paradedb.com).
+If you have any questions about the CLA, please reach out to us in the [ParadeDB Community Slack](https://paradedb.com/slack) or via email at [legal@paradedb.com](mailto:legal@paradedb.com).
 
 ### License
 

@@ -132,13 +132,14 @@ impl RelationBufferAccess {
             }
 
             let rel = self.rel.as_ptr();
+            let fork = self.rel.fork_number();
             let iter = (0..npages)
                 .step_by(MAX_BUFFERS_TO_EXTEND_BY)
                 .flat_map(move |i| {
                     let many = (npages - i).min(MAX_BUFFERS_TO_EXTEND_BY);
 
                     // bulk_extend_relation() returns `pg_sys::Buffer` instances that are not locked...
-                    let buffers = bulk_extend_relation(rel, many);
+                    let buffers = bulk_extend_relation(rel, many, fork);
                     buffers.into_iter().take(many)
                 })
                 .inspect(move |&pg_buffer| {
@@ -165,7 +166,13 @@ impl RelationBufferAccess {
     /// function returns `None`.
     pub fn get_buffer_conditional(&self, blockno: pg_sys::BlockNumber) -> Option<pg_sys::Buffer> {
         unsafe {
-            let pg_buffer = pg_sys::ReadBuffer(self.rel.as_ptr(), blockno);
+            let pg_buffer = pg_sys::ReadBufferExtended(
+                self.rel.as_ptr(),
+                self.rel.fork_number(),
+                blockno,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                std::ptr::null_mut(),
+            );
             if pg_sys::ConditionalLockBuffer(pg_buffer) {
                 Some(pg_buffer)
             } else {
@@ -193,13 +200,14 @@ impl RelationBufferAccess {
         unsafe {
             let buffer = if blockno == pg_sys::InvalidBlockNumber {
                 pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
-                let buffer = extend_by_one_buffer(self.rel.as_ptr(), strategy);
+                let buffer =
+                    extend_by_one_buffer(self.rel.as_ptr(), strategy, self.rel.fork_number());
                 pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
                 buffer
             } else {
                 pg_sys::ReadBufferExtended(
                     self.rel.as_ptr(),
-                    pg_sys::ForkNumber::MAIN_FORKNUM,
+                    self.rel.fork_number(),
                     blockno,
                     buffer_mode,
                     strategy,
@@ -225,12 +233,13 @@ impl RelationBufferAccess {
 unsafe fn extend_by_one_buffer(
     rel: pg_sys::Relation,
     strategy: pg_sys::BufferAccessStrategy,
+    fork: pg_sys::ForkNumber::Type,
 ) -> pg_sys::Buffer {
-    #[cfg(any(feature = "pg14", feature = "pg15"))]
+    #[cfg(feature = "pg15")]
     {
         pg_sys::ReadBufferExtended(
             rel,
-            pg_sys::ForkNumber::MAIN_FORKNUM,
+            fork,
             pg_sys::InvalidBlockNumber,
             pg_sys::ReadBufferMode::RBM_NORMAL,
             strategy,
@@ -244,7 +253,7 @@ unsafe fn extend_by_one_buffer(
                 rel,
                 ..Default::default()
             },
-            pg_sys::ForkNumber::MAIN_FORKNUM,
+            fork,
             strategy,
             // failure to clear the size cache, which is attached to `self.rel.rd_smgr` can cause
             // future reads from the relation to fail complaining that the block number returned
@@ -263,6 +272,7 @@ unsafe fn extend_by_one_buffer(
 unsafe fn bulk_extend_relation(
     rel: pg_sys::Relation,
     npages: usize,
+    fork: pg_sys::ForkNumber::Type,
 ) -> [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY] {
     struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
     unsafe impl Send for BufferAccessStrategyHolder {}
@@ -300,7 +310,7 @@ unsafe fn bulk_extend_relation(
                 };
                 pg_sys::ExtendBufferedRelBy(
                     bmr,
-                    pg_sys::ForkNumber::MAIN_FORKNUM,
+                    fork,
                     BAS_BULKWRITE.0,
                     // failure to clear the size cache, which is attached to `self.rel.rd_smgr` can cause
                     // future reads from the relation to fail complaining that the block number returned
@@ -333,6 +343,7 @@ unsafe fn bulk_extend_relation(
             } else {
                 std::ptr::null_mut()
             },
+            fork,
         );
         debug_assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         *slot = pg_buffer;

@@ -1,3 +1,20 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 use proc_macro::TokenStream;
 
 use quote::quote;
@@ -16,6 +33,7 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     let schema = args.take_ident("schema").unwrap();
     let json_cast_name = args.take_ident("json_cast_name").unwrap();
     let jsonb_cast_name = args.take_ident("jsonb_cast_name").unwrap();
+    let uuid_cast_name = args.take_ident("uuid_cast_name").unwrap();
     let text_array_cast_name = args.take_ident("text_array_cast_name").unwrap();
     let varchar_array_cast_name = args.take_ident("varchar_array_cast_name").unwrap();
     let pgrx_name = format!("{}_definition", sql_name.value());
@@ -60,11 +78,27 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         sql_name = sql_name.value()
     );
 
+    let pgrx_cast_from_uuid_name = format!("{}_cast_from_uuid", sql_name.value());
+    let create_cast_from_uuid = format!(
+        "CREATE CAST (uuid AS {schema}.{sql_name}) WITH FUNCTION {schema}.{uuid_cast_name} AS ASSIGNMENT;",
+        sql_name = sql_name.value()
+    );
+
     let pgrx_cast_from_text_array_name = format!("{}_cast_from_text_array", sql_name.value());
     let create_cast_from_text_array = format!(
         r#"
         CREATE CAST (text[] AS {schema}.{sql_name}) WITH FUNCTION {schema}.{text_array_cast_name} AS ASSIGNMENT;
         CREATE CAST (varchar[] AS {schema}.{sql_name}) WITH FUNCTION {schema}.{varchar_array_cast_name} AS ASSIGNMENT;
+        "#,
+        schema = schema.to_string(),
+        sql_name = sql_name.value(),
+    );
+
+    let pgrx_cast_from_text_name = format!("{}_cast_from_text", sql_name.value());
+    let create_cast_from_text = format!(
+        r#"
+        CREATE CAST (text AS {schema}.{sql_name}) WITH INOUT AS IMPLICIT;
+        CREATE CAST (varchar AS {schema}.{sql_name}) WITH INOUT AS IMPLICIT;
         "#,
         schema = schema.to_string(),
         sql_name = sql_name.value(),
@@ -83,6 +117,14 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    let text_cast_sql = if sql_name.value() == "alias" {
+        quote! {}
+    } else {
+        quote! {
+            extension_sql!(#create_cast_from_text, name = #pgrx_cast_from_text_name, requires = [#pgrx_name]);
+        }
+    };
+
     quote! {
         extension_sql!(
             #create_type_sql,
@@ -94,7 +136,9 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
 
         extension_sql!(#create_cast_to_text_array, name = #pgrx_cast_to_text_array_name, requires = [#pgrx_name, #cast_name]);
         extension_sql!(#create_cast_from_json, name = #pgrx_cast_from_json_name, requires = [#pgrx_name, #json_cast_name, #jsonb_cast_name]);
+        extension_sql!(#create_cast_from_uuid, name = #pgrx_cast_from_uuid_name, requires = [#pgrx_name, #uuid_cast_name]);
         extension_sql!(#create_cast_from_text_array, name = #pgrx_cast_from_text_array_name, requires = [#pgrx_name, #text_array_cast_name, #varchar_array_cast_name]);
+        #text_cast_sql
     }
         .into()
 }

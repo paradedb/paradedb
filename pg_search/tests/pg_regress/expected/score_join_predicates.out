@@ -135,7 +135,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70
 ORDER BY b.id, a.id;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 SELECT
     b.id as book_id,
     a.name as author_name,
@@ -160,7 +160,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60
 ORDER BY b.id, a.id;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 SELECT
     b.id as book_id,
     a.name as author_name,
@@ -241,7 +241,7 @@ FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60
 ORDER BY a.id;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test multiple score functions in same query
 -- This tests if score calculation is consistent across multiple score calls
 SELECT

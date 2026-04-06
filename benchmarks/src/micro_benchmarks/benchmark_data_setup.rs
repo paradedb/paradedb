@@ -387,7 +387,7 @@ async fn create_benchmark_table(conn: &mut PgConnection, table_name: &str) -> Re
         json_data TEXT NOT NULL,
         numeric_field1 INTEGER NOT NULL,
         numeric_field2 FLOAT NOT NULL,
-        numeric_field3 NUMERIC(10,2) NOT NULL
+        numeric_field3 BIGINT NOT NULL
     )"
     );
 
@@ -405,7 +405,7 @@ pub async fn create_bm25_index(conn: &mut PgConnection, table_name: &str) -> Res
         .await?;
 
     // Define configuration based on the desired execution method
-    // All fields are marked as fast for MixedFastFieldExec
+    // All fields are marked as fast for ColumnarExec
     // IMPORTANT: ALL fields, including ID and those used in SELECT must be fast
     // Use keyword tokenizer for string fields to ensure exact matching
     let index_definition = format!(

@@ -659,6 +659,8 @@ AND (data->>'value')::float8 >= 100 AND (data->>'value')::float8 <= 500
 ORDER BY id;
 
 -- Test K2a: NUMERIC pushdown - 2^53 boundary precision test
+-- Due to F64 fast field storage, both id 8 and 9 match because they have the same
+-- F64 representation (9007199254740992.0) after precision loss
 SELECT id, data->>'value' as value
 FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
@@ -717,6 +719,166 @@ FROM json_fast_field_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric BETWEEN 100 AND 1000
 ORDER BY id;
+
+-- ============================================================================
+-- SECTION M: Scientific Notation Tests
+-- Tests for scientific notation in both JSON fields and query constants
+-- ============================================================================
+
+-- Create table with scientific notation values in JSON
+CREATE TABLE json_scientific_test (
+    id SERIAL PRIMARY KEY,
+    data JSONB
+);
+
+INSERT INTO json_scientific_test (data) VALUES
+    ('{"value": 1e6}'),           -- 1,000,000 (integer result)
+    ('{"value": 1.5e6}'),         -- 1,500,000 (float)
+    ('{"value": 2.5E-3}'),        -- 0.0025 (float with negative exponent)
+    ('{"value": 1E10}'),          -- 10,000,000,000 (large integer)
+    ('{"value": -3.14e2}'),       -- -314 (negative float)
+    ('{"value": 1.23e0}'),        -- 1.23 (e0 means *1)
+    ('{"value": 5e0}'),           -- 5 (integer)
+    ('{"value": 1e-1}'),          -- 0.1 (float)
+    ('{"value": 9.99e2}');        -- 999 (float)
+
+CREATE INDEX json_sci_idx ON json_scientific_test
+USING bm25 (id, data)
+WITH (key_field = 'id', text_fields = '{}', json_fields = '{"data": {"fast": true}}');
+
+-- Test M1a: Query using scientific notation constant (integer result)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'value' as value
+FROM json_scientific_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric = 1e6
+ORDER BY id;
+
+SELECT id, data->>'value' as value
+FROM json_scientific_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric = 1e6
+ORDER BY id;
+
+-- Test M1b: Query using scientific notation constant (float result)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'value' as value
+FROM json_scientific_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric = 1.5e6
+ORDER BY id;
+
+SELECT id, data->>'value' as value
+FROM json_scientific_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric = 1.5e6
+ORDER BY id;
+
+-- Test M2: Range query with scientific notation bounds
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'value' as value
+FROM json_scientific_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric >= 1e5 AND (data->>'value')::numeric <= 2e6
+ORDER BY id;
+
+SELECT id, data->>'value' as value
+FROM json_scientific_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric >= 1e5 AND (data->>'value')::numeric <= 2e6
+ORDER BY id;
+
+-- Test M3: Query for small values with negative exponent
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, data->>'value' as value
+FROM json_scientific_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric < 1e0
+ORDER BY id;
+
+SELECT id, data->>'value' as value
+FROM json_scientific_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric < 1e0
+ORDER BY id;
+
+-- Test M4: IN clause with scientific notation
+SELECT id, data->>'value' as value
+FROM json_scientific_test
+WHERE id @@@ paradedb.all()
+AND (data->>'value')::numeric IN (1e6, 1.5e6, 5e0)
+ORDER BY id;
+
+DROP TABLE json_scientific_test;
+
+-- ============================================================================
+-- SECTION N: Scientific Notation with NUMERIC Columns
+-- ============================================================================
+
+-- Create NUMERIC table for scientific notation tests
+CREATE TABLE numeric_scientific_test (
+    id SERIAL PRIMARY KEY,
+    value NUMERIC(18,4)
+);
+
+INSERT INTO numeric_scientific_test (value) VALUES
+    (1e6),           -- 1,000,000
+    (1.5e6),         -- 1,500,000
+    (2.5E-3),        -- 0.0025
+    (1E10),          -- 10,000,000,000 (will be truncated to fit precision)
+    (-3.14e2),       -- -314
+    (1.23e0),        -- 1.23
+    (5e0),           -- 5
+    (1e-1),          -- 0.1
+    (9.99e2);        -- 999
+
+CREATE INDEX numeric_sci_idx ON numeric_scientific_test
+USING bm25 (id, value)
+WITH (key_field = 'id');
+
+-- Test N1: Exact match with scientific notation constant
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, value
+FROM numeric_scientific_test
+WHERE id @@@ paradedb.all()
+AND value = 1e6
+ORDER BY id;
+
+SELECT id, value
+FROM numeric_scientific_test
+WHERE id @@@ paradedb.all()
+AND value = 1e6
+ORDER BY id;
+
+-- Test N2: Range query with scientific notation bounds
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, value
+FROM numeric_scientific_test
+WHERE id @@@ paradedb.all()
+AND value >= 1e2 AND value <= 1e4
+ORDER BY id;
+
+SELECT id, value
+FROM numeric_scientific_test
+WHERE id @@@ paradedb.all()
+AND value >= 1e2 AND value <= 1e4
+ORDER BY id;
+
+-- Test N3: Query for small values
+SELECT id, value
+FROM numeric_scientific_test
+WHERE id @@@ paradedb.all()
+AND value < 1e0
+ORDER BY id;
+
+-- Test N4: Negative value with scientific notation
+SELECT id, value
+FROM numeric_scientific_test
+WHERE id @@@ paradedb.all()
+AND value = -3.14e2
+ORDER BY id;
+
+DROP TABLE numeric_scientific_test;
 
 -- ============================================================================
 -- Cleanup

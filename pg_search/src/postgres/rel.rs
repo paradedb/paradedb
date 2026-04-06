@@ -36,13 +36,29 @@ impl Default for IsCreateIndex {
         Self(Rc::new(RefCell::new(false)))
     }
 }
-
 impl IsCreateIndex {
     fn set(&self, value: bool) {
         self.0.replace(value);
     }
 
     fn get(&self) -> bool {
+        *self.0.borrow()
+    }
+}
+
+#[repr(transparent)]
+struct ForkNumber(Rc<RefCell<pg_sys::ForkNumber::Type>>);
+impl Default for ForkNumber {
+    fn default() -> Self {
+        Self(Rc::new(RefCell::new(pg_sys::ForkNumber::MAIN_FORKNUM)))
+    }
+}
+impl ForkNumber {
+    fn set(&self, value: pg_sys::ForkNumber::Type) {
+        self.0.replace(value);
+    }
+
+    fn get(&self) -> pg_sys::ForkNumber::Type {
         *self.0.borrow()
     }
 }
@@ -83,6 +99,7 @@ pub struct PgSearchRelation(
             RefCell<Option<Result<SearchIndexSchema, SchemaError>>>,
             BM25IndexOptions,
             IsCreateIndex,
+            ForkNumber,
         )>,
     >,
 );
@@ -96,24 +113,22 @@ impl Debug for PgSearchRelation {
     }
 }
 
-impl Drop for PgSearchRelation {
-    fn drop(&mut self) {
-        let Some(rc) = self.0.take() else {
-            return;
-        };
-        let Some((relation, need_close, lockmode, ..)) = Rc::into_inner(rc) else {
-            return;
-        };
-        unsafe {
-            if need_close && pg_sys::IsTransactionState() {
-                match lockmode {
-                    Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
-                    None => pg_sys::RelationClose(relation.as_ptr()),
-                }
+crate::impl_safe_drop!(PgSearchRelation, |self| {
+    let Some(rc) = self.0.take() else {
+        return;
+    };
+    let Some((relation, need_close, lockmode, ..)) = Rc::into_inner(rc) else {
+        return;
+    };
+    unsafe {
+        if need_close && pg_sys::IsTransactionState() {
+            match lockmode {
+                Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
+                None => pg_sys::RelationClose(relation.as_ptr()),
             }
         }
     }
-}
+});
 
 impl Deref for PgSearchRelation {
     type Target = pg_sys::RelationData;
@@ -138,6 +153,7 @@ impl PgSearchRelation {
             Default::default(),
             BM25IndexOptions::from_relation(relation),
             IsCreateIndex::default(),
+            ForkNumber::default(),
         ))))
     }
 
@@ -160,6 +176,7 @@ impl PgSearchRelation {
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
                 IsCreateIndex::default(),
+                ForkNumber::default(),
             ))))
         }
     }
@@ -181,6 +198,7 @@ impl PgSearchRelation {
                     Default::default(),
                     BM25IndexOptions::from_relation(relation),
                     IsCreateIndex::default(),
+                    ForkNumber::default(),
                 )))))
             }
         }
@@ -200,6 +218,7 @@ impl PgSearchRelation {
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
                 IsCreateIndex::default(),
+                ForkNumber::default(),
             ))))
         }
     }
@@ -210,6 +229,14 @@ impl PgSearchRelation {
 
     pub fn is_create_index(&self) -> bool {
         self.0.as_ref().unwrap().5.get()
+    }
+
+    pub fn set_fork_number(&mut self, fork_number: pg_sys::ForkNumber::Type) {
+        self.0.as_ref().unwrap().6.set(fork_number);
+    }
+
+    pub fn fork_number(&self) -> pg_sys::ForkNumber::Type {
+        self.0.as_ref().unwrap().6.get()
     }
 
     /// Returns false if in the middle of a `REINDEX CONCURRENTLY`
@@ -309,5 +336,23 @@ impl PgSearchRelation {
             Ok(schema) => Ok(schema.clone()),
             Err(e) => Err(e.clone()),
         }
+    }
+
+    /// Get the index info for this relation.
+    pub fn index_info(&self) -> *mut pg_sys::IndexInfo {
+        unsafe { pg_sys::BuildIndexInfo(self.as_ptr()) }
+    }
+
+    /// Extract index expressions from the index info.
+    pub fn index_expressions(&self) -> PgList<pg_sys::Expr> {
+        unsafe { PgList::<pg_sys::Expr>::from_pg((*self.index_info()).ii_Expressions) }
+    }
+
+    /// Check if a field supports aggregate pushdown.
+    ///
+    /// Returns `Ok(false)` for NUMERIC fields, `Ok(true)` for other fields,
+    /// or an error if the schema cannot be loaded.
+    pub fn field_supports_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
+        self.schema().map(|s| s.field_supports_aggregate(field))
     }
 }

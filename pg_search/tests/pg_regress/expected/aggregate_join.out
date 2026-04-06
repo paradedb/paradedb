@@ -704,6 +704,80 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 DELETE FROM agg_join_tags WHERE product_id IN (9901, 9902);
 DELETE FROM agg_join_products WHERE id IN (9901, 9902);
 -- =====================================================================
+-- SECTION 12: Non-COUNT DISTINCT aggregates fall back to native PG
+-- Verifies SUM(DISTINCT), AVG(DISTINCT) do NOT route through DataFusion.
+-- =====================================================================
+-- SUM(DISTINCT) should NOT show AggregateScan
+EXPLAIN (COSTS OFF)
+SELECT p.category, SUM(DISTINCT t.product_id)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+WARNING:  Aggregate Scan (DataFusion) not used: unsupported aggregate function OID: 2108 (table: join)
+                                                                                       QUERY PLAN                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: p.category
+   ->  Sort
+         Sort Key: p.category, t.product_id
+         ->  Hash Join
+               Hash Cond: (t.product_id = p.id)
+               ->  Seq Scan on agg_join_tags t
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on agg_join_products p
+                           Table: agg_join_products
+                           Index: agg_join_products_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: category, id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+-- AVG(DISTINCT) should NOT show AggregateScan
+EXPLAIN (COSTS OFF)
+SELECT p.category, AVG(DISTINCT t.product_id)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+WARNING:  Aggregate Scan (DataFusion) not used: unsupported aggregate function OID: 2101 (table: join)
+                                                                                       QUERY PLAN                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: p.category
+   ->  Sort
+         Sort Key: p.category, t.product_id
+         ->  Hash Join
+               Hash Cond: (t.product_id = p.id)
+               ->  Seq Scan on agg_join_tags t
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on agg_join_products p
+                           Table: agg_join_products
+                           Index: agg_join_products_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: category, id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
+-- COUNT(DISTINCT) should still show AggregateScan (this still works)
+EXPLAIN (COSTS OFF)
+SELECT p.category, COUNT(DISTINCT t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+   Group By: category
+   Aggregates: COUNT(DISTINCT)(tag_name)
+(5 rows)
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

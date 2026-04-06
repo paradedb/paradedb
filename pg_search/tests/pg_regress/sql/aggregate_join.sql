@@ -483,6 +483,35 @@ DELETE FROM agg_join_tags WHERE product_id IN (9901, 9902);
 DELETE FROM agg_join_products WHERE id IN (9901, 9902);
 
 -- =====================================================================
+-- SECTION 12: Non-COUNT DISTINCT aggregates fall back to native PG
+-- Verifies SUM(DISTINCT), AVG(DISTINCT) do NOT route through DataFusion.
+-- =====================================================================
+
+-- SUM(DISTINCT) should NOT show AggregateScan
+EXPLAIN (COSTS OFF)
+SELECT p.category, SUM(DISTINCT t.product_id)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- AVG(DISTINCT) should NOT show AggregateScan
+EXPLAIN (COSTS OFF)
+SELECT p.category, AVG(DISTINCT t.product_id)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- COUNT(DISTINCT) should still show AggregateScan (this still works)
+EXPLAIN (COSTS OFF)
+SELECT p.category, COUNT(DISTINCT t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

@@ -110,6 +110,7 @@ fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> O
     match aggfnoid {
         F_COUNT_ANY if has_distinct => Some(AggKind::CountDistinct),
         F_COUNT_ANY => Some(AggKind::Count),
+        _ if has_distinct => None,
         F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
             Some(AggKind::Avg)
         }

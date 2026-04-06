@@ -1797,7 +1797,8 @@ pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
     let mut result = Vec::new();
 
     for sort_clause_ptr in sort_list.iter_ptr() {
-        let direction = SortDirection::from_sort_op((*sort_clause_ptr).sortop)?;
+        let direction =
+            SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
         let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
         let check_expr = strip_wrappers(sort_expr.cast()).cast::<pg_sys::Expr>();
 

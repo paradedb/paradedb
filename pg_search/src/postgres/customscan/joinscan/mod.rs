@@ -156,7 +156,8 @@ use self::memory::create_memory_pool;
 use self::planning::{
     collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
     ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
-    get_score_func_rti, order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
+    extract_orderby_from_parse_sort_clause, get_score_func_rti, order_by_columns_are_fast_fields,
+    pathkey_uses_scores_from_source,
 };
 use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
@@ -264,8 +265,9 @@ pub unsafe fn try_create_subplan_join_paths(
     }
 
     // Phase 1: validate + build JoinCSClause.
+    let has_distinct = !(*(*root).parse).distinctClause.is_null();
     let (join_clause, limit_offset) =
-        match JoinScan::validate_and_build_clause(root, plan, &join_keys, false) {
+        match JoinScan::validate_and_build_clause(root, plan, &join_keys, has_distinct) {
             Some(res) => res,
             None => return Vec::new(),
         };
@@ -1012,103 +1014,172 @@ impl CustomScan for JoinScan {
 
             private_data.output_columns = output_columns;
 
-            // Build output_projection, enriching expression entries with metadata
-            // when DISTINCT is active.
-            //
-            // TODO(#4604): This is the second call to distinct_columns_are_fast_fields
-            // in the same planning phase (first in validate_and_build_clause). Both
-            // calls walk the same parse tree. Consider caching the result in a
-            // planning-phase-scoped structure to avoid redundant work.
-            let distinct_entries = if private_data.join_clause.has_distinct {
-                let all_sources = private_data.join_clause.plan.sources();
-                distinct_columns_are_fast_fields(root, &all_sources)
-            } else {
-                None
-            };
-
-            // Map ResolvedExpr to output columns by walking the parse tree's
-            // target list (which has original expressions and valid ressortgroupref).
-            // For ALL entries (Column, Score, Expression), use the parse-tree
-            // varnos so that distinct_col_map keys are consistent with
-            // extract_orderby's pathkey varnos.
-            let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::ResolvedExpr> =
-                Default::default();
-            if let Some(ref entries) = distinct_entries {
-                let parse = (*root).parse;
-                let parse_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
-                let distinct_list =
-                    PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
-
-                for (clause_ptr, entry) in distinct_list.iter_ptr().zip(entries.iter()) {
-                    let tle_ref = (*clause_ptr).tleSortGroupRef;
-                    if let Some(parse_te) = parse_tlist
+            let parse = (*root).parse;
+            let distinct_list_len =
+                if private_data.join_clause.has_distinct && !(*parse).distinctClause.is_null() {
+                    PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause)
                         .iter_ptr()
-                        .find(|te| (**te).ressortgroupref == tle_ref)
-                    {
-                        let output_idx = ((*parse_te).resno - 1) as usize;
-                        if output_idx < private_data.output_columns.len() {
-                            entry_by_output_idx.insert(output_idx, entry);
-                        }
-                    }
-                }
-            }
+                        .count()
+                } else {
+                    0
+                };
 
-            private_data.join_clause.output_projection = Some(
-                private_data
-                    .output_columns
-                    .iter()
-                    .enumerate()
-                    .map(|(i, info)| {
-                        match entry_by_output_idx.get(&i) {
-                            Some(planning::ResolvedExpr::Expression {
-                                expr_node,
-                                input_vars,
-                                result_type,
-                            }) => {
-                                let expr_string = {
-                                    let node_str = pg_sys::nodeToString((*expr_node).cast());
-                                    std::ffi::CStr::from_ptr(node_str)
-                                        .to_string_lossy()
-                                        .into_owned()
-                                };
-                                let primary_rti = input_vars.first().map_or(0, |v| v.rti);
-                                build::ChildProjection::Expression {
-                                    rti: primary_rti,
-                                    pg_expr_string: expr_string,
-                                    input_vars: input_vars.clone(),
-                                    result_type_oid: *result_type,
-                                }
-                            }
-                            Some(planning::ResolvedExpr::Column { rti, attno }) => {
+            // Custom scan tlist can be shorter than parse DISTINCT (parent evaluates some exprs).
+            // Then DataFusion GROUP BY can't match all pathkeys; defer DISTINCT and sort only by
+            // parse sortClause inside JoinScan.
+            //
+            // Limitation: if distinctClause and scan tlist happen to have equal length but
+            // contain different expressions, this heuristic won't fire and the non-deferred
+            // path runs.  In practice the scan tlist is a strict subset of distinctClause
+            // columns, so a length mismatch is the reliable signal for "extra" expressions.
+            let scan_tlist_len = original_entries.len();
+            let defer_distinct_to_parent =
+                private_data.join_clause.has_distinct && distinct_list_len > scan_tlist_len;
+
+            if defer_distinct_to_parent {
+                private_data.join_clause.has_distinct = false;
+                let output_rtis = private_data.join_clause.plan.output_rtis();
+                let current_sources = private_data.join_clause.plan.sources();
+                private_data.join_clause.order_by =
+                    extract_orderby_from_parse_sort_clause(root, &current_sources, &output_rtis)
+                        .unwrap_or_else(|| {
+                            let sort_count = if (*parse).sortClause.is_null() {
+                                0
+                            } else {
+                                PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause)
+                                    .iter_ptr()
+                                    .count()
+                            };
+                            panic!(
+                                "JoinScan: ORDER BY from sortClause failed after DISTINCT/tlist \
+                             mismatch (sortClause has {} entries, scan_tlist_len={}, \
+                             distinct_list_len={})",
+                                sort_count, scan_tlist_len, distinct_list_len
+                            )
+                        });
+                // Non-Var, non-score expressions have rti=0, attno=0 here.  That is safe:
+                // has_distinct is cleared above, so DataFusion skips GROUP BY and
+                // build_projection_expr yields NULL for these slots.  build_result_tuple
+                // also treats rti=0 as NULL.  Postgres re-evaluates the real expressions
+                // on top of the result slot, so the NULLs are overwritten.
+                private_data.join_clause.output_projection = Some(
+                    private_data
+                        .output_columns
+                        .iter()
+                        .map(|info| {
+                            if info.is_score {
+                                build::ChildProjection::Score { rti: info.rti }
+                            } else {
                                 build::ChildProjection::Column {
-                                    rti: *rti,
-                                    attno: *attno,
-                                }
-                            }
-                            Some(planning::ResolvedExpr::Score { rti }) => {
-                                build::ChildProjection::Score { rti: *rti }
-                            }
-                            Some(planning::ResolvedExpr::IndexedExpression { rti }) => {
-                                build::ChildProjection::IndexedExpression {
-                                    rti: *rti,
+                                    rti: info.rti,
                                     attno: info.original_attno,
                                 }
                             }
-                            None => {
-                                // No ResolvedExpr match — use output_columns as-is
-                                if info.is_score {
-                                    build::ChildProjection::Score { rti: info.rti }
-                                } else {
+                        })
+                        .collect(),
+                );
+            } else {
+                // Build output_projection, enriching expression entries with metadata
+                // when DISTINCT is active.
+                //
+                // TODO(#4604): This is the second call to distinct_columns_are_fast_fields
+                // in the same planning phase (first in validate_and_build_clause). Both
+                // calls walk the same parse tree. Consider caching the result in a
+                // planning-phase-scoped structure to avoid redundant work.
+                let distinct_entries = if private_data.join_clause.has_distinct {
+                    let all_sources = private_data.join_clause.plan.sources();
+                    distinct_columns_are_fast_fields(root, &all_sources)
+                } else {
+                    None
+                };
+
+                // Map ResolvedExpr to output columns by walking the parse tree's
+                // target list (which has original expressions and valid ressortgroupref).
+                // For ALL entries (Column, Score, Expression), use the parse-tree
+                // varnos so that distinct_col_map keys are consistent with
+                // extract_orderby's pathkey varnos.
+                let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::ResolvedExpr> =
+                    Default::default();
+                if let Some(ref entries) = distinct_entries {
+                    let parse_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+                    let distinct_list =
+                        PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+
+                    for (clause_ptr, entry) in distinct_list.iter_ptr().zip(entries.iter()) {
+                        let tle_ref = (*clause_ptr).tleSortGroupRef;
+                        if let Some(parse_te) = parse_tlist
+                            .iter_ptr()
+                            .find(|te| (**te).ressortgroupref == tle_ref)
+                        {
+                            let output_idx = ((*parse_te).resno - 1) as usize;
+                            if output_idx < private_data.output_columns.len() {
+                                entry_by_output_idx.insert(output_idx, entry);
+                            }
+                        }
+                    }
+                }
+
+                // Key `entry_by_output_idx` by each scan tlist entry's `resno`, not list position.
+                let scan_target_entries: Vec<*mut pg_sys::TargetEntry> =
+                    original_entries.iter_ptr().collect();
+                private_data.join_clause.output_projection = Some(
+                    private_data
+                        .output_columns
+                        .iter()
+                        .zip(scan_target_entries.iter().copied())
+                        .map(|(info, te)| {
+                            let output_idx = ((*te).resno - 1) as usize;
+                            match entry_by_output_idx.get(&output_idx) {
+                                Some(planning::ResolvedExpr::Expression {
+                                    expr_node,
+                                    input_vars,
+                                    result_type,
+                                }) => {
+                                    let expr_string = {
+                                        let node_str = pg_sys::nodeToString((*expr_node).cast());
+                                        std::ffi::CStr::from_ptr(node_str)
+                                            .to_string_lossy()
+                                            .into_owned()
+                                    };
+                                    let primary_rti = input_vars.first().map_or(0, |v| v.rti);
+                                    build::ChildProjection::Expression {
+                                        rti: primary_rti,
+                                        pg_expr_string: expr_string,
+                                        input_vars: input_vars.clone(),
+                                        result_type_oid: *result_type,
+                                    }
+                                }
+                                Some(planning::ResolvedExpr::Column { rti, attno }) => {
                                     build::ChildProjection::Column {
-                                        rti: info.rti,
+                                        rti: *rti,
+                                        attno: *attno,
+                                    }
+                                }
+                                Some(planning::ResolvedExpr::Score { rti }) => {
+                                    build::ChildProjection::Score { rti: *rti }
+                                }
+                                Some(planning::ResolvedExpr::IndexedExpression { rti }) => {
+                                    build::ChildProjection::IndexedExpression {
+                                        rti: *rti,
                                         attno: info.original_attno,
                                     }
                                 }
+                                None => {
+                                    // No ResolvedExpr match — use output_columns as-is
+                                    if info.is_score {
+                                        build::ChildProjection::Score { rti: info.rti }
+                                    } else {
+                                        build::ChildProjection::Column {
+                                            rti: info.rti,
+                                            attno: info.original_attno,
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    })
-                    .collect(),
-            );
+                        })
+                        .collect(),
+                );
+            }
 
             // Add heap condition clauses to custom_exprs so they get transformed by set_customscan_references.
             // The Vars in these expressions will be converted to INDEX_VAR references into custom_scan_tlist.

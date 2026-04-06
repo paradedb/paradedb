@@ -199,6 +199,18 @@ pub unsafe fn extract_aggregate_targetlist(
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let has_distinct = !(*aggref).aggdistinct.is_null();
 
+            // Reject multi-column DISTINCT — agg_field_col only handles a single
+            // column, so extra columns would be silently dropped producing wrong results.
+            if has_distinct {
+                let dist_args = PgList::<pg_sys::Node>::from_pg((*aggref).args);
+                if dist_args.len() > 1 {
+                    return Err(
+                        "multi-column DISTINCT aggregates are not supported for aggregate-on-join"
+                            .into(),
+                    );
+                }
+            }
+
             // Reject FILTER (WHERE ...) clauses on aggregates — DataFusion's
             // aggregate plan doesn't propagate per-aggregate filter predicates.
             if !(*aggref).aggfilter.is_null() {

@@ -1049,6 +1049,11 @@ impl AggregateScan {
 /// Detects ORDER BY on aggregate + LIMIT for join aggregate queries.
 /// Returns `Some(DataFusionTopK)` when the sort clause targets a single aggregate
 /// that can be pushed down into the DataFusion plan as sort + limit.
+///
+/// NOTE: shares structural pattern with `build::detect_aggregate_orderby` (single-table
+/// variant). Both parse sort clause → aggref identity → direction → reltarget match →
+/// LIMIT. They diverge in target list type (`TargetList` vs `JoinAggregateTargetList`)
+/// which makes a generic extraction non-trivial without trait machinery.
 unsafe fn detect_join_aggregate_topk(
     args: &CreateUpperPathsHookArgs,
     targetlist: &join_targetlist::JoinAggregateTargetList,

@@ -1075,7 +1075,7 @@ unsafe fn detect_join_aggregate_topk(
         return None;
     }
 
-    let direction = SortDirection::from_sort_op((*sort_clause_ptr).sortop)?;
+    let direction = SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
 
     // Find matching position in output_rel target using structural equality
     let reltarget = args.output_rel().reltarget;

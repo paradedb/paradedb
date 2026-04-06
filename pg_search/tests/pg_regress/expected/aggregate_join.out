@@ -588,6 +588,122 @@ WHERE p.description @@@ 'laptop';
 -- Restore
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================
+-- SECTION 11: ORDER BY aggregate NULLS FIRST / NULLS LAST
+-- Tests that non-default NULL ordering in TopK produces correct results.
+-- LEFT JOIN creates groups with NULL SUM (no right-side matches).
+-- =====================================================================
+-- Setup: product with no matching tags -> SUM(t.product_id) will be NULL for this group
+INSERT INTO agg_join_products (id, description, price, category, rating)
+VALUES (9901, 'nullsort test alpha', 10.00, 'NullSortA', 1.0);
+INSERT INTO agg_join_products (id, description, price, category, rating)
+VALUES (9902, 'nullsort test beta', 20.00, 'NullSortB', 2.0);
+-- Give NullSortB some tags so its SUM is non-NULL
+INSERT INTO agg_join_tags (product_id, tag_name) VALUES (9902, 'real_tag_1');
+INSERT INTO agg_join_tags (product_id, tag_name) VALUES (9902, 'real_tag_2');
+-- Rebuild the BM25 index so the new rows are visible
+DROP INDEX agg_join_products_idx;
+CREATE INDEX agg_join_products_idx ON agg_join_products
+USING bm25 (id, description, category, price, rating)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
+);
+-- Test 11.1: DESC NULLS LAST — non-NULL rows should come first
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) DESC NULLS LAST
+LIMIT 2;
+ category  |  sum  
+-----------+-------
+ NullSortB | 19804
+ NullSortA |      
+(2 rows)
+
+-- Parity check
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) DESC NULLS LAST
+LIMIT 2;
+ category  |  sum  
+-----------+-------
+ NullSortB | 19804
+ NullSortA |      
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test 11.2: ASC NULLS FIRST — NULL rows should come first
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) ASC NULLS FIRST
+LIMIT 2;
+ category  |  sum  
+-----------+-------
+ NullSortA |      
+ NullSortB | 19804
+(2 rows)
+
+-- Parity check
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) ASC NULLS FIRST
+LIMIT 2;
+ category  |  sum  
+-----------+-------
+ NullSortA |      
+ NullSortB | 19804
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test 11.3: Default orderings (should still work — regression guard)
+-- DESC NULLS FIRST (default for DESC)
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) DESC
+LIMIT 2;
+ category  |  sum  
+-----------+-------
+ NullSortA |      
+ NullSortB | 19804
+(2 rows)
+
+-- Parity check
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) DESC
+LIMIT 2;
+ category  |  sum  
+-----------+-------
+ NullSortA |      
+ NullSortB | 19804
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Cleanup
+DELETE FROM agg_join_tags WHERE product_id IN (9901, 9902);
+DELETE FROM agg_join_products WHERE id IN (9901, 9902);
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

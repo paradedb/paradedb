@@ -311,17 +311,19 @@ impl SortDirection {
     /// happen for valid `SortGroupClause` operators). Callers should bail out
     /// of the TopK optimization rather than guessing a direction.
     #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-    pub unsafe fn from_sort_op(sortop: pg_sys::Oid) -> Option<Self> {
+    pub unsafe fn from_sort_op(sortop: pg_sys::Oid, nulls_first: bool) -> Option<Self> {
         let mut opfamily = pg_sys::InvalidOid;
         let mut opcintype = pg_sys::InvalidOid;
         let mut strategy: i16 = 0;
         if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut strategy)
         {
-            if strategy as u32 == pg_sys::BTGreaterStrategyNumber {
-                Some(SortDirection::DescNullsFirst)
-            } else {
-                Some(SortDirection::AscNullsLast)
-            }
+            let reverse = strategy as u32 == pg_sys::BTGreaterStrategyNumber;
+            Some(match (reverse, nulls_first) {
+                (true, true) => SortDirection::DescNullsFirst,
+                (true, false) => SortDirection::DescNullsLast,
+                (false, true) => SortDirection::AscNullsFirst,
+                (false, false) => SortDirection::AscNullsLast,
+            })
         } else {
             None
         }
@@ -329,16 +331,18 @@ impl SortDirection {
 
     /// Determines sort direction from a Postgres sort operator OID.
     #[cfg(feature = "pg18")]
-    pub unsafe fn from_sort_op(sortop: pg_sys::Oid) -> Option<Self> {
+    pub unsafe fn from_sort_op(sortop: pg_sys::Oid, nulls_first: bool) -> Option<Self> {
         let mut opfamily = pg_sys::InvalidOid;
         let mut opcintype = pg_sys::InvalidOid;
         let mut cmptype = pg_sys::CompareType::COMPARE_LT;
         if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut cmptype) {
-            if cmptype == pg_sys::CompareType::COMPARE_GT {
-                Some(SortDirection::DescNullsFirst)
-            } else {
-                Some(SortDirection::AscNullsLast)
-            }
+            let reverse = cmptype == pg_sys::CompareType::COMPARE_GT;
+            Some(match (reverse, nulls_first) {
+                (true, true) => SortDirection::DescNullsFirst,
+                (true, false) => SortDirection::DescNullsLast,
+                (false, true) => SortDirection::AscNullsFirst,
+                (false, false) => SortDirection::AscNullsLast,
+            })
         } else {
             None
         }

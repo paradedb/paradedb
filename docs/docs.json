@@ -39,8 +39,8 @@
                     "pages": [
                       "welcome/ai-agents",
                       "documentation/getting-started/install",
-                      "documentation/getting-started/environment-setup",
-                      "documentation/getting-started/basic-queries",
+                      "documentation/getting-started/environment",
+                      "documentation/getting-started/queries",
                       "documentation/getting-started/load"
                     ]
                   },

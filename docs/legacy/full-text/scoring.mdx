@@ -38,7 +38,7 @@ While BM25 scores will be returned as long as `description` is indexed, includin
 ## Joined Scores
 
 The following query demonstrates how to compute a "combined BM25 score" over a joined search. It joins `mock_items` with `orders`,
-which were both created in the [quickstart](/documentation/getting-started/quickstart).
+which were both created in the [quickstart](/documentation/getting-started/environment).
 
 ```sql
 SELECT o.order_id, pdb.score(o.order_id) + pdb.score(m.id) as score

@@ -40,20 +40,18 @@ GROUP BY lower(record_type)
 ORDER BY lower(record_type) DESC
 LIMIT 100
 OFFSET 0;
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=0.01..0.02 rows=1 width=64)
-   ->  Sort  (cost=0.01..0.02 rows=0 width=64)
-         Sort Key: (lower((record_type)::text)) DESC
-         ->  Custom Scan (ParadeDB Aggregate Scan) on core  (cost=0.00..0.00 rows=0 width=64)
-               Index: idx_parade_core
-               Tantivy Query: {"with_index":{"query":{"all":{"field":"dwf_doid"}}}}
-                 Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"dwf_doid"}})
-                 Group By: record_type
-                 Limit: 100
-                 Offset: 0
-                 Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"dwf_doid","missing":null}}},"terms":{"field":"record_type","segment_size":65000,"size":65000}}}
-(11 rows)
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.00..0.00 rows=1 width=64)
+   ->  Custom Scan (ParadeDB Aggregate Scan) on core  (cost=0.00..0.00 rows=0 width=64)
+         Index: idx_parade_core
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"dwf_doid"}}}}
+           Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"dwf_doid"}})
+           Group By: record_type
+           Limit: 100
+           Offset: 0
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"dwf_doid","missing":null}}},"terms":{"field":"record_type","order":{"_key":"desc"},"segment_size":65000,"size":65000}}}
+(9 rows)
 
 SELECT
     lower(record_type),

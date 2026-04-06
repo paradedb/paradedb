@@ -196,18 +196,11 @@ pub unsafe fn analyze_sort_expression(
         return Some((SortExpressionType::Score, var, None));
     }
 
-    if let Some(var) = extract_lower_var(node) {
-        let (relid, attno) = context.var_relation(var);
-        let field_name = fieldname_from_var(relid, var, attno);
-        return Some((SortExpressionType::Lower, var, field_name));
-    }
-
-    if let Some((var, field_name)) = find_one_var_and_fieldname(context, node) {
-        return Some((SortExpressionType::Raw, var, Some(field_name)));
-    }
-
-    // This handles arbitrary expressions like upper(col), trim(col), col1 + col2, etc.
-    // that were used when building the BM25 index.
+    // If this ORDER BY expression exactly matches an indexed expression, prefer the
+    // schema field name from the index itself. This canonicalizes aliased indexed
+    // expressions like `lower(description)::pdb.literal('alias=literal_description')`
+    // so subsequent sortability checks use `literal_description` rather than the heap
+    // column name `description`.
     if let Some(info) = index_info {
         if let Some(fast_field) = find_matching_fast_field(
             node,
@@ -220,6 +213,16 @@ pub unsafe fn analyze_sort_expression(
                 return Some((SortExpressionType::IndexedExpression, var, Some(field_name)));
             }
         }
+    }
+
+    if let Some(var) = extract_lower_var(node) {
+        let (relid, attno) = context.var_relation(var);
+        let field_name = fieldname_from_var(relid, var, attno);
+        return Some((SortExpressionType::Lower, var, field_name));
+    }
+
+    if let Some((var, field_name)) = find_one_var_and_fieldname(context, node) {
+        return Some((SortExpressionType::Raw, var, Some(field_name)));
     }
 
     None

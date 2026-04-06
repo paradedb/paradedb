@@ -21,21 +21,32 @@ tune_param() {
     chown postgres:postgres "$CONF_FILE" 2>/dev/null || echo "ParadeDB auto-tune: Warning: could not chown $CONF_FILE"
   fi
 
+  # 1. Highest Priority: Docker Environment Variable Override (Always Overwrites)
   if [ -n "$env_override" ]; then
-    # 1. If user provided a Docker env var override, always force overwrite
     if grep -qE "^\s*$param\s*=" "$CONF_FILE"; then
       sed -i "s|^\s*$param\s*=.*|$param = '$env_override'|" "$CONF_FILE"
     else
       echo "$param = '$env_override'" >> "$CONF_FILE"
     fi
     echo "ParadeDB auto-tune: $param = $env_override (via env var)"
+
+  # 2. Force Recalculate: If PG_TUNE_FORCE is true, overwrite existing settings with new math
+  elif [ "${PG_TUNE_FORCE:-false}" = "true" ]; then
+    if grep -qE "^\s*$param\s*=" "$CONF_FILE"; then
+      sed -i "s|^\s*$param\s*=.*|$param = '$value'|" "$CONF_FILE"
+    else
+      echo "$param = '$value'" >> "$CONF_FILE"
+    fi
+    echo "ParadeDB auto-tune: $param = $value (forced recalculation)"
+
+  # 3. Standard Behavior: Only tune if parameter is MISSING (Respects ALTER SYSTEM)
   elif ! grep -qE "^\s*$param\s*=" "$CONF_FILE" 2>/dev/null; then
-    # 2. Otherwise, only tune if parameter is NOT already in file (respect ALTER SYSTEM)
     echo "$param = '$value'" >> "$CONF_FILE"
     echo "ParadeDB auto-tune: $param = $value (auto-tuned)"
+  
+  # 4. Parameter exists and not forcing: Skip
   else
-    # 3. Parameter already exists and no env override - skip tuning
-    echo "ParadeDB auto-tune: $param is already set in $CONF_FILE, skipping auto-tune"
+    echo "ParadeDB auto-tune: $param is already set, skipping (use PG_TUNE_FORCE=true to overwrite)"
   fi
 }
 
@@ -72,13 +83,29 @@ else
 fi
 
 # Safety floor: Do not auto-tune on very small instances (< 512MB)
-# to prevent misconfiguration issues.
 if [ -z "$TOTAL_RAM_MB" ] || [ "$TOTAL_RAM_MB" -lt 512 ]; then
   echo "ParadeDB auto-tune: System RAM ($TOTAL_RAM_MB MB) is too low. Skipping."
   exit 0
 fi
 
-CPU_COUNT=$(nproc)
+if [ -f /sys/fs/cgroup/cpu.max ] && [ "$(awk '{print $1}' /sys/fs/cgroup/cpu.max)" != "max" ]; then
+  # cgroup v2
+  CPU_QUOTA=$(awk '{print $1}' /sys/fs/cgroup/cpu.max)
+  CPU_PERIOD=$(awk '{print $2}' /sys/fs/cgroup/cpu.max)
+  CPU_COUNT=$(awk "BEGIN {printf \"%.0f\", $CPU_QUOTA / $CPU_PERIOD}")
+elif [ -f /sys/fs/cgroup/cpu/cpu.cfs_quota_us ] && [ "$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)" != "-1" ]; then
+  # cgroup v1
+  CPU_QUOTA=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)
+  CPU_PERIOD=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)
+  CPU_COUNT=$(awk "BEGIN {printf \"%.0f\", $CPU_QUOTA / $CPU_PERIOD}")
+else
+  CPU_COUNT=$(nproc)
+fi
+
+# Ensure CPU_COUNT is at least 1
+if [ "$CPU_COUNT" -lt 1 ]; then
+  CPU_COUNT=1
+fi
 
 SB_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.25)}")
 ECS_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.75)}")
@@ -87,7 +114,13 @@ MAX_CONN=${PG_TUNE_MAX_CONNECTIONS:-100}
 WM_MB=$(awk "BEGIN {w=int(($TOTAL_RAM_MB - $SB_MB) / ($MAX_CONN * 3)); print (w < 4 ? 4 : w)}")
 WAL_MB=$(awk "BEGIN {w=int($SB_MB / 32); print (w > 64 ? 64 : w)}")
 
+# Global worker pools: 5x CPU count based on production observations, +8 for background tasks
+PARALLEL_WORKERS=$(awk "BEGIN {print int($CPU_COUNT * 5)}")
+WORKER_PROCESSES=$(awk "BEGIN {print int($PARALLEL_WORKERS + 8)}")
+
+# Per-query workers (half of CPUs, min 1)
 PARALLEL_GATHER=$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p < 1 ? 1 : p)}")
+# Maintenance workers (half of CPUs, min 2, max 8)
 PMW=$(awk "BEGIN {p=int($CPU_COUNT / 2); print (p > 8 ? 8 : (p < 2 ? 2 : p))}")
 
 echo "ParadeDB auto-tune: Applying settings for $TOTAL_RAM_MB MB RAM and $CPU_COUNT CPUs"
@@ -98,7 +131,11 @@ tune_param "maintenance_work_mem" "${MWM_MB}MB" "${PG_TUNE_MAINTENANCE_WORK_MEM:
 tune_param "work_mem" "${WM_MB}MB" "${PG_TUNE_WORK_MEM:-}"
 tune_param "wal_buffers" "${WAL_MB}MB" "${PG_TUNE_WAL_BUFFERS:-}"
 
-# We only auto-tune the per-query and maintenance workers.
+# Global worker pools
+tune_param "max_parallel_workers" "$PARALLEL_WORKERS" "${PG_TUNE_MAX_PARALLEL_WORKERS:-}"
+tune_param "max_worker_processes" "$WORKER_PROCESSES" "${PG_TUNE_MAX_WORKER_PROCESSES:-}"
+
+# Per-query and maintenance workers
 tune_param "max_parallel_workers_per_gather" "$PARALLEL_GATHER" "${PG_TUNE_MAX_PARALLEL_WORKERS_PER_GATHER:-}"
 tune_param "max_parallel_maintenance_workers" "$PMW" "${PG_TUNE_MAX_PARALLEL_MAINTENANCE_WORKERS:-}"
 

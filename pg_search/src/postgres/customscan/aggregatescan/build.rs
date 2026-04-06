@@ -569,7 +569,8 @@ unsafe fn detect_aggregate_orderby(
 
     // Determine sort direction; bail out if the operator is unrecognized
     // so we fall back to the un-optimized path rather than risk wrong results.
-    let direction = SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
+    let direction =
+        SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
 
     // Find matching position in output_rel target using structural equality
     let reltarget = args.output_rel().reltarget;

@@ -375,7 +375,7 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index (tables: p, s)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -406,7 +406,7 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index (tables: p, s)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
        name       | supplier_name 
 ------------------+---------------
  Mouse Pad        | CableCo

@@ -662,6 +662,7 @@ impl<'a> PageMut<'a> {
                 // bytes won't fit here
                 return None;
             }
+            #[allow(clippy::unnecessary_cast)]
             std::slice::from_raw_parts_mut(
                 (self.pg_page as *mut u8).add(start as usize),
                 len as usize,
@@ -683,6 +684,7 @@ impl<'a> PageMut<'a> {
                 // bytes won't fit here
                 return false;
             }
+            #[allow(clippy::unnecessary_cast)]
             std::slice::from_raw_parts_mut(
                 (self.pg_page as *mut u8).add(start as usize),
                 len as usize,

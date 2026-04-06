@@ -201,6 +201,63 @@ ORDER BY
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 6: Score filter in join condition (score >= 0)
+-- =============================================================================
+
+-- This test verifies that we can use paradedb.score() in a join condition
+-- and it correctly filters the results using the ScoreFilter query.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND paradedb.score(p.id) >= 0
+ORDER BY p.id
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND paradedb.score(p.id) >= 0
+ORDER BY p.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 7: Search term on build side for non-zero score + Filtering
+-- =============================================================================
+
+-- This test combines search predicates from both sides with a score filter.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT
+  p.id,
+  p.name,
+  s.id AS supplier_id,
+  s.name AS supplier_name,
+  paradedb.score(s.id) AS score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.price < 100
+  AND s.contact_info @@@ 'technology'
+  AND paradedb.score(s.id) > 0
+ORDER BY score DESC, p.id
+LIMIT 10;
+
+SELECT
+  p.id,
+  p.name,
+  s.id AS supplier_id,
+  s.name AS supplier_name,
+  paradedb.score(s.id) AS score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.price < 100
+  AND s.contact_info @@@ 'technology'
+  AND paradedb.score(s.id) > 0
+ORDER BY score DESC, p.id
+LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

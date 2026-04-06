@@ -165,7 +165,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
         unsafe {
             let parse = args.root().parse;
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
-                return Err("Query has DISTINCT clause (see https://github.com/orgs/paradedb/discussions/3678)".into());
+                return Err("Query has DISTINCT clause (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
             }
         }
 
@@ -237,7 +237,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
                     // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
                     // TODO: Support DISTINCT
                     if !(*aggref).aggdistinct.is_null() {
-                        return Err("DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678)".into());
+                        return Err("DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
                     }
 
                     let mut qual_state = QualExtractState::default();

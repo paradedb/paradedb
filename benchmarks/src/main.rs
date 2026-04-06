@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use paradedb::median;
 use paradedb::micro_benchmarks::benchmark_columnar;
 use sqlx::{Connection, PgConnection, Row};
@@ -25,9 +25,25 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
 
+mod convert;
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-struct Args {
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Run benchmarks against a ParadeDB instance.
+    Benchmark(BenchmarkArgs),
+    /// Convert parquet datasets in S3 to CSV format using DuckDB.
+    Convert(convert::ConvertArgs),
+}
+
+#[derive(Parser)]
+struct BenchmarkArgs {
     #[arg(long, value_parser = ["pg_search"], default_value = "pg_search")]
     r#type: String,
 
@@ -86,8 +102,16 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() {
-    let args = Args::parse();
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    match cli.command {
+        Commands::Benchmark(args) => run_benchmark(args).await,
+        Commands::Convert(args) => convert::run_convert(args)?,
+    }
+    Ok(())
+}
+
+async fn run_benchmark(args: BenchmarkArgs) {
     if args.benchmark == "fastfields" {
         let mut conn = PgConnection::connect(&args.url).await.unwrap();
         let res = benchmark_columnar(
@@ -157,7 +181,7 @@ impl From<QueryResult> for JSONBenchmarkResult {
     }
 }
 
-async fn process_index_creation(args: &Args) -> Vec<IndexCreationResult> {
+async fn process_index_creation(args: &BenchmarkArgs) -> Vec<IndexCreationResult> {
     let mut conn = PgConnection::connect(&args.url)
         .await
         .expect("Failed to connect to database");
@@ -203,7 +227,7 @@ async fn process_index_creation(args: &Args) -> Vec<IndexCreationResult> {
     results
 }
 
-async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
+async fn run_benchmarks(args: &BenchmarkArgs) -> Vec<QueryResult> {
     let mut utility_conn = PgConnection::connect(&args.url)
         .await
         .expect("Failed to connect to database");
@@ -277,7 +301,7 @@ async fn run_benchmarks(args: &Args) -> Vec<QueryResult> {
     results
 }
 
-async fn generate_markdown_output(args: &Args) {
+async fn generate_markdown_output(args: &BenchmarkArgs) {
     let output_file = format!("results_{}.md", args.r#type);
     let mut file = File::create(&output_file).expect("Failed to create output file");
 
@@ -290,7 +314,7 @@ async fn generate_markdown_output(args: &Args) {
     run_benchmarks_md(&mut file, args).await;
 }
 
-async fn generate_csv_output(args: &Args) {
+async fn generate_csv_output(args: &BenchmarkArgs) {
     write_test_info_csv(args).await;
     write_postgres_settings_csv(&args.url, &args.r#type).await;
     if !args.existing {
@@ -299,14 +323,14 @@ async fn generate_csv_output(args: &Args) {
     run_benchmarks_csv(args).await;
 }
 
-async fn generate_json_output(args: &Args) {
+async fn generate_json_output(args: &BenchmarkArgs) {
     if !args.existing {
         process_index_creation_json(args).await;
     }
     run_benchmarks_json(args).await;
 }
 
-async fn write_test_info_csv(args: &Args) {
+async fn write_test_info_csv(args: &BenchmarkArgs) {
     let filename = format!("results_{}_test_info.csv", args.r#type);
     let mut file = File::create(&filename).expect("Failed to create test info CSV");
 
@@ -361,7 +385,7 @@ async fn write_postgres_settings_csv(url: &str, test_type: &str) {
     }
 }
 
-async fn process_index_creation_csv(args: &Args) {
+async fn process_index_creation_csv(args: &BenchmarkArgs) {
     let filename = format!("results_{}_index_creation.csv", args.r#type);
     let mut file = File::create(&filename).expect("Failed to create index creation CSV");
 
@@ -386,7 +410,7 @@ async fn process_index_creation_csv(args: &Args) {
     }
 }
 
-async fn run_benchmarks_csv(args: &Args) {
+async fn run_benchmarks_csv(args: &BenchmarkArgs) {
     let filename = format!("results_{}_benchmark_results.csv", args.r#type);
     let mut file = File::create(&filename).expect("Failed to create benchmark results CSV");
 
@@ -423,7 +447,7 @@ fn write_benchmark_header(file: &mut File) {
     writeln!(file, "# Benchmark Results").unwrap();
 }
 
-async fn write_test_info(file: &mut File, args: &Args) {
+async fn write_test_info(file: &mut File, args: &BenchmarkArgs) {
     writeln!(file, "\n## Test Info").unwrap();
     writeln!(file, "| Key         | Value       |").unwrap();
     writeln!(file, "|-------------|-------------|").unwrap();
@@ -491,7 +515,7 @@ fn generate_test_data(url: &str, dataset: &str, rows: u32) {
     }
 }
 
-async fn process_index_creation_md(file: &mut File, args: &Args) {
+async fn process_index_creation_md(file: &mut File, args: &BenchmarkArgs) {
     writeln!(file, "\n## Index Creation Results").unwrap();
     writeln!(
         file,
@@ -520,7 +544,7 @@ async fn process_index_creation_md(file: &mut File, args: &Args) {
     }
 }
 
-async fn run_benchmarks_md(file: &mut File, args: &Args) {
+async fn run_benchmarks_md(file: &mut File, args: &BenchmarkArgs) {
     writeln!(file, "\n## Benchmark Results").unwrap();
 
     write_benchmark_table_header(file, args.runs);
@@ -570,13 +594,13 @@ fn write_benchmark_results_md(
     writeln!(file, "{result_line}").unwrap();
 }
 
-async fn process_index_creation_json(args: &Args) {
+async fn process_index_creation_json(args: &BenchmarkArgs) {
     for _result in process_index_creation(args).await {
         // TODO: Record index creation results as JSON.
     }
 }
 
-async fn run_benchmarks_json(args: &Args) {
+async fn run_benchmarks_json(args: &BenchmarkArgs) {
     let mut file = File::create("results.json").expect("Failed to create output file");
     let results = run_benchmarks(args)
         .await

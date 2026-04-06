@@ -74,7 +74,7 @@ use tantivy::index::SegmentId;
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::build::{
-    CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
+    self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -426,6 +426,12 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::Anti => {
                         JoinType::LeftAnti
                     }
+                    crate::postgres::customscan::joinscan::build::JoinType::LeftMark => {
+                        JoinType::LeftMark
+                    }
+                    crate::postgres::customscan::joinscan::build::JoinType::RightMark => {
+                        JoinType::RightMark
+                    }
                     crate::postgres::customscan::joinscan::build::JoinType::RightSemi => {
                         JoinType::RightSemi
                     }
@@ -470,6 +476,7 @@ fn build_relnode_df<'a>(
                 // ctid_A and ctid_B are still packed while ctid_C is resolved.
                 let deferred_positions =
                     super::visibility_filter::deferred_plan_positions(&filter.input);
+                let sources = filter.input.sources();
                 let filter_expr = unsafe {
                     crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
@@ -477,6 +484,7 @@ fn build_relnode_df<'a>(
                         ctid_map,
                         &join_clause.join_level_predicates,
                         &deferred_positions,
+                        &sources,
                     )
                 }
                 .ok_or_else(|| {
@@ -486,7 +494,27 @@ fn build_relnode_df<'a>(
                     ))
                 })?;
 
+                // For MarkOrNull filters, drop the synthetic "mark" column after filtering.
+                let is_mark_filter = matches!(
+                    filter.predicate,
+                    crate::postgres::customscan::joinscan::build::JoinLevelExpr::MarkOrNull { .. }
+                );
+
                 df = df.filter(filter_expr)?;
+
+                if is_mark_filter {
+                    use datafusion::logical_expr::col;
+                    let schema = df.schema().clone();
+                    let proj_cols: Vec<datafusion::logical_expr::Expr> = schema
+                        .columns()
+                        .into_iter()
+                        .filter(|c| c.name != "mark")
+                        .map(col)
+                        .collect();
+                    if !proj_cols.is_empty() {
+                        df = df.select(proj_cols)?;
+                    }
+                }
                 Ok(df)
             }
         }
@@ -578,17 +606,84 @@ fn build_clause_df<'a>(
 
                 for (i, proj) in projection.iter().enumerate() {
                     let col_alias = format!("col_{}", i + 1);
-                    let expr = build_projection_expr(proj, join_clause);
+
+                    let (expr, map_key) = match proj {
+                        build::ChildProjection::Expression {
+                            pg_expr_string,
+                            input_vars,
+                            result_type_oid,
+                            ..
+                        } => {
+                            let udf_name = format!(
+                                "{}{}",
+                                crate::postgres::customscan::pg_expr_udf::PG_EXPR_UDF_PREFIX,
+                                i
+                            );
+
+                            let plan_sources = join_clause.plan.sources();
+                            let input_exprs: Vec<Expr> = input_vars
+                                .iter()
+                                .filter_map(|var_info| {
+                                    for (idx, source) in plan_sources.iter().enumerate() {
+                                        if let Some(attno) =
+                                            source.map_var(var_info.rti, var_info.attno)
+                                        {
+                                            if let Some(field_name) = source.column_name(attno) {
+                                                return Some(make_source_col(
+                                                    source,
+                                                    idx,
+                                                    &field_name,
+                                                ));
+                                            }
+                                        }
+                                    }
+                                    None
+                                })
+                                .collect();
+
+                            if input_exprs.len() != input_vars.len() {
+                                return Err(DataFusionError::Internal(format!(
+                                    "PgExprUdf: could not resolve all input columns \
+                                     (resolved {} of {})",
+                                    input_exprs.len(),
+                                    input_vars.len()
+                                )));
+                            }
+
+                            let udf = crate::postgres::customscan::pg_expr_udf::PgExprUdf::new(
+                                udf_name,
+                                pg_expr_string.clone(),
+                                input_vars.clone(),
+                                *result_type_oid,
+                            );
+
+                            let e = Expr::ScalarFunction(
+                                datafusion::logical_expr::expr::ScalarFunction::new_udf(
+                                    Arc::new(datafusion::logical_expr::ScalarUDF::new_from_impl(
+                                        udf,
+                                    )),
+                                    input_exprs,
+                                ),
+                            );
+                            // Expressions don't participate in sort-step column mapping
+                            (e, None)
+                        }
+                        build::ChildProjection::Score { rti } => {
+                            let e = build_projection_expr(proj, join_clause);
+                            (e, Some((*rti, 0)))
+                        }
+                        build::ChildProjection::Column { rti, attno }
+                        | build::ChildProjection::IndexedExpression { rti, attno } => {
+                            let e = build_projection_expr(proj, join_clause);
+                            (e, Some((*rti, *attno)))
+                        }
+                    };
+
                     group_exprs.push(expr.alias(&col_alias));
 
-                    // Record mapping for sort step:
-                    // score uses (rti, 0) sentinel, regular columns use (rti, attno)
-                    let key = if proj.is_score {
-                        (proj.rti, 0)
-                    } else {
-                        (proj.rti, proj.attno)
-                    };
-                    distinct_col_map.insert(key, col_alias);
+                    if let Some(key) = map_key {
+                        distinct_col_map.insert(key, col_alias);
+                    }
                 }
 
                 let agg_exprs: Vec<Expr> = ctid_map
@@ -703,7 +798,16 @@ fn build_clause_df<'a>(
             for (i, proj) in projection.iter().enumerate() {
                 let col_alias = format!("col_{}", i + 1);
                 let expr = if !distinct_col_map.is_empty() {
-                    resolve_distinct_col(proj.is_score, proj.rti, proj.attno, &col_alias)
+                    match proj {
+                        build::ChildProjection::Expression { .. } => col(&col_alias),
+                        build::ChildProjection::Score { rti } => {
+                            resolve_distinct_col(true, *rti, 0, &col_alias)
+                        }
+                        build::ChildProjection::Column { rti, attno }
+                        | build::ChildProjection::IndexedExpression { rti, attno } => {
+                            resolve_distinct_col(false, *rti, *attno, &col_alias)
+                        }
+                    }
                 } else {
                     build_projection_expr(proj, join_clause)
                 };
@@ -738,22 +842,38 @@ fn build_projection_expr(
     proj: &crate::postgres::customscan::joinscan::build::ChildProjection,
     join_clause: &JoinCSClause,
 ) -> Expr {
+    use crate::postgres::customscan::joinscan::build::ChildProjection;
+
     let plan_sources = join_clause.plan.sources();
-    for (i, source) in plan_sources.iter().enumerate() {
-        if proj.is_score {
-            if let Some(attno) = source.map_var(proj.rti, 0) {
-                if let Some(name) = source.column_name(attno) {
-                    return make_source_col(source, i, &name);
-                } else {
+    match proj {
+        ChildProjection::Score { rti } => {
+            for (i, source) in plan_sources.iter().enumerate() {
+                if let Some(attno) = source.map_var(*rti, 0) {
+                    if let Some(name) = source.column_name(attno) {
+                        return make_source_col(source, i, &name);
+                    } else {
+                        return make_source_score_col(source, i);
+                    }
+                } else if source.contains_rti(*rti) {
                     return make_source_score_col(source, i);
                 }
-            } else if source.contains_rti(proj.rti) {
-                return make_source_score_col(source, i);
             }
-        } else if let Some(attno) = source.map_var(proj.rti, proj.attno) {
-            if let Some(field_name) = source.column_name(attno) {
-                return make_source_col(source, i, &field_name);
+        }
+        ChildProjection::Column { rti, attno }
+        | ChildProjection::IndexedExpression { rti, attno } => {
+            for (i, source) in plan_sources.iter().enumerate() {
+                if let Some(mapped) = source.map_var(*rti, *attno) {
+                    if let Some(field_name) = source.column_name(mapped) {
+                        return make_source_col(source, i, &field_name);
+                    }
+                }
             }
+        }
+        ChildProjection::Expression { .. } => {
+            unreachable!(
+                "Expression projections are handled via PgExprUdf in the \
+                 GROUP BY path, not through build_projection_expr"
+            );
         }
     }
     datafusion::logical_expr::lit(datafusion::common::ScalarValue::Null)

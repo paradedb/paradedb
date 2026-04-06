@@ -32,6 +32,7 @@ pub mod dsm;
 pub mod exec;
 pub mod explain;
 mod explainer;
+pub mod expr_eval;
 mod hook;
 pub mod joinscan;
 pub mod limit_offset;
@@ -39,6 +40,7 @@ pub mod opexpr;
 pub mod orderby;
 pub mod parallel;
 mod path;
+pub(crate) mod pg_expr_udf;
 pub mod projections;
 pub mod pullup;
 mod pushdown;
@@ -58,8 +60,8 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::{
-    register_join_pathlist, register_rel_pathlist, register_upper_path,
-    register_window_aggregate_hook,
+    register_join_pathlist, register_rel_pathlist, register_subplan_join_pathlist,
+    register_upper_path, register_window_aggregate_hook,
 };
 
 // TODO: This trait should be expanded to include a `reset` method, which would become the

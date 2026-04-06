@@ -18,14 +18,11 @@ use crate::api::builder_fns::{term_set_str, term_str};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    get_expr_result_type, request_simplify, searchqueryinput_typoid,
-    validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
+    build_text_funcexpr, request_simplify, validate_lhs_type_as_text_compatible, RHSValue,
+    ReturnedNodePointer,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
-use pgrx::{
-    direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
-    Internal, IntoDatum, PgList,
-};
+use pgrx::{extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement, Internal};
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
@@ -99,40 +96,11 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
         }, |field, lhs, rhs| {
             validate_lhs_type_as_text_compatible(lhs, "===");
             let field = field.expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
-            let expr_type = get_expr_result_type(rhs);
-            assert!({
-                        expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID || expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID
-                    }, "The right-hand side of the `===(field, TEXT)` operator must be a text or text array value");
-            let is_array = expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID;
-
-            let mut args = PgList::<pg_sys::Node>::new();
-            args.push(field.into_const().cast());
-            args.push(rhs.cast());
-
-            pg_sys::FuncExpr {
-                xpr: pg_sys::Expr { type_: pg_sys::NodeTag::T_FuncExpr },
-                funcid: if is_array {
-                    direct_function_call::<pg_sys::Oid>(
-                        pg_sys::regprocedurein,
-                        &[c"paradedb.term_set(paradedb.fieldname, text[])".into_datum()],
-                    )
-                        .expect("`paradedb.term_set(paradedb.fieldname, text[])` should exist")
-                } else {
-                    direct_function_call::<pg_sys::Oid>(
-                        pg_sys::regprocedurein,
-                        &[c"paradedb.term(paradedb.fieldname, text)".into_datum()],
-                    )
-                        .expect("`paradedb.term(paradedb.fieldname, text)` should exist")
-                },
-                funcresulttype: searchqueryinput_typoid(),
-                funcretset: false,
-                funcvariadic: false,
-                funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                funccollid: pg_sys::Oid::INVALID,
-                inputcollid: pg_sys::Oid::INVALID,
-                args: args.into_pg(),
-                location: -1,
-            }
+            build_text_funcexpr(
+                field, rhs, "===",
+                c"paradedb.term(paradedb.fieldname, text)",
+                c"paradedb.term_set(paradedb.fieldname, text[])",
+            )
         })
             .unwrap_or(ReturnedNodePointer(None))
     }

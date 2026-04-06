@@ -28,6 +28,40 @@ USING bm25 (
 )
 WITH (key_field='id');
 
+-- description is ambiguous here
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes';
+
+SELECT description, rating
+FROM mock_items
+WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes';
+
+SELECT description, rating
+FROM mock_items
+WHERE description::pdb.alias('simple_description') ||| 'sleek running shoes';
+
+DROP INDEX search_idx;
+
+CREATE TYPE aliased_description_fields AS (
+  simple_description pdb.simple('alias=simple_description'),
+  literal_description pdb.literal('alias=literal_description')
+);
+
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
+  (
+    ROW(
+      lower(description)::pdb.simple('alias=simple_description'),
+      lower(description)::pdb.literal('alias=literal_description')
+    )::aliased_description_fields
+  ),
+  rating
+)
+WITH (key_field='id');
+
+-- description is ambiguous here
 SELECT description, rating
 FROM mock_items
 WHERE description ||| 'sleek running shoes';
@@ -41,3 +75,4 @@ FROM mock_items
 WHERE description::pdb.alias('simple_description') ||| 'sleek running shoes';
 
 DROP TABLE mock_items;
+DROP TYPE aliased_description_fields;

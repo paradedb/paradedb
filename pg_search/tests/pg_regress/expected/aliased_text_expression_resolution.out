@@ -32,6 +32,47 @@ USING bm25 (
   rating
 )
 WITH (key_field='id');
+-- description is ambiguous here
+SELECT description, rating
+FROM mock_items
+WHERE description ||| 'sleek running shoes';
+ERROR:  Query is ambiguous: column `description` matches multiple indexed fields: `literal_description`, `simple_description`. Use `description::pdb.alias(...)` to choose one
+SELECT description, rating
+FROM mock_items
+WHERE description::pdb.alias('literal_description') ||| 'sleek running shoes';
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+(1 row)
+
+SELECT description, rating
+FROM mock_items
+WHERE description::pdb.alias('simple_description') ||| 'sleek running shoes';
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+ White jogging shoes |      3
+ Generic shoes       |      4
+(3 rows)
+
+DROP INDEX search_idx;
+CREATE TYPE aliased_description_fields AS (
+  simple_description pdb.simple('alias=simple_description'),
+  literal_description pdb.literal('alias=literal_description')
+);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
+  (
+    ROW(
+      lower(description)::pdb.simple('alias=simple_description'),
+      lower(description)::pdb.literal('alias=literal_description')
+    )::aliased_description_fields
+  ),
+  rating
+)
+WITH (key_field='id');
+-- description is ambiguous here
 SELECT description, rating
 FROM mock_items
 WHERE description ||| 'sleek running shoes';
@@ -55,3 +96,4 @@ WHERE description::pdb.alias('simple_description') ||| 'sleek running shoes';
 (3 rows)
 
 DROP TABLE mock_items;
+DROP TYPE aliased_description_fields;

@@ -505,7 +505,8 @@ pub unsafe fn field_name_from_node(
                             }
 
                             if var_matches_tokenizer_expr(var, arg.cast()) {
-                                return Some(FieldName::from(fields[position].field_name.clone()));
+                                candidate_field_names
+                                    .push(FieldName::from(fields[position].field_name.clone()));
                             }
                         }
                     }

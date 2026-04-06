@@ -30,7 +30,7 @@ tune_param() {
     fi
     echo "ParadeDB auto-tune: $param = $env_override (via env var)"
 
-  # 2. Force Recalculate: If PG_TUNE_FORCE is true, overwrite existing settings with new math
+    # 2. Force Recalculate: If PG_TUNE_FORCE is true, overwrite existing settings with new math
   elif [ "${PG_TUNE_FORCE:-false}" = "true" ]; then
     if grep -qE "^\s*$param\s*=" "$CONF_FILE"; then
       sed -i "s|^\s*$param\s*=.*|$param = '$value'|" "$CONF_FILE"
@@ -39,12 +39,12 @@ tune_param() {
     fi
     echo "ParadeDB auto-tune: $param = $value (forced recalculation)"
 
-  # 3. Standard Behavior: Only tune if parameter is MISSING (Respects ALTER SYSTEM)
+    # 3. Standard Behavior: Only tune if parameter is MISSING (Respects ALTER SYSTEM)
   elif ! grep -qE "^\s*$param\s*=" "$CONF_FILE" 2>/dev/null; then
     echo "$param = '$value'" >> "$CONF_FILE"
     echo "ParadeDB auto-tune: $param = $value (auto-tuned)"
-  
-  # 4. Parameter exists and not forcing: Skip
+
+    # 4. Parameter exists and not forcing: Skip
   else
     echo "ParadeDB auto-tune: $param is already set, skipping (use PG_TUNE_FORCE=true to overwrite)"
   fi

@@ -1,0 +1,379 @@
+---
+title: Basic Queries
+description: Run your first queries on ParadeDB
+canonical: https://docs.paradedb.com/documentation/getting-started/basic-queries
+---
+
+## Match Query
+
+We're now ready to execute a basic text search query. We'll look for matches where `description` matches `running shoes` where `rating` is greater than `2`.
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY rating
+LIMIT 5;
+```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR')),
+    rating__gt=2
+).values('description', 'rating', 'category').order_by('rating')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where(rating: 3..)
+        .select(:description, :rating, :category)
+        .order(:rating)
+        .limit(5)
+```
+
+</CodeGroup>
+
+```ini Expected Response
+     description     | rating | category
+---------------------+--------+----------
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+ Sleek running shoes |      5 | Footwear
+(3 rows)
+```
+
+`|||` is ParadeDB's custom [match disjunction](/documentation/full-text/match#disjunction) operator, which means "find me all documents containing
+`running OR shoes`.
+
+If we want all documents containing `running AND shoes`, we can use ParadeDB's `&&&` [match conjunction](/documentation/full-text/match#conjunction) operator.
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& 'running shoes' AND rating > 2
+ORDER BY rating
+LIMIT 5;
+```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='AND')),
+    rating__gt=2
+).values('description', 'rating', 'category').order_by('rating')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_all(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("running shoes")
+        .where(rating: 3..)
+        .select(:description, :rating, :category)
+        .order(:rating)
+        .limit(5)
+```
+
+</CodeGroup>
+
+```ini Expected Response
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
+```
+
+## BM25 Scoring
+
+Next, let's add [BM25 scoring](/documentation/sorting/score) to the results, which sorts matches by relevance. To do this, we'll use `pdb.score`.
+
+<CodeGroup>
+```sql SQL
+SELECT description, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
+```
+
+```python Django
+from paradedb import Match, ParadeDB, Score
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR')),
+    rating__gt=2
+).annotate(
+    score=Score()
+).values('description', 'score').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.description, pdb.score(MockItem.id).label("score"))
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where(rating: 3..)
+        .with_score
+        .select(:description)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
+</CodeGroup>
+
+```ini Expected Response
+     description     |   score
+---------------------+-----------
+ Sleek running shoes |  6.817111
+ Generic shoes       | 3.8772602
+ White jogging shoes | 3.4849067
+(3 rows)
+```
+
+## Highlighting
+
+Finally, let's also [highlight](/documentation/full-text/highlight) the relevant portions of the documents that were matched.
+To do this, we'll use `pdb.snippet`.
+
+<CodeGroup>
+```sql SQL
+SELECT description, pdb.snippet(description), pdb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
+```
+
+```python Django
+from paradedb import Match, ParadeDB, Score, Snippet
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR')),
+    rating__gt=2
+).annotate(
+    snippet=Snippet('description'),
+    score=Score()
+).values('description', 'snippet', 'score').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.description,
+        pdb.snippet(MockItem.description).label("snippet"),
+        pdb.score(MockItem.id).label("score"),
+    )
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .where(rating: 3..)
+        .with_snippet(:description)
+        .with_score
+        .select(:description)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
+</CodeGroup>
+
+```ini Expected Response
+     description     |              snippet              |   score
+---------------------+-----------------------------------+-----------
+ Sleek running shoes | Sleek <b>running</b> <b>shoes</b> |  6.817111
+ Generic shoes       | Generic <b>shoes</b>              | 3.8772602
+ White jogging shoes | White jogging <b>shoes</b>        | 3.4849067
+(3 rows)
+```
+
+## Top K
+
+ParadeDB is highly optimized for quickly returning the [Top K](/documentation/sorting/topk) results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Match('running shoes', operator='OR'))
+).values('description', 'rating', 'category').order_by('rating')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running shoes")
+        .select(:description, :rating, :category)
+        .order(:rating)
+        .limit(5)
+```
+
+</CodeGroup>
+
+```ini Expected Response
+     description     | rating | category
+---------------------+--------+----------
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+ Sleek running shoes |      5 | Footwear
+(3 rows)
+```
+
+## Facets
+
+[Faceted queries](/documentation/aggregates/facets) allow a single query to return both the Top K results and an aggregate value,
+which is more CPU-efficient than issuing two separate queries.
+
+For example, the following query returns the top 3 results as well as the total number of results matched.
+
+<CodeGroup>
+```sql SQL
+SELECT
+     description, rating, category,
+     pdb.agg('{"value_count": {"field": "id"}}') OVER ()
+FROM mock_items
+WHERE description ||| 'running shoes'
+ORDER BY rating
+LIMIT 5;
+```
+
+```python Django
+from paradedb import Match, ParadeDB
+
+rows, facets = (
+    MockItem.objects
+    .filter(description=ParadeDB(Match('running shoes', operator='OR')))
+    .order_by('rating')
+    .values('description', 'rating', 'category')[:5]
+    .facets(agg='{"value_count": {"field": "id"}}')
+)
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, search
+
+base = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=MockItem.id)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+    aggregates = facets.extract(rows)
+```
+
+```ruby Rails
+relation = MockItem.search(:description)
+                   .matching_any("running shoes")
+                   .with_agg(agg: ParadeDB::Aggregations.value_count(:id))
+                   .order(:rating)
+                   .select(:description, :rating, :category)
+                   .limit(5)
+
+rows = relation.to_a
+facets = relation.aggregates
+```
+
+</CodeGroup>
+
+```ini Expected Response
+     description     | rating | category |      agg
+---------------------+--------+----------+----------------
+ White jogging shoes |      3 | Footwear | {"value": 3.0}
+ Generic shoes       |      4 | Footwear | {"value": 3.0}
+ Sleek running shoes |      5 | Footwear | {"value": 3.0}
+(3 rows)
+```
+
+That's it! Next, let's [load your data](/documentation/getting-started/load) to start running real queries.

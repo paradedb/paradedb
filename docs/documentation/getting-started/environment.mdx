@@ -1,0 +1,181 @@
+---
+title: Configure your Environment
+description: Configure your environment for querying ParadeDB
+canonical: https://docs.paradedb.com/documentation/getting-started/environment
+---
+
+This guide will walk you through setting up your environment to run queries against ParadeDB. Choose your preferred tool below:
+
+<Accordion title="SQL">
+
+ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
+you get started. Run the following command to create this table.
+
+```sql
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+```
+
+Then, inspect the first 3 rows:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+LIMIT 3;
+```
+
+```ini Expected Response
+       description        | rating |  category
+--------------------------+--------+-------------
+ Ergonomic metal keyboard |      4 | Electronics
+ Plastic Keyboard         |      4 | Electronics
+ Sleek running shoes      |      5 | Footwear
+(3 rows)
+```
+
+Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+WITH (key_field='id');
+```
+
+<Note>
+  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
+  `ORDER BY`, or aggregate as part of a full text query should be added to the
+  index for faster performance.
+</Note>
+
+<Note>
+  Note the mandatory `key_field` option. See [choosing a key
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
+</Note>
+
+You're all set! Try [running some queries](/documentation/getting-started/queries).
+
+</Accordion>
+
+<Accordion title="Django">
+To start you'll need a [Django](https://www.djangoproject.com/) project with [psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed. Run the following to create one:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install django psycopg django-paradedb
+python3 -m django startproject myproject .
+python3 manage.py startapp myapp
+```
+
+In `myproject/settings.py`, add `'django.contrib.postgres'` and `'myapp'` to `INSTALLED_APPS`. Then, configure `DATABASES["default"]` to point to Postgres:
+
+```python myproject/settings.py
+INSTALLED_APPS = [
+    ...,
+    'django.contrib.postgres',
+    'myapp',
+]
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "mydatabase",
+        "USER": "myuser",
+        "PASSWORD": "mypassword",
+        "HOST": "localhost",
+        "PORT": "5432",
+    }
+}
+```
+
+We can now add a model for ParadeDB's built-in test table and BM25 index:
+
+```python models.py
+from django.db import models
+
+from django.contrib.postgres.fields import IntegerRangeField
+from paradedb.indexes import BM25Index
+from paradedb.queryset import ParadeDBManager
+
+
+class MockItem(models.Model):
+    description = models.TextField(null=True, blank=True)
+    rating = models.IntegerField(null=True, blank=True)
+    category = models.CharField(max_length=255, null=True, blank=True)
+    in_stock = models.BooleanField(null=True, blank=True)
+    metadata = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+    last_updated_date = models.DateField(null=True, blank=True)
+    latest_available_time = models.TimeField(null=True, blank=True)
+    weight_range = IntegerRangeField(null=True, blank=True)
+
+    objects = ParadeDBManager()
+
+    class Meta:
+        db_table = "mock_items"
+        indexes = [
+            BM25Index(
+                fields={
+                    "id": {},
+                    "description": {"tokenizer": "unicode_words"},
+                    "category": {"tokenizer": "literal"},
+                    "rating": {},
+                    "in_stock": {},
+                    "metadata": {"json_fields": {"fast": True}},
+                    "created_at": {},
+                    "last_updated_date": {},
+                    "latest_available_time": {},
+                    "weight_range": {},
+                },
+                key_field="id",
+                name="search_idx",
+            ),
+        ]
+```
+
+<Note>
+  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
+  `ORDER BY`, or aggregate as part of a full text query should be added to the
+  index for faster performance.
+</Note>
+
+<Note>
+  Note the mandatory `key_field` option. See [choosing a key
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
+</Note>
+
+Run the migrations to create the table and index:
+
+```bash
+python3 manage.py makemigrations
+python3 manage.py migrate
+```
+
+Now, open a Python shell with `python3 manage.py shell` and run the following command to populate `mock_items`.
+
+```python
+from django.db import connection
+
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name  => 'mock_items_tmp'
+        );
+        INSERT INTO public.mock_items
+        SELECT * FROM public.mock_items_tmp;
+        DROP TABLE public.mock_items_tmp;
+    """)
+```
+
+You're all set! Try [running some queries](/documentation/getting-started/queries) in your Python shell.
+
+</Accordion>
+
+<Accordion title="SQLAlchemy">Setup instructions coming soon!</Accordion>
+
+<Accordion title="Rails">Setup instructions coming soon!</Accordion>

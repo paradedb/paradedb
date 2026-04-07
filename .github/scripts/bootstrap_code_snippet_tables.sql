@@ -17,7 +17,8 @@ USING bm25 (
   created_at,
   metadata,
   weight_range,
-  (description::pdb.simple('alias=description_simple'))
+  (description::pdb.simple('alias=description_simple')),
+  (lower(description)::pdb.literal('alias=literal_description'))
 )
 WITH (
   key_field = 'id',

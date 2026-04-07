@@ -556,20 +556,14 @@ struct PathRestrictInfo {
 }
 
 /// Walk `input_rel.cheapest_total_path` once, classifying every
-/// `joinrestrictinfo` entry as an equi-join key, a cross-table @@@
-/// predicate, or unhandled.
+/// `joinrestrictinfo` entry as an equi-join key, a cross-table
+/// predicate (@@@ or non-@@@), or unhandled.
 ///
-/// **Known limitation (LEFT/RIGHT JOINs):** `joinrestrictinfo` contains
-/// both ON-clause predicates and pushed-down WHERE predicates. For INNER
-/// JOINs these are semantically equivalent. For LEFT/RIGHT JOINs they
-/// are not: ON-clause predicates determine matching and NULL-extension,
-/// while WHERE predicates filter after NULL-extension. Currently all
-/// cross-table predicates are treated as post-join filters (applied after
-/// the join via `RelNode::Filter`), which is correct for INNER JOINs
-/// but may produce wrong results for outer joins with cross-table @@@ in
-/// the ON clause. This matches the existing behavior before this PR —
-/// the aggregate path only supported INNER and LEFT/RIGHT JOINs with
-/// equi-keys in ON clauses.
+/// For LEFT/RIGHT JOINs, ON-clause predicates (`is_pushed_down=false`)
+/// affect matching and NULL-extension semantics — they cannot be
+/// correctly applied as post-join filters. These are counted as
+/// "unhandled", causing `has_non_equi_join_quals` to reject the
+/// DataFusion path for such queries.
 unsafe fn analyze_join_path_restrictinfo(
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],
@@ -608,6 +602,13 @@ unsafe fn walk_path_restrictinfo(
     let join_path = path as *mut pg_sys::JoinPath;
     let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
 
+    // For outer joins (LEFT/RIGHT), ON-clause predicates affect matching
+    // and NULL-extension — they must NOT be applied as post-join filters.
+    // PostgreSQL marks ON-clause restrictions with is_pushed_down=false
+    // and a non-null outer_relids. We only accept cross-table predicates
+    // that are pushed down (WHERE-clause) for non-inner joins.
+    let is_inner = (*join_path).jointype == pg_sys::JoinType::JOIN_INNER;
+
     for ri in restrict_list.iter_ptr() {
         let clause = (*ri).clause as *mut pg_sys::Node;
         if clause.is_null() {
@@ -638,23 +639,30 @@ unsafe fn walk_path_restrictinfo(
         // Covers both @@@ predicates and non-@@@ cross-table predicates
         // (like `b.id > 5`) that reference fast fields and can be translated.
         //
+        // For outer joins, reject ON-clause predicates (is_pushed_down=false)
+        // since they affect matching semantics, not post-join filtering.
+        //
         // Single-table @@@ predicates (rtis.len() == 1) are already handled
         // via baserestrictinfo in build_scan_node — they don't appear here
         // under normal planning. If one does, it's counted as unhandled
         // (conservative: reject the path rather than risk double-applying).
+        if !is_inner && !(*ri).is_pushed_down {
+            // ON-clause predicate for an outer join — can't apply as post-join
+            // filter without changing NULL-extension semantics. Count as unhandled
+            // so has_non_equi_join_quals rejects the DataFusion path.
+            info.unhandled += 1;
+            continue;
+        }
+
         let rtis = expr_collect_rtis(clause);
         if rtis.len() > 1 {
             let has_search = expr_contains_any_operator(clause, &[search_op]);
-            // For @@@ predicates: accept if all leaves are @@@ or can be handled
-            // For non-@@@ predicates: accept if all vars are fast fields
             let acceptable = if has_search {
                 true // build_search_filter will validate the full tree
             } else {
                 all_vars_are_fast_fields_for_agg(clause, sources)
             };
             if acceptable {
-                // Deduplicate: the same clause can appear in multiple path
-                // branches when the planner explores alternative join orders.
                 if !info.search_clauses.iter().any(|&c| std::ptr::eq(c, clause)) {
                     info.search_clauses.push(clause);
                 }

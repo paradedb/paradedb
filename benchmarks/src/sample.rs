@@ -145,7 +145,7 @@ fn parquet_glob_pattern(base: &str, table_name: &str) -> String {
 }
 
 fn count_rows(conn: &Connection, glob: &str) -> Result<u64> {
-    let sql = format!("SELECT count(*) FROM read_parquet('{glob}'");
+    let sql = format!("SELECT count(*) FROM read_parquet('{glob}')");
     let count: u64 = conn
         .query_row(&sql, [], |row| row.get(0))
         .with_context(|| format!("Failed to count rows for '{glob}'"))?;

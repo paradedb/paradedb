@@ -1,58 +1,10 @@
 ---
-title: Quickstart
-description: Get started with ParadeDB in five minutes
-canonical: https://docs.paradedb.com/documentation/getting-started/quickstart
+title: Run Queries
+description: Run your first queries on ParadeDB
+canonical: https://docs.paradedb.com/documentation/getting-started/queries
 ---
 
-This guide will walk you through a few queries to give you a feel for ParadeDB.
-
-## Create Example Table
-
-ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
-you get started. Run the following command to create this table.
-
-```sql
-CALL paradedb.create_bm25_test_table(
-  schema_name => 'public',
-  table_name => 'mock_items'
-);
-```
-
-Then inspect the first 3 rows:
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-LIMIT 3;
-```
-
-```ini Expected Response
-       description        | rating |  category
---------------------------+--------+-------------
- Ergonomic metal keyboard |      4 | Electronics
- Plastic Keyboard         |      4 | Electronics
- Sleek running shoes      |      5 | Footwear
-(3 rows)
-```
-
-Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id');
-```
-
-<Note>
-  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
-  `ORDER BY`, or aggregate as part of a full text query should be added to the
-  index for faster performance.
-</Note>
-
-<Note>
-  Note the mandatory `key_field` option. See [choosing a key
-  field](/documentation/indexing/create-index#choosing-a-key-field) for more details.
-</Note>
+Now that your [environment is configured](/documentation/getting-started/environment), select the codetab for your tool and run some queries.
 
 ## Match Query
 
@@ -159,6 +111,7 @@ MockItem.search(:description)
         .order(:rating)
         .limit(5)
 ```
+
 </CodeGroup>
 
 ```ini Expected Response

@@ -1174,11 +1174,11 @@ impl JoinCSClause {
             .map(|s| s.plan_position);
 
         let first = matches.next()?;
-        if matches.next().is_none() {
-            Some(first)
-        } else {
-            None
-        }
+        debug_assert!(
+            matches.next().is_none(),
+            "plan_position: multiple output sources matched rti={rti}, attno={attno}"
+        );
+        Some(first)
     }
 
     pub fn source_for_var(

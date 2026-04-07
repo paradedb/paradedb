@@ -366,16 +366,21 @@ pub(super) struct CombinedMapper<'a> {
 
 impl<'a> ColumnMapper for CombinedMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
-        // 1. Resolve to (rti, attno, is_score)
         let (rti, attno, is_score) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
             let idx = (varattno - 1) as usize;
-            let info = self.output_columns.get(idx)?;
-            (info.rti, info.original_attno, info.is_score)
+            match self.output_columns.get(idx)? {
+                OutputColumnInfo::Var {
+                    rti,
+                    original_attno,
+                    ..
+                } => (*rti, *original_attno, false),
+                OutputColumnInfo::Score { rti, .. } => (*rti, 0, true),
+                OutputColumnInfo::Pruned => return None,
+            }
         } else {
             (varno, varattno, false)
         };
 
-        // 2. Find the source
         let (plan_position, source) = self
             .sources
             .iter()
@@ -384,20 +389,15 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
 
         let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
 
-        // 3. Resolve column name
         if is_score {
-            // Try to resolve score via map_var(rti, 0) first (for nested joins)
             if let Some(col_idx) = source.map_var(rti, 0) {
                 if let Some(name) = source.column_name(col_idx) {
                     return Some(make_col(&alias, &name));
                 }
             }
-            // Default to alias-specific score alias
             return Some(make_col(&alias, SCORE_COL_NAME));
         }
 
-        // Normal column
-        // We need to map the rti/attno to the source's output attno
         let mapped_attno = source.map_var(rti, attno)?;
         let col_name = source.column_name(mapped_attno)?;
         Some(make_col(&alias, &col_name))

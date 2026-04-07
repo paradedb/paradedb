@@ -30,5 +30,13 @@ pub fn open_duckdb_conn() -> Result<Connection> {
     )
     .context("Failed to configure S3 credentials. Ensure AWS credentials are available via environment variables, ~/.aws/credentials, or instance metadata.")?;
 
+    conn.execute("INSTALL httpfs", [])
+        .with_context(|| "Failed to install httpfs extension")?;
+    conn.execute("LOAD httpfs", [])
+        .with_context(|| "Failed to load httpfs extension")?;
+    // Increase timeout (default is 30 seconds) to allow for working with larger files (200MB+)
+    conn.execute("SET http_timeout = 120", [])
+        .with_context(|| "Failed to configure http timeout")?;
+
     Ok(conn)
 }

@@ -141,15 +141,6 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
         return Ok(());
     }
 
-    // Setup phase
-    conn.execute("INSTALL httpfs", [])
-        .with_context(|| "Failed to install httpfs extension")?;
-    conn.execute("LOAD httpfs", [])
-        .with_context(|| "Failed to load httpfs extension")?;
-    // Increase timeout (default is 30 seconds) to allow for working with larger files (200MB+)
-    conn.execute("SET http_timeout = 120", [])
-        .with_context(|| "Failed to configure http timeout")?;
-
     // Conversion phase: one COPY per table, DuckDB handles parallelism internally.
     println!("\nConverting parquet to CSV...");
     for table in &args.tables {

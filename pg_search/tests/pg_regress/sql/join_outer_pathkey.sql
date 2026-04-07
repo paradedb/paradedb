@@ -17,10 +17,6 @@ CREATE TABLE products_op (
     description TEXT
 );
 
--- No BM25 index on this table: when its EXISTS is flattened, the equi-join
--- condition pt.product_id = p.id adds an equivalence-class member for p.id
--- from a non-JoinScan source. The outer-only pathkey fix skips this member
--- so that ORDER BY p.id is still accepted.
 CREATE TABLE product_tags_op (
     id INTEGER PRIMARY KEY,
     product_id INTEGER,
@@ -46,14 +42,22 @@ USING bm25 (id, name) WITH (key_field = 'id');
 CREATE INDEX products_op_idx ON products_op
 USING bm25 (id, company_id, description) WITH (key_field = 'id');
 
+CREATE INDEX product_tags_op_idx ON product_tags_op
+USING bm25 (id, product_id, tag) WITH (key_field = 'id');
+
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
--- 1. Outer-only pathkey: JoinScan for products SEMI companies, with a
---    flattened EXISTS on the non-BM25 product_tags table. The ORDER BY p.id
---    pathkey's equivalence class includes pt.product_id from the non-source
---    table. Without the fix, JoinScan is rejected; with it, the non-source
---    EC member is skipped and JoinScan is accepted.
+-- JoinScan with NOT IN SubPlan extraction across planner roots.
+--
+-- The NOT IN subquery on product_tags is extracted as a SubPlan during
+-- collect_join_sources_base_rel, creating an Anti join inside JoinScan.
+-- Sources from the SubPlan's inner root and the main root can share the
+-- same RTI number, so collect_required_fields must register join-key
+-- fast fields on ALL matching sources (not just the first).
+--
+-- Without the fix this errors:
+--   "Failed to build DataFusion logical plan: Missing right join-key column"
 -- =============================================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.id, p.description
@@ -63,11 +67,11 @@ WHERE p.company_id IN (
     FROM companies_op c
     WHERE c.name @@@ 'Acme OR Globex OR Initech'
 )
-AND EXISTS (
-    SELECT 1
+AND p.id NOT IN (
+    SELECT pt.product_id
     FROM product_tags_op pt
-    WHERE pt.product_id = p.id
-      AND pt.tag = 'popular'
+    WHERE pt.id @@@ pdb.all()
+      AND pt.tag = 'niche'
 )
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id
@@ -80,11 +84,11 @@ WHERE p.company_id IN (
     FROM companies_op c
     WHERE c.name @@@ 'Acme OR Globex OR Initech'
 )
-AND EXISTS (
-    SELECT 1
+AND p.id NOT IN (
+    SELECT pt.product_id
     FROM product_tags_op pt
-    WHERE pt.product_id = p.id
-      AND pt.tag = 'popular'
+    WHERE pt.id @@@ pdb.all()
+      AND pt.tag = 'niche'
 )
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id

@@ -21,10 +21,6 @@ CREATE TABLE products_op (
     description TEXT
 );
 CREATE TABLE
--- No BM25 index on this table: when its EXISTS is flattened, the equi-join
--- condition pt.product_id = p.id adds an equivalence-class member for p.id
--- from a non-JoinScan source. The outer-only pathkey fix skips this member
--- so that ORDER BY p.id is still accepted.
 CREATE TABLE product_tags_op (
     id INTEGER PRIMARY KEY,
     product_id INTEGER,
@@ -50,14 +46,22 @@ CREATE INDEX
 CREATE INDEX products_op_idx ON products_op
 USING bm25 (id, company_id, description) WITH (key_field = 'id');
 CREATE INDEX
+CREATE INDEX product_tags_op_idx ON product_tags_op
+USING bm25 (id, product_id, tag) WITH (key_field = 'id');
+CREATE INDEX
 SET paradedb.enable_join_custom_scan = on;
 SET
 -- =============================================================================
--- 1. Outer-only pathkey: JoinScan for products SEMI companies, with a
---    flattened EXISTS on the non-BM25 product_tags table. The ORDER BY p.id
---    pathkey's equivalence class includes pt.product_id from the non-source
---    table. Without the fix, JoinScan is rejected; with it, the non-source
---    EC member is skipped and JoinScan is accepted.
+-- JoinScan with NOT IN SubPlan extraction across planner roots.
+--
+-- The NOT IN subquery on product_tags is extracted as a SubPlan during
+-- collect_join_sources_base_rel, creating an Anti join inside JoinScan.
+-- Sources from the SubPlan's inner root and the main root can share the
+-- same RTI number, so collect_required_fields must register join-key
+-- fast fields on ALL matching sources (not just the first).
+--
+-- Without the fix this errors:
+--   "Failed to build DataFusion logical plan: Missing right join-key column"
 -- =============================================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT p.id, p.description
@@ -67,39 +71,37 @@ WHERE p.company_id IN (
     FROM companies_op c
     WHERE c.name @@@ 'Acme OR Globex OR Initech'
 )
-AND EXISTS (
-    SELECT 1
+AND p.id NOT IN (
+    SELECT pt.product_id
     FROM product_tags_op pt
-    WHERE pt.product_id = p.id
-      AND pt.tag = 'popular'
+    WHERE pt.id @@@ pdb.all()
+      AND pt.tag = 'niche'
 )
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Merge Semi Join
-         Merge Cond: (p.id = pt.product_id)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Relation Tree: c INNER p
-               Join Cond: p.company_id = c.id
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[c, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex OR Initech","lenient":null,"conjunction_mode":null}}}}
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-         ->  Sort
-               Sort Key: pt.product_id
-               ->  Seq Scan on product_tags_op pt
-                     Filter: (tag = 'popular'::text)
-(21 rows)
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: c INNER (p ANTI pt)
+         Join Cond: p.company_id = c.id, p.id = pt.product_id
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[c]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex OR Initech","lenient":null,"conjunction_mode":null}}}}
+           :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, product_id@0)]
+           :           VisibilityFilterExec: tables=[p]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(tag = 'niche'::text)"}]}}]}}
+(19 rows)
 
 SELECT p.id, p.description
 FROM products_op p
@@ -108,11 +110,11 @@ WHERE p.company_id IN (
     FROM companies_op c
     WHERE c.name @@@ 'Acme OR Globex OR Initech'
 )
-AND EXISTS (
-    SELECT 1
+AND p.id NOT IN (
+    SELECT pt.product_id
     FROM product_tags_op pt
-    WHERE pt.product_id = p.id
-      AND pt.tag = 'popular'
+    WHERE pt.id @@@ pdb.all()
+      AND pt.tag = 'niche'
 )
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id
@@ -120,8 +122,9 @@ LIMIT 10;
  id  |  description  
 -----+---------------
  100 | A fine widget
+ 101 | A cool gadget
  200 | A neat gizmo
-(2 rows)
+(3 rows)
 
 -- =============================================================================
 -- Cleanup

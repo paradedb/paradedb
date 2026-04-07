@@ -1002,10 +1002,15 @@ pub(super) unsafe fn collect_required_fields(
         for var in vars {
             if var.rti == pg_sys::INDEX_VAR as pg_sys::Index {
                 let idx = (var.attno - 1) as usize;
-                if let Some(info) = output_columns.get(idx) {
-                    if info.original_attno > 0 {
+                if let Some(OutputColumnInfo::Var {
+                    rti,
+                    original_attno,
+                    ..
+                }) = output_columns.get(idx)
+                {
+                    if *original_attno > 0 {
                         for source in &mut plan_sources {
-                            ensure_column(source, info.rti, info.original_attno);
+                            ensure_column(source, *rti, *original_attno);
                         }
                     }
                 }

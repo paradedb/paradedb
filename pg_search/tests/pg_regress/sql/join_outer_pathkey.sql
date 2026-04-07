@@ -70,8 +70,7 @@ WHERE p.company_id IN (
 AND p.id NOT IN (
     SELECT pt.product_id
     FROM product_tags_op pt
-    WHERE pt.id @@@ pdb.all()
-      AND pt.tag = 'niche'
+    WHERE pt.tag === 'niche'
 )
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id
@@ -87,8 +86,7 @@ WHERE p.company_id IN (
 AND p.id NOT IN (
     SELECT pt.product_id
     FROM product_tags_op pt
-    WHERE pt.id @@@ pdb.all()
-      AND pt.tag = 'niche'
+    WHERE pt.tag === 'niche'
 )
 AND p.description @@@ 'widget OR gadget OR gizmo OR boring'
 ORDER BY p.id

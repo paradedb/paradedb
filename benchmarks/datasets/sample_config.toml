@@ -1,0 +1,17 @@
+root_table = "orders"
+sampling_seed = 8097114971001016866 #"ParadeDB" in ascii
+
+[[tables]]
+name = "orders"
+
+[[tables]]
+name = "lineitem"
+parent = "orders"
+parent_join_col = "o_orderkey"
+join_col = "l_orderkey"
+
+[[tables]]
+name = "partsupp"
+parent = "lineitem"
+parent_join_col = "l_partkey"
+join_col = "ps_partkey"

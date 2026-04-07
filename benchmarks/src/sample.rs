@@ -52,7 +52,7 @@ pub struct SampleArgs {
 #[derive(Deserialize)]
 pub struct SampleConfig {
     pub root_table: String,
-    pub root_primary_key: String,
+    pub sampling_seed: u64,
     pub tables: Vec<TableConfig>,
 }
 
@@ -152,6 +152,21 @@ fn count_rows(conn: &Connection, glob: &str) -> Result<u64> {
     Ok(count)
 }
 
+/// DuckDB has three sampling methods: reservoir, bernoulli, and system
+/// - reservoir is default, and fastest for small target row counts. However, it requires the sample
+///   be materialized in memory and is not suitable for large target row counts.
+/// - bernoulli only targets a percentage of the input data, not a specific row count, and is
+///   therefore not useful for this use case
+/// - system is a variant of bernoulli that does support specific target row counts, so we use it
+///   for larger target row counts
+fn sampling_method(target: u64) -> &'static str {
+    if target <= 10_000 {
+        "reservoir"
+    } else {
+        "system"
+    }
+}
+
 fn validate_table_has_parquet_files(
     conn: &Connection,
     glob: &str,
@@ -216,21 +231,18 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         );
     }
 
-    let sampling_divisor = total_rows / target;
-    println!(
-        "\nSampling root table '{}': {total_rows} total rows, target {target}, ~1 ov every {sampling_divisor}th row",
-        root.name
-    );
-
+    let sampling_method = sampling_method(target);
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
          SELECT * FROM ( \
              SELECT * 
              FROM read_parquet('{glob}') \
-         ) md5_lower_number({primary_key}) % {sampling_divisor} = 0",
+         ) USING SAMPLE {method}({rows} ROWS) REPEATABLE({seed})",
         name = root.name,
         glob = root_glob,
-        primary_key = config.root_primary_key,
+        method = sampling_method,
+        rows = target,
+        seed = config.sampling_seed,
     );
     conn.execute_batch(&sql)
         .with_context(|| format!("Failed to sample root table '{}'", root.name))?;
@@ -243,6 +255,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         )
         .context("Failed to count sampled root rows")?;
     println!("  {} sampled: {sampled_root_count} rows", root.name);
+    assert_eq!(target, sampled_root_count);
 
     // Sample child tables by joining against their sampled parent.
     for &idx in &order[1..] {
@@ -320,7 +333,7 @@ mod tests {
     fn make_config(root_table: &str, tables: Vec<TableConfig>) -> SampleConfig {
         SampleConfig {
             root_table: root_table.to_string(),
-            root_primary_key: "id".to_string(),
+            sampling_seed: 42,
             tables,
         }
     }

@@ -312,6 +312,9 @@ impl JoinScan {
             return None;
         }
 
+        // Require LIMIT for top-level queries (without it, JoinScan's TopK
+        // optimization has no bound). Subqueries are exempt because the parent
+        // plan provides the cardinality constraint.
         let limit_offset = LimitOffset::from_root(root);
         let is_subquery = !(*root).parent_root.is_null();
         if limit_offset.limit.is_none() && !is_subquery {

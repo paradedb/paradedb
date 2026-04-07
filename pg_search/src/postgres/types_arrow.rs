@@ -78,6 +78,18 @@ pub fn arrow_array_to_datum(
                 _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
             }
         }
+        DataType::Utf8 => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap();
+            let s = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
+                | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
+                _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
+            }
+        }
         DataType::BinaryView => {
             let arr = array.as_binary_view();
             let bytes = arr.value(index);
@@ -279,6 +291,65 @@ pub fn ts_nanos_to_date_time(ts_nanos: i64) -> tantivy::DateTime {
 
 pub fn date_time_to_ts_nanos(date_time: tantivy::DateTime) -> i64 {
     date_time.into_timestamp_nanos()
+}
+
+// ---------------------------------------------------------------------------
+// Type mapping helpers (used by PgExprUdf for expression DISTINCT support)
+// ---------------------------------------------------------------------------
+
+/// Returns true if this PG type OID can be converted to an Arrow array
+/// by the `eval_expr_to_arrow!` macro. Used at planning time to decline JoinScan
+/// for unsupported expression result types, falling back to native PG.
+pub fn is_arrow_convertible(type_oid: pg_sys::Oid) -> bool {
+    matches!(
+        type_oid,
+        pg_sys::BOOLOID
+            | pg_sys::INT2OID
+            | pg_sys::INT4OID
+            | pg_sys::INT8OID
+            | pg_sys::FLOAT4OID
+            | pg_sys::FLOAT8OID
+            | pg_sys::TEXTOID
+            | pg_sys::VARCHAROID
+            | pg_sys::NAMEOID
+    )
+}
+
+/// Arrow DataType for UDF INPUTS — matches what Tantivy fast fields produce.
+/// Tantivy widens Int16/Int32 → Int64 and Float32 → Float64.
+pub fn pg_type_to_tantivy_arrow(type_oid: pg_sys::Oid) -> DataType {
+    match type_oid {
+        pg_sys::BOOLOID => DataType::Boolean,
+        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => DataType::Int64,
+        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => DataType::Float64,
+        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
+        pg_sys::TIMESTAMPOID => DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+        pg_sys::TIMESTAMPTZOID => {
+            DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("UTC".into()))
+        }
+        pg_sys::DATEOID => DataType::Date32,
+        _ => DataType::Utf8,
+    }
+}
+
+/// Arrow DataType for UDF OUTPUTS — preserves the PG expression result type
+/// without Tantivy widening.
+pub fn pg_type_to_arrow(type_oid: pg_sys::Oid) -> DataType {
+    match type_oid {
+        pg_sys::BOOLOID => DataType::Boolean,
+        pg_sys::INT2OID => DataType::Int16,
+        pg_sys::INT4OID => DataType::Int32,
+        pg_sys::INT8OID => DataType::Int64,
+        pg_sys::FLOAT4OID => DataType::Float32,
+        pg_sys::FLOAT8OID => DataType::Float64,
+        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => DataType::Utf8,
+        pg_sys::TIMESTAMPOID => DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+        pg_sys::TIMESTAMPTZOID => {
+            DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("UTC".into()))
+        }
+        pg_sys::DATEOID => DataType::Date32,
+        _ => DataType::Utf8,
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

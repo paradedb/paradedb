@@ -470,6 +470,8 @@ impl JoinScan {
 
         let has_order_by = !join_clause.order_by.is_empty();
         let order_by_len = join_clause.order_by.len();
+        let relevant_pathkeys =
+            planning::count_relevant_pathkeys(root, &join_clause.plan.sources());
         let private_data = PrivateData::new(join_clause);
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
@@ -494,12 +496,8 @@ impl JoinScan {
             ..Default::default()
         };
 
-        if has_order_by {
-            let query_pathkeys_len =
-                PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys).len();
-            if order_by_len == query_pathkeys_len {
-                custom_path.path.pathkeys = (*root).query_pathkeys;
-            }
+        if has_order_by && order_by_len == relevant_pathkeys {
+            custom_path.path.pathkeys = (*root).query_pathkeys;
         }
 
         if nworkers > 0 {

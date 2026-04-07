@@ -1176,6 +1176,24 @@ unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::Att
     None
 }
 
+fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {
+    sources.iter().map(|s| s.scan_info.heap_rti).collect()
+}
+
+/// Count query_pathkeys that reference at least one source relation (i.e. are
+/// not outer-only). This is the number of pathkeys JoinScan is responsible for.
+pub(super) unsafe fn count_relevant_pathkeys(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[&JoinSource],
+) -> usize {
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    let source_rtis = collect_source_rtis(sources);
+    pathkeys
+        .iter_ptr()
+        .filter(|pk| !pathkey_is_outer_only((**pk).pk_eclass, &source_rtis))
+        .count()
+}
+
 /// Returns true if no equivalence class member for this pathkey references any
 /// relation in `source_rtis`. Such pathkeys are "outer-only" w.r.t. this join
 /// subtree — the parent plan owns sorting on those keys.
@@ -1230,7 +1248,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         return true;
     }
 
-    let source_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.scan_info.heap_rti).collect();
+    let source_rtis = collect_source_rtis(sources);
 
     'pathkey: for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = (*pathkey_ptr).pk_eclass;
@@ -1899,7 +1917,7 @@ pub(super) unsafe fn extract_orderby(
         return Some(result);
     }
 
-    let source_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.scan_info.heap_rti).collect();
+    let source_rtis = collect_source_rtis(sources);
 
     for pathkey_ptr in pathkeys.iter_ptr() {
         let pathkey = pathkey_ptr;

@@ -539,6 +539,39 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
 
 -- =====================================================================
+-- SECTION 13: Cross-table OR predicates (regression for generated_joins_small)
+-- =====================================================================
+-- Reproduces a proptest failure where COUNT(*) with an OR predicate spanning
+-- two join tables returned a different result under the aggregate scan path.
+-- The aggregate scan must not mishandle cross-table OR conditions.
+
+-- Test 13.1: Cross-table OR — aggregate scan vs native Postgres
+SELECT COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 13.2: Cross-table OR with @@@ on both sides
+SELECT COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

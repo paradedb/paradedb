@@ -127,6 +127,15 @@ impl CustomScanState for AggregateScanState {
     }
 }
 
+/// **Known limitation:** The DataFusion backend returns `false` for
+/// `has_heap_filters` and `has_postgres_expressions`, meaning prepared
+/// statement parameters (`$1`) in `join_level_predicates` are never
+/// resolved. With `force_generic_plan`, a query like
+/// `WHERE NOT (u.name @@@ $1 AND i.name @@@ $1)` would panic at
+/// execution time because `SearchPredicateUDF` receives an unresolved
+/// `PostgresExpression`. This is a pre-existing limitation of the
+/// DataFusion aggregate path (not introduced by the cross-table filter
+/// feature) — the Tantivy single-table path has the same constraint.
 impl SolvePostgresExpressions for AggregateScanState {
     fn has_heap_filters(&mut self) -> bool {
         if self.is_datafusion_backend() {

@@ -558,6 +558,18 @@ struct PathRestrictInfo {
 /// Walk `input_rel.cheapest_total_path` once, classifying every
 /// `joinrestrictinfo` entry as an equi-join key, a cross-table @@@
 /// predicate, or unhandled.
+///
+/// **Known limitation (LEFT/RIGHT JOINs):** `joinrestrictinfo` contains
+/// both ON-clause predicates and pushed-down WHERE predicates. For INNER
+/// JOINs these are semantically equivalent. For LEFT/RIGHT JOINs they
+/// are not: ON-clause predicates determine matching and NULL-extension,
+/// while WHERE predicates filter after NULL-extension. Currently all
+/// cross-table predicates are treated as post-join filters (applied after
+/// the join via `RelNode::Filter`), which is correct for INNER JOINs
+/// but may produce wrong results for outer joins with cross-table @@@ in
+/// the ON clause. This matches the existing behavior before this PR —
+/// the aggregate path only supported INNER and LEFT/RIGHT JOINs with
+/// equi-keys in ON clauses.
 unsafe fn analyze_join_path_restrictinfo(
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],

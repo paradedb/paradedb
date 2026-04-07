@@ -567,7 +567,10 @@ mod tests {
         let nanos: i64 = 1_705_314_600_000_000_000; // 2024-01-15 10:30:00 UTC
         let arr: ArrayRef = Arc::new(TimestampNanosecondArray::from(vec![nanos]));
         let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
-        assert!(result.is_some(), "TimestampNanosecond should produce a datum");
+        assert!(
+            result.is_some(),
+            "TimestampNanosecond should produce a datum"
+        );
     }
 
     #[pgrx::pg_test]
@@ -607,7 +610,10 @@ mod tests {
         let days: i32 = 19_737; // 2024-01-15 = 19737 days since epoch
         let arr: ArrayRef = Arc::new(Date32Array::from(vec![days]));
         let result = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
-        assert!(result.is_some(), "Date32 should produce a datum for DATEOID");
+        assert!(
+            result.is_some(),
+            "Date32 should produce a datum for DATEOID"
+        );
     }
 
     #[pgrx::pg_test]
@@ -615,7 +621,10 @@ mod tests {
         let millis: i64 = 19_737 * 86_400_000; // 2024-01-15 in milliseconds since epoch
         let arr: ArrayRef = Arc::new(Date64Array::from(vec![millis]));
         let result = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
-        assert!(result.is_some(), "Date64 should produce a datum for DATEOID");
+        assert!(
+            result.is_some(),
+            "Date64 should produce a datum for DATEOID"
+        );
     }
 
     // --- TIMESTAMPTZ vs TIMESTAMP vs DATE typoid routing ---

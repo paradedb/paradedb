@@ -1,5 +1,5 @@
 root_table = "stackoverflow_posts"
-sampling_seed = 5792036358396920898 #"ParadeDB" ascii values, converted to hex, then concatenated
+sampling_seed = 579203635839692    #"Parade" ascii values, converted to hex, then concatenated
 
 [[tables]]
 name = "stackoverflow_posts"

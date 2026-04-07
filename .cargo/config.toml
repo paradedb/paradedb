@@ -1,14 +1,18 @@
 # Minimum Supported CPU Era Configuration
 #
-# Setting target-cpu enables SIMD auto-vectorization (AVX2 on x86, NEON on ARM)
+# Setting target-cpu enables SIMD auto-vectorization (SSE4.2 on x86, NEON on ARM)
 # in key dependencies like tantivy, arrow, datafusion, and bitpacking.
 #
-# x86_64:  x86-64-v3 — Intel Haswell / AMD Excavator, 2013+ CPUs
+# x86_64:  x86-64-v2 — SSE4.2 baseline, supported by virtually all x86 CPUs
+#           including Intel Atom/Celeron/Pentium Silver (N-series, J-series, etc.)
+#           and AMD equivalents. Excludes only very old pre-2008 hardware.
+#           Note: x86-64-v3 (AVX2) was previously used but dropped due to
+#           SIGILL crashes on low-power/Atom-class CPUs that lack AVX2.
 # aarch64: neoverse-n1 (ARMv8.2-A + RCpc) — AWS Graviton 2 / Ampere Altra, 2020+ CPUs
 # macOS:   apple-m1 — Apple Silicon, 2020+ Macs
 
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-Ctarget-cpu=x86-64-v3"]
+rustflags = ["-Ctarget-cpu=x86-64-v2"]
 
 [target.aarch64-unknown-linux-gnu]
 rustflags = ["-Ctarget-cpu=neoverse-n1"]

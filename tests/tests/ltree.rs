@@ -269,14 +269,20 @@ fn ltree_triple_ampersand_operator(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // Test the &&& operator with ltree field
-    let rows: Vec<(i32,)> = r#"
+    // ltree is indexed as a facet field and is intentionally not compatible with &&&.
+    // Ensure we return the expected type compatibility error instead of silently succeeding.
+    let err = r#"
     SELECT id FROM test_ltree
     WHERE path &&& 'Top.Science.Biology'
     ORDER BY id
     "#
-    .fetch_collect(&mut conn);
-    assert_eq!(rows, vec![(2,)]);
+    .fetch_result::<(i32,)>(&mut conn)
+    .expect_err("ltree should be incompatible with the &&& operator");
+    assert!(
+        err.to_string()
+            .contains("type `ltree` is not compatible with the `&&&` operator"),
+        "unexpected error: {err}"
+    );
 }
 
 #[rstest]

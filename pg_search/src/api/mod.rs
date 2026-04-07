@@ -259,6 +259,41 @@ pub enum SortDirection {
     DescNullsLast,
 }
 
+impl SortDirection {
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+    pub unsafe fn from_sort_op(sortop: pg_sys::Oid) -> Option<Self> {
+        let mut opfamily = pg_sys::InvalidOid;
+        let mut opcintype = pg_sys::InvalidOid;
+        let mut strategy: i16 = 0;
+        if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut strategy)
+        {
+            if strategy as u32 == pg_sys::BTGreaterStrategyNumber {
+                Some(SortDirection::DescNullsFirst)
+            } else {
+                Some(SortDirection::AscNullsLast)
+            }
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "pg18")]
+    pub unsafe fn from_sort_op(sortop: pg_sys::Oid) -> Option<Self> {
+        let mut opfamily = pg_sys::InvalidOid;
+        let mut opcintype = pg_sys::InvalidOid;
+        let mut cmptype = pg_sys::CompareType::COMPARE_LT;
+        if pg_sys::get_ordering_op_properties(sortop, &mut opfamily, &mut opcintype, &mut cmptype) {
+            if cmptype == pg_sys::CompareType::COMPARE_GT {
+                Some(SortDirection::DescNullsFirst)
+            } else {
+                Some(SortDirection::AscNullsLast)
+            }
+        } else {
+            None
+        }
+    }
+}
+
 impl AsRef<str> for SortDirection {
     fn as_ref(&self) -> &str {
         match self {

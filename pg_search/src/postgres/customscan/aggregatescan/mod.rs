@@ -296,12 +296,13 @@ impl CustomScan for AggregateScan {
                     .aggregates
                     .iter()
                     .map(|a| {
-                        let field = a
-                            .field_ref
-                            .as_ref()
-                            .map(|(_, _, n)| n.as_str())
-                            .unwrap_or("*");
-                        format!("{}({})", a.agg_kind, field)
+                        if a.field_refs.is_empty() {
+                            format!("{}(*)", a.agg_kind)
+                        } else {
+                            let fields: Vec<&str> =
+                                a.field_refs.iter().map(|(_, _, n)| n.as_str()).collect();
+                            format!("{}({})", a.agg_kind, fields.join(", "))
+                        }
                     })
                     .collect();
                 if !aggs.is_empty() {
@@ -852,8 +853,9 @@ impl AggregateScan {
         }
 
         // Reject joins with non-equi quals (OR across tables, cross-table
-        // filters, non-@@@ conditions). These live in the join path's
-        // joinrestrictinfo and our DataFusion backend can't apply them.
+        // filters, non-@@@ conditions). Check both the cheapest path's
+        // joinrestrictinfo AND the parse tree's WHERE quals for cross-table
+        // references that our DataFusion backend can't apply.
         if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
@@ -1048,6 +1050,11 @@ impl AggregateScan {
 /// Detects ORDER BY on aggregate + LIMIT for join aggregate queries.
 /// Returns `Some(DataFusionTopK)` when the sort clause targets a single aggregate
 /// that can be pushed down into the DataFusion plan as sort + limit.
+///
+/// NOTE: shares structural pattern with `build::detect_aggregate_orderby` (single-table
+/// variant). Both parse sort clause → aggref identity → direction → reltarget match →
+/// LIMIT. They diverge in target list type (`TargetList` vs `JoinAggregateTargetList`)
+/// which makes a generic extraction non-trivial without trait machinery.
 unsafe fn detect_join_aggregate_topk(
     args: &CreateUpperPathsHookArgs,
     targetlist: &join_targetlist::JoinAggregateTargetList,
@@ -1074,7 +1081,8 @@ unsafe fn detect_join_aggregate_topk(
         return None;
     }
 
-    let direction = SortDirection::from_sort_op((*sort_clause_ptr).sortop)?;
+    let direction =
+        SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
 
     // Find matching position in output_rel target using structural equality
     let reltarget = args.output_rel().reltarget;

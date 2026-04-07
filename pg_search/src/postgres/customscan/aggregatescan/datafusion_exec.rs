@@ -37,6 +37,7 @@ use crate::postgres::customscan::joinscan::translator::{build_equi_join_exprs, m
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
+use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
@@ -90,6 +91,19 @@ pub async fn build_join_aggregate_plan(
             let agg_expr = match agg.agg_kind {
                 AggKind::CountStar => Ok(count(lit(1))),
                 AggKind::Count => agg_field_col(agg, plan).map(count),
+                AggKind::CountDistinct => {
+                    let col_exprs = agg_field_cols(agg, plan)?;
+                    Ok(Expr::AggregateFunction(
+                        datafusion::logical_expr::expr::AggregateFunction::new_udf(
+                            count_udaf(),
+                            col_exprs,
+                            true,   // distinct
+                            None,   // filter
+                            vec![], // order_by
+                            None,   // null_treatment
+                        ),
+                    ))
+                }
                 AggKind::Sum => agg_field_col(agg, plan).map(sum),
                 AggKind::Avg => agg_field_col(agg, plan).map(avg),
                 AggKind::Min => agg_field_col(agg, plan).map(min),
@@ -146,9 +160,13 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::Inner => {
                         JoinType::Inner
                     }
+                    crate::postgres::customscan::joinscan::build::JoinType::Left => JoinType::Left,
+                    crate::postgres::customscan::joinscan::build::JoinType::Right => {
+                        JoinType::Right
+                    }
                     unsupported => {
                         return Err(DataFusionError::NotImplemented(format!(
-                            "Aggregate-on-join only supports INNER JOIN, got {}",
+                            "Aggregate-on-join does not support {} JOIN",
                             unsupported
                         )));
                     }
@@ -271,13 +289,26 @@ fn resolve_source_column(
     }
 }
 
-/// Build a DataFusion column expression for an aggregate's field reference.
+/// Build a DataFusion column expression for an aggregate's first field reference.
 fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
-    let (rti, _attno, ref field_name) = agg.field_ref.as_ref().ok_or_else(|| {
+    let (rti, _attno, ref field_name) = agg.field_refs.first().ok_or_else(|| {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;
 
     let source = plan.source_for_rti_in_subtree(*rti);
     let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
     Ok(make_col(&alias, field_name))
+}
+
+/// Build DataFusion column expressions for all of an aggregate's field references.
+/// Used for multi-column DISTINCT (e.g. `COUNT(DISTINCT col1, col2)`).
+fn agg_field_cols(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Vec<Expr>> {
+    agg.field_refs
+        .iter()
+        .map(|(rti, _attno, field_name)| {
+            let source = plan.source_for_rti_in_subtree(*rti);
+            let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
+            Ok(make_col(&alias, field_name))
+        })
+        .collect()
 }

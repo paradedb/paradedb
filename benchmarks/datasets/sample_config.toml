@@ -1,5 +1,5 @@
 root_table = "orders"
-sampling_seed = 8097114971001016866 #"ParadeDB" in ascii
+sampling_seed = 5792036358396920898 #"ParadeDB" in ascii
 
 [[tables]]
 name = "orders"

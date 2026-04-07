@@ -231,6 +231,10 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         );
     }
 
+    // disable multi-threading, required for deterministic output
+    conn.execute("SET threads = 1;", [])
+        .with_context(|| "Failed to set thread count")?;
+
     let sampling_method = sampling_method(target);
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
@@ -246,6 +250,10 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     );
     conn.execute_batch(&sql)
         .with_context(|| format!("Failed to sample root table '{}'", root.name))?;
+
+    // re-enable multi-threading
+    conn.execute("RESET threads;", [])
+        .with_context(|| "Failed to reset thread count to default")?;
 
     let sampled_root_count: u64 = conn
         .query_row(

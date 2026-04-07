@@ -471,35 +471,49 @@ unsafe fn extract_equi_keys_from_path(
 ) -> Vec<JoinKeyPair> {
     let mut keys = Vec::new();
 
-    // Walk the cheapest_total_path chain looking for JoinPath nodes
-    let path = input_rel.cheapest_total_path;
-    if path.is_null() {
-        return keys;
+    // Walk ALL paths looking for JoinPath nodes.  CustomPath nodes (e.g.
+    // JoinScan) don't carry joinrestrictinfo, so if the cheapest path is
+    // a CustomPath we would miss the equi-join keys.  Iterating the full
+    // pathlist ensures we find them on whichever standard JoinPath is
+    // available.
+    let pathlist = PgList::<pg_sys::Path>::from_pg(input_rel.pathlist);
+    for path in pathlist.iter_ptr() {
+        extract_keys_from_path_recursive(path, sources, &mut keys);
+        if !keys.is_empty() {
+            break; // All JoinPaths share the same conditions; one is enough.
+        }
     }
-
-    extract_keys_from_path_recursive(path, sources, &mut keys);
     keys
 }
 
 /// Check whether the join path has non-equi-join quals that our DataFusion
 /// backend can't execute (e.g., cross-table OR conditions, inequality filters).
 ///
-/// Uses the same path-walking strategy as [`extract_equi_keys_from_path`] but
-/// counts total `RestrictInfo` entries vs. those that are equi-join keys. If
-/// `total > equi`, the remaining entries are post-join filters we'd silently
-/// drop, producing wrong results — so the caller rejects the DataFusion path.
+/// Walks **all** paths in the input relation's pathlist — not just the cheapest
+/// — because `CustomPath` nodes (e.g. JoinScan) don't expose a
+/// `joinrestrictinfo` list, so checking only the cheapest path would miss
+/// non-equi quals when a custom scan is the winner.  Standard `JoinPath` nodes
+/// (`NestPath`, `MergePath`, `HashPath`) always carry the full restrict list,
+/// so as long as *any* path in the list is a standard join path we can detect
+/// non-equi quals correctly.
+///
+/// If `total > equi` on any path, the remaining entries are post-join filters
+/// we'd silently drop, producing wrong results — so the caller rejects the
+/// DataFusion path.
 pub unsafe fn has_non_equi_join_quals(
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],
 ) -> bool {
-    let path = input_rel.cheapest_total_path;
-    if path.is_null() {
-        return false;
+    let pathlist = PgList::<pg_sys::Path>::from_pg(input_rel.pathlist);
+    for path in pathlist.iter_ptr() {
+        let mut total_restrict = 0usize;
+        let mut equi_keys = 0usize;
+        count_restrict_entries_recursive(path, sources, &mut total_restrict, &mut equi_keys);
+        if total_restrict > equi_keys {
+            return true;
+        }
     }
-    let mut total_restrict = 0usize;
-    let mut equi_keys = 0usize;
-    count_restrict_entries_recursive(path, sources, &mut total_restrict, &mut equi_keys);
-    total_restrict > equi_keys
+    false
 }
 
 unsafe fn count_restrict_entries_recursive(

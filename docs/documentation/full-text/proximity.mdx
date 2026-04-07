@@ -106,7 +106,7 @@ WHERE description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes');
 ```
 
 ```python Django
-from paradedb import ParadeDB, ProximityRegex
+from paradedb import ParadeDB, ProxRegex, Proximity
 
 MockItem.objects.filter(
     description=ParadeDB(Proximity('shoes').within(1, ProxRegex('sl.*')))
@@ -147,7 +147,7 @@ WHERE description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes');
 ```
 
 ```python Django
-from paradedb import ParadeDB, ProximityRegex
+from paradedb import ParadeDB, ProxRegex, Proximity
 
 MockItem.objects.filter(
     description=ParadeDB(Proximity('shoes').within(1, ProxRegex('sl.*', max_expansions=100)))
@@ -189,7 +189,7 @@ WHERE description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes');
 ```
 
 ```python Django
-from paradedb import ParadeDB, ProximityArray
+from paradedb import ParadeDB, Proximity
 
 MockItem.objects.filter(
     description=ParadeDB(Proximity(['sleek', 'white']).within(1, 'shoes'))
@@ -228,7 +228,7 @@ WHERE description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## '
 ```
 
 ```python Django
-from paradedb import ParadeDB, ProxRegex, ProximityArray
+from paradedb import ParadeDB, ProxRegex, Proximity
 
 MockItem.objects.filter(
     description=ParadeDB(Proximity([ProxRegex('sl.*'), 'white']).within(1, 'shoes'))
@@ -269,7 +269,7 @@ WHERE description @@@ ('sleek' ## 1 ## 'running' ## 2 ## pdb.prox_array('sneaker
 ```
 
 ```python Django
-from paradedb import ParadeDB, ProxRegex, ProximityArray
+from paradedb import ParadeDB, ProxRegex, Proximity
 
 MockItem.objects.filter(
     description=ParadeDB(Proximity('sleek').within(1, 'running').within(2, ['sneakers', ProxRegex('sho.*')]))

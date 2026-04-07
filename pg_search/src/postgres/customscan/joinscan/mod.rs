@@ -312,8 +312,14 @@ impl JoinScan {
             return None;
         }
 
+        // Require LIMIT for top-level queries (without it, JoinScan's TopK
+        // optimization has no bound). Subqueries are exempt because the parent
+        // plan provides the cardinality constraint.
         let limit_offset = LimitOffset::from_root(root);
-        limit_offset.limit?;
+        let is_subquery = !(*root).parent_root.is_null();
+        if limit_offset.limit.is_none() && !is_subquery {
+            return None;
+        }
 
         if join_keys.is_empty() {
             return None;
@@ -464,6 +470,8 @@ impl JoinScan {
 
         let has_order_by = !join_clause.order_by.is_empty();
         let order_by_len = join_clause.order_by.len();
+        let relevant_pathkeys =
+            planning::count_relevant_pathkeys(root, &join_clause.plan.sources());
         let private_data = PrivateData::new(join_clause);
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
@@ -488,12 +496,8 @@ impl JoinScan {
             ..Default::default()
         };
 
-        if has_order_by {
-            let query_pathkeys_len =
-                PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys).len();
-            if order_by_len == query_pathkeys_len {
-                custom_path.path.pathkeys = (*root).query_pathkeys;
-            }
+        if has_order_by && order_by_len == relevant_pathkeys {
+            custom_path.path.pathkeys = (*root).query_pathkeys;
         }
 
         if nworkers > 0 {
@@ -974,41 +978,40 @@ impl CustomScan for JoinScan {
                     let var = (*te).expr as *mut pg_sys::Var;
                     let rti = (*var).varno as pg_sys::Index;
                     let attno = (*var).varattno;
-                    let plan_position = private_data
-                        .join_clause
-                        .plan_position(root.into(), rti, attno)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "Failed to resolve output Var to plan_position (rti={}, attno={})",
-                                rti, attno
-                            )
+                    if let Some(plan_position) =
+                        private_data
+                            .join_clause
+                            .plan_position(root.into(), rti, attno)
+                    {
+                        output_columns.push(privdat::OutputColumnInfo::Var {
+                            plan_position,
+                            rti,
+                            original_attno: attno,
                         });
-                    output_columns.push(privdat::OutputColumnInfo {
-                        plan_position,
-                        rti,
-                        original_attno: attno,
-                        is_score: false,
-                    });
+                    } else {
+                        // Var references a relation pruned by an internal Semi/Anti
+                        // join (e.g., the inner side of a flattened EXISTS).
+                        // PostgreSQL's reltarget may include these Vars even though
+                        // they are not accessible after the Semi/Anti. Emit NULL;
+                        // the parent plan will not read this position.
+                        output_columns.push(privdat::OutputColumnInfo::Pruned);
+                    }
                 } else {
-                    let mut is_score = false;
-                    let mut rti = 0;
-                    let mut plan_position = 0usize;
+                    let mut found_score = false;
                     for source in private_data.join_clause.plan.sources() {
                         if expr_uses_scores_from_source((*te).expr.cast(), source) {
-                            // This expression contains paradedb.score()
-                            is_score = true;
-                            rti = get_score_func_rti((*te).expr.cast()).unwrap_or(0);
-                            plan_position = source.plan_position;
+                            let rti = get_score_func_rti((*te).expr.cast()).unwrap_or(0);
+                            output_columns.push(privdat::OutputColumnInfo::Score {
+                                plan_position: source.plan_position,
+                                rti,
+                            });
+                            found_score = true;
                             break;
                         }
                     }
-                    // Non-Var, non-score expression - mark as null (attno = 0)
-                    output_columns.push(privdat::OutputColumnInfo {
-                        plan_position,
-                        rti,
-                        original_attno: 0,
-                        is_score,
-                    });
+                    if !found_score {
+                        output_columns.push(privdat::OutputColumnInfo::Pruned);
+                    }
                 }
             }
 
@@ -1066,16 +1069,7 @@ impl CustomScan for JoinScan {
                     private_data
                         .output_columns
                         .iter()
-                        .map(|info| {
-                            if info.is_score {
-                                build::ChildProjection::Score { rti: info.rti }
-                            } else {
-                                build::ChildProjection::Column {
-                                    rti: info.rti,
-                                    attno: info.original_attno,
-                                }
-                            }
-                        })
+                        .map(build::ChildProjection::from)
                         .collect(),
                 );
             } else {
@@ -1159,22 +1153,15 @@ impl CustomScan for JoinScan {
                                     build::ChildProjection::Score { rti: *rti }
                                 }
                                 Some(planning::ResolvedExpr::IndexedExpression { rti }) => {
-                                    build::ChildProjection::IndexedExpression {
-                                        rti: *rti,
-                                        attno: info.original_attno,
-                                    }
+                                    let attno = match info {
+                                        privdat::OutputColumnInfo::Var {
+                                            original_attno, ..
+                                        } => *original_attno,
+                                        _ => 0,
+                                    };
+                                    build::ChildProjection::IndexedExpression { rti: *rti, attno }
                                 }
-                                None => {
-                                    // No ResolvedExpr match — use output_columns as-is
-                                    if info.is_score {
-                                        build::ChildProjection::Score { rti: info.rti }
-                                    } else {
-                                        build::ChildProjection::Column {
-                                            rti: info.rti,
-                                            attno: info.original_attno,
-                                        }
-                                    }
-                                }
+                                None => info.into(),
                             }
                         })
                         .collect(),
@@ -1614,14 +1601,15 @@ impl JoinScan {
 
         // Fetch tuples for all RTIs referenced in the output columns
         for col_info in &output_columns {
-            if col_info.rti != 0 && !fetched_sources.contains(&col_info.plan_position) {
-                // Get the CTID for this RTI from the DataFusion result batch
+            let plan_position = match col_info {
+                privdat::OutputColumnInfo::Var { plan_position, .. } => *plan_position,
+                privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
+                privdat::OutputColumnInfo::Pruned => continue,
+            };
+            if !fetched_sources.contains(&plan_position) {
                 let ctid = {
                     let batch = state.custom_state().current_batch.as_ref()?;
-                    let rel_state = state
-                        .custom_state()
-                        .relations
-                        .get(&col_info.plan_position)?;
+                    let rel_state = state.custom_state().relations.get(&plan_position)?;
                     let ctid_col = batch.column(rel_state.ctid_col_idx?);
                     ctid_col
                         .as_any()
@@ -1629,20 +1617,15 @@ impl JoinScan {
                         .expect("ctid should be u64")
                         .value(row_idx)
                 };
-                // Fetch the tuple from the heap using the CTID
-                let rel_state = state
-                    .custom_state_mut()
-                    .relations
-                    .get_mut(&col_info.plan_position)?;
+                let rel_state = state.custom_state_mut().relations.get_mut(&plan_position)?;
                 if !rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)
                 {
                     return None;
                 }
-                // Make sure slots have all attributes deformed
                 pg_sys::slot_getallattrs(rel_state.fetch_slot);
-                fetched_sources.insert(col_info.plan_position);
+                fetched_sources.insert(plan_position);
             }
         }
         // Get the result tuple descriptor from the result slot
@@ -1660,50 +1643,47 @@ impl JoinScan {
             if i >= natts {
                 break;
             }
-            // Handle score columns specially
-            if col_info.is_score {
-                let score_col = batch.column(i);
-                let score = if let Some(score_array) = score_col
-                    .as_any()
-                    .downcast_ref::<arrow_array::Float32Array>()
-                {
-                    score_array.value(row_idx)
-                } else {
-                    0.0
-                };
-                use pgrx::IntoDatum;
-                if let Some(datum) = score.into_datum() {
-                    *datums.add(i) = datum;
-                    *nulls.add(i) = false;
-                } else {
+            match col_info {
+                privdat::OutputColumnInfo::Score { .. } => {
+                    let score_col = batch.column(i);
+                    let score = if let Some(score_array) = score_col
+                        .as_any()
+                        .downcast_ref::<arrow_array::Float32Array>(
+                    ) {
+                        score_array.value(row_idx)
+                    } else {
+                        0.0
+                    };
+                    use pgrx::IntoDatum;
+                    if let Some(datum) = score.into_datum() {
+                        *datums.add(i) = datum;
+                        *nulls.add(i) = false;
+                    } else {
+                        *nulls.add(i) = true;
+                    }
+                }
+                privdat::OutputColumnInfo::Pruned => {
                     *nulls.add(i) = true;
                 }
-                continue;
+                privdat::OutputColumnInfo::Var {
+                    plan_position,
+                    original_attno,
+                    ..
+                } => {
+                    let rel_state = state.custom_state().relations.get(plan_position)?;
+                    let source_slot = rel_state.fetch_slot;
+                    if *original_attno <= 0
+                        || *original_attno > (*(*source_slot).tts_tupleDescriptor).natts as i16
+                    {
+                        *nulls.add(i) = true;
+                        continue;
+                    }
+                    let mut is_null = false;
+                    *datums.add(i) =
+                        pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null);
+                    *nulls.add(i) = is_null;
+                }
             }
-
-            if col_info.rti == 0 {
-                // Non-Var, non-score expression - set null
-                *nulls.add(i) = true;
-                continue;
-            }
-            // Determine which slot to read from based on RTI
-            let rel_state = state
-                .custom_state()
-                .relations
-                .get(&col_info.plan_position)?;
-            let source_slot = rel_state.fetch_slot;
-            let original_attno = col_info.original_attno;
-            // Get the attribute value from the source slot using the original attribute number
-            if original_attno <= 0
-                || original_attno > (*(*source_slot).tts_tupleDescriptor).natts as i16
-            {
-                *nulls.add(i) = true;
-                continue;
-            }
-
-            let mut is_null = false;
-            *datums.add(i) = pg_sys::slot_getattr(source_slot, original_attno as i32, &mut is_null);
-            *nulls.add(i) = is_null;
         }
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
         pg_sys::ExecStoreVirtualTuple(result_slot);

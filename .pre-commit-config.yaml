@@ -31,7 +31,6 @@ repos:
         args: ["--allow-missing-credentials"]
       - id: debug-statements
       - id: destroyed-symlinks
-      - id: fix-encoding-pragma
       - id: fix-byte-order-marker
       - id: requirements-txt-fixer
 

@@ -19,7 +19,7 @@ ORDER BY id;
 ```
 
 ```python Django
-from paradedb import MoreLikeThis
+from paradedb import MoreLikeThis, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(MoreLikeThis(id=3))
@@ -80,7 +80,7 @@ ORDER BY id;
 ```
 
 ```python Django
-from paradedb import MoreLikeThis
+from paradedb import MoreLikeThis, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(MoreLikeThis(id=3, fields=['description']))
@@ -148,7 +148,7 @@ ORDER BY id;
 ```
 
 ```python Django
-from paradedb import MoreLikeThis
+from paradedb import MoreLikeThis, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(MoreLikeThis(document={'description': 'Sleek running shoes', 'category': 'footwear'}))
@@ -202,7 +202,7 @@ ORDER BY id;
 ```
 
 ```python Django
-from paradedb import MoreLikeThis
+from paradedb import MoreLikeThis, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(MoreLikeThis(id=3, min_term_freq=2))
@@ -247,7 +247,7 @@ ORDER BY id;
 ```
 
 ```python Django
-from paradedb import MoreLikeThis
+from paradedb import MoreLikeThis, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(MoreLikeThis(id=3, min_doc_freq=3))
@@ -294,7 +294,7 @@ ORDER BY id;
 ```
 
 ```python Django
-from paradedb import MoreLikeThis
+from paradedb import MoreLikeThis, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(MoreLikeThis(id=3, max_query_terms=10))
@@ -338,7 +338,7 @@ ORDER BY id;
 ```
 
 ```python Django
-from paradedb import MoreLikeThis
+from paradedb import MoreLikeThis, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(MoreLikeThis(id=3, min_word_length=5))
@@ -381,7 +381,7 @@ ORDER BY id;
 ```
 
 ```python Django
-from paradedb import MoreLikeThis
+from paradedb import MoreLikeThis, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(MoreLikeThis(id=3, stopwords=['the', 'a']))

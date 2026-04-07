@@ -172,7 +172,7 @@ fn validate_table_has_parquet_files(
     glob: &str,
     table_name: &str,
 ) -> Result<bool> {
-    let sql = format!("SELECT count(*) FROM (SELECT filename FROM glob('{glob}') LIMIT 1)");
+    let sql = format!("SELECT count(*) FROM glob('{glob}') LIMIT 1");
     let count: usize = conn
         .query_row(&sql, [], |row| row.get(0))
         .with_context(|| format!("Failed to check parquet files for table '{table_name}'"))?;

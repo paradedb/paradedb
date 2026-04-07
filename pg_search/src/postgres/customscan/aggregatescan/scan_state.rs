@@ -19,7 +19,7 @@ use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
 use crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK;
-use crate::postgres::customscan::joinscan::build::RelNode;
+use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelNode};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
@@ -44,6 +44,8 @@ pub struct DataFusionAggState {
     pub targetlist: JoinAggregateTargetList,
     /// Optional TopK sort+limit pushed down from Postgres.
     pub topk: Option<DataFusionTopK>,
+    /// Cross-table search predicates for join-level filtering.
+    pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
     /// Tokio runtime for async DataFusion execution.
     pub runtime: Option<tokio::runtime::Runtime>,
     /// DataFusion result stream.

@@ -31,9 +31,13 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
 use crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK;
-use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
+use crate::postgres::customscan::joinscan::build::{
+    JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
+};
 use crate::postgres::customscan::joinscan::scan_state::build_base_session;
-use crate::postgres::customscan::joinscan::translator::{build_equi_join_exprs, make_col};
+use crate::postgres::customscan::joinscan::translator::{
+    build_equi_join_exprs, make_col, PredicateTranslator,
+};
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
@@ -66,10 +70,11 @@ pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
     topk: Option<&DataFusionTopK>,
+    join_level_predicates: &[JoinLevelSearchPredicate],
     ctx: &SessionContext,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     // Step 1: Build the join DataFrame from the RelNode tree
-    let df = build_relnode_df(ctx, plan).await?;
+    let df = build_relnode_df(ctx, plan, join_level_predicates).await?;
 
     // Step 2: Build GROUP BY expressions
     let group_exprs: Vec<Expr> = targetlist
@@ -140,6 +145,7 @@ pub async fn build_join_aggregate_plan(
 fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
+    join_level_predicates: &'a [JoinLevelSearchPredicate],
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
@@ -151,8 +157,8 @@ fn build_relnode_df<'a>(
                 Ok(df.alias(&alias)?)
             }
             RelNode::Join(join) => {
-                let left_df = build_relnode_df(ctx, &join.left).await?;
-                let right_df = build_relnode_df(ctx, &join.right).await?;
+                let left_df = build_relnode_df(ctx, &join.left, join_level_predicates).await?;
+                let right_df = build_relnode_df(ctx, &join.right, join_level_predicates).await?;
 
                 let on = build_equi_join_exprs(join)?;
 
@@ -179,11 +185,50 @@ fn build_relnode_df<'a>(
                 }
             }
             RelNode::Filter(filter) => {
-                // For now, filters in the RelNode tree are not expected for aggregate queries.
-                // The search predicates are pushed into PgSearchTableProvider at scan level.
-                let df = build_relnode_df(ctx, &filter.input).await?;
-                // TODO: translate filter.predicate to DataFusion Expr if needed
-                Ok(df)
+                let df = build_relnode_df(ctx, &filter.input, join_level_predicates).await?;
+
+                if join_level_predicates.is_empty() {
+                    // No predicates to apply — pass through
+                    return Ok(df);
+                }
+
+                // Build a ctid_map: plan_position → ctid column expression.
+                // In the aggregate path, ctid columns are real (not deferred),
+                // and the ctid field is named "ctid" (from WhichFastField::Ctid)
+                // in the table provider schema. After aliasing, it's accessible
+                // as `<alias>.ctid`.
+                let sources = filter.input.sources();
+                let ctid_map: crate::api::HashMap<pgrx::pg_sys::Index, Expr> = sources
+                    .iter()
+                    .map(|s| {
+                        let alias = RelationAlias::new(s.scan_info.alias.as_deref())
+                            .execution(s.plan_position);
+                        let ctid_col = make_col(&alias, "ctid");
+                        (s.plan_position as pgrx::pg_sys::Index, ctid_col)
+                    })
+                    .collect();
+
+                // No deferred positions in aggregate path (no VisibilityFilterExec)
+                let deferred_positions = crate::api::HashSet::default();
+
+                let filter_expr = unsafe {
+                    PredicateTranslator::translate_join_level_expr(
+                        &filter.predicate,
+                        &[], // no multi-table predicate custom_exprs
+                        &ctid_map,
+                        join_level_predicates,
+                        &deferred_positions,
+                        &sources,
+                    )
+                }
+                .ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "Failed to translate aggregate filter expression: {:?}",
+                        filter.predicate
+                    ))
+                })?;
+
+                df.filter(filter_expr)
             }
         }
     }

@@ -232,6 +232,7 @@ impl CustomScan for AggregateScan {
                 plan,
                 targetlist,
                 topk,
+                join_level_predicates,
             } => {
                 // Replace Aggrefs for DataFusion path too
                 unsafe {
@@ -243,6 +244,7 @@ impl CustomScan for AggregateScan {
                     plan,
                     targetlist,
                     topk,
+                    join_level_predicates,
                     runtime: None,
                     stream: None,
                     current_batch: None,
@@ -288,6 +290,16 @@ impl CustomScan for AggregateScan {
                         .map(|gc| gc.field_name.clone())
                         .collect();
                     explainer.add_text("Group By", groups.join(", "));
+                }
+
+                // Show join-level search predicates (cross-table WHERE filters)
+                if !df_state.join_level_predicates.is_empty() {
+                    let preds: Vec<String> = df_state
+                        .join_level_predicates
+                        .iter()
+                        .map(|p| p.display_string.clone())
+                        .collect();
+                    explainer.add_text("Search Filter", preds.join(" AND "));
                 }
 
                 // Show aggregates
@@ -865,10 +877,10 @@ impl AggregateScan {
         }
 
         // Extract the join tree from the parse tree
-        let mut plan = match unsafe {
+        let (mut plan, join_level_predicates) = match unsafe {
             extract_join_tree_from_parse(root, &sources, builder.args().input_rel())
         } {
-            Ok(plan) => plan,
+            Ok(result) => result,
             Err(e) => {
                 Self::add_planner_warning(
                     format!("Aggregate Scan (DataFusion) not used: {}", e),
@@ -928,6 +940,7 @@ impl AggregateScan {
             plan,
             targetlist,
             topk,
+            join_level_predicates,
         })]
     }
 
@@ -962,6 +975,7 @@ impl AggregateScan {
                     &df_state.plan,
                     &df_state.targetlist,
                     df_state.topk.as_ref(),
+                    &df_state.join_level_predicates,
                     &ctx,
                 )
                 .await?;

@@ -18,7 +18,7 @@
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
-use crate::postgres::customscan::joinscan::build::RelNode;
+use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelNode};
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
@@ -56,6 +56,11 @@ pub enum PrivateData {
         targetlist: JoinAggregateTargetList,
         /// Optional TopK sort+limit pushed down from Postgres.
         topk: Option<DataFusionTopK>,
+        /// Cross-table search predicates extracted from WHERE quals.
+        /// These are @@@ predicates that reference multiple tables and cannot
+        /// be pushed to individual table scans.
+        #[serde(default)]
+        join_level_predicates: Vec<JoinLevelSearchPredicate>,
     },
 }
 

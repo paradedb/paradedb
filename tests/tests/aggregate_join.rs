@@ -277,3 +277,51 @@ fn test_join_aggregate_after_delete(mut conn: PgConnection) {
         "After deleting laptop with 2 tags, count should decrease by 2"
     );
 }
+
+/// Regression: when JoinScan (CustomPath) is cheapest_total_path, the aggregate
+/// scan's `has_non_equi_join_quals` could not see `joinrestrictinfo` and silently
+/// dropped cross-table OR predicates, returning wrong COUNT(*).
+///
+/// We force JoinScan to be preferred by disabling seqscan/indexscan, then verify
+/// that a cross-table OR still produces the same count with aggregate scan ON
+/// vs OFF.
+#[rstest]
+fn test_cross_table_or_with_joinscan_and_aggregate_scan(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+
+    // Force JoinScan to be cheapest_total_path by making native scans expensive
+    r#"
+        SET enable_seqscan TO off;
+        SET enable_indexscan TO off;
+        SET paradedb.enable_join_custom_scan TO on;
+        SET paradedb.enable_aggregate_custom_scan TO on;
+    "#
+    .execute(&mut conn);
+
+    // Cross-table OR: description @@@ 'laptop' matches products 1,2,5 (6 joined rows)
+    // tag_name @@@ 'fitness' matches tag 5 → product 3 (1 joined row)
+    // Total expected: 7
+    let (count_agg_on,) = r#"
+        SELECT COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop' OR t.tag_name @@@ 'fitness'
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    // Same query with aggregate scan OFF (baseline via native Postgres execution)
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let (count_agg_off,) = r#"
+        SELECT COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop' OR t.tag_name @@@ 'fitness'
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    assert_eq!(
+        count_agg_on, count_agg_off,
+        "Cross-table OR: aggregate scan ON ({count_agg_on}) must match OFF ({count_agg_off})"
+    );
+    assert_eq!(count_agg_on, 7, "Expected 7 rows (6 laptops + 1 fitness)");
+}

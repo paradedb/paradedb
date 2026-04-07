@@ -1011,8 +1011,7 @@ mod tests {
 
     #[rstest]
     fn test_default_config_numeric64() {
-        let ft = SearchFieldType::Numeric64(pg_sys::NUMERICOID, 2);
-        let config = ft.default_config();
+        let config = SearchFieldConfig::default_numeric64(2);
         match config {
             SearchFieldConfig::Numeric { scale, .. } => assert_eq!(scale, Some(2)),
             _ => panic!("expected Numeric config"),
@@ -1021,8 +1020,7 @@ mod tests {
 
     #[rstest]
     fn test_default_config_numeric_bytes() {
-        let ft = SearchFieldType::NumericBytes(pg_sys::NUMERICOID, Some(4));
-        let config = ft.default_config();
+        let config = SearchFieldConfig::default_numeric_bytes(Some(4));
         match config {
             SearchFieldConfig::Numeric { scale, .. } => assert_eq!(scale, Some(4)),
             _ => panic!("expected Numeric config"),
@@ -1031,9 +1029,7 @@ mod tests {
 
     #[rstest]
     fn test_default_config_ltree() {
-        let oid: pg_sys::Oid = 99999.into();
-        let ft = SearchFieldType::Ltree(oid);
-        let config = ft.default_config();
+        let config = SearchFieldConfig::default_ltree();
         assert!(matches!(config, SearchFieldConfig::Facet));
     }
 }

@@ -19,7 +19,9 @@ use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
 use crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK;
-use crate::postgres::customscan::joinscan::build::{JoinLevelSearchPredicate, RelNode};
+use crate::postgres::customscan::joinscan::build::{
+    JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
+};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
@@ -46,6 +48,16 @@ pub struct DataFusionAggState {
     pub topk: Option<DataFusionTopK>,
     /// Cross-table search predicates for join-level filtering.
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
+    /// Non-@@@ cross-table predicates (descriptions for EXPLAIN).
+    pub multi_table_predicates: Vec<MultiTablePredicateInfo>,
+    /// Raw PG Expr pointers from custom_exprs (after setrefs transforms
+    /// Var nodes to INDEX_VAR references). Used to translate non-@@@
+    /// cross-table predicates at execution time.
+    pub custom_exprs: *mut pg_sys::List,
+    /// The custom_scan_tlist from the CustomScan node. Used to resolve
+    /// INDEX_VAR references in custom_exprs back to original (rti, attno)
+    /// pairs during DataFusion expression translation.
+    pub custom_scan_tlist: *mut pg_sys::List,
     /// Tokio runtime for async DataFusion execution.
     pub runtime: Option<tokio::runtime::Runtime>,
     /// DataFusion result stream.

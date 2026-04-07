@@ -30,17 +30,36 @@ use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
     FilterNode, JoinKeyPair, JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource,
-    JoinSourceCandidate, JoinType, PlannerRootId, RelNode,
+    JoinSourceCandidate, JoinType, MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
+use crate::postgres::customscan::joinscan::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid, get_rte};
-use crate::postgres::deparse::deparse_expr;
+use crate::postgres::deparse::{deparse_expr, node_to_string_fallback};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_collect_rtis, expr_contains_any_operator};
+use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
+
+/// Result type for `extract_join_tree_from_parse`: the plan tree, search
+/// predicates, multi-table predicate info, and raw PG Expr clause pointers.
+type JoinTreeResult = (
+    RelNode,
+    Vec<JoinLevelSearchPredicate>,
+    Vec<MultiTablePredicateInfo>,
+    Vec<*mut pg_sys::Expr>,
+);
+
+/// Result type for `build_search_filter`: the filter expression, search
+/// predicates, multi-table predicate info, and raw PG Expr clause pointers.
+type SearchFilterResult = (
+    JoinLevelExpr,
+    Vec<JoinLevelSearchPredicate>,
+    Vec<MultiTablePredicateInfo>,
+    Vec<*mut pg_sys::Expr>,
+);
 
 /// Metadata about a table participating in the join, collected during parse-tree walk.
 #[derive(Debug)]
@@ -116,7 +135,7 @@ pub unsafe fn extract_join_tree_from_parse(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinAggSource],
     input_rel: &pg_sys::RelOptInfo,
-) -> Result<(RelNode, Vec<JoinLevelSearchPredicate>), String> {
+) -> Result<JoinTreeResult, String> {
     let parse = (*root).parse;
     if parse.is_null() {
         return Err("parse tree is null".into());
@@ -142,21 +161,27 @@ pub unsafe fn extract_join_tree_from_parse(
         source.plan_position = position;
     }
 
-    // Build a FilterNode from cross-table @@@ predicates using
+    // Build a FilterNode from cross-table predicates using
     // transform_to_agg_search_expr for the actual transformation.
+    // Handles both @@@ predicates and non-@@@ cross-table predicates
+    // (like `b.id > 5`) that reference fast fields.
     //
     // Try path-based extraction first, then fall back to the parse tree's
     // FromExpr.quals. The path walk can miss predicates when the cheapest
     // path isn't a standard join type (e.g. with certain GUC combinations),
     // while the parse tree is always available.
     let mut join_level_predicates = Vec::new();
+    let mut multi_table_predicates = Vec::new();
+    let mut multi_table_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
 
     // 1. Path-based extraction
     if !path_info.search_clauses.is_empty() {
-        if let Some((filter_expr, predicates)) =
+        if let Some((filter_expr, predicates, mt_predicates, mt_clauses)) =
             build_search_filter(root, &path_info.search_clauses, sources, &plan)
         {
             join_level_predicates = predicates;
+            multi_table_predicates = mt_predicates;
+            multi_table_clauses = mt_clauses;
             plan = RelNode::Filter(Box::new(FilterNode {
                 input: plan,
                 predicate: filter_expr,
@@ -165,15 +190,19 @@ pub unsafe fn extract_join_tree_from_parse(
     }
 
     // 2. Fallback: parse tree quals
-    if join_level_predicates.is_empty() && !(*jointree).quals.is_null() {
-        let search_op = anyelement_query_input_opoid();
+    if join_level_predicates.is_empty()
+        && multi_table_predicates.is_empty()
+        && !(*jointree).quals.is_null()
+    {
         let mut parse_clauses = Vec::new();
-        collect_cross_table_search_quals((*jointree).quals, search_op, &mut parse_clauses);
+        collect_cross_table_search_quals((*jointree).quals, &mut parse_clauses);
         if !parse_clauses.is_empty() {
-            if let Some((filter_expr, predicates)) =
+            if let Some((filter_expr, predicates, mt_predicates, mt_clauses)) =
                 build_search_filter(root, &parse_clauses, sources, &plan)
             {
                 join_level_predicates = predicates;
+                multi_table_predicates = mt_predicates;
+                multi_table_clauses = mt_clauses;
                 plan = RelNode::Filter(Box::new(FilterNode {
                     input: plan,
                     predicate: filter_expr,
@@ -182,7 +211,12 @@ pub unsafe fn extract_join_tree_from_parse(
         }
     }
 
-    Ok((plan, join_level_predicates))
+    Ok((
+        plan,
+        join_level_predicates,
+        multi_table_predicates,
+        multi_table_clauses,
+    ))
 }
 
 /// Walk a `FromExpr` and produce a `RelNode` tree.
@@ -590,20 +624,25 @@ unsafe fn walk_path_restrictinfo(
             }
         }
 
-        // 2. Cross-table @@@ predicate?
-        // Only count if the expression is *entirely* composed of @@@ leaves
-        // and boolean combinators (AND/OR/NOT). Mixed expressions like
-        // `NOT (a.name @@@ 'x' AND b.id > 5)` contain @@@ but have
-        // non-@@@ sub-expressions that transform_to_agg_search_expr can't
-        // handle — those must fall through to "unhandled".
+        // 2. Cross-table predicate?
+        // Covers both @@@ predicates and non-@@@ cross-table predicates
+        // (like `b.id > 5`) that reference fast fields and can be translated.
         //
         // Single-table @@@ predicates (rtis.len() == 1) are already handled
         // via baserestrictinfo in build_scan_node — they don't appear here
         // under normal planning. If one does, it's counted as unhandled
         // (conservative: reject the path rather than risk double-applying).
-        if expr_contains_any_operator(clause, &[search_op]) && is_pure_search_bool_expr(clause) {
-            let rtis = expr_collect_rtis(clause);
-            if rtis.len() > 1 {
+        let rtis = expr_collect_rtis(clause);
+        if rtis.len() > 1 {
+            let has_search = expr_contains_any_operator(clause, &[search_op]);
+            // For @@@ predicates: accept if all leaves are @@@ or can be handled
+            // For non-@@@ predicates: accept if all vars are fast fields
+            let acceptable = if has_search {
+                true // transform_to_agg_search_expr will validate the full tree
+            } else {
+                all_vars_are_fast_fields_for_agg(clause, sources)
+            };
+            if acceptable {
                 // Deduplicate: the same clause can appear in multiple path
                 // branches when the planner explores alternative join orders.
                 if !info.search_clauses.iter().any(|&c| std::ptr::eq(c, clause)) {
@@ -661,9 +700,17 @@ pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
 pub unsafe fn populate_required_fields(
     plan: &mut RelNode,
     targetlist: &super::join_targetlist::JoinAggregateTargetList,
+    multi_table_clauses: &[*mut pg_sys::Expr],
 ) -> Result<(), String> {
     let join_keys = plan.join_keys();
     let mut sources = plan.sources_mut();
+
+    // Collect Var references from multi-table predicate clauses so their
+    // columns are registered in the PgSearchTableProvider schema.
+    let multi_table_vars: Vec<crate::postgres::utils::VarRef> = multi_table_clauses
+        .iter()
+        .flat_map(|&clause| expr_collect_vars(clause.cast(), false))
+        .collect();
 
     // Open relations once per source and reuse throughout
     let source_rels: Vec<_> = sources
@@ -744,6 +791,24 @@ pub unsafe fn populate_required_fields(
                 }
             }
         }
+
+        // Add fields referenced in multi-table predicate clauses — these
+        // are cross-table expressions like `b.id > 5` that DataFusion
+        // evaluates at join time. Their columns must be in the schema.
+        for var_ref in &multi_table_vars {
+            if source.contains_rti(var_ref.rti) {
+                match resolve_fast_field(var_ref.attno as i32, &tupdesc, indexrel) {
+                    Some(field) => source.scan_info.add_field(var_ref.attno, field),
+                    None => {
+                        return Err(format!(
+                            "multi-table predicate column (attno={}) is not a fast field on table {}",
+                            var_ref.attno,
+                            source.scan_info.heaprelid.to_u32()
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     Ok(())
@@ -753,43 +818,70 @@ pub unsafe fn populate_required_fields(
 // Cross-table @@@ predicate extraction for AggregateScan
 // ---------------------------------------------------------------------------
 
-/// Check whether an expression is composed entirely of @@@ operator leaves
-/// and boolean combinators (AND/OR/NOT). Returns false for mixed expressions
-/// like `NOT (a.name @@@ 'x' AND b.id > 5)` where `b.id > 5` is not @@@.
-unsafe fn is_pure_search_bool_expr(node: *mut pg_sys::Node) -> bool {
-    if node.is_null() {
-        return false;
+/// Check if all Var references in an expression are fast fields, using
+/// `JoinAggSource` metadata (aggregate scan variant of the JoinScan
+/// `all_vars_are_fast_fields_recursive`).
+unsafe fn all_vars_are_fast_fields_for_agg(
+    node: *mut pg_sys::Node,
+    sources: &[JoinAggSource],
+) -> bool {
+    let vars = expr_collect_vars(node, false);
+
+    for var_ref in vars {
+        let mut source_found = false;
+        for source in sources {
+            if source.rti == var_ref.rti {
+                let bm25_index = match &source.bm25_index {
+                    Some(idx) => idx,
+                    None => return false,
+                };
+                let heaprel = PgSearchRelation::open(source.relid);
+                if resolve_fast_field(var_ref.attno as i32, &heaprel.tuple_desc(), bm25_index)
+                    .is_none()
+                {
+                    return false;
+                }
+                source_found = true;
+                break;
+            }
+        }
+        if !source_found {
+            return false;
+        }
     }
-    let tag = (*node).type_;
-    if tag == pg_sys::NodeTag::T_OpExpr {
-        let op = node as *mut pg_sys::OpExpr;
-        return crate::api::operator::is_anyelement_search_opoid((*op).opno);
-    }
-    if tag == pg_sys::NodeTag::T_BoolExpr {
-        let args = PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::BoolExpr)).args);
-        return args.iter_ptr().all(|arg| is_pure_search_bool_expr(arg));
-    }
-    false
+
+    true
 }
 
-/// Transform collected cross-table @@@ clause pointers into a `JoinLevelExpr`
+/// Transform collected cross-table clause pointers into a `JoinLevelExpr`
 /// tree using [`transform_to_agg_search_expr`], which works directly with
 /// `JoinAggSource` and avoids the `JoinCSClause`/`find_base_info_recursive`
 /// path that doesn't have the right internal structure in the aggregate context.
+///
+/// Returns `(filter_expr, search_predicates, multi_table_predicates, multi_table_clauses)`.
 unsafe fn build_search_filter(
     root: *mut pg_sys::PlannerInfo,
     clauses: &[*mut pg_sys::Node],
     sources: &[JoinAggSource],
     plan: &RelNode,
-) -> Option<(JoinLevelExpr, Vec<JoinLevelSearchPredicate>)> {
+) -> Option<SearchFilterResult> {
     let mut predicates = Vec::new();
+    let mut multi_table_predicates = Vec::new();
+    let mut multi_table_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
     let mut expr_trees: Vec<JoinLevelExpr> = Vec::new();
 
     for &clause in clauses {
-        match transform_to_agg_search_expr(root, clause, sources, plan, &mut predicates) {
+        match transform_to_agg_search_expr(
+            root,
+            clause,
+            sources,
+            plan,
+            &mut predicates,
+            &mut multi_table_predicates,
+            &mut multi_table_clauses,
+        ) {
             Some(expr) => expr_trees.push(expr),
-            // If any clause can't be fully transformed (e.g. it mixes @@@
-            // with non-@@@ sub-expressions like `i.id > 5`), bail out.
+            // If any clause can't be fully transformed, bail out.
             // Returning None leaves the clause as "unhandled", which causes
             // has_non_equi_join_quals to reject the DataFusion path.
             None => return None,
@@ -806,18 +898,26 @@ unsafe fn build_search_filter(
         JoinLevelExpr::And(expr_trees)
     };
 
-    Some((final_expr, predicates))
+    Some((
+        final_expr,
+        predicates,
+        multi_table_predicates,
+        multi_table_clauses,
+    ))
 }
 
 /// Recursively transform a parse-tree expression into a [`JoinLevelExpr`],
 /// extracting single-table @@@ predicates directly from [`JoinAggSource`]
-/// metadata instead of going through JoinScan's `find_base_info_recursive`.
+/// metadata, and non-@@@ cross-table predicates as `MultiTablePredicate`
+/// nodes (mirroring JoinScan's pattern in `predicate.rs:200-213`).
 unsafe fn transform_to_agg_search_expr(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
     sources: &[JoinAggSource],
     plan: &RelNode,
     predicates: &mut Vec<JoinLevelSearchPredicate>,
+    multi_table_predicates: &mut Vec<MultiTablePredicateInfo>,
+    multi_table_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Option<JoinLevelExpr> {
     if node.is_null() {
         return None;
@@ -876,15 +976,46 @@ unsafe fn transform_to_agg_search_expr(
         });
     }
 
+    // Non-@@@ cross-table expression: create MultiTablePredicate leaf.
+    // Mirrors JoinScan's pattern in predicate.rs:200-213.
+    if !has_search_op && rtis.len() > 1 {
+        // All vars must be fast fields
+        if !all_vars_are_fast_fields_for_agg(node, sources) {
+            return None;
+        }
+
+        // Trial-translate to verify DataFusion can handle it
+        let plan_sources = plan.sources();
+        let sources_ref: Vec<&JoinSource> = plan_sources.to_vec();
+        let translator = PredicateTranslator::new(&sources_ref);
+        translator.translate(node)?;
+
+        // Store as a MultiTablePredicate
+        let description = node_to_string_fallback(node);
+        let predicate_idx = multi_table_predicates.len();
+        multi_table_predicates.push(MultiTablePredicateInfo {
+            description,
+            restrictinfo_index: multi_table_clauses.len(),
+        });
+        multi_table_clauses.push(node as *mut pg_sys::Expr);
+        return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
+    }
+
     // Handle List nodes: Postgres may wrap quals in a List (common on PG18).
     // Treat as an implicit AND of the list elements.
     if (*node).type_ == pg_sys::NodeTag::T_List {
         let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
         let mut children = Vec::new();
         for item in list.iter_ptr() {
-            if let Some(child_expr) =
-                transform_to_agg_search_expr(root, item, sources, plan, predicates)
-            {
+            if let Some(child_expr) = transform_to_agg_search_expr(
+                root,
+                item,
+                sources,
+                plan,
+                predicates,
+                multi_table_predicates,
+                multi_table_clauses,
+            ) {
                 children.push(child_expr);
             } else {
                 return None;
@@ -909,9 +1040,15 @@ unsafe fn transform_to_agg_search_expr(
             pg_sys::BoolExprType::AND_EXPR | pg_sys::BoolExprType::OR_EXPR => {
                 let mut children = Vec::new();
                 for arg in args.iter_ptr() {
-                    if let Some(child_expr) =
-                        transform_to_agg_search_expr(root, arg, sources, plan, predicates)
-                    {
+                    if let Some(child_expr) = transform_to_agg_search_expr(
+                        root,
+                        arg,
+                        sources,
+                        plan,
+                        predicates,
+                        multi_table_predicates,
+                        multi_table_clauses,
+                    ) {
                         children.push(child_expr);
                     } else {
                         return None;
@@ -929,9 +1066,15 @@ unsafe fn transform_to_agg_search_expr(
             }
             pg_sys::BoolExprType::NOT_EXPR => {
                 if let Some(arg) = args.iter_ptr().next() {
-                    if let Some(child_expr) =
-                        transform_to_agg_search_expr(root, arg, sources, plan, predicates)
-                    {
+                    if let Some(child_expr) = transform_to_agg_search_expr(
+                        root,
+                        arg,
+                        sources,
+                        plan,
+                        predicates,
+                        multi_table_predicates,
+                        multi_table_clauses,
+                    ) {
                         return Some(JoinLevelExpr::Not(Box::new(child_expr)));
                     }
                 }
@@ -945,11 +1088,10 @@ unsafe fn transform_to_agg_search_expr(
 }
 
 /// Walk a parse-tree expression (typically `FromExpr.quals`) and collect
-/// cross-table @@@ clause pointers. Flattens top-level AND conjuncts and
-/// selects only those that contain @@@ and reference >1 relation.
+/// cross-table clause pointers. Flattens top-level AND conjuncts and
+/// selects those that reference >1 relation (either @@@ or non-@@@ with fast fields).
 unsafe fn collect_cross_table_search_quals(
     node: *mut pg_sys::Node,
-    search_op: pg_sys::Oid,
     clauses: &mut Vec<*mut pg_sys::Node>,
 ) {
     if node.is_null() {
@@ -961,16 +1103,14 @@ unsafe fn collect_cross_table_search_quals(
         if (*boolexpr).boolop == pg_sys::BoolExprType::AND_EXPR {
             let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
             for arg in args.iter_ptr() {
-                collect_cross_table_search_quals(arg, search_op, clauses);
+                collect_cross_table_search_quals(arg, clauses);
             }
             return;
         }
     }
-    // Keep cross-table @@@ conjuncts
-    if expr_contains_any_operator(node, &[search_op]) {
-        let rtis = expr_collect_rtis(node);
-        if rtis.len() > 1 {
-            clauses.push(node);
-        }
+    // Keep cross-table conjuncts (both @@@ and non-@@@)
+    let rtis = expr_collect_rtis(node);
+    if rtis.len() > 1 {
+        clauses.push(node);
     }
 }

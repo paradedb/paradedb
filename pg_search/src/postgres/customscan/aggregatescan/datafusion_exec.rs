@@ -36,7 +36,7 @@ use crate::postgres::customscan::joinscan::build::{
 };
 use crate::postgres::customscan::joinscan::scan_state::build_base_session;
 use crate::postgres::customscan::joinscan::translator::{
-    build_equi_join_exprs, make_col, PredicateTranslator,
+    build_equi_join_exprs, make_col, ColumnMapper, PredicateTranslator,
 };
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
@@ -47,6 +47,7 @@ use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
+use pgrx::pg_sys;
 
 /// Creates a DataFusion [`SessionContext`] for aggregate workloads.
 ///
@@ -71,10 +72,19 @@ pub async fn build_join_aggregate_plan(
     targetlist: &JoinAggregateTargetList,
     topk: Option<&DataFusionTopK>,
     join_level_predicates: &[JoinLevelSearchPredicate],
+    custom_exprs: *mut pg_sys::List,
+    custom_scan_tlist: *mut pg_sys::List,
     ctx: &SessionContext,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     // Step 1: Build the join DataFrame from the RelNode tree
-    let df = build_relnode_df(ctx, plan, join_level_predicates).await?;
+    let df = build_relnode_df(
+        ctx,
+        plan,
+        join_level_predicates,
+        custom_exprs,
+        custom_scan_tlist,
+    )
+    .await?;
 
     // Step 2: Build GROUP BY expressions
     let group_exprs: Vec<Expr> = targetlist
@@ -146,6 +156,8 @@ fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
     join_level_predicates: &'a [JoinLevelSearchPredicate],
+    custom_exprs: *mut pg_sys::List,
+    custom_scan_tlist: *mut pg_sys::List,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
@@ -157,8 +169,22 @@ fn build_relnode_df<'a>(
                 Ok(df.alias(&alias)?)
             }
             RelNode::Join(join) => {
-                let left_df = build_relnode_df(ctx, &join.left, join_level_predicates).await?;
-                let right_df = build_relnode_df(ctx, &join.right, join_level_predicates).await?;
+                let left_df = build_relnode_df(
+                    ctx,
+                    &join.left,
+                    join_level_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
+                )
+                .await?;
+                let right_df = build_relnode_df(
+                    ctx,
+                    &join.right,
+                    join_level_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
+                )
+                .await?;
 
                 let on = build_equi_join_exprs(join)?;
 
@@ -185,9 +211,18 @@ fn build_relnode_df<'a>(
                 }
             }
             RelNode::Filter(filter) => {
-                let df = build_relnode_df(ctx, &filter.input, join_level_predicates).await?;
+                let df = build_relnode_df(
+                    ctx,
+                    &filter.input,
+                    join_level_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
+                )
+                .await?;
 
-                if join_level_predicates.is_empty() {
+                let has_predicates = !join_level_predicates.is_empty() || !custom_exprs.is_null();
+
+                if !has_predicates {
                     // No predicates to apply — pass through
                     return Ok(df);
                 }
@@ -198,23 +233,50 @@ fn build_relnode_df<'a>(
                 // in the table provider schema. After aliasing, it's accessible
                 // as `<alias>.ctid`.
                 let sources = filter.input.sources();
-                let ctid_map: crate::api::HashMap<pgrx::pg_sys::Index, Expr> = sources
+                let ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = sources
                     .iter()
                     .map(|s| {
                         let alias = RelationAlias::new(s.scan_info.alias.as_deref())
                             .execution(s.plan_position);
                         let ctid_col = make_col(&alias, "ctid");
-                        (s.plan_position as pgrx::pg_sys::Index, ctid_col)
+                        (s.plan_position as pg_sys::Index, ctid_col)
                     })
                     .collect();
 
                 // No deferred positions in aggregate path (no VisibilityFilterExec)
                 let deferred_positions = crate::api::HashSet::default();
 
+                // Translate custom_exprs (non-@@@ cross-table predicates) using
+                // PredicateTranslator, mirroring JoinScan's scan_state.rs:562-576.
+                // After setrefs, Vars in custom_exprs are INDEX_VAR references
+                // that index into custom_scan_tlist. We need a mapper to resolve
+                // them back to the correct DataFusion column names.
+                let mut translated_exprs = Vec::new();
+                if !custom_exprs.is_null() {
+                    let mapper = AggregateIndexVarMapper {
+                        sources: &sources,
+                        custom_scan_tlist,
+                    };
+                    let translator =
+                        PredicateTranslator::new(&sources).with_mapper(Box::new(mapper));
+                    unsafe {
+                        let expr_list = pgrx::PgList::<pg_sys::Node>::from_pg(custom_exprs);
+                        for (i, expr_node) in expr_list.iter_ptr().enumerate() {
+                            let expr = translator.translate(expr_node).ok_or_else(|| {
+                                DataFusionError::Internal(format!(
+                                    "Failed to translate aggregate custom expression at index {}",
+                                    i
+                                ))
+                            })?;
+                            translated_exprs.push(expr);
+                        }
+                    }
+                }
+
                 let filter_expr = unsafe {
                     PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
-                        &[], // no multi-table predicate custom_exprs
+                        &translated_exprs,
                         &ctid_map,
                         join_level_predicates,
                         &deferred_positions,
@@ -233,6 +295,48 @@ fn build_relnode_df<'a>(
         }
     }
     .boxed_local()
+}
+
+/// Maps INDEX_VAR references (from setrefs-transformed custom_exprs) back to
+/// DataFusion column names. In the aggregate scan, custom_scan_tlist mirrors
+/// the plan's targetlist (plus any Vars we added for predicates), and INDEX_VAR
+/// varattno indexes into it. We resolve each Var by looking up the original
+/// (rti, attno) from custom_scan_tlist and finding the corresponding source.
+struct AggregateIndexVarMapper<'a> {
+    sources: &'a [&'a JoinSource],
+    custom_scan_tlist: *mut pg_sys::List,
+}
+
+impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
+    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        let (rti, attno) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
+            // INDEX_VAR: look up the original Var from custom_scan_tlist.
+            // varattno is 1-indexed into the target list.
+            unsafe {
+                let tlist = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(self.custom_scan_tlist);
+                let idx = (varattno - 1) as usize;
+                let te = tlist.get_ptr(idx)?;
+                if (*(*te).expr).type_ != pg_sys::NodeTag::T_Var {
+                    return None;
+                }
+                let var = (*te).expr as *mut pg_sys::Var;
+                ((*var).varno as pg_sys::Index, (*var).varattno)
+            }
+        } else {
+            (varno, varattno)
+        };
+
+        let (plan_position, source) = self
+            .sources
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.contains_rti(rti))?;
+
+        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+
+        let field_name = source.column_name(attno)?;
+        Some(make_col(&alias, &field_name))
+    }
 }
 
 /// Build a DataFusion [`DataFrame`] for a single scan source.

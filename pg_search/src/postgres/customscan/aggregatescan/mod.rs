@@ -150,58 +150,99 @@ impl CustomScan for AggregateScan {
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
-        match builder.custom_private() {
-            PrivateData::Tantivy {
-                heap_rti,
-                aggregate_clause,
-                ..
-            } => {
-                let heap_rti = *heap_rti;
-                let should_replace = aggregate_clause.planner_should_replace_aggrefs();
-                builder.set_scanrelid(heap_rti);
-                if should_replace {
-                    unsafe {
-                        let mut cscan = builder.build();
-                        let plan = &mut cscan.scan.plan;
-                        replace_aggrefs_in_target_list(plan);
-                        cscan
-                    }
-                } else {
-                    builder.build()
-                }
-            }
-            PrivateData::DataFusion { .. } => {
-                // For join aggregates, scanrelid=0 (no single base relation)
-                builder.set_scanrelid(0);
+        // Extract values from private data before the match to avoid borrow conflicts.
+        let (is_tantivy, heap_rti_val, should_replace_val, clause_count_val) =
+            match builder.custom_private() {
+                PrivateData::Tantivy {
+                    heap_rti,
+                    aggregate_clause,
+                    ..
+                } => (
+                    true,
+                    *heap_rti,
+                    aggregate_clause.planner_should_replace_aggrefs(),
+                    0usize,
+                ),
+                PrivateData::DataFusion {
+                    multi_table_clause_count,
+                    ..
+                } => (false, 0, false, *multi_table_clause_count),
+            };
 
-                // Check if the query has pathkeys (ORDER BY) before consuming builder.
-                let root = builder.args().root;
-                let has_pathkeys = unsafe {
-                    !(*root).query_pathkeys.is_null()
-                        && pg_sys::list_length((*root).query_pathkeys) > 0
-                };
-
+        if is_tantivy {
+            builder.set_scanrelid(heap_rti_val);
+            if should_replace_val {
                 unsafe {
                     let mut cscan = builder.build();
-
-                    // Set custom_scan_tlist so Postgres can resolve variable references
-                    // when Sort/Limit nodes are placed above this scanrelid=0 CustomScan.
-                    // This is a copy of the original targetlist (with Aggrefs intact) —
-                    // setrefs.c uses it to create INDEX_VAR references in parent nodes.
-                    let original_tlist = cscan.scan.plan.targetlist;
-                    cscan.custom_scan_tlist =
-                        pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
-
-                    if !has_pathkeys {
-                        // No ORDER BY: safe to replace Aggrefs at plan time.
-                        let plan = &mut cscan.scan.plan;
-                        replace_aggrefs_in_target_list(plan);
-                    }
-                    // When has_pathkeys: aggrefs stay in plan.targetlist so Postgres's
-                    // make_sort_from_pathkeys can find them. Replacement is deferred to
-                    // create_custom_scan_state (execution time).
+                    let plan = &mut cscan.scan.plan;
+                    replace_aggrefs_in_target_list(plan);
                     cscan
                 }
+            } else {
+                builder.build()
+            }
+        } else {
+            // For join aggregates, scanrelid=0 (no single base relation)
+            builder.set_scanrelid(0);
+
+            // Check if the query has pathkeys (ORDER BY) before consuming builder.
+            let root = builder.args().root;
+            let has_pathkeys = unsafe {
+                !(*root).query_pathkeys.is_null() && pg_sys::list_length((*root).query_pathkeys) > 0
+            };
+
+            let clause_count = clause_count_val;
+            let best_path = builder.args().best_path;
+
+            unsafe {
+                let mut cscan = builder.build();
+
+                // Set custom_scan_tlist so Postgres can resolve variable references
+                // when Sort/Limit nodes are placed above this scanrelid=0 CustomScan.
+                // This is a copy of the original targetlist (with Aggrefs intact) —
+                // setrefs.c uses it to create INDEX_VAR references in parent nodes.
+                let original_tlist = cscan.scan.plan.targetlist;
+                cscan.custom_scan_tlist =
+                    pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
+
+                // Move raw PG Expr pointers from custom_private to custom_exprs
+                // so setrefs transforms their Var nodes to INDEX_VAR references.
+                if clause_count > 0 {
+                    // Before moving to custom_exprs, ensure all Vars referenced
+                    // in the predicate clauses are present in custom_scan_tlist.
+                    // setrefs needs them there to create INDEX_VAR references.
+                    let path_private_full =
+                        PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+                    let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(cscan.custom_scan_tlist);
+                    // Skip index 0 (PrivateData JSON)
+                    for i in 1..path_private_full.len() {
+                        if let Some(node_ptr) = path_private_full.get_ptr(i) {
+                            add_vars_to_tlist(node_ptr, &mut tlist);
+                        }
+                    }
+                    cscan.custom_scan_tlist = tlist.into_pg();
+
+                    let path_private_full =
+                        PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+                    let mut custom_exprs_list = PgList::<pg_sys::Node>::from_pg(cscan.custom_exprs);
+                    // Skip index 0 (PrivateData JSON)
+                    for i in 1..path_private_full.len() {
+                        if let Some(node_ptr) = path_private_full.get_ptr(i) {
+                            custom_exprs_list.push(node_ptr);
+                        }
+                    }
+                    cscan.custom_exprs = custom_exprs_list.into_pg();
+                }
+
+                if !has_pathkeys {
+                    // No ORDER BY: safe to replace Aggrefs at plan time.
+                    let plan = &mut cscan.scan.plan;
+                    replace_aggrefs_in_target_list(plan);
+                }
+                // When has_pathkeys: aggrefs stay in plan.targetlist so Postgres's
+                // make_sort_from_pathkeys can find them. Replacement is deferred to
+                // create_custom_scan_state (execution time).
+                cscan
             }
         }
     }
@@ -233,18 +274,24 @@ impl CustomScan for AggregateScan {
                 targetlist,
                 topk,
                 join_level_predicates,
+                multi_table_predicates,
+                ..
             } => {
                 // Replace Aggrefs for DataFusion path too
-                unsafe {
+                let (custom_exprs, custom_scan_tlist) = unsafe {
                     let cscan = builder.args().cscan;
                     let pg_plan = &mut (*cscan).scan.plan;
                     replace_aggrefs_in_target_list(pg_plan);
-                }
+                    ((*cscan).custom_exprs, (*cscan).custom_scan_tlist)
+                };
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
                     plan,
                     targetlist,
                     topk,
                     join_level_predicates,
+                    multi_table_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
                     runtime: None,
                     stream: None,
                     current_batch: None,
@@ -300,6 +347,16 @@ impl CustomScan for AggregateScan {
                         .map(|p| p.display_string.clone())
                         .collect();
                     explainer.add_text("Search Filter", preds.join(" AND "));
+                }
+
+                // Show multi-table predicates (non-@@@ cross-table filters)
+                if !df_state.multi_table_predicates.is_empty() {
+                    let preds: Vec<String> = df_state
+                        .multi_table_predicates
+                        .iter()
+                        .map(|p| p.description.clone())
+                        .collect();
+                    explainer.add_text("Multi-Table Filter", preds.join(" AND "));
                 }
 
                 // Show aggregates
@@ -877,7 +934,7 @@ impl AggregateScan {
         }
 
         // Extract the join tree from the parse tree
-        let (mut plan, join_level_predicates) = match unsafe {
+        let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) = match unsafe {
             extract_join_tree_from_parse(root, &sources, builder.args().input_rel())
         } {
             Ok(result) => result,
@@ -918,9 +975,9 @@ impl AggregateScan {
 
         // Populate the fast fields on each source so PgSearchTableProvider exposes them.
         // This fails if join key fields aren't indexed as fast fields.
-        if let Err(e) =
-            unsafe { datafusion_build::populate_required_fields(&mut plan, &targetlist) }
-        {
+        if let Err(e) = unsafe {
+            datafusion_build::populate_required_fields(&mut plan, &targetlist, &multi_table_clauses)
+        } {
             Self::add_planner_warning(
                 format!("Aggregate Scan (DataFusion) not used: {}", e),
                 "join".to_string(),
@@ -936,12 +993,31 @@ impl AggregateScan {
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
         // Build the custom path with DataFusion private data
-        vec![builder.build(PrivateData::DataFusion {
+        let multi_table_clause_count = multi_table_clauses.len();
+        let mut custom_path = builder.build(PrivateData::DataFusion {
             plan,
             targetlist,
             topk,
             join_level_predicates,
-        })]
+            multi_table_predicates,
+            multi_table_clause_count,
+        });
+
+        // Append raw PG Expr pointers to custom_private after the serialized
+        // PrivateData. Structure: [PrivateData JSON, expr_1, expr_2, ...]
+        // These will be moved to custom_exprs in plan_custom_path so that
+        // setrefs transforms their Var nodes to INDEX_VAR references.
+        if !multi_table_clauses.is_empty() {
+            unsafe {
+                let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
+                for clause in multi_table_clauses {
+                    private_list.push(clause.cast());
+                }
+                custom_path.custom_private = private_list.into_pg();
+            }
+        }
+
+        vec![custom_path]
     }
 
     /// Execute the DataFusion aggregate path: build plan, consume Arrow batches,
@@ -970,12 +1046,16 @@ impl AggregateScan {
 
             let ctx = create_aggregate_session_context();
 
+            let custom_exprs = df_state.custom_exprs;
+            let custom_scan_tlist = df_state.custom_scan_tlist;
             let physical_plan = runtime.block_on(async {
                 let logical = build_join_aggregate_plan(
                     &df_state.plan,
                     &df_state.targetlist,
                     df_state.topk.as_ref(),
                     &df_state.join_level_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
                     &ctx,
                 )
                 .await?;
@@ -1350,4 +1430,97 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
     } else {
         "UNKNOWN".to_string()
     }
+}
+
+/// Add Var nodes referenced by an expression to `custom_scan_tlist` if they
+/// are not already present. This ensures `set_customscan_references` can
+/// create INDEX_VAR references for expressions in `custom_exprs`.
+unsafe fn add_vars_to_tlist(expr_node: *mut pg_sys::Node, tlist: &mut PgList<pg_sys::TargetEntry>) {
+    if expr_node.is_null() {
+        return;
+    }
+
+    let vars = crate::postgres::utils::expr_collect_vars(expr_node, false);
+    for var_ref in vars {
+        // Check if this (varno, varattno) already exists in the target list
+        let already_present = tlist.iter_ptr().any(|te| {
+            if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
+                let existing = (*te).expr as *mut pg_sys::Var;
+                (*existing).varno as pg_sys::Index == var_ref.rti
+                    && (*existing).varattno == var_ref.attno
+            } else {
+                false
+            }
+        });
+
+        if !already_present {
+            // Look up the type info for this Var from the range table entry
+            // by creating a Var node that matches the original column.
+            let resno = tlist.len() as pg_sys::AttrNumber + 1;
+
+            // We need to find the original Var in the expression tree to copy its type info
+            let original_var = find_var_in_expr(expr_node, var_ref.rti, var_ref.attno);
+            if let Some(var_ptr) = original_var {
+                let new_var = pg_sys::copyObjectImpl(var_ptr.cast()).cast::<pg_sys::Var>();
+                let te = pg_sys::makeTargetEntry(
+                    new_var.cast(),
+                    resno,
+                    std::ptr::null_mut(),
+                    true, // resjunk = true (not needed in output)
+                );
+                tlist.push(te);
+            }
+        }
+    }
+}
+
+/// Find a Var node with the given (varno, varattno) in an expression tree.
+unsafe fn find_var_in_expr(
+    node: *mut pg_sys::Node,
+    target_varno: pg_sys::Index,
+    target_attno: pg_sys::AttrNumber,
+) -> Option<*mut pg_sys::Var> {
+    if node.is_null() {
+        return None;
+    }
+
+    if (*node).type_ == pg_sys::NodeTag::T_Var {
+        let var = node as *mut pg_sys::Var;
+        if (*var).varno as pg_sys::Index == target_varno && (*var).varattno == target_attno {
+            return Some(var);
+        }
+    }
+
+    // Walk into known composite node types
+    match (*node).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let op = node as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+            for arg in args.iter_ptr() {
+                if let Some(v) = find_var_in_expr(arg, target_varno, target_attno) {
+                    return Some(v);
+                }
+            }
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = node as *mut pg_sys::BoolExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            for arg in args.iter_ptr() {
+                if let Some(v) = find_var_in_expr(arg, target_varno, target_attno) {
+                    return Some(v);
+                }
+            }
+        }
+        pg_sys::NodeTag::T_List => {
+            let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+            for item in list.iter_ptr() {
+                if let Some(v) = find_var_in_expr(item, target_varno, target_attno) {
+                    return Some(v);
+                }
+            }
+        }
+        _ => {}
+    }
+
+    None
 }

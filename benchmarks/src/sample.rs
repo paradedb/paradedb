@@ -19,7 +19,7 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use duckdb::Connection;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use crate::duckdb_utils::open_duckdb_conn;
@@ -60,8 +60,8 @@ pub struct SampleConfig {
 pub struct TableConfig {
     pub name: String,
     pub parent: Option<String>,
-    pub parent_key: Option<String>,
-    pub foreign_key: Option<String>,
+    pub parent_join_col: Option<String>,
+    pub join_col: Option<String>,
 }
 
 /// Returns table names in topological order (root first, then children).
@@ -74,7 +74,7 @@ fn topological_order(config: &SampleConfig) -> Result<Vec<usize>> {
         .collect();
 
     let mut order = Vec::with_capacity(config.tables.len());
-    let mut processed: HashMap<&str, bool> = HashMap::new();
+    let mut processed: HashSet<&str> = HashSet::new();
 
     // Start with the root table.
     let root_idx = *name_to_idx
@@ -85,29 +85,35 @@ fn topological_order(config: &SampleConfig) -> Result<Vec<usize>> {
                 config.root_table
             )
         })?;
+    if config.tables[root_idx].parent.is_some() {
+        bail!(
+            "Root table '{}' cannot have a parent table.",
+            config.root_table
+        )
+    }
     order.push(root_idx);
-    processed.insert(&config.root_table, true);
+    processed.insert(&config.root_table);
 
-    // Iteratively add tables whose parent has been processed.
+    // Iteratively add tables whose parent has been processed. Repeat until no progress is made
     let mut progress = true;
     while progress {
         progress = false;
         for (i, table) in config.tables.iter().enumerate() {
-            if processed.contains_key(table.name.as_str()) {
+            if processed.contains(table.name.as_str()) {
                 continue;
             }
             if let Some(parent) = &table.parent {
-                if processed.contains_key(parent.as_str()) {
+                if processed.contains(parent.as_str()) {
                     // Validate that child tables have the required keys.
-                    if table.parent_key.is_none() || table.foreign_key.is_none() {
+                    if table.parent_join_col.is_none() || table.join_col.is_none() {
                         bail!(
-                            "Table '{}' has a parent '{}' but is missing parent_key or foreign_key",
+                            "Table '{}' has a parent '{}' but is missing parent_join_col or join_col",
                             table.name,
                             parent
                         );
                     }
                     order.push(i);
-                    processed.insert(&table.name, true);
+                    processed.insert(&table.name);
                     progress = true;
                 }
             } else if table.name != config.root_table {
@@ -122,7 +128,7 @@ fn topological_order(config: &SampleConfig) -> Result<Vec<usize>> {
 
     // Check for unprocessed tables (cycle or missing parent).
     for table in &config.tables {
-        if !processed.contains_key(table.name.as_str()) {
+        if !processed.contains(table.name.as_str()) {
             bail!(
                 "Table '{}' could not be processed. Its parent '{}' is not in the config or there is a cycle.",
                 table.name,
@@ -242,8 +248,8 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     for &idx in &order[1..] {
         let table = &config.tables[idx];
         let parent = table.parent.as_ref().unwrap();
-        let parent_key = table.parent_key.as_ref().unwrap();
-        let foreign_key = table.foreign_key.as_ref().unwrap();
+        let parent_join_key = table.parent_join_col.as_ref().unwrap();
+        let join_key = table.join_col.as_ref().unwrap();
         let glob = parquet_glob_pattern(input, &table.name);
 
         println!(
@@ -255,11 +261,11 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
             "CREATE TABLE sampled_{name} AS \
              SELECT c.* \
              FROM read_parquet('{glob}') c \
-             INNER JOIN sampled_{parent} p ON c.\"{fk}\" = p.\"{pk}\"",
+             INNER JOIN sampled_{parent} p ON c.\"{jk}\" = p.\"{pk}\"",
             name = table.name,
             parent = parent,
-            fk = foreign_key,
-            pk = parent_key,
+            jk = join_key,
+            pk = parent_join_key,
         );
         conn.execute_batch(&sql)
             .with_context(|| format!("Failed to sample child table '{}'", table.name))?;

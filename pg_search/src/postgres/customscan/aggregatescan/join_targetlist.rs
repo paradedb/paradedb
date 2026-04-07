@@ -24,7 +24,7 @@
 
 use super::datafusion_build::JoinAggSource;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
-use crate::postgres::var::{fieldname_from_var, find_one_aggref, find_one_var};
+use crate::postgres::var::{fieldname_from_var, find_one_aggref};
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -268,9 +268,14 @@ unsafe fn extract_aggref_field_refs(
     for arg_ptr in args.iter_ptr() {
         let expr = (*arg_ptr).expr;
 
-        // The argument may be a direct Var or wrapped in COALESCE / RelabelType
-        let var = find_one_var(expr as *mut pg_sys::Node)
-            .ok_or("aggregate argument must reference a column (Var)")?;
+        // The argument must be a bare Var (possibly wrapped in RelabelType).
+        // Reject complex expressions like COALESCE(score, 0) — find_one_var
+        // would strip the wrapper, causing DataFusion to compute e.g. SUM(score)
+        // instead of the intended SUM(COALESCE(score, 0)).
+        let var = unwrap_to_var(expr as *mut pg_sys::Node).ok_or(
+            "aggregate argument must be a direct column reference; \
+                     wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join",
+        )?;
 
         let rti = (*var).varno as pg_sys::Index;
         let attno = (*var).varattno;
@@ -295,4 +300,20 @@ unsafe fn extract_aggref_field_refs(
     }
 
     Ok(refs)
+}
+
+/// Unwrap an expression to a bare `Var`, allowing only `RelabelType` wrappers.
+/// Returns `None` for anything more complex (COALESCE, FuncExpr, etc.)
+/// so the caller can reject and fall back to native Postgres.
+unsafe fn unwrap_to_var(mut node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+    while !node.is_null() {
+        match (*node).type_ {
+            pg_sys::NodeTag::T_Var => return Some(node as *mut pg_sys::Var),
+            pg_sys::NodeTag::T_RelabelType => {
+                node = (*(node as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node;
+            }
+            _ => return None,
+        }
+    }
+    None
 }

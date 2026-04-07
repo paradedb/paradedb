@@ -591,11 +591,17 @@ unsafe fn walk_path_restrictinfo(
         }
 
         // 2. Cross-table @@@ predicate?
+        // Only count if the expression is *entirely* composed of @@@ leaves
+        // and boolean combinators (AND/OR/NOT). Mixed expressions like
+        // `NOT (a.name @@@ 'x' AND b.id > 5)` contain @@@ but have
+        // non-@@@ sub-expressions that transform_to_agg_search_expr can't
+        // handle — those must fall through to "unhandled".
+        //
         // Single-table @@@ predicates (rtis.len() == 1) are already handled
         // via baserestrictinfo in build_scan_node — they don't appear here
         // under normal planning. If one does, it's counted as unhandled
         // (conservative: reject the path rather than risk double-applying).
-        if expr_contains_any_operator(clause, &[search_op]) {
+        if expr_contains_any_operator(clause, &[search_op]) && is_pure_search_bool_expr(clause) {
             let rtis = expr_collect_rtis(clause);
             if rtis.len() > 1 {
                 // Deduplicate: the same clause can appear in multiple path
@@ -746,6 +752,26 @@ pub unsafe fn populate_required_fields(
 // ---------------------------------------------------------------------------
 // Cross-table @@@ predicate extraction for AggregateScan
 // ---------------------------------------------------------------------------
+
+/// Check whether an expression is composed entirely of @@@ operator leaves
+/// and boolean combinators (AND/OR/NOT). Returns false for mixed expressions
+/// like `NOT (a.name @@@ 'x' AND b.id > 5)` where `b.id > 5` is not @@@.
+unsafe fn is_pure_search_bool_expr(node: *mut pg_sys::Node) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    let tag = (*node).type_;
+    if tag == pg_sys::NodeTag::T_OpExpr {
+        let op = node as *mut pg_sys::OpExpr;
+        return crate::api::operator::is_anyelement_search_opoid((*op).opno);
+    }
+    if tag == pg_sys::NodeTag::T_BoolExpr {
+        let args = PgList::<pg_sys::Node>::from_pg((*(node as *mut pg_sys::BoolExpr)).args);
+        return args.iter_ptr().all(|arg| is_pure_search_bool_expr(arg));
+    }
+    false
+}
+
 /// Transform collected cross-table @@@ clause pointers into a `JoinLevelExpr`
 /// tree using [`transform_to_agg_search_expr`], which works directly with
 /// `JoinAggSource` and avoids the `JoinCSClause`/`find_base_info_recursive`
@@ -760,10 +786,13 @@ unsafe fn build_search_filter(
     let mut expr_trees: Vec<JoinLevelExpr> = Vec::new();
 
     for &clause in clauses {
-        if let Some(expr) =
-            transform_to_agg_search_expr(root, clause, sources, plan, &mut predicates)
-        {
-            expr_trees.push(expr);
+        match transform_to_agg_search_expr(root, clause, sources, plan, &mut predicates) {
+            Some(expr) => expr_trees.push(expr),
+            // If any clause can't be fully transformed (e.g. it mixes @@@
+            // with non-@@@ sub-expressions like `i.id > 5`), bail out.
+            // Returning None leaves the clause as "unhandled", which causes
+            // has_non_equi_join_quals to reject the DataFusion path.
+            None => return None,
         }
     }
 

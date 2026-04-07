@@ -31,9 +31,7 @@ use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
 use crate::api::tokenizers::type_can_be_tokenized;
-use crate::api::tokenizers::{
-    try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
-};
+use crate::api::tokenizers::{try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -420,15 +418,7 @@ unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys:
     if !vars_equal_ignoring_varno(expr_var, var) {
         return false;
     }
-    // the Var is the expression that matches the Var we're looking for
-    // but lets make sure the whole expression is one without an alias
-    // we pick the first un-aliased custom tokenizer expression that uses the
-    // Var as the matching indexed expression
-    let typmod = pg_sys::exprTypmod(expr.cast());
-    let alias = UncheckedTypmod::try_from(typmod)
-        .unwrap_or_else(|e| panic!("{e}"))
-        .alias();
-    alias.is_none()
+    true
 }
 
 pub unsafe fn field_name_from_node(
@@ -465,6 +455,11 @@ pub unsafe fn field_name_from_node(
         // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
 
         let expressions = indexrel.index_expressions();
+
+        // We collect all candidate field names so that if there are multiple valid ones
+        // that can't be disambiguated we can return an error.
+        let mut candidate_field_names: Vec<FieldName> = vec![];
+
         let mut expr_no = 0;
         for i in 0..index_info.ii_NumIndexAttrs {
             let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
@@ -510,7 +505,8 @@ pub unsafe fn field_name_from_node(
                             }
 
                             if var_matches_tokenizer_expr(var, arg.cast()) {
-                                return Some(FieldName::from(fields[position].field_name.clone()));
+                                candidate_field_names
+                                    .push(FieldName::from(fields[position].field_name.clone()));
                             }
                         }
                     }
@@ -519,14 +515,45 @@ pub unsafe fn field_name_from_node(
                     if type_can_be_tokenized((*var).vartype)
                         && var_matches_tokenizer_expr(var, expression.cast())
                     {
-                        return attname_from_var(heaprel, var);
+                        let oid = pg_sys::exprType(expression.cast());
+                        let typmod = pg_sys::exprTypmod(expression.cast());
+                        if let Some(field_name) = try_get_alias(oid, typmod)
+                            .map(FieldName::from)
+                            .or_else(|| attname_from_var(heaprel, var))
+                        {
+                            candidate_field_names.push(field_name);
+                        }
                     }
                     expr_no += 1;
                 }
             }
         }
+        match &candidate_field_names[..] {
+            [] => {
+                return None;
+            }
+            [field_name] => {
+                return Some(field_name.clone());
+            }
+            _ => {
+                let mut names: Vec<String> = candidate_field_names
+                    .into_iter()
+                    .map(|f| format!("`{}`", f))
+                    .collect();
+                names.sort();
 
-        return None;
+                let column_name = attname_from_var(heaprel, var)
+                    .map(|f| f.to_string())
+                    .unwrap_or_else(|| "<unknown>".to_string());
+
+                panic!(
+                    "Query is ambiguous: column `{}` matches multiple indexed fields: {}. Use `{}::pdb.alias(...)` to choose one",
+                    column_name,
+                    names.join(", "),
+                    column_name
+                );
+            }
+        }
     }
 
     //
@@ -872,6 +899,59 @@ where
         exec_rewrite(field, lhs, rhs).palloc().cast()
     };
     rhs
+}
+
+/// Returns `true` if the given OID is a text-like scalar type (text, varchar, or citext).
+fn is_text_like(oid: pg_sys::Oid) -> bool {
+    oid == pg_sys::TEXTOID || oid == pg_sys::VARCHAROID || is_citext_oid(oid)
+}
+
+/// Returns `true` if the given OID is a text-like array type (text[] or varchar[]).
+fn is_text_array_like(oid: pg_sys::Oid) -> bool {
+    oid == pg_sys::TEXTARRAYOID || oid == pg_sys::VARCHARARRAYOID
+}
+
+/// Build a [`pg_sys::FuncExpr`] for a text-or-text-array RHS in an `exec_rewrite` callback.
+///
+/// Checks the RHS expression type and dispatches to the appropriate builder function.
+/// `text_fn` and `array_fn` are `regprocedure` strings for the scalar and array variants.
+unsafe fn build_text_funcexpr(
+    field: FieldName,
+    rhs: *mut pg_sys::Node,
+    operator_name: &str,
+    text_fn: &std::ffi::CStr,
+    array_fn: &std::ffi::CStr,
+) -> pg_sys::FuncExpr {
+    let expr_type = get_expr_result_type(rhs);
+    let is_array = is_text_array_like(expr_type);
+    if !(is_text_like(expr_type) || is_array) {
+        panic!(
+            "The right-hand side of the `{operator_name}` operator must be a text or text array value"
+        );
+    }
+
+    let sig = if is_array { array_fn } else { text_fn };
+    let funcid = direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[sig.into_datum()])
+        .unwrap_or_else(|| panic!("`{}` should exist", sig.to_str().unwrap()));
+
+    let mut args = PgList::<pg_sys::Node>::new();
+    args.push(field.into_const().cast());
+    args.push(rhs.cast());
+
+    pg_sys::FuncExpr {
+        xpr: pg_sys::Expr {
+            type_: pg_sys::NodeTag::T_FuncExpr,
+        },
+        funcid,
+        funcresulttype: searchqueryinput_typoid(),
+        funcretset: false,
+        funcvariadic: false,
+        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        funccollid: pg_sys::Oid::INVALID,
+        inputcollid: pg_sys::Oid::INVALID,
+        args: args.into_pg(),
+        location: -1,
+    }
 }
 
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that

@@ -30,7 +30,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use anyhow::anyhow;
-use pgrx::pg_sys;
+use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ptr::NonNull;
@@ -266,14 +266,31 @@ pub struct JoinLevelSearchPredicate {
     pub display_string: String,
 }
 
+pub use crate::postgres::customscan::expr_eval::InputVarInfo;
+
 /// Projection information for a child join.
 /// Maps an output attribute (by index in the vector) to the source column.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChildProjection {
-    pub rti: pg_sys::Index,
-    pub attno: pg_sys::AttrNumber,
-    #[serde(default)]
-    pub is_score: bool,
+pub enum ChildProjection {
+    /// Simple column reference
+    Column {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Score function
+    Score { rti: pg_sys::Index },
+    /// An indexed expression handled by existing fast field machinery
+    IndexedExpression {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Arbitrary PG expression evaluated via PgExprUdf
+    Expression {
+        rti: pg_sys::Index,
+        pg_expr_string: String,
+        input_vars: Vec<InputVarInfo>,
+        result_type_oid: pg_sys::Oid,
+    },
 }
 
 use crate::index::mvcc::MvccSatisfies;
@@ -661,6 +678,80 @@ impl RelNode {
         unsupported
     }
 
+    /// Rewrites equi-join keys that reference columns pruned by child semi/anti
+    /// joins so they instead reference output-visible equivalents.
+    ///
+    /// For example, given the tree `p SEMI (c SEMI d)` where the inner semi-join
+    /// has key `c.id = d.company_id`, if the outer semi-join's key is
+    /// `p.company_id = d.company_id` (derived by PostgreSQL's transitive closure),
+    /// `d.company_id` is pruned by the inner semi-join. This method rewrites
+    /// the outer key to `p.company_id = c.id` using the inner join's equivalence.
+    ///
+    /// Returns `true` if all keys are (or were made) valid. Returns `false` if
+    /// a pruned reference cannot be resolved to an output-visible equivalent.
+    pub unsafe fn rewrite_pruned_join_keys(&mut self, root: *mut pg_sys::PlannerInfo) -> bool {
+        match self {
+            RelNode::Scan(_) => true,
+            RelNode::Join(j) => {
+                if !j.left.rewrite_pruned_join_keys(root) || !j.right.rewrite_pruned_join_keys(root)
+                {
+                    return false;
+                }
+
+                let left_output_rtis = j.left.output_rtis();
+                let right_output_rtis = j.right.output_rtis();
+
+                let all_output_rtis: Vec<pg_sys::Index> = left_output_rtis
+                    .iter()
+                    .chain(right_output_rtis.iter())
+                    .copied()
+                    .collect();
+
+                for jk in &mut j.equi_keys {
+                    let forward_ok = left_output_rtis.contains(&jk.outer_rti)
+                        && right_output_rtis.contains(&jk.inner_rti);
+                    let reversed_ok = left_output_rtis.contains(&jk.inner_rti)
+                        && right_output_rtis.contains(&jk.outer_rti);
+                    if forward_ok || reversed_ok {
+                        continue;
+                    }
+
+                    let outer_ok = left_output_rtis.contains(&jk.outer_rti)
+                        || right_output_rtis.contains(&jk.outer_rti);
+                    let inner_ok = left_output_rtis.contains(&jk.inner_rti)
+                        || right_output_rtis.contains(&jk.inner_rti);
+
+                    if !outer_ok
+                        && !substitute_pruned_key_side(
+                            root,
+                            &all_output_rtis,
+                            jk.outer_rti,
+                            jk.outer_attno,
+                            &mut jk.outer_rti,
+                            &mut jk.outer_attno,
+                        )
+                    {
+                        return false;
+                    }
+                    if !inner_ok
+                        && !substitute_pruned_key_side(
+                            root,
+                            &all_output_rtis,
+                            jk.inner_rti,
+                            jk.inner_attno,
+                            &mut jk.inner_rti,
+                            &mut jk.inner_attno,
+                        )
+                    {
+                        return false;
+                    }
+                }
+                true
+            }
+            RelNode::Filter(f) => f.input.rewrite_pruned_join_keys(root),
+        }
+    }
+
     /// Returns true if the query tree contains a SEMI or ANTI join at any level.
     pub fn has_semi_or_anti(&self) -> bool {
         match self {
@@ -841,6 +932,72 @@ impl RelNode {
             RelNode::Filter(f) => f.input.explain_internal(is_root),
         }
     }
+}
+
+/// Finds an output-visible equivalent for `(pruned_rti, pruned_attno)` by
+/// searching PostgreSQL planner equivalence classes and writes it into
+/// `out_rti` and `out_attno`. Returns `true` on success.
+#[inline]
+unsafe fn substitute_pruned_key_side(
+    root: *mut pg_sys::PlannerInfo,
+    output_rtis: &[pg_sys::Index],
+    pruned_rti: pg_sys::Index,
+    pruned_attno: pg_sys::AttrNumber,
+    out_rti: &mut pg_sys::Index,
+    out_attno: &mut pg_sys::AttrNumber,
+) -> bool {
+    if root.is_null() {
+        return false;
+    }
+
+    let eq_classes = PgList::<pg_sys::EquivalenceClass>::from_pg((*root).eq_classes);
+    for eqc in eq_classes.iter_ptr() {
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eqc).ec_members);
+        let mut contains_pruned = false;
+        let mut replacement: Option<(pg_sys::Index, pg_sys::AttrNumber)> = None;
+
+        for member in members.iter_ptr() {
+            let mut node = (*member).em_expr.cast::<pg_sys::Node>();
+            while !node.is_null() {
+                match (*node).type_ {
+                    pg_sys::NodeTag::T_RelabelType => {
+                        node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+                    }
+                    pg_sys::NodeTag::T_PlaceHolderVar => {
+                        node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+                    }
+                    _ => break,
+                }
+            }
+
+            if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+                continue;
+            }
+
+            let var = node as *mut pg_sys::Var;
+            let rti = (*var).varno as pg_sys::Index;
+            let attno = (*var).varattno;
+
+            if rti == pruned_rti && attno == pruned_attno {
+                contains_pruned = true;
+                continue;
+            }
+
+            if output_rtis.contains(&rti) && replacement.is_none() {
+                replacement = Some((rti, attno));
+            }
+        }
+
+        if contains_pruned {
+            if let Some((rti, attno)) = replacement {
+                *out_rti = rti;
+                *out_attno = attno;
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 impl Default for RelNode {

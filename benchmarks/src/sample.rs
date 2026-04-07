@@ -233,8 +233,8 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     // disable multi-threading, required for deterministic output
     // See: https://duckdb.org/docs/current/sql/samples#syntax
-    conn.execute("SET threads = 1;", [])
-        .with_context(|| "Failed to set thread count")?;
+    //conn.execute("SET threads = 1;", [])
+    //.with_context(|| "Failed to set thread count")?;
 
     let sampling_method = sampling_method(target);
     let sql = format!(

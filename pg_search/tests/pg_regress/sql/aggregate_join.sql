@@ -60,7 +60,7 @@ WITH (
 -- =====================================================================
 
 -- Test 1.1: COUNT(*) — verifies basic join + aggregate works
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -72,7 +72,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
 
 -- Test 1.2: Multiple aggregates (COUNT, SUM, AVG)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -84,7 +84,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
 
 -- Test 1.3: MIN/MAX
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -223,20 +223,187 @@ WHERE p.description @@@ 'laptop OR orphan';
 DELETE FROM agg_join_products WHERE description = 'Orphan product no tags';
 
 -- =====================================================================
--- SECTION 6: Verify single-table aggregates still use Tantivy
+-- SECTION 6: COUNT(DISTINCT) on JOIN
 -- =====================================================================
 
--- Test 6.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+-- Test 6.1: COUNT(DISTINCT) — routed through DataFusion via count_udaf(distinct=true).
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category, COUNT(DISTINCT t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+SELECT p.category, COUNT(DISTINCT t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 6.2: COUNT(DISTINCT) parity — verify same result with custom scan off
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(DISTINCT t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 6.3: COUNT(DISTINCT) on the other join side (products table column)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT t.tag_name, COUNT(DISTINCT p.category)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+SELECT t.tag_name, COUNT(DISTINCT p.category)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+-- Test 6.4: COUNT(DISTINCT) on other side — parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT t.tag_name, COUNT(DISTINCT p.category)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
+-- SECTION 7: LEFT JOIN aggregates
+-- =====================================================================
+
+-- Test 7.1: LEFT JOIN with COUNT — includes products with no tags
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category, COUNT(t.tag_name)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+SELECT p.category, COUNT(t.tag_name)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- Test 7.2: LEFT JOIN parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(t.tag_name), SUM(p.price)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, COUNT(t.tag_name), SUM(p.price)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 7.3: RIGHT JOIN with COUNT(left column) — includes tags without products
+INSERT INTO agg_join_tags (product_id, tag_name) VALUES (999, 'orphan_tag');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+-- Test 7.4: RIGHT JOIN parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT t.tag_name, COUNT(p.category)
+FROM agg_join_products p
+RIGHT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE t.tag_name @@@ 'tech OR orphan_tag'
+GROUP BY t.tag_name
+ORDER BY t.tag_name;
+
+DELETE FROM agg_join_tags
+WHERE product_id = 999 AND tag_name = 'orphan_tag';
+
+-- =====================================================================
+-- SECTION 8: Composite ON clause (T_List equi-key extraction)
+-- Postgres may wrap multi-condition ON clause quals in a T_List node
+-- rather than a T_BoolExpr(AND). This tests that code path.
+-- =====================================================================
+
+CREATE TABLE comp_a (id SERIAL PRIMARY KEY, description TEXT, x INT, y INT);
+CREATE TABLE comp_b (id SERIAL PRIMARY KEY, name TEXT, x INT, y INT);
+INSERT INTO comp_a VALUES (1,'laptop fast',10,20),(2,'shoes nice',30,40),(3,'laptop pro',10,20);
+INSERT INTO comp_b VALUES (1,'B1',10,20),(2,'B2',30,40);
+CREATE INDEX idx_comp_a ON comp_a USING bm25(id,description,x,y) WITH (key_field='id',text_fields='{"description":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+CREATE INDEX idx_comp_b ON comp_b USING bm25(id,name,x,y) WITH (key_field='id',text_fields='{"name":{}}',numeric_fields='{"x":{"fast":true},"y":{"fast":true}}');
+
+-- Test 8.1: Composite ON with two equi-join keys — should use DataFusion
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*)
+FROM comp_a a
+JOIN comp_b b ON a.x = b.x AND a.y = b.y
+WHERE a.description @@@ 'laptop OR shoes';
+
+SELECT COUNT(*)
+FROM comp_a a
+JOIN comp_b b ON a.x = b.x AND a.y = b.y
+WHERE a.description @@@ 'laptop OR shoes';
+
+-- Test 8.2: Parity check for composite ON
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*)
+FROM comp_a a
+JOIN comp_b b ON a.x = b.x AND a.y = b.y
+WHERE a.description @@@ 'laptop OR shoes';
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE comp_a;
+DROP TABLE comp_b;
+
+-- =====================================================================
+-- SECTION 9: Verify single-table aggregates still use Tantivy
+-- =====================================================================
+
+-- Test 9.1: Single-table should show Tantivy backend (Index:, not Backend: DataFusion)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 
 SELECT COUNT(*) FROM agg_join_products WHERE description @@@ 'laptop';
 
 -- =====================================================================
--- SECTION 7: Correctness parity — compare DataFusion vs Postgres default
+-- SECTION 10: Correctness parity — compare DataFusion vs Postgres default
 -- =====================================================================
 
--- Test 7.1: Run the same query with custom scan OFF to verify result parity
+-- Test 10.1: Run the same query with custom scan OFF to verify result parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 
 SELECT COUNT(*)
@@ -250,6 +417,158 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
 
 -- Restore
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
+-- SECTION 11: ORDER BY aggregate NULLS FIRST / NULLS LAST
+-- Tests that non-default NULL ordering in TopK produces correct results.
+-- LEFT JOIN creates groups with NULL SUM (no right-side matches).
+-- =====================================================================
+
+-- Setup: product with no matching tags -> SUM(t.product_id) will be NULL for this group
+INSERT INTO agg_join_products (id, description, price, category, rating)
+VALUES (9901, 'nullsort test alpha', 10.00, 'NullSortA', 1.0);
+INSERT INTO agg_join_products (id, description, price, category, rating)
+VALUES (9902, 'nullsort test beta', 20.00, 'NullSortB', 2.0);
+-- Give NullSortB some tags so its SUM is non-NULL
+INSERT INTO agg_join_tags (product_id, tag_name) VALUES (9902, 'real_tag_1');
+INSERT INTO agg_join_tags (product_id, tag_name) VALUES (9902, 'real_tag_2');
+
+-- Rebuild the BM25 index so the new rows are visible
+DROP INDEX agg_join_products_idx;
+CREATE INDEX agg_join_products_idx ON agg_join_products
+USING bm25 (id, description, category, price, rating)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
+);
+
+-- Test 11.1: DESC NULLS LAST — non-NULL rows should come first
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) DESC NULLS LAST
+LIMIT 2;
+
+-- Parity check
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) DESC NULLS LAST
+LIMIT 2;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 11.2: ASC NULLS FIRST — NULL rows should come first
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) ASC NULLS FIRST
+LIMIT 2;
+
+-- Parity check
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) ASC NULLS FIRST
+LIMIT 2;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 11.3: Default orderings (should still work — regression guard)
+-- DESC NULLS FIRST (default for DESC)
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) DESC
+LIMIT 2;
+
+-- Parity check
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, SUM(t.product_id)
+FROM agg_join_products p
+LEFT JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'nullsort'
+GROUP BY p.category
+ORDER BY SUM(t.product_id) DESC
+LIMIT 2;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Cleanup
+DELETE FROM agg_join_tags WHERE product_id IN (9901, 9902);
+DELETE FROM agg_join_products WHERE id IN (9901, 9902);
+
+-- =====================================================================
+-- SECTION 12: Non-COUNT DISTINCT aggregates fall back to native PG
+-- Verifies SUM(DISTINCT), AVG(DISTINCT) do NOT route through DataFusion.
+-- =====================================================================
+
+-- SUM(DISTINCT) should NOT show AggregateScan
+EXPLAIN (COSTS OFF)
+SELECT p.category, SUM(DISTINCT t.product_id)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- AVG(DISTINCT) should NOT show AggregateScan
+EXPLAIN (COSTS OFF)
+SELECT p.category, AVG(DISTINCT t.product_id)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- COUNT(DISTINCT) should still show AggregateScan (this still works)
+EXPLAIN (COSTS OFF)
+SELECT p.category, COUNT(DISTINCT t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- =====================================================================
+-- SECTION 13: Cross-table OR predicates (regression for generated_joins_small)
+-- =====================================================================
+-- Reproduces a proptest failure where COUNT(*) with an OR predicate spanning
+-- two join tables returned a different result under the aggregate scan path.
+-- The aggregate scan must not mishandle cross-table OR conditions.
+
+-- Test 13.1: Cross-table OR — aggregate scan vs native Postgres
+SELECT COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 13.2: Cross-table OR with @@@ on both sides
+SELECT COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
+
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================

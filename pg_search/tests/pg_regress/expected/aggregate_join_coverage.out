@@ -165,9 +165,9 @@ SELECT COUNT(*), COUNT(i.unit_price), SUM(o.quantity), AVG(o.quantity),
 FROM cov_orders o
 JOIN cov_items i ON o.id = i.order_id
 WHERE o.description @@@ 'laptop OR tablet';
- count | count | sum |         avg         | min | max |  sum  
--------+-------+-----+---------------------+-----+-----+-------
-     5 |     5 |  61 | 12.2000000000000000 |  39 | 999 | 32995
+ count | count | sum | avg  | min | max |  sum  
+-------+-------+-----+------+-----+-----+-------
+     5 |     5 |  61 | 12.2 |  39 | 999 | 32995
 (1 row)
 
 SET client_min_messages TO warning;

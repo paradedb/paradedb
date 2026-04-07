@@ -27,12 +27,12 @@ use crate::duckdb_utils::open_duckdb_conn;
 #[derive(Parser)]
 pub struct SampleArgs {
     /// Input path to the dataset (S3 or local).
-    /// Each table is a subdirectory containing CSV files.
+    /// Each table is a subdirectory containing parquet files.
     #[arg(long)]
     pub input: String,
 
-    /// Output path for the sampled CSV files (S3 or local).
-    /// CSV files will be written to subdirectories matching the table names.
+    /// Output path for the sampled parquet files (S3 or local).
+    /// Parquet files will be written to subdirectories matching the table names.
     #[arg(long)]
     pub output: String,
 
@@ -52,6 +52,7 @@ pub struct SampleArgs {
 #[derive(Deserialize)]
 pub struct SampleConfig {
     pub root_table: String,
+    pub root_primary_key: String,
     pub tables: Vec<TableConfig>,
 }
 
@@ -133,24 +134,28 @@ fn topological_order(config: &SampleConfig) -> Result<Vec<usize>> {
     Ok(order)
 }
 
-fn csv_glob_pattern(base: &str, table_name: &str) -> String {
-    format!("{base}/{table_name}/*.csv")
+fn parquet_glob_pattern(base: &str, table_name: &str) -> String {
+    format!("{base}/{table_name}/*.parquet")
 }
 
 fn count_rows(conn: &Connection, glob: &str) -> Result<u64> {
-    let sql = format!("SELECT count(*) FROM read_csv('{glob}', header = true)");
+    let sql = format!("SELECT count(*) FROM read_parquet('{glob}'");
     let count: u64 = conn
         .query_row(&sql, [], |row| row.get(0))
         .with_context(|| format!("Failed to count rows for '{glob}'"))?;
     Ok(count)
 }
 
-fn validate_table_has_csvs(conn: &Connection, glob: &str, table_name: &str) -> Result<bool> {
-    let sql = format!("SELECT count(*) > 0 FROM (SELECT filename FROM glob('{glob}') LIMIT 1)");
-    let exists: bool = conn
+fn validate_table_has_parquet_files(
+    conn: &Connection,
+    glob: &str,
+    table_name: &str,
+) -> Result<bool> {
+    let sql = format!("SELECT count(*) FROM (SELECT filename FROM glob('{glob}') LIMIT 1)");
+    let count: usize = conn
         .query_row(&sql, [], |row| row.get(0))
-        .with_context(|| format!("Failed to check CSV files for table '{table_name}'"))?;
-    Ok(exists)
+        .with_context(|| format!("Failed to check parquet files for table '{table_name}'"))?;
+    Ok(count > 0)
 }
 
 pub fn run_sample(args: SampleArgs) -> Result<()> {
@@ -164,22 +169,22 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
 
-    // Validate that all tables have CSV files.
+    // Validate that all tables have parquet files.
     println!("Validating input paths...");
     let mut missing_tables = Vec::new();
     for table in &config.tables {
-        let glob = csv_glob_pattern(input, &table.name);
-        if validate_table_has_csvs(&conn, &glob, &table.name)? {
+        let glob = parquet_glob_pattern(input, &table.name);
+        if validate_table_has_parquet_files(&conn, &glob, &table.name)? {
             println!("  {}: ok", table.name);
         } else {
-            println!("  {}: no CSV files found at '{glob}'", table.name);
+            println!("  {}: no parquet files found at '{glob}'", table.name);
             missing_tables.push(table.name.clone());
         }
     }
 
     if !missing_tables.is_empty() {
         bail!(
-            "No CSV files found for {} table(s): {}. Aborting.",
+            "No parquet files found for {} table(s): {}. Aborting.",
             missing_tables.len(),
             missing_tables.join(", ")
         );
@@ -190,7 +195,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     // Sample the root table.
     let root = &config.tables[order[0]];
-    let root_glob = csv_glob_pattern(input, &root.name);
+    let root_glob = parquet_glob_pattern(input, &root.name);
     let total_rows = count_rows(&conn, &root_glob)?;
 
     if total_rows == 0 {
@@ -205,30 +210,24 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         );
     }
 
-    let step = total_rows / target;
+    let sampling_divosor = total_rows / target;
     println!(
-        "\nSampling root table '{}': {total_rows} total rows, target {target}, every {step}th row",
+        "\nSampling root table '{}': {total_rows} total rows, target {target}, ~1 ov every {sampling_divosor}th row",
         root.name
     );
 
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
          SELECT * FROM ( \
-             SELECT *, row_number() OVER () AS _rn \
-             FROM read_csv('{glob}', header = true) \
-         ) WHERE (_rn - 1) % {step} = 0",
+             SELECT * 
+             FROM read_parquet('{glob}') \
+         ) md5_lower_number({primary_key}) % {sampling_divosor} = 0",
         name = root.name,
         glob = root_glob,
+        primary_key = config.root_primary_key,
     );
     conn.execute_batch(&sql)
         .with_context(|| format!("Failed to sample root table '{}'", root.name))?;
-
-    // Drop the helper column.
-    conn.execute_batch(&format!(
-        "ALTER TABLE sampled_{name} DROP COLUMN _rn",
-        name = root.name
-    ))
-    .with_context(|| format!("Failed to drop _rn column from sampled_{}", root.name))?;
 
     let sampled_root_count: u64 = conn
         .query_row(
@@ -245,7 +244,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         let parent = table.parent.as_ref().unwrap();
         let parent_key = table.parent_key.as_ref().unwrap();
         let foreign_key = table.foreign_key.as_ref().unwrap();
-        let glob = csv_glob_pattern(input, &table.name);
+        let glob = parquet_glob_pattern(input, &table.name);
 
         println!(
             "Sampling child table '{}' (parent: '{parent}')...",
@@ -255,7 +254,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         let sql = format!(
             "CREATE TABLE sampled_{name} AS \
              SELECT c.* \
-             FROM read_csv('{glob}', header = true) c \
+             FROM read_parquet('{glob}') c \
              INNER JOIN sampled_{parent} p ON c.\"{fk}\" = p.\"{pk}\"",
             name = table.name,
             parent = parent,
@@ -281,12 +280,12 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     }
 
     // Write output.
-    println!("\nWriting sampled CSV files...");
+    println!("\nWriting sampled parquet files...");
     for &idx in &order {
         let table = &config.tables[idx];
         println!("  Writing '{}'...", table.name);
         let sql = format!(
-            "COPY sampled_{name} TO '{output}/{name}/' (FORMAT CSV, HEADER true, ROWS_PER_FILE 2000000)",
+            "COPY sampled_{name} TO '{output}/{name}/' (FORMAT PARQUET, PER_THREAD_OUTPUT true)",
             name = table.name,
             output = output,
         );

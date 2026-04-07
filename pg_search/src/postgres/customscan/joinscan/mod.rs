@@ -398,7 +398,6 @@ impl JoinScan {
         consider_parallel: bool,
     ) -> Option<pg_sys::CustomPath> {
         let output_rtis = join_clause.plan.output_rtis();
-
         let current_sources = join_clause.plan.sources();
         let order_by = extract_orderby(
             root,

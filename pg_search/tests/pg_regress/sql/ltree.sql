@@ -58,7 +58,7 @@ SELECT id, category FROM tbl_ltree WHERE category @@@ 'Top.Science.Astronomy' OR
 SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY id;
 RESET paradedb.enable_columnar_exec;
 
--- Test &&& operator with ltree (exercises parse_with_field facet path)
+-- Test &&& operator with ltree (ltree is intentionally incompatible with &&&)
 SELECT id, category FROM tbl_ltree WHERE category &&& 'Top.Science.Biology' ORDER BY id;
 
 -- Test paradedb.term() query with ltree (exercises value_to_term facet branch)

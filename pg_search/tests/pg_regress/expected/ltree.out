@@ -98,14 +98,9 @@ SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY id;
 (7 rows)
 
 RESET paradedb.enable_columnar_exec;
--- Test &&& operator with ltree (exercises parse_with_field facet path)
+-- Test &&& operator with ltree (ltree is intentionally incompatible with &&&)
 SELECT id, category FROM tbl_ltree WHERE category &&& 'Top.Science.Biology' ORDER BY id;
- id |          category          
-----+----------------------------
-  2 | Top.Science.Biology
-  3 | Top.Science.Biology.Botany
-(2 rows)
-
+ERROR:  type `ltree` is not compatible with the `&&&` operator
 -- Test paradedb.term() query with ltree (exercises value_to_term facet branch)
 SELECT id, category FROM tbl_ltree
 WHERE tbl_ltree @@@ paradedb.term(field => 'category', value => 'Top.Hobbies.Photography')

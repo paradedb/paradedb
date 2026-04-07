@@ -817,10 +817,11 @@ pub enum SearchIndexSchemaError {
 
 #[cfg(test)]
 mod tests {
+    use pgrx::{pg_sys, PgOid};
     use rstest::rstest;
     use tantivy::schema::{IpAddrOptions, JsonObjectOptions, NumericOptions, TextOptions};
 
-    use crate::schema::SearchFieldConfig;
+    use crate::schema::{SearchFieldConfig, SearchFieldType};
 
     #[rstest]
     fn test_search_text_options() {

@@ -232,6 +232,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     }
 
     // disable multi-threading, required for deterministic output
+    // See: https://duckdb.org/docs/current/sql/samples#syntax
     conn.execute("SET threads = 1;", [])
         .with_context(|| "Failed to set thread count")?;
 
@@ -247,6 +248,10 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         method = sampling_method,
         rows = target,
         seed = config.sampling_seed,
+    );
+    println!(
+        "Sampling root table {} for {} rows. This may take a while...",
+        root.name, target
     );
     conn.execute_batch(&sql)
         .with_context(|| format!("Failed to sample root table '{}'", root.name))?;

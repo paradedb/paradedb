@@ -216,9 +216,9 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         );
     }
 
-    let sampling_divosor = total_rows / target;
+    let sampling_divisor = total_rows / target;
     println!(
-        "\nSampling root table '{}': {total_rows} total rows, target {target}, ~1 ov every {sampling_divosor}th row",
+        "\nSampling root table '{}': {total_rows} total rows, target {target}, ~1 ov every {sampling_divisor}th row",
         root.name
     );
 
@@ -227,7 +227,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
          SELECT * FROM ( \
              SELECT * 
              FROM read_parquet('{glob}') \
-         ) md5_lower_number({primary_key}) % {sampling_divosor} = 0",
+         ) md5_lower_number({primary_key}) % {sampling_divisor} = 0",
         name = root.name,
         glob = root_glob,
         primary_key = config.root_primary_key,
@@ -302,4 +302,143 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     println!("\nSampling complete.");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_table(name: &str, parent: Option<&str>) -> TableConfig {
+        TableConfig {
+            name: name.to_string(),
+            parent: parent.map(|s| s.to_string()),
+            parent_join_col: parent.map(|_| "parent_id".to_string()),
+            join_col: parent.map(|_| "id".to_string()),
+        }
+    }
+
+    fn make_config(root_table: &str, tables: Vec<TableConfig>) -> SampleConfig {
+        SampleConfig {
+            root_table: root_table.to_string(),
+            root_primary_key: "id".to_string(),
+            tables,
+        }
+    }
+
+    #[test]
+    fn single_root_table() {
+        let config = make_config("orders", vec![make_table("orders", None)]);
+        let order = topological_order(&config).unwrap();
+        assert_eq!(order, vec![0]);
+    }
+
+    #[test]
+    fn root_with_one_child() {
+        let config = make_config(
+            "orders",
+            vec![
+                make_table("orders", None),
+                make_table("line_items", Some("orders")),
+            ],
+        );
+        let order = topological_order(&config).unwrap();
+        assert_eq!(order, vec![0, 1]);
+    }
+
+    #[test]
+    fn root_with_multiple_children() {
+        let config = make_config(
+            "orders",
+            vec![
+                make_table("orders", None),
+                make_table("line_items", Some("orders")),
+                make_table("payments", Some("orders")),
+            ],
+        );
+        let order = topological_order(&config).unwrap();
+        assert_eq!(order[0], 0); // root first
+        let rest: HashSet<usize> = order[1..].iter().copied().collect();
+        assert_eq!(rest, HashSet::from([1, 2]));
+    }
+
+    #[test]
+    fn multi_level_hierarchy() {
+        // orders -> line_items -> shipments
+        let config = make_config(
+            "orders",
+            vec![
+                make_table("orders", None),
+                make_table("line_items", Some("orders")),
+                make_table("shipments", Some("line_items")),
+            ],
+        );
+        let order = topological_order(&config).unwrap();
+        assert_eq!(order, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn tables_listed_in_reverse_dependency_order() {
+        // Config lists child before parent — should still resolve correctly.
+        let config = make_config(
+            "orders",
+            vec![
+                make_table("shipments", Some("line_items")),
+                make_table("line_items", Some("orders")),
+                make_table("orders", None),
+            ],
+        );
+        let order = topological_order(&config).unwrap();
+        // Root (orders=idx2) must come first, then line_items(idx1), then shipments(idx0).
+        assert_eq!(order, vec![2, 1, 0]);
+    }
+
+    #[test]
+    fn error_root_table_not_in_list() {
+        let config = make_config("missing", vec![make_table("orders", None)]);
+        assert!(topological_order(&config).is_err());
+    }
+
+    #[test]
+    fn error_root_table_has_parent() {
+        let config = make_config("orders", vec![make_table("orders", Some("something"))]);
+        assert!(topological_order(&config).is_err());
+    }
+
+    #[test]
+    fn error_non_root_without_parent() {
+        let config = make_config(
+            "orders",
+            vec![make_table("orders", None), make_table("orphan", None)],
+        );
+        assert!(topological_order(&config).is_err());
+    }
+
+    #[test]
+    fn error_missing_parent_reference() {
+        let config = make_config(
+            "orders",
+            vec![
+                make_table("orders", None),
+                make_table("line_items", Some("nonexistent")),
+            ],
+        );
+        assert!(topological_order(&config).is_err());
+    }
+
+    #[test]
+    fn error_child_missing_join_cols() {
+        let config = make_config(
+            "orders",
+            vec![
+                make_table("orders", None),
+                TableConfig {
+                    name: "line_items".to_string(),
+                    parent: Some("orders".to_string()),
+                    parent_join_col: None,
+                    join_col: None,
+                },
+            ],
+        );
+        assert!(topological_order(&config).is_err());
+    }
 }

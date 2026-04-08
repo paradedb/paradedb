@@ -197,6 +197,52 @@ fn arrow_value_to_datum(
             let val = col.as_any().downcast_ref::<BooleanArray>()?.value(row_idx);
             val.into_datum()
         }
+        DataType::Timestamp(unit, _tz_opt) => {
+            let nanos = match unit {
+                arrow_schema::TimeUnit::Nanosecond => col
+                    .as_any()
+                    .downcast_ref::<TimestampNanosecondArray>()?
+                    .value(row_idx),
+                arrow_schema::TimeUnit::Microsecond => col
+                    .as_any()
+                    .downcast_ref::<TimestampMicrosecondArray>()?
+                    .value(row_idx)
+                    .checked_mul(1_000)?,
+                arrow_schema::TimeUnit::Millisecond => col
+                    .as_any()
+                    .downcast_ref::<TimestampMillisecondArray>()?
+                    .value(row_idx)
+                    .checked_mul(1_000_000)?,
+                arrow_schema::TimeUnit::Second => col
+                    .as_any()
+                    .downcast_ref::<TimestampSecondArray>()?
+                    .value(row_idx)
+                    .checked_mul(1_000_000_000)?,
+            };
+            // DataFusion stores all timestamps as UTC internally. The Arrow
+            // tz_opt is source metadata, not a conversion directive — the nanos
+            // we extracted are already UTC, so we must tell pgrx "these
+            // components are UTC" regardless of the original source timezone.
+            timestamp_nanos_to_datum(nanos, typoid)
+        }
+        DataType::Date32 => {
+            // Date32: days since epoch → convert to nanoseconds
+            let days = col
+                .as_any()
+                .downcast_ref::<arrow_array::Date32Array>()?
+                .value(row_idx);
+            let nanos = (days as i64).checked_mul(86_400_000_000_000)?;
+            timestamp_nanos_to_datum(nanos, typoid)
+        }
+        DataType::Date64 => {
+            // Date64: milliseconds since epoch → convert to nanoseconds
+            let millis = col
+                .as_any()
+                .downcast_ref::<arrow_array::Date64Array>()?
+                .value(row_idx);
+            let nanos = millis.checked_mul(1_000_000)?;
+            timestamp_nanos_to_datum(nanos, typoid)
+        }
         DataType::Decimal128(_, scale) => {
             let val = col
                 .as_any()
@@ -271,6 +317,18 @@ fn float64_to_datum(val: f64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
         }
         _ => val.into_datum(), // Default to f64
     }
+}
+
+/// Convert nanosecond timestamp to the appropriate Postgres date/time datum.
+///
+/// Delegates to `types_arrow::try_convert_timestamp_nanos_to_datum` which handles
+/// the nanos→PrimitiveDateTime→pgrx datum conversion for all timestamp-family OIDs.
+fn timestamp_nanos_to_datum(nanos: i64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
+    use pgrx::PgOid;
+    let oid = PgOid::from(typoid);
+    crate::postgres::types_arrow::try_convert_timestamp_nanos_to_datum(nanos, &oid)
+        .and_then(|r| r.ok())
+        .flatten()
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -463,12 +521,151 @@ mod tests {
     }
 
     #[pgrx::pg_test]
-    fn test_agg_project_unsupported_type() {
-        // Unsupported Arrow type should return None
+    fn test_agg_project_timestamp_type() {
+        // TimestampNanosecondArray is now supported for TIMESTAMPOID
         let arr: ArrayRef = Arc::new(arrow_array::TimestampNanosecondArray::from(vec![
             1_000_000_000i64,
         ]));
         let datum = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
-        assert!(datum.is_none());
+        assert!(datum.is_some());
+    }
+
+    // --- Timestamp TimeUnit tests ---
+
+    #[pgrx::pg_test]
+    fn test_timestamp_nanosecond_projection() {
+        let nanos: i64 = 1_705_314_600_000_000_000; // 2024-01-15 10:30:00 UTC
+        let arr: ArrayRef = Arc::new(TimestampNanosecondArray::from(vec![nanos]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(
+            result.is_some(),
+            "TimestampNanosecond should produce a datum"
+        );
+    }
+
+    #[pgrx::pg_test]
+    fn test_timestamp_microsecond_projection() {
+        let micros: i64 = 1_705_314_600_000_000; // 2024-01-15 10:30:00 UTC
+        let arr: ArrayRef = Arc::new(TimestampMicrosecondArray::from(vec![micros]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(
+            result.is_some(),
+            "TimestampMicrosecond should produce a datum"
+        );
+    }
+
+    #[pgrx::pg_test]
+    fn test_timestamp_millisecond_projection() {
+        let millis: i64 = 1_705_314_600_000; // 2024-01-15 10:30:00 UTC
+        let arr: ArrayRef = Arc::new(TimestampMillisecondArray::from(vec![millis]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(
+            result.is_some(),
+            "TimestampMillisecond should produce a datum"
+        );
+    }
+
+    #[pgrx::pg_test]
+    fn test_timestamp_second_projection() {
+        let secs: i64 = 1_705_314_600; // 2024-01-15 10:30:00 UTC
+        let arr: ArrayRef = Arc::new(TimestampSecondArray::from(vec![secs]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(result.is_some(), "TimestampSecond should produce a datum");
+    }
+
+    // --- Date32 / Date64 tests ---
+
+    #[pgrx::pg_test]
+    fn test_date32_projection() {
+        let days: i32 = 19_737; // 2024-01-15 = 19737 days since epoch
+        let arr: ArrayRef = Arc::new(Date32Array::from(vec![days]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
+        assert!(
+            result.is_some(),
+            "Date32 should produce a datum for DATEOID"
+        );
+    }
+
+    #[pgrx::pg_test]
+    fn test_date64_projection() {
+        let millis: i64 = 19_737 * 86_400_000; // 2024-01-15 in milliseconds since epoch
+        let arr: ArrayRef = Arc::new(Date64Array::from(vec![millis]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
+        assert!(
+            result.is_some(),
+            "Date64 should produce a datum for DATEOID"
+        );
+    }
+
+    // --- TIMESTAMPTZ vs TIMESTAMP vs DATE typoid routing ---
+
+    #[pgrx::pg_test]
+    fn test_timestamp_nanos_to_all_typoids() {
+        let nanos: i64 = 1_705_314_600_000_000_000; // 2024-01-15 10:30:00 UTC
+        let arr: ArrayRef = Arc::new(TimestampNanosecondArray::from(vec![nanos]));
+
+        let ts = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(ts.is_some(), "Should produce TIMESTAMP datum");
+
+        let tstz = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPTZOID);
+        assert!(tstz.is_some(), "Should produce TIMESTAMPTZ datum");
+
+        let date = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
+        assert!(date.is_some(), "Should produce DATE datum");
+    }
+
+    // --- NULL handling ---
+    // Note: project_aggregate_row_to_slot checks col.is_null(row_idx) before
+    // calling arrow_value_to_datum, so we test null reporting at the array level.
+
+    #[pgrx::pg_test]
+    fn test_timestamp_null_reports_correctly() {
+        let arr: ArrayRef = Arc::new(TimestampNanosecondArray::from(vec![None as Option<i64>]));
+        assert!(arr.is_null(0), "Timestamp null should be reported");
+    }
+
+    #[pgrx::pg_test]
+    fn test_date32_null_reports_correctly() {
+        let arr: ArrayRef = Arc::new(Date32Array::from(vec![None as Option<i32>]));
+        assert!(arr.is_null(0), "Date32 null should be reported");
+    }
+
+    #[pgrx::pg_test]
+    fn test_date64_null_reports_correctly() {
+        let arr: ArrayRef = Arc::new(Date64Array::from(vec![None as Option<i64>]));
+        assert!(arr.is_null(0), "Date64 null should be reported");
+    }
+
+    // --- Unsupported type (negative test) ---
+
+    #[pgrx::pg_test]
+    fn test_unsupported_arrow_type_returns_none() {
+        let arr: ArrayRef = Arc::new(Time64NanosecondArray::from(vec![1_000_000i64]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMEOID);
+        assert!(
+            result.is_none(),
+            "Time64 should not be supported — should return None"
+        );
+    }
+
+    // --- Pre-epoch regression guards ---
+
+    #[pgrx::pg_test]
+    fn test_date32_pre_epoch() {
+        let days: i32 = -1; // 1969-12-31
+        let arr: ArrayRef = Arc::new(Date32Array::from(vec![days]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
+        assert!(result.is_some(), "Pre-epoch Date32 should produce a datum");
+    }
+
+    #[pgrx::pg_test]
+    fn test_timestamp_pre_epoch() {
+        let nanos: i64 = -1_000_000_000; // 1969-12-31 23:59:59 UTC
+        let arr: ArrayRef = Arc::new(TimestampNanosecondArray::from(vec![nanos]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(
+            result.is_some(),
+            "Pre-epoch timestamp should produce a datum"
+        );
     }
 }

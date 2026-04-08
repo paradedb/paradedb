@@ -420,6 +420,204 @@ WHERE p.description @@@ 'laptop';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
+-- SECTION 10a: STDDEV/VARIANCE aggregates on JOIN
+-- =====================================================================
+
+-- Test 10a.1: STDDEV and VARIANCE on join
+SELECT STDDEV(p.price), VARIANCE(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 10a.2: STDDEV_POP and VAR_POP on join with GROUP BY
+-- Uses p.price (not p.rating) so Electronics has actual variance (999.99 vs 1299.99)
+SELECT p.category, STDDEV_POP(p.price), VAR_POP(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+-- Test 10a.3: STDDEV parity — DataFusion vs Postgres native
+-- Note: floating-point STDDEV/VARIANCE results may differ in the least-significant
+-- digits due to DataFusion using a different internal algorithm than Postgres.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT STDDEV(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT STDDEV(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- =====================================================================
+-- SECTION 10b: Date/Timestamp aggregates on JOIN
+-- =====================================================================
+
+CREATE TABLE ts_orders (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    created_at TIMESTAMP
+);
+
+CREATE TABLE ts_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER,
+    item_name TEXT
+);
+
+INSERT INTO ts_orders (description, category, created_at) VALUES
+    ('Laptop order', 'Electronics', '2024-01-15 10:30:00'),
+    ('Phone order', 'Electronics', '2024-03-20 14:45:00'),
+    ('Shoes order', 'Sports', '2024-06-10 08:15:00');
+
+INSERT INTO ts_items (order_id, item_name) VALUES
+    (1, 'laptop'), (1, 'charger'),
+    (2, 'phone'),
+    (3, 'shoes'), (3, 'socks');
+
+CREATE INDEX ts_orders_idx ON ts_orders
+USING bm25 (id, description, category, created_at)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    datetime_fields='{"created_at": {"fast": true}}'
+);
+
+CREATE INDEX ts_items_idx ON ts_items
+USING bm25 (id, order_id, item_name)
+WITH (
+    key_field='id',
+    numeric_fields='{"order_id": {"fast": true}}',
+    text_fields='{"item_name": {"fast": true}}'
+);
+
+-- Test 10b.1: MIN/MAX on timestamp column via join
+SELECT MIN(o.created_at), MAX(o.created_at)
+FROM ts_orders o
+JOIN ts_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order';
+
+-- Test 10b.2: GROUP BY with timestamp aggregate
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM ts_orders o
+JOIN ts_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category;
+
+-- Parity check for TIMESTAMP (no TZ)
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM ts_orders o
+JOIN ts_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM ts_orders o
+JOIN ts_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category;
+
+DROP TABLE ts_items;
+DROP TABLE ts_orders;
+
+-- Test 10b.3: TIMESTAMPTZ column via join
+CREATE TABLE tstz_orders (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    created_at TIMESTAMPTZ
+);
+
+CREATE TABLE tstz_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER,
+    item_name TEXT
+);
+
+INSERT INTO tstz_orders (description, category, created_at) VALUES
+    ('Laptop order', 'Electronics', '2024-01-15 10:30:00+05:30'),
+    ('Phone order', 'Electronics', '2024-03-20 14:45:00-04:00'),
+    ('Shoes order', 'Sports', '2024-06-10 08:15:00+00:00'),
+    ('Tablet order', 'Electronics', '2024-07-04 12:00:00 America/New_York'),
+    ('Jacket order', 'Sports', '2024-12-25 00:00:00 Asia/Tokyo');
+
+INSERT INTO tstz_items (order_id, item_name) VALUES
+    (1, 'laptop'), (1, 'charger'),
+    (2, 'phone'),
+    (3, 'shoes'), (3, 'socks'),
+    (4, 'tablet'),
+    (5, 'jacket');
+
+CREATE INDEX tstz_orders_idx ON tstz_orders
+USING bm25 (id, description, category, created_at)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    datetime_fields='{"created_at": {"fast": true}}'
+);
+
+CREATE INDEX tstz_items_idx ON tstz_items
+USING bm25 (id, order_id, item_name)
+WITH (
+    key_field='id',
+    numeric_fields='{"order_id": {"fast": true}}',
+    text_fields='{"item_name": {"fast": true}}'
+);
+
+-- MIN/MAX on TIMESTAMPTZ
+SELECT MIN(o.created_at), MAX(o.created_at)
+FROM tstz_orders o
+JOIN tstz_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order';
+
+-- GROUP BY with TIMESTAMPTZ aggregate
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM tstz_orders o
+JOIN tstz_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category;
+
+-- Parity check: TIMESTAMPTZ results must match native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT MIN(o.created_at), MAX(o.created_at)
+FROM tstz_orders o
+JOIN tstz_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order';
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+SELECT MIN(o.created_at), MAX(o.created_at)
+FROM tstz_orders o
+JOIN tstz_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order';
+
+-- Parity check: TIMESTAMPTZ GROUP BY results must match native PG.
+-- The source data uses mixed timezones (+05:30, -04:00, UTC, America/New_York,
+-- Asia/Tokyo) so any incorrect tz_opt propagation would show up as a mismatch.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM tstz_orders o
+JOIN tstz_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category
+ORDER BY o.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM tstz_orders o
+JOIN tstz_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category
+ORDER BY o.category;
+
+DROP TABLE tstz_items;
+DROP TABLE tstz_orders;
+
+-- =====================================================================
 -- SECTION 11: ORDER BY aggregate NULLS FIRST / NULLS LAST
 -- Tests that non-default NULL ordering in TopK produces correct results.
 -- LEFT JOIN creates groups with NULL SUM (no right-side matches).

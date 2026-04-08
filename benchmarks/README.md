@@ -32,12 +32,12 @@ The queries that are benchmarked for a dataset are located at `datasets/$name/qu
 
 Datasets live at `s3://paradedb-benchmarks/datasets/{dataset-name}/`. There can be multiple versions of each dataset. They will be located at the following sub-paths:
 
-- Full, unmodified dataset: `source/{format}/`
-- Pruned - only tables we want to keep: `pruned/{format}`
+- Full, unmodified tables: `source/{format}/`
+- Sampled tables: `sampled/{size}/{format}/'
 
 Each table is then located below that directory in a subdirectory named after the table.
 
-So, for instance, the `comments` table in the Stack Overflow dataset, in csv format, would be located at: `s3://paradedb-benchmarks/datasets/stackoverflow/pruned/csv/comments/` and will consist of a number of large csv files.
+So, for instance, the `comments` table in the Stack Overflow dataset, in csv format, would be located at: `s3://paradedb-benchmarks/datasets/stackoverflow/source/csv/comments/` and will consist of a number of large csv files. The version of that same data, sampled to a target of 10k rows in the root table, in parquet, would be at `s3://paradedb-benchmarks/datasets/stackoverflow/sampled/10k/parquet/comments/`.
 
 ## Conversion tool
 
@@ -47,5 +47,18 @@ Example:
 
 ```bash
 # This will fail (as the output already exists), so use different inputs/outputs for experimentation
-cargo run --release -- convert --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ --output s3://paradedb-benchmarks/datasets/stackoverflow/pruned/csv/ --tables posts_questions,posts_answers,comments
+cargo run --release -- convert --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ --output s3://paradedb-benchmarks/datasets/stackoverflow/source/csv/ --tables posts_questions,posts_answers,comments
+```
+
+## Sampling tool
+
+The following command will read a parquet dataset from the input location and write out the specified tables as a parquet dataset to the output location. It requires that the output location be empty. It uses a bundled version of duckdb to do the reading, writing, and conversion. It requires aws credentials that can read/write to/from s3 be present somewhere the standard aws credentials chain can find them.
+
+The `rows` argument specifies the number of target number of rows to take from the root table. The output will match this exactly for small values (<=100k), and will be approximate for large values, due to the use of a different sampling method. The resulting row count of the non-root table will be dependent on the dataset, as it is the result of an inner join of that table with it's parent table, as specified in the provided config file.
+
+Example:
+
+```bash
+# This will fail (as the output already exists), so use different inputs/outputs for experimentation
+cargo run --release -- convert --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ --output s3://paradedb-benchmarks/datasets/stackoverflow/sampled/10k/parquet/ --config ./datasets/stackoverflow/config.toml --rows 100000
 ```

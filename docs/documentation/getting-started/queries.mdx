@@ -327,7 +327,7 @@ LIMIT 5;
 ```python Django
 from paradedb import Match, ParadeDB
 
-rows, facets = (
+(
     MockItem.objects
     .filter(description=ParadeDB(Match('running shoes', operator='OR')))
     .order_by('rating')

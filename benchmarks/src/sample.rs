@@ -218,8 +218,8 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     // disable multi-threading, required for deterministic output
     // See: https://duckdb.org/docs/current/sql/samples#syntax
-    conn.execute("SET threads = 1;", [])
-        .with_context(|| "Failed to set thread count")?;
+    //conn.execute("SET threads = 1;", [])
+    //.with_context(|| "Failed to set thread count")?;
 
     // use bernoulli sampling method because it can skip entire row groups, depending on the
     // percentage, potentially saving a ton of read-time. It does only support targeting a

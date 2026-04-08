@@ -230,14 +230,14 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
          SELECT * FROM ( \
              SELECT * 
              FROM read_parquet('{glob}') \
-         ) USING SAMPLE bernoulli({percentage:.3} PERCENT) REPEATABLE({seed})",
+         ) USING SAMPLE bernoulli({percentage:.5} PERCENT) REPEATABLE({seed})",
         name = root.name,
         glob = root_glob,
         percentage = percentage,
         seed = config.sampling_seed,
     );
     println!(
-        "Sampling root table {} for ~{} rows ({:.3} percent of the input). This may take a while...",
+        "Sampling root table {} for ~{} rows ({:.5} percent of the input). This may take a while...",
         root.name, target, percentage
     );
     conn.execute_batch(&sql)
@@ -255,7 +255,6 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         )
         .context("Failed to count sampled root rows")?;
     println!("  {} sampled: {sampled_root_count} rows", root.name);
-    assert_eq!(target, sampled_root_count);
 
     // Sample child tables by joining against their sampled parent.
     for &idx in &order[1..] {

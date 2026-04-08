@@ -459,18 +459,15 @@ fn test_join_aggregate_having_sum(mut conn: PgConnection) {
 // Negative / fallback tests — verify graceful fallback to Postgres native
 // =====================================================================
 
-#[rstest]
-fn test_join_aggregate_3table_falls_back(mut conn: PgConnection) {
-    setup_join_tables(&mut conn);
-
-    // Create a third table
+/// Helper to set up a third table (reviews) for 3-table join tests.
+fn setup_reviews_table(conn: &mut PgConnection) {
     r#"
     CREATE TABLE reviews (
         id SERIAL PRIMARY KEY,
         product_id INTEGER,
         score INTEGER
     );
-    INSERT INTO reviews (product_id, score) VALUES (1, 5), (2, 4), (3, 3);
+    INSERT INTO reviews (product_id, score) VALUES (1, 5), (1, 4), (2, 3), (3, 4), (4, 3);
     CREATE INDEX reviews_idx ON reviews
     USING bm25 (id, product_id, score)
     WITH (
@@ -478,9 +475,15 @@ fn test_join_aggregate_3table_falls_back(mut conn: PgConnection) {
         numeric_fields='{"product_id": {"fast": true}, "score": {"fast": true}}'
     );
     "#
-    .execute(&mut conn);
+    .execute(conn);
+}
 
-    // 3-table join COUNT(*) — should fall back but still produce correct results
+#[rstest]
+fn test_join_aggregate_3table_count(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+    setup_reviews_table(&mut conn);
+
+    // 3-table join COUNT(*) via DataFusion
     let (df_count,) = r#"
         SELECT COUNT(*)
         FROM products p
@@ -502,7 +505,176 @@ fn test_join_aggregate_3table_falls_back(mut conn: PgConnection) {
 
     assert_eq!(
         df_count, pg_count,
-        "3-table join should produce same count whether DataFusion is ON or OFF"
+        "3-table join COUNT(*): DataFusion={df_count} vs Postgres={pg_count}"
+    );
+}
+
+#[rstest]
+fn test_join_aggregate_3table_group_by(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+    setup_reviews_table(&mut conn);
+
+    // 3-table join with GROUP BY + multiple aggregates
+    // MAX returns the base column type (INT4), so use i32 for it
+    let df_rows: Vec<(String, i64, i64, i32)> = r#"
+        SELECT p.category, COUNT(*), SUM(r.score), MAX(r.score)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        JOIN reviews r ON p.id = r.product_id
+        WHERE p.description @@@ 'laptop OR shoes OR jacket'
+        GROUP BY p.category
+        ORDER BY p.category
+    "#
+    .fetch(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let pg_rows: Vec<(String, i64, i64, i32)> = r#"
+        SELECT p.category, COUNT(*), SUM(r.score), MAX(r.score)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        JOIN reviews r ON p.id = r.product_id
+        WHERE p.description @@@ 'laptop OR shoes OR jacket'
+        GROUP BY p.category
+        ORDER BY p.category
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(
+        df_rows.len(),
+        pg_rows.len(),
+        "3-table GROUP BY: row count mismatch"
+    );
+    for (df, pg) in df_rows.iter().zip(pg_rows.iter()) {
+        assert_eq!(df, pg, "3-table GROUP BY mismatch for category {}", df.0);
+    }
+}
+
+#[rstest]
+fn test_join_aggregate_3table_having(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+    setup_reviews_table(&mut conn);
+
+    // 3-table join with HAVING
+    let df_rows: Vec<(String, i64)> = r#"
+        SELECT p.category, COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        JOIN reviews r ON p.id = r.product_id
+        WHERE p.description @@@ 'laptop OR shoes OR jacket'
+        GROUP BY p.category
+        HAVING COUNT(*) > 2
+        ORDER BY p.category
+    "#
+    .fetch(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let pg_rows: Vec<(String, i64)> = r#"
+        SELECT p.category, COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        JOIN reviews r ON p.id = r.product_id
+        WHERE p.description @@@ 'laptop OR shoes OR jacket'
+        GROUP BY p.category
+        HAVING COUNT(*) > 2
+        ORDER BY p.category
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(
+        df_rows.len(),
+        pg_rows.len(),
+        "3-table HAVING: row count mismatch"
+    );
+    for (df, pg) in df_rows.iter().zip(pg_rows.iter()) {
+        assert_eq!(df, pg, "3-table HAVING mismatch for {}", df.0);
+    }
+}
+
+#[rstest]
+fn test_join_aggregate_4table(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+    setup_reviews_table(&mut conn);
+
+    // Add a 4th table (suppliers)
+    r#"
+    CREATE TABLE suppliers (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER,
+        supplier_name TEXT
+    );
+    INSERT INTO suppliers (product_id, supplier_name) VALUES
+        (1, 'TechCorp'), (2, 'GameInc'), (3, 'SportCo');
+    CREATE INDEX suppliers_idx ON suppliers
+    USING bm25 (id, product_id, supplier_name)
+    WITH (
+        key_field='id',
+        numeric_fields='{"product_id": {"fast": true}}',
+        text_fields='{"supplier_name": {"fast": true}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    // 4-table join via DataFusion
+    let df_rows: Vec<(String, i64, i64)> = r#"
+        SELECT p.category, COUNT(*), SUM(r.score)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        JOIN reviews r ON p.id = r.product_id
+        JOIN suppliers s ON p.id = s.product_id
+        WHERE p.description @@@ 'laptop OR shoes'
+        GROUP BY p.category
+        ORDER BY p.category
+    "#
+    .fetch(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let pg_rows: Vec<(String, i64, i64)> = r#"
+        SELECT p.category, COUNT(*), SUM(r.score)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        JOIN reviews r ON p.id = r.product_id
+        JOIN suppliers s ON p.id = s.product_id
+        WHERE p.description @@@ 'laptop OR shoes'
+        GROUP BY p.category
+        ORDER BY p.category
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(
+        df_rows.len(),
+        pg_rows.len(),
+        "4-table join: row count mismatch"
+    );
+    for (df, pg) in df_rows.iter().zip(pg_rows.iter()) {
+        assert_eq!(df, pg, "4-table join mismatch for {}", df.0);
+    }
+}
+
+#[rstest]
+fn test_join_aggregate_sum_distinct(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+
+    // SUM(DISTINCT) on join should use DataFusion and match Postgres
+    let (df_sum,) = r#"
+        SELECT SUM(DISTINCT t.product_id)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop'
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let (pg_sum,) = r#"
+        SELECT SUM(DISTINCT t.product_id)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop'
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    assert_eq!(
+        df_sum, pg_sum,
+        "SUM(DISTINCT): DataFusion={df_sum} vs Postgres={pg_sum}"
     );
 }
 

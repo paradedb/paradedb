@@ -202,10 +202,11 @@ ParadeDB comes with a built-in test table that we'll run our queries against. Cr
 ```python
 from __future__ import annotations
 
+from datetime import date, datetime, time
 from typing import Any
 
 from sqlalchemy import Boolean, Date, DateTime, Index, Integer, String, Text, Time
-from sqlalchemy.dialects.postgresql import INT4RANGE, JSONB
+from sqlalchemy.dialects.postgresql import INT4RANGE, JSONB, Range
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from paradedb.sqlalchemy import indexing
@@ -223,11 +224,11 @@ class MockItem(Base):
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     category: Mapped[str | None] = mapped_column(String(255), nullable=True)
     in_stock: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    metadata_: Mapped[Any] = mapped_column("metadata", JSONB, nullable=True)
-    created_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
-    last_updated_date: Mapped[Any] = mapped_column(Date, nullable=True)
-    latest_available_time: Mapped[Any] = mapped_column(Time, nullable=True)
-    weight_range: Mapped[Any] = mapped_column(INT4RANGE, nullable=True)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_updated_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    latest_available_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    weight_range: Mapped[Range[int] | None] = mapped_column(INT4RANGE, nullable=True)
 
 
 Index(

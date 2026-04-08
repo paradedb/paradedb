@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.22.5",
+        "version": "v0.22.6",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -39,7 +39,8 @@
                     "pages": [
                       "welcome/ai-agents",
                       "documentation/getting-started/install",
-                      "documentation/getting-started/quickstart",
+                      "documentation/getting-started/environment",
+                      "documentation/getting-started/queries",
                       "documentation/getting-started/load"
                     ]
                   },
@@ -343,6 +344,7 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.22.6",
                   "changelog/0.22.5",
                   "changelog/0.22.4",
                   "changelog/0.22.3",

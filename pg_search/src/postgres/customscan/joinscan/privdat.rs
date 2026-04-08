@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::AsCStr;
-use crate::postgres::customscan::joinscan::build::JoinCSClause;
+use crate::postgres::customscan::joinscan::build::{ChildProjection, JoinCSClause};
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::PgList;
@@ -24,20 +24,40 @@ use serde::{Deserialize, Serialize};
 
 pub const SCORE_COL_NAME: &str = "score";
 
-/// Describes which relation a column comes from and its original attribute number.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct OutputColumnInfo {
-    /// Plan position of the source in `join_clause.plan.sources()`.
-    /// This is stable for the built plan and avoids RTI collisions across subquery roots.
-    pub plan_position: usize,
-    /// The range table index of the source base relation.
-    pub rti: pg_sys::Index,
-    /// The original attribute number in the source relation (1-indexed).
-    /// Set to 0 for non-Var expressions (like functions).
-    pub original_attno: i16,
-    /// True if this column is a paradedb.score() function call.
-    /// The score will be extracted from the DataFusion result batch during execution.
-    pub is_score: bool,
+/// Describes how a single output column of the JoinScan CustomScan is produced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OutputColumnInfo {
+    /// A regular column backed by a Var in a source relation.
+    Var {
+        plan_position: usize,
+        rti: pg_sys::Index,
+        original_attno: i16,
+    },
+    /// A `paradedb.score()` call whose value comes from the DataFusion batch.
+    Score {
+        plan_position: usize,
+        rti: pg_sys::Index,
+    },
+    /// A column pruned by a semi/anti join or a non-Var, non-score expression.
+    /// Always emits NULL at execution time.
+    Pruned,
+}
+
+impl From<&OutputColumnInfo> for ChildProjection {
+    fn from(info: &OutputColumnInfo) -> Self {
+        match info {
+            OutputColumnInfo::Score { rti, .. } => ChildProjection::Score { rti: *rti },
+            OutputColumnInfo::Var {
+                rti,
+                original_attno,
+                ..
+            } => ChildProjection::Column {
+                rti: *rti,
+                attno: *original_attno,
+            },
+            OutputColumnInfo::Pruned => ChildProjection::Column { rti: 0, attno: 0 },
+        }
+    }
 }
 
 /// Private data stored in the CustomPath/CustomScan for join operations.

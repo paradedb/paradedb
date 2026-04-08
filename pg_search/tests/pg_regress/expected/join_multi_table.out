@@ -627,26 +627,27 @@ LIMIT 5;
          Output: l1.name, l4.name, l1.id
          ->  Custom Scan (ParadeDB Join Scan)
                Output: l1.name, l1.id, l4.name
-               Relation Tree: (l3 INNER l4) INNER (l2 INNER l1)
+               Relation Tree: (l4 INNER l3) INNER (l2 INNER l1)
                Join Cond: l2.l3_id = l3.id, l3.l4_id = l4.id, l1.l2_id = l2.id
                Limit: 5
                Order By: l1.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@4 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@2 as ctid_2, ctid_3@3 as ctid_3]
                  :   SortExec: TopK(fetch=5), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     VisibilityFilterExec: tables=[l3, l4, l2, l1]
+                 :     VisibilityFilterExec: tables=[l4, l3, l2, l1]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, l2_id@1)], projection=[ctid_0@0, ctid_1@1, ctid_2@2, ctid_3@4, id@6]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l3_id@1)], projection=[ctid_0@0, ctid_1@2, ctid_2@3, id@5]
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@2, id@1)], projection=[ctid_0@0, id@1, ctid_1@3]
-                 :             CooperativeExec
-                 :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L3-B","lenient":null,"conjunction_mode":null}}}}
-                 :             CooperativeExec
-                 :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, l3_id@1)], projection=[ctid_0@0, ctid_1@1, ctid_2@3, id@5]
+                 :           ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
+                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@2, id@1)], projection=[ctid_1@0, id@1, ctid_0@3]
+                 :               CooperativeExec
+                 :                 PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L3-B","lenient":null,"conjunction_mode":null}}}}
+                 :               CooperativeExec
+                 :                 PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L2-B","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(25 rows)
+(26 rows)
 
 SELECT l1.name, l4.name
 FROM level1 l1

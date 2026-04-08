@@ -24,7 +24,7 @@
 
 use super::datafusion_build::JoinAggSource;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
-use crate::postgres::var::{fieldname_from_var, find_one_aggref, find_one_var};
+use crate::postgres::var::{fieldname_from_var, find_one_aggref};
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -43,6 +43,7 @@ use pgrx::PgList;
 pub enum AggKind {
     CountStar,
     Count,
+    CountDistinct,
     Sum,
     Avg,
     Min,
@@ -54,6 +55,7 @@ impl std::fmt::Display for AggKind {
         match self {
             AggKind::CountStar => write!(f, "COUNT(*)"),
             AggKind::Count => write!(f, "COUNT"),
+            AggKind::CountDistinct => write!(f, "COUNT(DISTINCT)"),
             AggKind::Sum => write!(f, "SUM"),
             AggKind::Avg => write!(f, "AVG"),
             AggKind::Min => write!(f, "MIN"),
@@ -82,8 +84,9 @@ pub struct JoinAggregateEntry {
     pub func_oid: u32,
     /// Simplified classification.
     pub agg_kind: AggKind,
-    /// Field reference: (rti, attno, field_name). None for COUNT(*).
-    pub field_ref: Option<(pg_sys::Index, pg_sys::AttrNumber, String)>,
+    /// Field references: (rti, attno, field_name). Empty for COUNT(*),
+    /// single entry for most aggregates, multiple for COUNT(DISTINCT col1, col2).
+    pub field_refs: Vec<(pg_sys::Index, pg_sys::AttrNumber, String)>,
     /// Position in the output tuple.
     pub output_index: usize,
     /// Postgres result type OID (INT8OID for COUNT, FLOAT8OID for others).
@@ -100,13 +103,15 @@ pub struct JoinAggregateTargetList {
 /// Classify an aggregate function OID into an [`AggKind`].
 ///
 /// Returns `None` for unsupported or unknown OIDs (including `pdb.agg()`).
-fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool) -> Option<AggKind> {
+fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> Option<AggKind> {
     if aggfnoid == F_COUNT_ && aggstar {
         return Some(AggKind::CountStar);
     }
 
     match aggfnoid {
+        F_COUNT_ANY if has_distinct => Some(AggKind::CountDistinct),
         F_COUNT_ANY => Some(AggKind::Count),
+        _ if has_distinct => None,
         F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
             Some(AggKind::Avg)
         }
@@ -193,11 +198,7 @@ pub unsafe fn extract_aggregate_targetlist(
         } else if let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) {
             // Aggregate function (possibly wrapped in COALESCE, etc.)
             let aggfnoid = (*aggref).aggfnoid.to_u32();
-
-            // Reject DISTINCT
-            if !(*aggref).aggdistinct.is_null() {
-                return Err("DISTINCT aggregates are not supported on joins".into());
-            }
+            let has_distinct = !(*aggref).aggdistinct.is_null();
 
             // Reject FILTER (WHERE ...) clauses on aggregates — DataFusion's
             // aggregate plan doesn't propagate per-aggregate filter predicates.
@@ -216,10 +217,10 @@ pub unsafe fn extract_aggregate_targetlist(
                 );
             }
 
-            let agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar)
+            let agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
                 .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
 
-            let field_ref = extract_aggref_field_ref(aggref, sources)?;
+            let field_refs = extract_aggref_field_refs(aggref, sources)?;
             // Use the actual Postgres result type from the Aggref node,
             // not a guessed type — this avoids segfaults from type mismatches
             let result_type_oid = (*aggref).aggtype;
@@ -227,7 +228,7 @@ pub unsafe fn extract_aggregate_targetlist(
             aggregates.push(JoinAggregateEntry {
                 func_oid: aggfnoid,
                 agg_kind,
-                field_ref,
+                field_refs,
                 output_index: idx,
                 result_type_oid,
             });
@@ -249,13 +250,13 @@ pub unsafe fn extract_aggregate_targetlist(
 ///
 /// For `COUNT(*)`: returns `None` (no field).
 /// For `COUNT(col)`, `SUM(col)`, etc.: returns `Some((rti, attno, field_name))`.
-unsafe fn extract_aggref_field_ref(
+unsafe fn extract_aggref_field_refs(
     aggref: *mut pg_sys::Aggref,
     sources: &[JoinAggSource],
-) -> Result<Option<(pg_sys::Index, pg_sys::AttrNumber, String)>, String> {
+) -> Result<Vec<(pg_sys::Index, pg_sys::AttrNumber, String)>, String> {
     // COUNT(*) has no arguments
     if (*aggref).aggstar {
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
     let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
@@ -263,31 +264,56 @@ unsafe fn extract_aggref_field_ref(
         return Err("aggregate function has no arguments".into());
     }
 
-    let first_arg = args.get_ptr(0).ok_or("aggregate missing first argument")?;
-    let expr = (*first_arg).expr;
+    let mut refs = Vec::with_capacity(args.len());
+    for arg_ptr in args.iter_ptr() {
+        let expr = (*arg_ptr).expr;
 
-    // The argument may be a direct Var or wrapped in COALESCE / RelabelType
-    let var = find_one_var(expr as *mut pg_sys::Node)
-        .ok_or("aggregate argument must reference a column (Var)")?;
+        // The argument must be a bare Var (possibly wrapped in RelabelType).
+        // Reject complex expressions like COALESCE(score, 0) — find_one_var
+        // would strip the wrapper, causing DataFusion to compute e.g. SUM(score)
+        // instead of the intended SUM(COALESCE(score, 0)).
+        let var = unwrap_to_var(expr as *mut pg_sys::Node).ok_or(
+            "aggregate argument must be a direct column reference; \
+                     wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join",
+        )?;
 
-    let rti = (*var).varno as pg_sys::Index;
-    let attno = (*var).varattno;
+        let rti = (*var).varno as pg_sys::Index;
+        let attno = (*var).varattno;
 
-    let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
-        format!(
-            "aggregate argument references table at RTI {} which is not in the join",
-            rti
-        )
-    })?;
-
-    let field_name = fieldname_from_var(source.relid, var, attno)
-        .ok_or_else(|| {
+        let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
             format!(
-                "could not resolve field name for aggregate argument (RTI={}, attno={})",
-                rti, attno
+                "aggregate argument references table at RTI {} which is not in the join",
+                rti
             )
-        })?
-        .into_inner();
+        })?;
 
-    Ok(Some((rti, attno, field_name)))
+        let field_name = fieldname_from_var(source.relid, var, attno)
+            .ok_or_else(|| {
+                format!(
+                    "could not resolve field name for aggregate argument (RTI={}, attno={})",
+                    rti, attno
+                )
+            })?
+            .into_inner();
+
+        refs.push((rti, attno, field_name));
+    }
+
+    Ok(refs)
+}
+
+/// Unwrap an expression to a bare `Var`, allowing only `RelabelType` wrappers.
+/// Returns `None` for anything more complex (COALESCE, FuncExpr, etc.)
+/// so the caller can reject and fall back to native Postgres.
+unsafe fn unwrap_to_var(mut node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> {
+    while !node.is_null() {
+        match (*node).type_ {
+            pg_sys::NodeTag::T_Var => return Some(node as *mut pg_sys::Var),
+            pg_sys::NodeTag::T_RelabelType => {
+                node = (*(node as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node;
+            }
+            _ => return None,
+        }
+    }
+    None
 }

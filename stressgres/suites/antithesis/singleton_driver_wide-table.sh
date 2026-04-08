@@ -13,7 +13,6 @@ sleep 60
 
 echo ""
 echo "Running Stressgres with suite wide-table.toml..."
-# Run for 100 seconds: running for 10 minutes causes a "All commands were run to completion at least once" error in Antithesis.
 /home/app/target/release/stressgres headless /home/app/stressgres/suites/wide-table.toml --runtime 100000 --log-interval-ms 10000
 
 echo ""

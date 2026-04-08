@@ -54,7 +54,7 @@ cargo run --release -- convert --input s3://paradedb-benchmarks/datasets/stackov
 
 The following command will read a parquet dataset from the input location and write out the specified tables as a parquet dataset to the output location. It requires that the output location be empty. It uses a bundled version of duckdb to do the reading, writing, and conversion. It requires aws credentials that can read/write to/from s3 be present somewhere the standard aws credentials chain can find them.
 
-The `rows` argument specifies the number of target number of rows to take from the root table. The output will match this exactly for small values (<=100k), and will be approximate for large values, due to the use of a different sampling method. The resulting row count of the non-root table will be dependent on the dataset, as it is the result of an inner join of that table with it's parent table, as specified in the provided config file.
+The `rows` argument specifies the number of target number of rows to take from the root table. The output will match this exactly for small values (<=100k), and will be approximate (usually within 3-5%) for large values, due to the use of a different sampling method. The resulting row count of the non-root table will be dependent on the dataset, as it is the result of an inner join of that table with it's parent table, as specified in the provided config file.
 
 Example:
 

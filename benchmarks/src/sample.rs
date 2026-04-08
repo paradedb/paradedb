@@ -208,6 +208,10 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         .with_context(|| "Failed to set thread count")?;
 
     let percentage = (target as f64 / total_rows as f64) * 100.0;
+
+    // We use reservoir for small sample sizes, since it allows us to be exact. However, it
+    // requries materializing the entire sample in memory, so we use the system method for larger
+    // counts, which gives us an approximate count (usually within 3-5%).
     let sample_arg = if target <= 100_000 {
         format!("reservoir({target} ROWS)")
     } else {

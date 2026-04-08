@@ -225,20 +225,20 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         .query_row("SELECT current_setting('threads')", [], |row| row.get(0))
         .with_context(|| "Failed to get current thread count")?;
 
-    let percentage = target as f64 / total_rows as f64;
+    let percentage = (target as f64 / total_rows as f64) * 100.0;
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
          SELECT * FROM ( \
              SELECT * 
              FROM read_parquet('{glob}') \
-         ) USING SAMPLE system({percentage:.5} PERCENT) REPEATABLE({seed})",
+         ) USING SAMPLE system({percentage:.3} PERCENT) REPEATABLE({seed})",
         name = root.name,
         glob = root_glob,
         percentage = percentage,
         seed = config.sampling_seed,
     );
     println!(
-        "Sampling root table {} for ~{} rows ({:.5} percent of the input) using {threads_used} thread(s). This may take a while...",
+        "Sampling root table {} for ~{} rows ({:.3} percent of the input) using {threads_used} thread(s). This may take a while...",
         root.name, target, percentage
     );
     conn.execute_batch(&sql)

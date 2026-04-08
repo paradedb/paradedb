@@ -260,6 +260,7 @@ spec:
     shared_preload_libraries:
       - pg_search
       - pg_cron
+    enableAlterSystem: true
     parameters:
       cron.database_name: postgres
 

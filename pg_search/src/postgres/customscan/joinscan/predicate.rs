@@ -213,8 +213,35 @@ pub unsafe fn transform_to_search_expr(
         return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
     }
 
-    // Handle BoolExpr
+    // Handle List nodes: Postgres may wrap quals in a List (common on PG18).
+    // Treat as an implicit AND of the list elements.
     let node_type = (*node).type_;
+    if node_type == pg_sys::NodeTag::T_List {
+        let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+        let mut children = Vec::new();
+        for item in list.iter_ptr() {
+            if let Some(child_expr) = transform_to_search_expr(
+                root,
+                item,
+                sources,
+                join_clause,
+                multi_table_predicate_clauses,
+            ) {
+                children.push(child_expr);
+            } else {
+                return None;
+            }
+        }
+        return if children.is_empty() {
+            None
+        } else if children.len() == 1 {
+            Some(children.pop().unwrap())
+        } else {
+            Some(JoinLevelExpr::And(children))
+        };
+    }
+
+    // Handle BoolExpr
     if node_type == pg_sys::NodeTag::T_BoolExpr {
         let boolexpr = node as *mut pg_sys::BoolExpr;
         let boolop = (*boolexpr).boolop;
@@ -327,7 +354,7 @@ pub unsafe fn extract_single_table_predicate(
 }
 
 /// Check if all Var references in an expression are fast fields.
-unsafe fn all_vars_are_fast_fields_recursive(
+pub unsafe fn all_vars_are_fast_fields_recursive(
     node: *mut pg_sys::Node,
     sources: &[&JoinSource],
 ) -> bool {

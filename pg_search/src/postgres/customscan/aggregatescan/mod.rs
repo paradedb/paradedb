@@ -68,7 +68,7 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
-use crate::postgres::utils::{is_unnest_func, make_text_const};
+use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use chrono::{DateTime as ChronoDateTime, Utc};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
@@ -150,58 +150,99 @@ impl CustomScan for AggregateScan {
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
-        match builder.custom_private() {
-            PrivateData::Tantivy {
-                heap_rti,
-                aggregate_clause,
-                ..
-            } => {
-                let heap_rti = *heap_rti;
-                let should_replace = aggregate_clause.planner_should_replace_aggrefs();
-                builder.set_scanrelid(heap_rti);
-                if should_replace {
-                    unsafe {
-                        let mut cscan = builder.build();
-                        let plan = &mut cscan.scan.plan;
-                        replace_aggrefs_in_target_list(plan);
-                        cscan
-                    }
-                } else {
-                    builder.build()
-                }
-            }
-            PrivateData::DataFusion { .. } => {
-                // For join aggregates, scanrelid=0 (no single base relation)
-                builder.set_scanrelid(0);
+        // Extract values from private data before the match to avoid borrow conflicts.
+        let (is_tantivy, heap_rti_val, should_replace_val, clause_count_val) =
+            match builder.custom_private() {
+                PrivateData::Tantivy {
+                    heap_rti,
+                    aggregate_clause,
+                    ..
+                } => (
+                    true,
+                    *heap_rti,
+                    aggregate_clause.planner_should_replace_aggrefs(),
+                    0usize,
+                ),
+                PrivateData::DataFusion {
+                    multi_table_clause_count,
+                    ..
+                } => (false, 0, false, *multi_table_clause_count),
+            };
 
-                // Check if the query has pathkeys (ORDER BY) before consuming builder.
-                let root = builder.args().root;
-                let has_pathkeys = unsafe {
-                    !(*root).query_pathkeys.is_null()
-                        && pg_sys::list_length((*root).query_pathkeys) > 0
-                };
-
+        if is_tantivy {
+            builder.set_scanrelid(heap_rti_val);
+            if should_replace_val {
                 unsafe {
                     let mut cscan = builder.build();
-
-                    // Set custom_scan_tlist so Postgres can resolve variable references
-                    // when Sort/Limit nodes are placed above this scanrelid=0 CustomScan.
-                    // This is a copy of the original targetlist (with Aggrefs intact) —
-                    // setrefs.c uses it to create INDEX_VAR references in parent nodes.
-                    let original_tlist = cscan.scan.plan.targetlist;
-                    cscan.custom_scan_tlist =
-                        pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
-
-                    if !has_pathkeys {
-                        // No ORDER BY: safe to replace Aggrefs at plan time.
-                        let plan = &mut cscan.scan.plan;
-                        replace_aggrefs_in_target_list(plan);
-                    }
-                    // When has_pathkeys: aggrefs stay in plan.targetlist so Postgres's
-                    // make_sort_from_pathkeys can find them. Replacement is deferred to
-                    // create_custom_scan_state (execution time).
+                    let plan = &mut cscan.scan.plan;
+                    replace_aggrefs_in_target_list(plan);
                     cscan
                 }
+            } else {
+                builder.build()
+            }
+        } else {
+            // For join aggregates, scanrelid=0 (no single base relation)
+            builder.set_scanrelid(0);
+
+            // Check if the query has pathkeys (ORDER BY) before consuming builder.
+            let root = builder.args().root;
+            let has_pathkeys = unsafe {
+                !(*root).query_pathkeys.is_null() && pg_sys::list_length((*root).query_pathkeys) > 0
+            };
+
+            let clause_count = clause_count_val;
+            let best_path = builder.args().best_path;
+
+            unsafe {
+                let mut cscan = builder.build();
+
+                // Set custom_scan_tlist so Postgres can resolve variable references
+                // when Sort/Limit nodes are placed above this scanrelid=0 CustomScan.
+                // This is a copy of the original targetlist (with Aggrefs intact) —
+                // setrefs.c uses it to create INDEX_VAR references in parent nodes.
+                let original_tlist = cscan.scan.plan.targetlist;
+                cscan.custom_scan_tlist =
+                    pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
+
+                // Move raw PG Expr pointers from custom_private to custom_exprs
+                // so setrefs transforms their Var nodes to INDEX_VAR references.
+                if clause_count > 0 {
+                    // Before moving to custom_exprs, ensure all Vars referenced
+                    // in the predicate clauses are present in custom_scan_tlist.
+                    // setrefs needs them there to create INDEX_VAR references.
+                    let path_private_full =
+                        PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+                    let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(cscan.custom_scan_tlist);
+                    // Skip index 0 (PrivateData JSON)
+                    for i in 1..path_private_full.len() {
+                        if let Some(node_ptr) = path_private_full.get_ptr(i) {
+                            add_vars_to_tlist(node_ptr, &mut tlist);
+                        }
+                    }
+                    cscan.custom_scan_tlist = tlist.into_pg();
+
+                    let path_private_full =
+                        PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+                    let mut custom_exprs_list = PgList::<pg_sys::Node>::from_pg(cscan.custom_exprs);
+                    // Skip index 0 (PrivateData JSON)
+                    for i in 1..path_private_full.len() {
+                        if let Some(node_ptr) = path_private_full.get_ptr(i) {
+                            custom_exprs_list.push(node_ptr);
+                        }
+                    }
+                    cscan.custom_exprs = custom_exprs_list.into_pg();
+                }
+
+                if !has_pathkeys {
+                    // No ORDER BY: safe to replace Aggrefs at plan time.
+                    let plan = &mut cscan.scan.plan;
+                    replace_aggrefs_in_target_list(plan);
+                }
+                // When has_pathkeys: aggrefs stay in plan.targetlist so Postgres's
+                // make_sort_from_pathkeys can find them. Replacement is deferred to
+                // create_custom_scan_state (execution time).
+                cscan
             }
         }
     }
@@ -232,17 +273,25 @@ impl CustomScan for AggregateScan {
                 plan,
                 targetlist,
                 topk,
+                join_level_predicates,
+                multi_table_predicates,
+                ..
             } => {
                 // Replace Aggrefs for DataFusion path too
-                unsafe {
+                let (custom_exprs, custom_scan_tlist) = unsafe {
                     let cscan = builder.args().cscan;
                     let pg_plan = &mut (*cscan).scan.plan;
                     replace_aggrefs_in_target_list(pg_plan);
-                }
+                    ((*cscan).custom_exprs, (*cscan).custom_scan_tlist)
+                };
                 builder.custom_state().datafusion_state = Some(scan_state::DataFusionAggState {
                     plan,
                     targetlist,
                     topk,
+                    join_level_predicates,
+                    multi_table_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
                     runtime: None,
                     stream: None,
                     current_batch: None,
@@ -288,6 +337,26 @@ impl CustomScan for AggregateScan {
                         .map(|gc| gc.field_name.clone())
                         .collect();
                     explainer.add_text("Group By", groups.join(", "));
+                }
+
+                // Show join-level search predicates (cross-table WHERE filters)
+                if !df_state.join_level_predicates.is_empty() {
+                    let preds: Vec<String> = df_state
+                        .join_level_predicates
+                        .iter()
+                        .map(|p| p.display_string.clone())
+                        .collect();
+                    explainer.add_text("Search Filter", preds.join(" AND "));
+                }
+
+                // Show multi-table predicates (non-@@@ cross-table filters)
+                if !df_state.multi_table_predicates.is_empty() {
+                    let preds: Vec<String> = df_state
+                        .multi_table_predicates
+                        .iter()
+                        .map(|p| p.description.clone())
+                        .collect();
+                    explainer.add_text("Multi-Table Filter", preds.join(" AND "));
                 }
 
                 // Show aggregates
@@ -865,10 +934,10 @@ impl AggregateScan {
         }
 
         // Extract the join tree from the parse tree
-        let mut plan = match unsafe {
+        let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) = match unsafe {
             extract_join_tree_from_parse(root, &sources, builder.args().input_rel())
         } {
-            Ok(plan) => plan,
+            Ok(result) => result,
             Err(e) => {
                 Self::add_planner_warning(
                     format!("Aggregate Scan (DataFusion) not used: {}", e),
@@ -906,9 +975,9 @@ impl AggregateScan {
 
         // Populate the fast fields on each source so PgSearchTableProvider exposes them.
         // This fails if join key fields aren't indexed as fast fields.
-        if let Err(e) =
-            unsafe { datafusion_build::populate_required_fields(&mut plan, &targetlist) }
-        {
+        if let Err(e) = unsafe {
+            datafusion_build::populate_required_fields(&mut plan, &targetlist, &multi_table_clauses)
+        } {
             Self::add_planner_warning(
                 format!("Aggregate Scan (DataFusion) not used: {}", e),
                 "join".to_string(),
@@ -924,11 +993,31 @@ impl AggregateScan {
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
         // Build the custom path with DataFusion private data
-        vec![builder.build(PrivateData::DataFusion {
+        let multi_table_clause_count = multi_table_clauses.len();
+        let mut custom_path = builder.build(PrivateData::DataFusion {
             plan,
             targetlist,
             topk,
-        })]
+            join_level_predicates,
+            multi_table_predicates,
+            multi_table_clause_count,
+        });
+
+        // Append raw PG Expr pointers to custom_private after the serialized
+        // PrivateData. Structure: [PrivateData JSON, expr_1, expr_2, ...]
+        // These will be moved to custom_exprs in plan_custom_path so that
+        // setrefs transforms their Var nodes to INDEX_VAR references.
+        if !multi_table_clauses.is_empty() {
+            unsafe {
+                let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
+                for clause in multi_table_clauses {
+                    private_list.push(clause.cast());
+                }
+                custom_path.custom_private = private_list.into_pg();
+            }
+        }
+
+        vec![custom_path]
     }
 
     /// Execute the DataFusion aggregate path: build plan, consume Arrow batches,
@@ -957,11 +1046,16 @@ impl AggregateScan {
 
             let ctx = create_aggregate_session_context();
 
+            let custom_exprs = df_state.custom_exprs;
+            let custom_scan_tlist = df_state.custom_scan_tlist;
             let physical_plan = runtime.block_on(async {
                 let logical = build_join_aggregate_plan(
                     &df_state.plan,
                     &df_state.targetlist,
                     df_state.topk.as_ref(),
+                    &df_state.join_level_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
                     &ctx,
                 )
                 .await?;

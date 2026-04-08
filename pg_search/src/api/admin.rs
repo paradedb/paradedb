@@ -518,7 +518,7 @@ fn verify_heap_references(
         let alive_bitset = segment_reader.alive_bitset();
 
         if verbose {
-            pgrx::warning!(
+            pgrx::notice!(
                 "verify_index: Heap check - starting segment {}/{} (index={}, id={}, {} docs)",
                 segments_completed + 1,
                 segments_to_check.len(),
@@ -562,7 +562,7 @@ fn verify_heap_references(
             // Report progress periodically
             if report_progress && total_checked - last_progress_report >= progress_interval {
                 let pct = (total_docs as f64 / total_alive_docs as f64 * 100.0).min(100.0);
-                pgrx::warning!(
+                pgrx::notice!(
                     "verify_index: Progress {:.1}% ({} docs checked, {} missing so far)",
                     pct,
                     total_checked,
@@ -625,7 +625,7 @@ fn verify_heap_references(
                 .map(|i| i.to_string())
                 .collect();
             if remaining.is_empty() {
-                pgrx::warning!(
+                pgrx::notice!(
                     "verify_index: Heap check - completed segment {}/{} (index={}, id={}). All segments done.",
                     segments_completed,
                     segments_to_check.len(),
@@ -633,7 +633,7 @@ fn verify_heap_references(
                     segment_id
                 );
             } else {
-                pgrx::warning!(
+                pgrx::notice!(
                     "verify_index: Heap check - completed segment {}/{} (index={}, id={}). To resume: segment_ids := ARRAY[{}]",
                     segments_completed,
                     segments_to_check.len(),
@@ -653,7 +653,7 @@ fn verify_heap_references(
 
     if report_progress {
         let without_ctid = total_docs - total_checked;
-        pgrx::warning!(
+        pgrx::notice!(
             "verify_index: Heap check complete. Checked {} of {} docs, {} missing{}",
             total_checked,
             total_docs,
@@ -930,7 +930,7 @@ pub mod pdb {
     ///   This is expensive but thorough. Default: false
     /// * `sample_rate` - For large indexes, check only this fraction of documents (0.0-1.0).
     ///   Default: NULL (100%). Use lower values for quick spot checks.
-    /// * `report_progress` - If true, emit progress messages via WARNING. Default: false
+    /// * `report_progress` - If true, emit progress messages via NOTICE. Default: false
     /// * `verbose` - If true, show detailed segment-by-segment progress and resume hints.
     ///   Useful for resuming after connection drops. Default: false
     /// * `on_error_stop` - If true, stop verification on first error found (like pg_amcheck
@@ -1021,7 +1021,7 @@ pub mod pdb {
             let partition_name = partition.name().to_owned();
 
             if report_progress {
-                pgrx::warning!("verify_index: Starting verification of {}", partition_name);
+                pgrx::notice!("verify_index: Starting verification of {}", partition_name);
             }
 
             // Check 1: Schema validation
@@ -1074,7 +1074,7 @@ pub mod pdb {
 
             // Check 3: Segment checksum validation
             if report_progress {
-                pgrx::warning!("verify_index: Validating checksums for {}", partition_name);
+                pgrx::notice!("verify_index: Validating checksums for {}", partition_name);
             }
             let checksum_result = search_reader.validate_checksum();
             let mut checksum_failed = false;
@@ -1146,7 +1146,7 @@ pub mod pdb {
                     .iter()
                     .map(|(idx, id)| format!("{}:{}", idx, id))
                     .collect();
-                pgrx::warning!(
+                pgrx::notice!(
                     "verify_index: {} has {} segments: [{}]",
                     partition_name,
                     num_segments,
@@ -1158,7 +1158,7 @@ pub mod pdb {
                         .iter()
                         .map(|(idx, id)| format!("{}:{}", idx, id))
                         .collect();
-                    pgrx::warning!(
+                    pgrx::notice!(
                         "verify_index: Will process {} of {} segments: [{}]",
                         segments_to_process.len(),
                         num_segments,
@@ -1170,7 +1170,7 @@ pub mod pdb {
                         .iter()
                         .map(|(idx, _)| idx.to_string())
                         .collect();
-                    pgrx::warning!(
+                    pgrx::notice!(
                         "verify_index: To resume from start, use: segment_ids := ARRAY[{}]",
                         remaining_indices.join(", ")
                     );
@@ -1178,13 +1178,13 @@ pub mod pdb {
             } else if report_progress {
                 // Basic progress: just show segment count
                 if segment_filter.is_some() {
-                    pgrx::warning!(
+                    pgrx::notice!(
                         "verify_index: Verifying {} of {} segments",
                         segments_to_process.len(),
                         num_segments
                     );
                 } else {
-                    pgrx::warning!("verify_index: Verifying {} segments", num_segments);
+                    pgrx::notice!("verify_index: Verifying {} segments", num_segments);
                 }
             }
 
@@ -1203,7 +1203,7 @@ pub mod pdb {
 
                 // Log progress for each segment
                 if verbose {
-                    pgrx::warning!(
+                    pgrx::notice!(
                         "verify_index: Processing segment {}/{} (index={}, id={}, docs={})",
                         segments_checked,
                         segments_to_process.len(),
@@ -1238,14 +1238,14 @@ pub mod pdb {
                         .map(|(i, _)| i.to_string())
                         .collect();
                     if remaining.is_empty() {
-                        pgrx::warning!(
+                        pgrx::notice!(
                             "verify_index: Completed segment {} (index={}, id={}). All segments done.",
                             segments_checked,
                             idx,
                             segment_id
                         );
                     } else {
-                        pgrx::warning!(
+                        pgrx::notice!(
                             "verify_index: Completed segment {} (index={}, id={}). To resume: segment_ids := ARRAY[{}]",
                             segments_checked,
                             idx,
@@ -1291,7 +1291,7 @@ pub mod pdb {
                         String::new()
                     };
                     let sample_pct = sample_rate.map(|r| r * 100.0).unwrap_or(100.0);
-                    pgrx::warning!(
+                    pgrx::notice!(
                         "verify_index: Starting heap reference check for {} (sample_rate: {:.0}%){}",
                         partition_name,
                         sample_pct,
@@ -1392,7 +1392,7 @@ pub mod pdb {
             }
 
             if report_progress {
-                pgrx::warning!("verify_index: Completed verification of {}", partition_name);
+                pgrx::notice!("verify_index: Completed verification of {}", partition_name);
             }
         }
 
@@ -1546,7 +1546,7 @@ pub mod pdb {
 
         // Query pg_index joined with pg_class to find all BM25 indexes
         let query = r#"
-        SELECT 
+        SELECT
             n.nspname::text AS schemaname,
             t.relname::text AS tablename,
             i.relname::text AS indexname,
@@ -1692,7 +1692,7 @@ pub mod pdb {
         // Build query with optional pattern filters
         let mut query = String::from(
             r#"
-        SELECT 
+        SELECT
             n.nspname::text AS schemaname,
             i.relname::text AS indexname,
             i.oid AS indexrelid
@@ -1760,7 +1760,7 @@ pub mod pdb {
 
         let total_indexes = indexes.len();
         if report_progress {
-            pgrx::warning!(
+            pgrx::notice!(
                 "verify_all_indexes: Found {} BM25 indexes to verify",
                 total_indexes
             );
@@ -1769,7 +1769,7 @@ pub mod pdb {
         // Verify each index
         for (idx_num, (schemaname, indexname, indexrelid)) in indexes.into_iter().enumerate() {
             if report_progress {
-                pgrx::warning!(
+                pgrx::notice!(
                     "verify_all_indexes: Verifying {}/{}: {}.{}",
                     idx_num + 1,
                     total_indexes,
@@ -1828,7 +1828,7 @@ pub mod pdb {
         if report_progress {
             let passed_count = results.iter().filter(|(_, _, _, p, _)| *p).count();
             let failed_count = results.len() - passed_count;
-            pgrx::warning!(
+            pgrx::notice!(
                 "verify_all_indexes: Complete. {} checks passed, {} failed",
                 passed_count,
                 failed_count

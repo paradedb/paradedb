@@ -66,7 +66,7 @@ run_psql_file() {
     printf '%s\n' "$output" >&2
   fi
 
-  if grep -E '(^|:) WARNING:' <<<"$output" | grep -qEv '(^|:) WARNING:[[:space:]]+verify_index:'; then
+  if grep -Eq '(^|:) WARNING:' <<<"$output"; then
     return 1
   fi
 }

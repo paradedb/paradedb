@@ -219,6 +219,8 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     let local_root_data_path = format!("/tmp/local_source/{}", root.name);
     // copy root table locally to speed up sampling.
+    std::fs::create_dir_all(&local_root_data_path)
+        .with_context(|| "Failed to make root table data directory")?;
     println!("Copying root table data to local disk...");
     let sql = format!(
         "COPY (SELECT * FROM read_parquet('{}')) \

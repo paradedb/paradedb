@@ -142,7 +142,7 @@ pub async fn build_join_aggregate_plan(
 
     // Step 4.5: Apply HAVING filter (post-aggregate)
     if let Some(having) = having_filter {
-        let expr = having_expr_to_datafusion(having, targetlist).ok_or_else(|| {
+        let expr = having.to_datafusion(targetlist).ok_or_else(|| {
             DataFusionError::Internal(
                 "Failed to translate HAVING clause to DataFusion expression".to_string(),
             )
@@ -357,75 +357,74 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
     }
 }
 
-/// Translate a serialized `HavingExpr` to a DataFusion `Expr`.
-/// Aggregate references use the `agg_{idx}` aliases from the aggregate step.
-fn having_expr_to_datafusion(
-    expr: &crate::postgres::customscan::aggregatescan::privdat::HavingExpr,
-    targetlist: &JoinAggregateTargetList,
-) -> Option<Expr> {
-    use crate::postgres::customscan::aggregatescan::privdat::{HavingExpr, HavingOp};
-    use datafusion::logical_expr::Operator;
+impl crate::postgres::customscan::aggregatescan::privdat::HavingExpr {
+    /// Translate this `HavingExpr` to a DataFusion `Expr`.
+    /// Aggregate references use the `agg_{idx}` aliases from the aggregate step.
+    fn to_datafusion(&self, targetlist: &JoinAggregateTargetList) -> Option<Expr> {
+        use crate::postgres::customscan::aggregatescan::privdat::HavingOp;
+        use datafusion::logical_expr::Operator;
 
-    match expr {
-        HavingExpr::AggRef(idx) => {
-            if *idx < targetlist.aggregates.len() {
-                Some(datafusion::prelude::col(format!("agg_{}", idx)))
-            } else {
-                None
+        match self {
+            Self::AggRef(idx) => {
+                if *idx < targetlist.aggregates.len() {
+                    Some(datafusion::prelude::col(format!("agg_{}", idx)))
+                } else {
+                    None
+                }
             }
-        }
-        HavingExpr::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
-        HavingExpr::LitInt(v) => Some(lit(*v)),
-        HavingExpr::LitFloat(v) => Some(lit(*v)),
-        HavingExpr::LitBool(v) => Some(lit(*v)),
-        HavingExpr::BinOp { left, op, right } => {
-            let l = having_expr_to_datafusion(left, targetlist)?;
-            let r = having_expr_to_datafusion(right, targetlist)?;
-            let df_op = match op {
-                HavingOp::Eq => Operator::Eq,
-                HavingOp::NotEq => Operator::NotEq,
-                HavingOp::Lt => Operator::Lt,
-                HavingOp::LtEq => Operator::LtEq,
-                HavingOp::Gt => Operator::Gt,
-                HavingOp::GtEq => Operator::GtEq,
-            };
-            Some(Expr::BinaryExpr(datafusion::logical_expr::BinaryExpr::new(
-                Box::new(l),
-                df_op,
-                Box::new(r),
-            )))
-        }
-        HavingExpr::And(children) => {
-            // All children must translate — if any fails, the whole AND is
-            // untranslatable and we must fall back to Postgres (not silently drop it).
-            let exprs: Vec<Expr> = children
-                .iter()
-                .map(|c| having_expr_to_datafusion(c, targetlist))
-                .collect::<Option<Vec<Expr>>>()?;
-            let mut result = exprs.into_iter();
-            let first = result.next()?;
-            Some(result.fold(first, |acc, e| acc.and(e)))
-        }
-        HavingExpr::Or(children) => {
-            let exprs: Vec<Expr> = children
-                .iter()
-                .map(|c| having_expr_to_datafusion(c, targetlist))
-                .collect::<Option<Vec<Expr>>>()?;
-            let mut result = exprs.into_iter();
-            let first = result.next()?;
-            Some(result.fold(first, |acc, e| acc.or(e)))
-        }
-        HavingExpr::Not(inner) => {
-            let e = having_expr_to_datafusion(inner, targetlist)?;
-            Some(Expr::Not(Box::new(e)))
-        }
-        HavingExpr::IsNull(inner) => {
-            let e = having_expr_to_datafusion(inner, targetlist)?;
-            Some(e.is_null())
-        }
-        HavingExpr::IsNotNull(inner) => {
-            let e = having_expr_to_datafusion(inner, targetlist)?;
-            Some(e.is_not_null())
+            Self::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
+            Self::LitInt(v) => Some(lit(*v)),
+            Self::LitFloat(v) => Some(lit(*v)),
+            Self::LitBool(v) => Some(lit(*v)),
+            Self::BinOp { left, op, right } => {
+                let l = left.to_datafusion(targetlist)?;
+                let r = right.to_datafusion(targetlist)?;
+                let df_op = match op {
+                    HavingOp::Eq => Operator::Eq,
+                    HavingOp::NotEq => Operator::NotEq,
+                    HavingOp::Lt => Operator::Lt,
+                    HavingOp::LtEq => Operator::LtEq,
+                    HavingOp::Gt => Operator::Gt,
+                    HavingOp::GtEq => Operator::GtEq,
+                };
+                Some(Expr::BinaryExpr(datafusion::logical_expr::BinaryExpr::new(
+                    Box::new(l),
+                    df_op,
+                    Box::new(r),
+                )))
+            }
+            Self::And(children) => {
+                // All children must translate — if any fails, the whole AND is
+                // untranslatable and we must fall back to Postgres (not silently drop it).
+                let exprs: Vec<Expr> = children
+                    .iter()
+                    .map(|c| c.to_datafusion(targetlist))
+                    .collect::<Option<Vec<Expr>>>()?;
+                let mut result = exprs.into_iter();
+                let first = result.next()?;
+                Some(result.fold(first, |acc, e| acc.and(e)))
+            }
+            Self::Or(children) => {
+                let exprs: Vec<Expr> = children
+                    .iter()
+                    .map(|c| c.to_datafusion(targetlist))
+                    .collect::<Option<Vec<Expr>>>()?;
+                let mut result = exprs.into_iter();
+                let first = result.next()?;
+                Some(result.fold(first, |acc, e| acc.or(e)))
+            }
+            Self::Not(inner) => {
+                let e = inner.to_datafusion(targetlist)?;
+                Some(Expr::Not(Box::new(e)))
+            }
+            Self::IsNull(inner) => {
+                let e = inner.to_datafusion(targetlist)?;
+                Some(e.is_null())
+            }
+            Self::IsNotNull(inner) => {
+                let e = inner.to_datafusion(targetlist)?;
+                Some(e.is_not_null())
+            }
         }
     }
 }

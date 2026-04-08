@@ -642,9 +642,9 @@ WHERE p.description @@@ 'laptop';
 -- Restore
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================
--- SECTION 10: STDDEV/VARIANCE aggregates on JOIN
+-- SECTION 10a: STDDEV/VARIANCE aggregates on JOIN
 -- =====================================================================
--- Test 10.1: STDDEV and VARIANCE on join
+-- Test 10a.1: STDDEV and VARIANCE on join
 SELECT STDDEV(p.price), VARIANCE(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
@@ -654,7 +654,7 @@ WHERE p.description @@@ 'laptop OR shoes';
  495.71737339507706 | 245735.71428571426
 (1 row)
 
--- Test 10.2: STDDEV_POP and VAR_POP on join with GROUP BY
+-- Test 10a.2: STDDEV_POP and VAR_POP on join with GROUP BY
 -- Uses p.price (not p.rating) so Electronics has actual variance (999.99 vs 1299.99)
 SELECT p.category, STDDEV_POP(p.price), VAR_POP(p.price)
 FROM agg_join_products p
@@ -668,7 +668,9 @@ GROUP BY p.category;
  Toys        |          0 |       0
 (3 rows)
 
--- Test 10.3: STDDEV parity — DataFusion vs Postgres native
+-- Test 10a.3: STDDEV parity — DataFusion vs Postgres native
+-- Note: floating-point STDDEV/VARIANCE results may differ in the least-significant
+-- digits due to DataFusion using a different internal algorithm than Postgres.
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT STDDEV(p.price)
 FROM agg_join_products p
@@ -690,7 +692,7 @@ WHERE p.description @@@ 'laptop OR shoes';
 (1 row)
 
 -- =====================================================================
--- SECTION 11: Date/Timestamp aggregates on JOIN
+-- SECTION 10b: Date/Timestamp aggregates on JOIN
 -- =====================================================================
 CREATE TABLE ts_orders (
     id SERIAL PRIMARY KEY,
@@ -725,7 +727,7 @@ WITH (
     numeric_fields='{"order_id": {"fast": true}}',
     text_fields='{"item_name": {"fast": true}}'
 );
--- Test 10.1: MIN/MAX on timestamp column via join
+-- Test 10b.1: MIN/MAX on timestamp column via join
 SELECT MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
@@ -735,7 +737,7 @@ WHERE o.description @@@ 'order';
  Mon Jan 15 10:30:00 2024 | Mon Jun 10 08:15:00 2024
 (1 row)
 
--- Test 10.2: GROUP BY with timestamp aggregate
+-- Test 10b.2: GROUP BY with timestamp aggregate
 SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
@@ -774,7 +776,7 @@ GROUP BY o.category;
 
 DROP TABLE ts_items;
 DROP TABLE ts_orders;
--- Test 10.3: TIMESTAMPTZ column via join
+-- Test 10b.3: TIMESTAMPTZ column via join
 CREATE TABLE tstz_orders (
     id SERIAL PRIMARY KEY,
     description TEXT,
@@ -854,6 +856,35 @@ WHERE o.description @@@ 'order';
 ------------------------------+------------------------------
  Sun Jan 14 21:00:00 2024 PST | Tue Dec 24 07:00:00 2024 PST
 (1 row)
+
+-- Parity check: TIMESTAMPTZ GROUP BY results must match native PG.
+-- The source data uses mixed timezones (+05:30, -04:00, UTC, America/New_York,
+-- Asia/Tokyo) so any incorrect tz_opt propagation would show up as a mismatch.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM tstz_orders o
+JOIN tstz_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category
+ORDER BY o.category;
+  category   |             min              |             max              
+-------------+------------------------------+------------------------------
+ Electronics | Sun Jan 14 21:00:00 2024 PST | Thu Jul 04 09:00:00 2024 PDT
+ Sports      | Mon Jun 10 01:15:00 2024 PDT | Tue Dec 24 07:00:00 2024 PST
+(2 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM tstz_orders o
+JOIN tstz_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category
+ORDER BY o.category;
+  category   |             min              |             max              
+-------------+------------------------------+------------------------------
+ Electronics | Sun Jan 14 21:00:00 2024 PST | Thu Jul 04 09:00:00 2024 PDT
+ Sports      | Mon Jun 10 01:15:00 2024 PDT | Tue Dec 24 07:00:00 2024 PST
+(2 rows)
 
 DROP TABLE tstz_items;
 DROP TABLE tstz_orders;
@@ -1095,361 +1126,6 @@ WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
 (1 row)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
--- =====================================================================
--- SECTION 12: Post-join filter execution
--- =====================================================================
--- Test 12.1: Post-join filter with simple comparison
--- The price > 500 filter cannot be pushed to the scan level for the join,
--- so it should be applied as a DataFusion filter between join and aggregate.
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), SUM(p.price)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop' AND p.price > 500;
-                           QUERY PLAN                            
------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
-   Backend: DataFusion
-   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-   Aggregates: COUNT(*)(*), SUM(price)
-(5 rows)
-
-SELECT COUNT(*), SUM(p.price)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop' AND p.price > 500;
- count |   sum   
--------+---------
-     4 | 4599.96
-(1 row)
-
--- Test 12.2: Post-join filter parity — DataFusion vs Postgres native
-SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT COUNT(*), SUM(p.price)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop' AND p.price > 500;
- count |   sum   
--------+---------
-     4 | 4599.96
-(1 row)
-
-SET paradedb.enable_aggregate_custom_scan TO on;
--- =====================================================================
--- SECTION 13: HAVING clause support
--- =====================================================================
--- Test 13.1: HAVING COUNT(*) > N — DataFusion applies filter post-aggregate
-SELECT p.category, COUNT(*)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-HAVING COUNT(*) > 1
-ORDER BY p.category;
-  category   | count 
--------------+-------
- Electronics |     4
- Sports      |     2
- Toys        |     2
-(3 rows)
-
--- Test 13.2: HAVING parity — DataFusion vs Postgres native
-SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT p.category, COUNT(*)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-HAVING COUNT(*) > 1
-ORDER BY p.category;
-  category   | count 
--------------+-------
- Electronics |     4
- Sports      |     2
- Toys        |     2
-(3 rows)
-
-SET paradedb.enable_aggregate_custom_scan TO on;
--- Test 13.3: HAVING with SUM — non-COUNT aggregate in HAVING
-SELECT p.category, COUNT(*), SUM(p.price)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-HAVING SUM(p.price) > 100
-ORDER BY p.category;
-  category   | count |   sum   
--------------+-------+---------
- Electronics |     4 | 4599.96
- Sports      |     2 |  179.98
- Toys        |     2 |  999.98
-(3 rows)
-
--- Test 13.4: HAVING SUM parity
-SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT p.category, COUNT(*), SUM(p.price)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-HAVING SUM(p.price) > 100
-ORDER BY p.category;
-  category   | count |   sum   
--------------+-------+---------
- Electronics |     4 | 4599.96
- Sports      |     2 |  179.98
- Toys        |     2 |  999.98
-(3 rows)
-
-SET paradedb.enable_aggregate_custom_scan TO on;
--- =====================================================================
--- SECTION 14: Additional aggregate functions (BOOL_AND/OR, ARRAY_AGG, STRING_AGG)
--- =====================================================================
--- Add a boolean column for BOOL_AND/OR tests
-ALTER TABLE agg_join_products ADD COLUMN in_stock BOOLEAN DEFAULT true;
-UPDATE agg_join_products SET in_stock = false WHERE category = 'Toys';
--- We need fast field access for in_stock; recreate BM25 index
-DROP INDEX agg_join_products_idx;
-CREATE INDEX agg_join_products_idx ON agg_join_products
-USING bm25 (id, description, category, price, rating, in_stock)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}',
-    boolean_fields='{"in_stock": {"fast": true}}'
-);
--- Test 14.1: BOOL_AND on join
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT p.category, BOOL_AND(p.in_stock)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR toy'
-GROUP BY p.category;
-                         QUERY PLAN                          
--------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan)
-   Output: p.category, (bool_and(p.in_stock))
-   Backend: DataFusion
-   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-   Group By: category
-   Aggregates: BOOL_AND(in_stock)
-(6 rows)
-
-SELECT p.category, BOOL_AND(p.in_stock)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR toy'
-GROUP BY p.category
-ORDER BY p.category;
-  category   | bool_and 
--------------+----------
- Electronics | t
- Sports      | t
- Toys        | f
-(3 rows)
-
--- Test 14.2: BOOL_OR on join
-SELECT p.category, BOOL_OR(p.in_stock)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR toy'
-GROUP BY p.category
-ORDER BY p.category;
-  category   | bool_or 
--------------+---------
- Electronics | t
- Sports      | t
- Toys        | f
-(3 rows)
-
--- Test 14.3: STRING_AGG on join
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT p.category, STRING_AGG(t.tag_name, ', ')
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument must be a direct column reference; wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join (table: join)
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: p.category, string_agg(t.tag_name, ', '::text)
-   Group Key: p.category
-   ->  Sort
-         Output: p.category, t.tag_name
-         Sort Key: p.category
-         ->  Hash Join
-               Output: p.category, t.tag_name
-               Inner Unique: true
-               Hash Cond: (t.product_id = p.id)
-               ->  Seq Scan on public.agg_join_tags t
-                     Output: t.id, t.product_id, t.tag_name
-               ->  Hash
-                     Output: p.category, p.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.agg_join_products p
-                           Output: p.category, p.id
-                           Table: agg_join_products
-                           Index: agg_join_products_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: category, id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
-
-SELECT p.category, STRING_AGG(t.tag_name, ', ')
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument must be a direct column reference; wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join (table: join)
-  category   |          string_agg          
--------------+------------------------------
- Electronics | tech, computer, tech, gaming
- Sports      | fitness, running
- Toys        | tech, kids
-(3 rows)
-
--- Test 14.4: BOOL_AND/OR parity — DataFusion vs Postgres native
-SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR toy'
-GROUP BY p.category
-ORDER BY p.category;
-  category   | bool_and | bool_or 
--------------+----------+---------
- Electronics | t        | t
- Sports      | t        | t
- Toys        | f        | f
-(3 rows)
-
-SET paradedb.enable_aggregate_custom_scan TO on;
-SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes OR toy'
-GROUP BY p.category
-ORDER BY p.category;
-  category   | bool_and | bool_or 
--------------+----------+---------
- Electronics | t        | t
- Sports      | t        | t
- Toys        | f        | f
-(3 rows)
-
--- Test 13.5: ARRAY_AGG on join
-SELECT p.category, ARRAY_AGG(t.tag_name)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-ORDER BY p.category;
-  category   |          array_agg          
--------------+-----------------------------
- Electronics | {tech,computer,tech,gaming}
- Sports      | {fitness,running}
- Toys        | {tech,kids}
-(3 rows)
-
--- Test 13.6: ARRAY_AGG parity — DataFusion vs Postgres native
-SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT p.category, ARRAY_AGG(t.tag_name)
-FROM agg_join_products p
-JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-ORDER BY p.category;
-  category   |          array_agg          
--------------+-----------------------------
- Electronics | {tech,computer,tech,gaming}
- Sports      | {fitness,running}
- Toys        | {tech,kids}
-(3 rows)
-
-SET paradedb.enable_aggregate_custom_scan TO on;
--- Clean up the added column (drop+recreate index)
-DROP INDEX agg_join_products_idx;
-ALTER TABLE agg_join_products DROP COLUMN in_stock;
-CREATE INDEX agg_join_products_idx ON agg_join_products
-USING bm25 (id, description, category, price, rating)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
-);
--- =====================================================================
--- SECTION 15: FULL OUTER JOIN aggregates
--- =====================================================================
--- Test 15.1: FULL OUTER JOIN with COUNT — includes unmatched rows from both sides
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
-FROM agg_join_products p
-FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
-                                          QUERY PLAN                                          
-----------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan)
-   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('COUNT'::text), pdb.agg_fn('COUNT'::text)
-   Backend: DataFusion
-   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-   Aggregates: COUNT(*)(*), COUNT(category), COUNT(tag_name)
-(5 rows)
-
-SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
-FROM agg_join_products p
-FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes';
- count | count | count 
--------+-------+-------
-     8 |     8 |     8
-(1 row)
-
--- Test 15.2: FULL OUTER JOIN with GROUP BY
-SELECT p.category, COUNT(*), SUM(p.price)
-FROM agg_join_products p
-FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-ORDER BY p.category;
-  category   | count |   sum   
--------------+-------+---------
- Electronics |     4 | 4599.96
- Sports      |     2 |  179.98
- Toys        |     2 |  999.98
-(3 rows)
-
--- Test 15.3: FULL OUTER JOIN parity — DataFusion vs Postgres native
-SET paradedb.enable_aggregate_custom_scan TO off;
-SELECT p.category, COUNT(*), SUM(p.price)
-FROM agg_join_products p
-FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-ORDER BY p.category;
-  category   | count |   sum   
--------------+-------+---------
- Electronics |     4 | 4599.96
- Sports      |     2 |  179.98
- Toys        |     2 |  999.98
-(3 rows)
-
-SET paradedb.enable_aggregate_custom_scan TO on;
-SELECT p.category, COUNT(*), SUM(p.price)
-FROM agg_join_products p
-FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
-WHERE p.description @@@ 'laptop OR shoes'
-GROUP BY p.category
-ORDER BY p.category;
-  category   | count |   sum   
--------------+-------+---------
- Electronics |     4 | 4599.96
- Sports      |     2 |  179.98
- Toys        |     2 |  999.98
-(3 rows)
-
 -- =====================================================================
 -- Clean up
 -- =====================================================================

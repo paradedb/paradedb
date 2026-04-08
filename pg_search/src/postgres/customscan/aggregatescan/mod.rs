@@ -999,7 +999,7 @@ impl AggregateScan {
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
-                datafusion_build::translate_having_qual((*parse).havingQual, &targetlist)
+                privdat::HavingExpr::from_pg_node((*parse).havingQual, &targetlist)
             } else {
                 None
             }

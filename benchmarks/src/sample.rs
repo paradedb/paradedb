@@ -152,21 +152,6 @@ fn count_rows(conn: &Connection, glob: &str) -> Result<u64> {
     Ok(count)
 }
 
-/// DuckDB has three sampling methods: reservoir, bernoulli, and system
-/// - reservoir is default, and fastest for small target row counts. However, it requires the sample
-///   be materialized in memory and is not suitable for large target row counts.
-/// - bernoulli only targets a percentage of the input data, not a specific row count, and is
-///   therefore not useful for this use case
-/// - system is a variant of bernoulli that does support specific target row counts, so we use it
-///   for larger target row counts
-fn sampling_method(target: u64) -> &'static str {
-    if target <= 10_000 {
-        "reservoir"
-    } else {
-        "system"
-    }
-}
-
 fn validate_table_has_parquet_files(
     conn: &Connection,
     glob: &str,
@@ -233,20 +218,22 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     // disable multi-threading, required for deterministic output
     // See: https://duckdb.org/docs/current/sql/samples#syntax
-    //conn.execute("SET threads = 1;", [])
-    //.with_context(|| "Failed to set thread count")?;
+    conn.execute("SET threads = 1;", [])
+        .with_context(|| "Failed to set thread count")?;
 
-    let sampling_method = sampling_method(target);
+    // use bernoulli sampling method because it can skip entire row groups, depending on the
+    // percentage, potentially saving a ton of read-time. It does only support targeting a
+    // percentage, so we'll calculate that and accept some imprecision in the result count.
+    let percentage = target as f64 / total_rows as f64;
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
          SELECT * FROM ( \
              SELECT * 
              FROM read_parquet('{glob}') \
-         ) USING SAMPLE {method}({rows} ROWS) REPEATABLE({seed})",
+         ) USING SAMPLE bernoulli({percentage:.3} PERCENT) REPEATABLE({seed})",
         name = root.name,
         glob = root_glob,
-        method = sampling_method,
-        rows = target,
+        percentage = percentage,
         seed = config.sampling_seed,
     );
     println!(

@@ -26,8 +26,8 @@ use std::process::Command;
 use std::time::Instant;
 
 mod convert;
-mod duckdb_utils;
 mod sample;
+mod utils;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

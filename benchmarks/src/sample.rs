@@ -23,7 +23,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::time::Instant;
 
-use crate::duckdb_utils::open_duckdb_conn;
+use crate::utils::{open_duckdb_conn, validate_input_output};
 
 #[derive(Parser)]
 pub struct SampleArgs {
@@ -153,18 +153,6 @@ fn count_rows(conn: &Connection, glob: &str) -> Result<u64> {
     Ok(count)
 }
 
-fn validate_table_has_parquet_files(
-    conn: &Connection,
-    glob: &str,
-    table_name: &str,
-) -> Result<bool> {
-    let sql = format!("SELECT count(*) FROM glob('{glob}') LIMIT 1");
-    let count: usize = conn
-        .query_row(&sql, [], |row| row.get(0))
-        .with_context(|| format!("Failed to check parquet files for table '{table_name}'"))?;
-    Ok(count > 0)
-}
-
 pub fn run_sample(args: SampleArgs) -> Result<()> {
     let config_content = fs::read_to_string(&args.config)
         .with_context(|| format!("Failed to read config file '{}'", args.config))?;
@@ -176,26 +164,8 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
 
-    // Validate that all tables have parquet files.
-    println!("Validating input paths...");
-    let mut missing_tables = Vec::new();
-    for table in &config.tables {
-        let glob = parquet_glob_pattern(input, &table.name);
-        if validate_table_has_parquet_files(&conn, &glob, &table.name)? {
-            println!("  {}: ok", table.name);
-        } else {
-            println!("  {}: no parquet files found at '{glob}'", table.name);
-            missing_tables.push(table.name.clone());
-        }
-    }
-
-    if !missing_tables.is_empty() {
-        bail!(
-            "No parquet files found for {} table(s): {}. Aborting.",
-            missing_tables.len(),
-            missing_tables.join(", ")
-        );
-    }
+    let table_names: Vec<String> = config.tables.iter().map(|t| t.name.clone()).collect();
+    validate_input_output(&table_names, &conn, &args.input, &args.output)?;
 
     // Determine processing order.
     let order = topological_order(&config)?;

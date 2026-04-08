@@ -56,7 +56,16 @@ ORDER BY id;
 DROP FUNCTION is_positive_strict;
 
 ----------------------------------------------------------------------
--- 4. No warning: all predicates are indexed
+-- 4. ColumnNotLiteralTokenized: equality on a text column that uses
+--    a non-literal tokenizer (default tokenizer tokenizes text, so
+--    = cannot be pushed down to the index)
+----------------------------------------------------------------------
+SELECT id, description FROM hfw_test
+WHERE description @@@ 'hello' AND description = 'hello world'
+ORDER BY id;
+
+----------------------------------------------------------------------
+-- 5. No warning: all predicates are indexed
 ----------------------------------------------------------------------
 SELECT id, description FROM hfw_test
 WHERE description @@@ 'hello'

@@ -69,7 +69,21 @@ WARNING:  heap filter on `is_positive_strict(extra_int)`: function expressions a
 
 DROP FUNCTION is_positive_strict;
 ----------------------------------------------------------------------
--- 4. No warning: all predicates are indexed
+-- 4. ColumnNotLiteralTokenized: equality on a text column that uses
+--    a non-literal tokenizer (default tokenizer tokenizes text, so
+--    = cannot be pushed down to the index)
+----------------------------------------------------------------------
+SELECT id, description FROM hfw_test
+WHERE description @@@ 'hello' AND description = 'hello world'
+ORDER BY id;
+WARNING:  heap filter on `(description = 'hello world'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+ id | description 
+----+-------------
+  1 | hello world
+(1 row)
+
+----------------------------------------------------------------------
+-- 5. No warning: all predicates are indexed
 ----------------------------------------------------------------------
 SELECT id, description FROM hfw_test
 WHERE description @@@ 'hello'

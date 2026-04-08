@@ -34,6 +34,7 @@ use tantivy::{
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum HeapFilterReason {
     ColumnNotIndexed,
+    ColumnNotLiteralTokenized,
     FunctionNotIndexable,
     NullTestRequiresHeap,
     BoolTestRequiresHeap,
@@ -44,6 +45,12 @@ impl fmt::Display for HeapFilterReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ColumnNotIndexed => write!(f, "the column is not indexed in the bm25 index"),
+            Self::ColumnNotLiteralTokenized => write!(
+                f,
+                "the text column is not using the literal tokenizer, so equality/comparison \
+                 operators cannot be pushed to the index. Use the @@@ operator for full-text \
+                 search, or recreate the index with a literal tokenizer for this field"
+            ),
             Self::FunctionNotIndexable => write!(f, "function expressions are not indexable"),
             Self::NullTestRequiresHeap => {
                 write!(f, "NULL tests on non-indexed fields require heap access")

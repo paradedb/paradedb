@@ -1202,13 +1202,12 @@ unsafe fn try_pushdown(
             state.uses_heap_expr = true;
             state.uses_tantivy_to_query = true;
 
-            // Create HeapExpr: predicate will be evaluated via heap access
-            // This is slower but necessary for non-indexed fields
+            let reason = heap_filter_reason_for_opexpr(context, opexpr_node, indexrel);
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
                 expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
-                reason: HeapFilterReason::ColumnNotIndexed,
+                reason,
             })
         } else if has_param {
             state.uses_heap_expr = true;
@@ -1231,6 +1230,24 @@ unsafe fn try_pushdown(
         state.uses_tantivy_to_query = true;
         pushdown_result
     }
+}
+
+unsafe fn heap_filter_reason_for_opexpr(
+    context: &PlannerContext,
+    opexpr_node: *mut pg_sys::Node,
+    indexrel: &PgSearchRelation,
+) -> HeapFilterReason {
+    if let Some(root) = context.planner_info() {
+        for var in crate::postgres::var::find_vars(opexpr_node) {
+            if let Some(field) = PushdownField::try_new(root, var.cast(), indexrel) {
+                let sf = field.search_field();
+                if sf.is_text() && !sf.is_keyword() {
+                    return HeapFilterReason::ColumnNotLiteralTokenized;
+                }
+            }
+        }
+    }
+    HeapFilterReason::ColumnNotIndexed
 }
 
 unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {

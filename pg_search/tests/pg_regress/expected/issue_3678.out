@@ -86,8 +86,8 @@ WHERE company_name &&& 'Jarvi'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
-                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (max((paradedb.score(id)))) DESC, profile_id
@@ -102,7 +102,7 @@ LIMIT 5;
                                  Index: nhfs_big_bm25_idx
                                  Exec Method: NormalScanExecState
                                  Scores: true
-                                 Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"company_name","value":"Jarvi","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"term":{"field":"group_id","value":"952582b4-bb51-461e-b566-0e5f980f4660","is_datetime":false}}]}},"field_filters":[{"reason":"NullTestRequiresHeap","heap_filter":"(end_date IS NULL)"}]}}]}}
+                                 Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"company_name","value":"Jarvi","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"term":{"field":"group_id","value":"952582b4-bb51-461e-b566-0e5f980f4660","is_datetime":false}}]}},"field_filters":[{"heap_filter":"(end_date IS NULL)"}]}}]}}
 (15 rows)
 
 -- Test 2: Execute the query to verify it returns results without panic.
@@ -116,8 +116,6 @@ WHERE company_name &&& 'Jarvi'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
-WARNING:  heap filter on `(end_date IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
-WARNING:  heap filter on `(end_date IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
               profile_id              | best_score 
 --------------------------------------+------------
  a0000000-0000-0000-0000-000000000001 |  11.528142
@@ -137,8 +135,6 @@ WHERE title &&& 'developer'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
-WARNING:  heap filter on `(end_date IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
-WARNING:  heap filter on `(end_date IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
               profile_id              | best_score 
 --------------------------------------+------------
  a0000000-0000-0000-0000-000000000001 |  2.5257165

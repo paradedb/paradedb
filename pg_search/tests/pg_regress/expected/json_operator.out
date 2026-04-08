@@ -193,7 +193,6 @@ ORDER BY id LIMIT 5;
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
 WHERE metadata->>'color' IN ('white', 'black') AND id @@@ paradedb.all()
 ORDER BY id LIMIT 5;
-WARNING:  heap filter on `((metadata ->> 'color'::text) = ANY ('{white,black}'::text[]))`: the column is not indexed in the bm25 index. This may impact query performance.
   description   | ?column? | in_stock 
 ----------------+----------+----------
  Computer mouse | white    | true
@@ -207,8 +206,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
 WHERE metadata->>'color' IN ('white', 'black') AND id @@@ paradedb.all()
 ORDER BY id LIMIT 5;
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -218,7 +217,7 @@ ORDER BY id LIMIT 5;
             TopK Order By: id asc
             TopK Limit: 5
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"((metadata ->> 'color'::text) = ANY ('{white,black}'::text[]))"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"((metadata ->> 'color'::text) = ANY ('{white,black}'::text[]))"}]}}]}}
 (10 rows)
 
 -- should be pushed down

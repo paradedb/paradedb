@@ -38,10 +38,8 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
-WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the column is not indexed in the bm25 index. This may impact query performance.
-                                                                                                                                                            QUERY PLAN                                                                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
    ->  Sort
@@ -66,7 +64,7 @@ WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`
                              :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@1)]
                              :         VisibilityFilterExec: tables=[p]
                              :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
                              :         VisibilityFilterExec: tables=[c]
                              :           CooperativeExec
                              :             PgSearchScan: segments=1, query="all"
@@ -86,8 +84,6 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
-WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the column is not indexed in the bm25 index. This may impact query performance.
  id |    nameSort    | nameIsNull | followersSort | followersIsNull | senioritySort | seniorityIsNull 
 ----+----------------+------------+---------------+-----------------+---------------+-----------------
   3 | Carol Manager  | f          |           800 | f               | manager       | f
@@ -104,9 +100,8 @@ FROM people AS p
 WHERE p.id @@@ pdb.all()
 AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
-WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the column is not indexed in the bm25 index. This may impact query performance.
-                                                                                                                                     QUERY PLAN                                                                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
    Output: p.id, ((p.full_name IS NULL))
    ->  Sort
@@ -119,7 +114,7 @@ WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`
                Index: people_search_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
                SubPlan 1
                  ->  Seq Scan on public.companies c
                        Output: c.id
@@ -132,8 +127,6 @@ FROM people AS p
 WHERE p.id @@@ pdb.all()
 AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
-WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the column is not indexed in the bm25 index. This may impact query performance.
  id | nameIsNull 
 ----+------------
   1 | f

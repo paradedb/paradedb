@@ -117,8 +117,8 @@ FROM products
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -126,7 +126,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -138,7 +138,6 @@ FROM products
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  heap filter on `(category_name = 'Electronics'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |      name      | category_name |   score   
 ----+----------------+---------------+-----------
   7 | Apple Watch    | Electronics   | 1.6239789
@@ -156,8 +155,8 @@ FROM products
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   OR category_name = 'Electronics'
 ORDER BY score DESC;
-                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -166,7 +165,7 @@ ORDER BY score DESC;
          Exec Method: NormalScanExecState
          Scores: true
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
 (9 rows)
 
 SELECT 
@@ -178,7 +177,6 @@ FROM products
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   OR category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  heap filter on `(category_name = 'Electronics'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |      name       | category_name |   score   
 ----+-----------------+---------------+-----------
   1 | Apple iPhone 14 | Casual        | 2.5521502
@@ -199,8 +197,8 @@ FROM products
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR category_name = 'Electronics'
 ORDER BY score DESC;
-                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -209,7 +207,7 @@ ORDER BY score DESC;
          Exec Method: NormalScanExecState
          Scores: true
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
 (9 rows)
 
 SELECT 
@@ -221,7 +219,6 @@ FROM products
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  heap filter on `(category_name = 'Electronics'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |      name       | category_name |   score   
 ----+-----------------+---------------+-----------
   1 | Apple iPhone 14 | Casual        | 2.5521502
@@ -271,8 +268,8 @@ FROM products
 WHERE description @@@ 'running' 
   AND price < 200.00
 ORDER BY score DESC;
-                                                                                                                                                          QUERY PLAN                                                                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                            QUERY PLAN                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -280,7 +277,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price < 200.00)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(price < 200.00)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -292,7 +289,6 @@ FROM products
 WHERE description @@@ 'running' 
   AND price < 200.00
 ORDER BY score DESC;
-WARNING:  heap filter on `(price < 200.00)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |       name        | price  |   score   
 ----+-------------------+--------+-----------
   3 | Nike Air Max      | 149.99 | 1.2838018
@@ -311,8 +307,8 @@ FROM products
 WHERE description @@@ 'technology' 
   AND in_stock = true
 ORDER BY score DESC;
-                                                                                                                                                        QUERY PLAN                                                                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -320,7 +316,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"in_stock"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"in_stock"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -332,7 +328,6 @@ FROM products
 WHERE description @@@ 'technology' 
   AND in_stock = true
 ORDER BY score DESC;
-WARNING:  heap filter on `in_stock`: the column is not indexed in the bm25 index. This may impact query performance.
  id |       name        | in_stock |   score   
 ----+-------------------+----------+-----------
   5 | Adidas Ultraboost | t        | 1.5177236
@@ -389,8 +384,8 @@ WHERE (name @@@ 'shoes' OR description @@@ 'running')
   AND category_name = 'Footwear'
   AND price BETWEEN 100.00 AND 200.00
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -398,7 +393,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price >= 100.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price <= 200.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_name = 'Footwear'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"heap_filter":"(price >= 100.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"heap_filter":"(price <= 200.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"heap_filter":"(category_name = 'Footwear'::text)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -412,9 +407,6 @@ WHERE (name @@@ 'shoes' OR description @@@ 'running')
   AND category_name = 'Footwear'
   AND price BETWEEN 100.00 AND 200.00
 ORDER BY score DESC; 
-WARNING:  heap filter on `(price >= 100.00)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(price <= 200.00)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(category_name = 'Footwear'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |       name        | category_name | price  |   score   
 ----+-------------------+---------------+--------+-----------
   3 | Nike Air Max      | Footwear      | 149.99 | 3.8514054
@@ -438,8 +430,8 @@ WHERE description @@@ 'Apple'
   AND price > 500.00
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -447,7 +439,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price > 500.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_id = 1)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(price > 500.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(category_id = 1)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -463,9 +455,6 @@ WHERE description @@@ 'Apple'
   AND price > 500.00
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  heap filter on `(price > 500.00)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(category_id = 1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(category_name = 'Electronics'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |    name     | category_id |  price  | category_name |  score   
 ----+-------------+-------------+---------+---------------+----------
   2 | MacBook Pro |           1 | 2499.99 | Electronics   | 4.903143
@@ -487,8 +476,8 @@ WHERE description @@@ 'smartphone'
     (price > 800.00 AND category_name = 'Electronics')
   )
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -496,7 +485,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price < 500.00)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"in_stock"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price > 800.00)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(price < 500.00)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"in_stock"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(price > 800.00)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}]}}]}}
 (8 rows)
 
 SELECT 
@@ -512,10 +501,6 @@ WHERE description @@@ 'smartphone'
     (price > 800.00 AND category_name = 'Electronics')
   )
 ORDER BY score DESC;
-WARNING:  heap filter on `(price < 500.00)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `in_stock`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(price > 800.00)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(category_name = 'Electronics'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |      name      | price  | in_stock |   score   
 ----+----------------+--------+----------+-----------
   4 | Samsung Galaxy | 899.99 | f        | 1.2838018
@@ -533,8 +518,8 @@ FROM products
 WHERE description @@@ 'running'
   AND rating >= 4.0
 ORDER BY score DESC;
-                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                     QUERY PLAN                                                                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -542,7 +527,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(rating >= '4'::double precision)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(rating >= '4'::double precision)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -554,7 +539,6 @@ FROM products
 WHERE description @@@ 'running'
   AND rating >= 4.0
 ORDER BY score DESC;
-WARNING:  heap filter on `(rating >= '4'::double precision)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |       name        | rating |   score   
 ----+-------------------+--------+-----------
   3 | Nike Air Max      |    4.2 | 1.2838018
@@ -573,8 +557,8 @@ FROM products
 WHERE name @@@ 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -582,7 +566,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"NullTestRequiresHeap","heap_filter":"(tags IS NULL)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(tags IS NULL)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -594,7 +578,6 @@ FROM products
 WHERE name @@@ 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
-WARNING:  heap filter on `(tags IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
  id |     name     | tags |   score   
 ----+--------------+------+-----------
  10 | Budget Phone |      | 2.1528337
@@ -610,8 +593,8 @@ FROM products
 WHERE name @@@ 'phone'
   OR tags IS NULL
 ORDER BY score DESC;
-                                                                                                                                               QUERY PLAN                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -620,7 +603,7 @@ ORDER BY score DESC;
          Exec Method: NormalScanExecState
          Scores: true
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"NullTestRequiresHeap","heap_filter":"(tags IS NULL)"}]}}]}}
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(tags IS NULL)"}]}}]}}
 (9 rows)
 
 SELECT 
@@ -632,7 +615,6 @@ FROM products
 WHERE name @@@ 'phone'
   OR tags IS NULL
 ORDER BY score DESC;
-WARNING:  heap filter on `(tags IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
  id |     name      | tags |   score   
 ----+---------------+------+-----------
  10 | Budget Phone  |      | 2.1528337
@@ -651,8 +633,8 @@ FROM products
 WHERE description @@@ 'Apple'
   AND tags IS NOT NULL
 ORDER BY score DESC;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                            QUERY PLAN                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -660,7 +642,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"NullTestRequiresHeap","heap_filter":"(tags IS NOT NULL)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(tags IS NOT NULL)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -672,7 +654,6 @@ FROM products
 WHERE description @@@ 'Apple'
   AND tags IS NOT NULL
 ORDER BY score DESC;
-WARNING:  heap filter on `(tags IS NOT NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
  id |      name       |        tags        |   score   
 ----+-----------------+--------------------+-----------
   2 | MacBook Pro     | {laptop,apple}     | 1.6343809
@@ -696,8 +677,8 @@ WHERE description @@@ 'technology'
     in_stock = false
   )
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -705,7 +686,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price < 100.00)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_name = 'Electronics'::text)"}]}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"in_stock"}]}}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(price < 100.00)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"in_stock"}]}}]}}]}}]}}
 (8 rows)
 
 SELECT 
@@ -722,9 +703,6 @@ WHERE description @@@ 'technology'
     in_stock = false
   )
 ORDER BY score DESC;
-WARNING:  heap filter on `(price < 100.00)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(category_name = 'Electronics'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `in_stock`: the column is not indexed in the bm25 index. This may impact query performance.
  id |    name     | price  | category_name |   score   
 ----+-------------+--------+---------------+-----------
   6 | Nike Normal | 149.99 | Footwear      | 1.3281277
@@ -742,8 +720,8 @@ FROM products
 WHERE description @@@ 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
-                                                                                                                                                           QUERY PLAN                                                                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                             QUERY PLAN                                                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -751,7 +729,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price > 1000.00)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(price > 1000.00)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -763,7 +741,6 @@ FROM products
 WHERE description @@@ 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
-WARNING:  heap filter on `(price > 1000.00)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | name | price | score 
 ----+------+-------+-------
 (0 rows)
@@ -812,8 +789,8 @@ FROM products
 WHERE description @@@ 'Apple'
   AND 'apple' = ANY(tags)
 ORDER BY score DESC;
-                                                                                                                                                               QUERY PLAN                                                                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                 QUERY PLAN                                                                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -821,7 +798,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"('apple'::text = ANY (tags))"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"('apple'::text = ANY (tags))"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -833,7 +810,6 @@ FROM products
 WHERE description @@@ 'Apple'
   AND 'apple' = ANY(tags)
 ORDER BY score DESC;
-WARNING:  heap filter on `('apple'::text = ANY (tags))`: the column is not indexed in the bm25 index. This may impact query performance.
  id |      name       |        tags        |   score   
 ----+-----------------+--------------------+-----------
   2 | MacBook Pro     | {laptop,apple}     | 1.6343809
@@ -852,8 +828,8 @@ FROM products
 WHERE name @@@ 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
-                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -861,7 +837,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(created_at > 'Mon Jan 01 00:00:00 2024'::timestamp without time zone)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(created_at > 'Mon Jan 01 00:00:00 2024'::timestamp without time zone)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -873,7 +849,6 @@ FROM products
 WHERE name @@@ 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
-WARNING:  heap filter on `(created_at > 'Mon Jan 01 00:00:00 2024'::timestamp without time zone)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |      name       |        created_at        |   score   
 ----+-----------------+--------------------------+-----------
   7 | Apple Watch     | Wed Jan 01 12:00:00 2025 | 1.6239789
@@ -896,8 +871,8 @@ WHERE description @@@ 'shoes'
   AND rating > 4.0
   AND category_id = 2
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -905,7 +880,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price <= 200.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(rating > '4'::double precision)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_id = 2)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(price <= 200.00)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(rating > '4'::double precision)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(category_id = 2)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -921,9 +896,6 @@ WHERE description @@@ 'shoes'
   AND rating > 4.0
   AND category_id = 2
 ORDER BY score DESC;
-WARNING:  heap filter on `(price <= 200.00)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(rating > '4'::double precision)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(category_id = 2)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |       name        | price  | rating | category_id |   score   
 ----+-------------------+--------+--------+-------------+-----------
   3 | Nike Air Max      | 149.99 |    4.2 |           2 | 3.8514054
@@ -942,8 +914,8 @@ FROM products
 WHERE description @@@ 'technology'
   AND category_name LIKE 'Elect%'
 ORDER BY score DESC;
-                                                                                                                                                                    QUERY PLAN                                                                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -951,7 +923,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_name ~~ 'Elect%'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(category_name ~~ 'Elect%'::text)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -963,7 +935,6 @@ FROM products
 WHERE description @@@ 'technology'
   AND category_name LIKE 'Elect%'
 ORDER BY score DESC;
-WARNING:  heap filter on `(category_name ~~ 'Elect%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | name | category_name | score 
 ----+------+---------------+-------
 (0 rows)
@@ -986,8 +957,8 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
     (category_name = 'Electronics' AND rating > 4.5)
   )
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -995,7 +966,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price > 500.00)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"in_stock"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(price < 300.00)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(rating >= '4'::double precision)"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_name = 'Electronics'::text)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(rating > '4.5'::double precision)"}]}}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(price > 500.00)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"in_stock"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(price < 300.00)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(rating >= '4'::double precision)"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(rating > '4.5'::double precision)"}]}}]}}]}}]}}
 (8 rows)
 
 SELECT 
@@ -1013,12 +984,6 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
     (category_name = 'Electronics' AND rating > 4.5)
   )
 ORDER BY score DESC; 
-WARNING:  heap filter on `(price > 500.00)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `in_stock`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(price < 300.00)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(rating >= '4'::double precision)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(category_name = 'Electronics'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(rating > '4.5'::double precision)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |      name       | price  | in_stock | rating |   score   
 ----+-----------------+--------+----------+--------+-----------
   1 | Apple iPhone 14 | 999.99 | t        |    4.5 | 2.5521502
@@ -1046,8 +1011,8 @@ FROM products
 WHERE description @@@ 'Apple'
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-                                                                                                                                                                    QUERY PLAN                                                                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -1055,7 +1020,7 @@ ORDER BY score DESC;
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(category_name = 'Electronics'::text)"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -1067,7 +1032,6 @@ FROM products
 WHERE description @@@ 'Apple'
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  heap filter on `(category_name = 'Electronics'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |    name     | category_name |   score   
 ----+-------------+---------------+-----------
   2 | MacBook Pro | Electronics   | 1.6343809

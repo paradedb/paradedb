@@ -55,40 +55,30 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
 -- Execute multiple times to trigger generic plan
 -- All executions should return consistent results
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  heap filter on `((created_at)::date >= ('Mon Jan 01 00:00:00 2024 PST'::timestamp with time zone)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `((created_at)::date <= ('Wed Jan 01 00:00:00 2025 PST'::timestamp with time zone)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  heap filter on `((created_at)::date >= ('Mon Jan 01 00:00:00 2024 PST'::timestamp with time zone)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `((created_at)::date <= ('Wed Jan 01 00:00:00 2025 PST'::timestamp with time zone)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  heap filter on `((created_at)::date >= ('Mon Jan 01 00:00:00 2024 PST'::timestamp with time zone)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `((created_at)::date <= ('Wed Jan 01 00:00:00 2025 PST'::timestamp with time zone)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  heap filter on `((created_at)::date >= ('Mon Jan 01 00:00:00 2024 PST'::timestamp with time zone)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `((created_at)::date <= ('Wed Jan 01 00:00:00 2025 PST'::timestamp with time zone)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  heap filter on `((created_at)::date >= ('Mon Jan 01 00:00:00 2024 PST'::timestamp with time zone)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `((created_at)::date <= ('Wed Jan 01 00:00:00 2025 PST'::timestamp with time zone)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
    122
@@ -96,8 +86,6 @@ WARNING:  heap filter on `((created_at)::date <= ('Wed Jan 01 00:00:00 2025 PST'
 
 -- 6th execution should use generic plan and return same result
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
-WARNING:  heap filter on `((created_at)::date >= ($2)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `((created_at)::date <= ($3)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
    122
@@ -105,8 +93,6 @@ WARNING:  heap filter on `((created_at)::date <= ($3)::date)`: the column is not
 
 -- Try with different parameters
 EXECUTE test_parallel_join('ea', '2024-06-01', '2025-01-01');
-WARNING:  heap filter on `((created_at)::date >= ($2)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `((created_at)::date <= ($3)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
     72
@@ -125,24 +111,18 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
   AND c.created_at::date <= $3::date;
 -- These should all return consistent results
 EXECUTE test_parallel_join_generic('ea', '2024-01-01', '2025-01-01');
-WARNING:  heap filter on `((created_at)::date >= ($2)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `((created_at)::date <= ($3)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join_generic('ea', '2024-01-01', '2025-01-01');
-WARNING:  heap filter on `((created_at)::date >= ($2)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `((created_at)::date <= ($3)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
    122
 (1 row)
 
 EXECUTE test_parallel_join_generic('ea', '2024-06-01', '2025-01-01');
-WARNING:  heap filter on `((created_at)::date >= ($2)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `((created_at)::date <= ($3)::date)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
     72

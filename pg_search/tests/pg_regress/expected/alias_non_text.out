@@ -40,14 +40,14 @@ SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE d = '2025-01-01' AND id @@@ pdb.all();
-                                                                                                                QUERY PLAN                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on dates
    Table: dates
    Index: idx_dates
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(d = '01-01-2025'::date)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(d = '01-01-2025'::date)"}]}}]}}
 (6 rows)
 
 DROP TABLE dates;
@@ -58,26 +58,26 @@ INSERT INTO ints (i) VALUES (1), (2), (3);
 CREATE INDEX idx_ints ON ints USING bm25 (id, ((i * 2)::pdb.alias('i'))) with (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE i = 1 AND id @@@ pdb.all();
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(i = 1)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(i = 1)"}]}}]}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE (i * 3) = 1 AND id @@@ pdb.all();
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"((i * 3) = 1)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"((i * 3) = 1)"}]}}]}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -101,18 +101,17 @@ CREATE INDEX idx_ints ON ints USING bm25 (id, ((abs(i-j))::pdb.alias('another_na
 -- This should NOT use the indexed abs() expression (uses heap_filter instead)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE i - j = 1 AND id @@@ pdb.all();
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                             QUERY PLAN                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"((i - j) = 1)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"((i - j) = 1)"}]}}]}}
 (6 rows)
 
 SELECT * FROM ints WHERE i - j = 1 AND id @@@ pdb.all() ORDER BY id;
-WARNING:  heap filter on `((i - j) = 1)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | i | j 
 ----+---+---
 (0 rows)

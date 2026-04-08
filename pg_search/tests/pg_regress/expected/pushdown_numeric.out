@@ -101,8 +101,8 @@ SELECT * FROM numeric_pushdown
 WHERE id @@@ paradedb.all()
 AND numeric_col::int > 1
 ORDER BY id LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
@@ -112,14 +112,13 @@ ORDER BY id LIMIT 10;
             TopK Order By: id asc
             TopK Limit: 10
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"((numeric_col)::integer > 1)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"((numeric_col)::integer > 1)"}]}}]}}
 (10 rows)
 
 SELECT * FROM numeric_pushdown
 WHERE id @@@ paradedb.all()
 AND numeric_col::int > 1
 ORDER BY id LIMIT 10;
-WARNING:  heap filter on `((numeric_col)::integer > 1)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | text_col | numeric_col | float_col | int_col 
 ----+----------+-------------+-----------+---------
   2 | Charlie  |           2 |         2 |       2
@@ -379,8 +378,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 1000
 ORDER BY id;
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -389,7 +388,7 @@ ORDER BY id;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(((data ->> 'num'::text))::numeric > '1000'::numeric)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric > '1000'::numeric)"}]}}]}}
 (9 rows)
 
 SELECT id, data->>'num' as value
@@ -397,7 +396,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 1000
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric > '1000'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   9 | 9223372036854775807
@@ -419,7 +417,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 18446744073709551613
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric > '18446744073709551613'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
  13 | 18446744073709551614
@@ -432,7 +429,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 3.0
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric > 3.0)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   7 | 42
@@ -469,7 +465,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > -100
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric > '-100'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   3 | -42
@@ -516,7 +511,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric < 10
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric < '10'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -539,7 +533,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric < 9223372036854775808
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric < '9223372036854775808'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -582,7 +575,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric < 1.0
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric < 1.0)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -603,7 +595,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric < -1000
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric < '-1000'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -620,7 +611,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric >= 18446744073709551614
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '18446744073709551614'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
  13 | 18446744073709551614
@@ -633,7 +623,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric >= 1000
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '1000'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   8 | 1000
@@ -656,7 +645,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric >= 0
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '0'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   5 | 0
@@ -699,7 +687,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric <= 1
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '1'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -721,7 +708,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric <= 9223372036854775808
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '9223372036854775808'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -765,7 +751,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric <= 0
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '0'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -790,8 +775,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 0 AND 100
 ORDER BY id;
-                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -800,7 +785,7 @@ ORDER BY id;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(((data ->> 'num'::text))::numeric >= '0'::numeric)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(((data ->> 'num'::text))::numeric <= '100'::numeric)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric >= '0'::numeric)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(((data ->> 'num'::text))::numeric <= '100'::numeric)"}]}}]}}
 (9 rows)
 
 SELECT id, data->>'num' as value
@@ -808,8 +793,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 0 AND 100
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '0'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '100'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |  value  
 ----+---------
   5 | 0
@@ -831,8 +814,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 9223372036854775807 AND 9223372036854775808
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '9223372036854775807'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '9223372036854775808'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value        
 ----+---------------------
   9 | 9223372036854775807
@@ -845,8 +826,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 18446744073709551613 AND 18446744073709551615
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '18446744073709551613'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '18446744073709551615'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
  12 | 18446744073709551613
@@ -860,8 +839,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN -1000 AND -1
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '-1000'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '-1'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |  value   
 ----+----------
   2 | -1000
@@ -877,8 +854,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN -10 AND 10
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '-10'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '10'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |  value   
 ----+----------
   4 | -1
@@ -895,8 +870,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 99 AND 101
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '99'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '101'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | value | json_type 
 ----+-------+-----------
  20 | 100   | number
@@ -1044,7 +1017,6 @@ SELECT COUNT(*) as count_not_in_list
 FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric NOT IN (100, 999);
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <> ALL ('{100,999}'::numeric[]))`: the column is not indexed in the bm25 index. This may impact query performance.
  count_not_in_list 
 -------------------
                 33
@@ -1056,7 +1028,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric NOT IN (0, -1, 1, 42)
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <> ALL ('{0,-1,1,42}'::numeric[]))`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   1 | -9223372036854775808
@@ -1136,8 +1107,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 9007199254740991 AND 9007199254740993
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '9007199254740991'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '9007199254740993'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |      value       
 ----+------------------
  26 | 9007199254740991
@@ -1154,8 +1123,6 @@ SELECT COUNT(*) as count_should_be_zero
 FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 200 AND 100;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '200'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '100'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  count_should_be_zero 
 ----------------------
                     0
@@ -1168,8 +1135,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 100 AND 100
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '100'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '100'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | value 
 ----+-------
  20 | 100
@@ -1184,8 +1149,6 @@ WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric > 99
 AND (data->>'num')::numeric < 101
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric > '99'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric < '101'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | value 
 ----+-------
  20 | 100
@@ -1201,8 +1164,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 9007199254740993 AND 18446744073709551615
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '9007199254740993'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '18446744073709551615'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        value         
 ----+----------------------
   9 | 9223372036854775807
@@ -1223,8 +1184,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 99.5 AND 100.5
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= 99.5)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= 100.5)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | value 
 ----+-------
  20 | 100
@@ -1240,8 +1199,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 9007199254740991 AND 9007199254740992
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '9007199254740991'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '9007199254740992'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |      value       
 ----+------------------
  26 | 9007199254740991
@@ -1255,8 +1212,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 9007199254740992 AND 9007199254740994
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '9007199254740992'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '9007199254740994'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |      value       
 ----+------------------
  27 | 9007199254740992
@@ -1269,8 +1224,6 @@ SELECT COUNT(*) as count_should_be_zero
 FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 100 AND 50;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '100'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '50'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  count_should_be_zero 
 ----------------------
                     0
@@ -1283,8 +1236,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric BETWEEN 100 AND 101
 ORDER BY id;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '100'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric <= '101'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | value 
 ----+-------
  20 | 100
@@ -1300,8 +1251,6 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric >= 100
 AND (data->>'num')::numeric < 100;
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric >= '100'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(((data ->> 'num'::text))::numeric < '100'::numeric)`: the column is not indexed in the bm25 index. This may impact query performance.
  count_should_be_zero 
 ----------------------
                     0

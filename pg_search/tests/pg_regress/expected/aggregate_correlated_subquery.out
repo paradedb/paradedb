@@ -102,8 +102,8 @@ SELECT d.id, d.title,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-                                                                                                                                                   QUERY PLAN                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: d.id, d.title, ((SubPlan 1))
    Sort Key: d.id
@@ -118,7 +118,7 @@ ORDER BY d.id;
            ->  Custom Scan (ParadeDB Aggregate Scan) on public.files f
                  Output: pdb.agg_fn('COUNT(*)'::text)
                  Index: files_search
-                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(documentid = $1)"}]}}]}}
+                 Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
                    Applies to Aggregates: COUNT(*)
                    Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (17 rows)
@@ -133,10 +133,6 @@ SELECT d.id, d.title,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
   id  |    title     | invoice_file_count 
 ------+--------------+--------------------
  doc1 | Invoice 2023 |                  2
@@ -160,8 +156,6 @@ SELECT d.id, d.title,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
   id  |    title     | invoice_file_count 
 ------+--------------+--------------------
  doc1 | Invoice 2023 |                  2
@@ -180,10 +174,6 @@ SELECT d.id, d.title,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
   id  |    title     | invoice_file_count 
 ------+--------------+--------------------
  doc1 | Invoice 2023 |                  2
@@ -259,10 +249,6 @@ SELECT d.id, d.title,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
-WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
   id  |    title     | nonexistent_count 
 ------+--------------+-------------------
  doc1 | Invoice 2023 |                 0

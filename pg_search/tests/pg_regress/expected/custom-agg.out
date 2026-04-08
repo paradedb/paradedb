@@ -1512,7 +1512,6 @@ FROM logs
 WHERE description @@@ 'error' AND description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
-WARNING:  heap filter on `(description = 'Database connection error'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |        description        |                                                      agg                                                       
 ----+---------------------------+----------------------------------------------------------------------------------------------------------------
   1 | Database connection error | {"buckets": [{"key": "database", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}

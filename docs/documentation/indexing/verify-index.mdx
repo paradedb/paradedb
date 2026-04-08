@@ -190,7 +190,7 @@ ParadeDB.paradedb_verify_index(
 
 </CodeGroup>
 
-Progress messages are emitted via PostgreSQL's `WARNING` channel.
+Progress messages are emitted via PostgreSQL's `NOTICE` channel.
 
 ### Verbose Mode
 
@@ -499,6 +499,7 @@ SELECT * FROM pdb.verify_all_indexes(
     index_pattern := '%_idx',
     heapallindexed := true
 );
+```
 
 ```python Django
 from paradedb import paradedb_verify_all_indexes
@@ -522,7 +523,7 @@ from paradedb.sqlalchemy import diagnostics
 
 # Verify indexes in the 'public' schema only
 diagnostics.paradedb_verify_all_indexes(
-   engine,
+    engine,
     schema_pattern="public",
 )
 

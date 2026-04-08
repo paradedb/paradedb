@@ -33,6 +33,10 @@ pub enum ValueConstraint {
     /// Like StringChoice but allows comma-separated multiple values (e.g., "English,French")
     StringChoiceMultiple(Vec<&'static str>),
     Regex,
+    Float {
+        min: Option<f64>,
+        max: Option<f64>,
+    },
 }
 
 impl ValueConstraint {
@@ -144,6 +148,31 @@ impl ValueConstraint {
                     })
                 }
             }
+            ValueConstraint::Float { min, max } => {
+                if let Some(v) = prop.as_f32().map(|v| v as f64) {
+                    if let Some(min_val) = min {
+                        if v < *min_val {
+                            return Err(ValidationError::InvalidValue {
+                                key: key.unwrap_or(&prop.to_string()).to_string(),
+                                message: format!("must be >= {min_val}, got {v}"),
+                            });
+                        }
+                    }
+                    if let Some(max_val) = max {
+                        if v > *max_val {
+                            return Err(ValidationError::InvalidValue {
+                                key: key.unwrap_or(&prop.to_string()).to_string(),
+                                message: format!("must be <= {max_val}, got {v}"),
+                            });
+                        }
+                    }
+                    Ok(())
+                } else {
+                    Err(ValidationError::TypeMismatch {
+                        actual_type: prop.to_string(),
+                    })
+                }
+            }
         }
     }
 }
@@ -246,6 +275,20 @@ impl TypmodSchema {
                 ),
                 rule!("alias", ValueConstraint::String),
                 rule!("columnar", ValueConstraint::Boolean),
+                rule!(
+                    "k1",
+                    ValueConstraint::Float {
+                        min: Some(0.0),
+                        max: None
+                    }
+                ),
+                rule!(
+                    "b",
+                    ValueConstraint::Float {
+                        min: Some(0.0),
+                        max: Some(1.0)
+                    }
+                ),
             ]
         });
 

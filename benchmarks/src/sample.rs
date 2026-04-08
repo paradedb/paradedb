@@ -217,7 +217,8 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         );
     }
 
-    let local_root_data_path = format!("/tmp/local_source/{}", root.name);
+    let local_root_data_path = format!("/tmp/local_source/{}/", root.name);
+    let local_glob = format!("{local_root_data_path}*.parquet");
     // copy root table locally to speed up sampling.
     std::fs::create_dir_all(&local_root_data_path)
         .with_context(|| "Failed to make root table data directory")?;
@@ -245,7 +246,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
          SELECT * FROM  read_parquet('{local_path}') \
          USING SAMPLE system({percentage:.3} PERCENT) REPEATABLE({seed})",
         name = root.name,
-        local_path = local_root_data_path,
+        local_path = local_glob,
         percentage = percentage,
         seed = config.sampling_seed,
     );

@@ -217,15 +217,15 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         );
     }
 
-    let local_root_data_path = format!("/tmp/local_source/{}/", root.name);
-    let local_glob = format!("{local_root_data_path}*.parquet");
+    let local_root_data_path = format!("/tmp/local_source/{}", root.name);
+    let local_glob = format!("{local_root_data_path}/*.parquet");
     // copy root table locally to speed up sampling.
     std::fs::create_dir_all(&local_root_data_path)
         .with_context(|| "Failed to make root table data directory")?;
     println!("Copying root table data to local disk...");
     let sql = format!(
         "COPY (SELECT * FROM read_parquet('{}')) \
-         TO '{}' (FORMAT PARQUET, OVERWRITE true)",
+         TO '{}' (FORMAT PARQUET, OVERWRITE true, PER_THREAD_OUTPUT true)",
         root_glob, local_root_data_path
     );
     conn.execute_batch(&sql)

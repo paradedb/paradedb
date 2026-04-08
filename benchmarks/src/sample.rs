@@ -222,7 +222,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     //.with_context(|| "Failed to set thread count")?;
 
     let threads_used: u64 = conn
-        .query_row("SELECT current_setting('threads'):", [], |row| row.get(0))
+        .query_row("SELECT current_setting('threads')", [], |row| row.get(0))
         .with_context(|| "Failed to get current thread count")?;
 
     // use bernoulli sampling method because it can skip entire row groups, depending on the

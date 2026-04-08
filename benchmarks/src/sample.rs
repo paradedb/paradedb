@@ -21,6 +21,7 @@ use duckdb::Connection;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::time::Instant;
 
 use crate::duckdb_utils::open_duckdb_conn;
 
@@ -216,10 +217,20 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         );
     }
 
+    let local_root_data_path = format!("/tmp/local_source/{}", root.name);
+    // copy root table locally to speed up sampling.
+    println!("Copying root table data to local disk...");
+    let sql = format!(
+        "COPY (SELECT * FROM read_parquet('{}') TO '{}' (FORMAT PARQUET, OVERWRITE true)",
+        root_glob, local_root_data_path
+    );
+    conn.execute_batch(&sql)
+        .with_context(|| "Failed to copy root table data locally")?;
+
     // disable multi-threading, required for deterministic output
     // See: https://duckdb.org/docs/current/sql/samples#syntax
-    //conn.execute("SET threads = 1;", [])
-    //.with_context(|| "Failed to set thread count")?;
+    conn.execute("SET threads = 1;", [])
+        .with_context(|| "Failed to set thread count")?;
 
     let threads_used: u64 = conn
         .query_row("SELECT current_setting('threads')", [], |row| row.get(0))
@@ -228,12 +239,10 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     let percentage = (target as f64 / total_rows as f64) * 100.0;
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
-         SELECT * FROM ( \
-             SELECT * 
-             FROM read_parquet('{glob}') \
-         ) USING SAMPLE system({percentage:.3} PERCENT) REPEATABLE({seed})",
+         SELECT * FROM  read_parquet('{local_path}') \
+         USING SAMPLE system({percentage:.3} PERCENT) REPEATABLE({seed})",
         name = root.name,
-        glob = root_glob,
+        local_path = local_root_data_path,
         percentage = percentage,
         seed = config.sampling_seed,
     );
@@ -241,8 +250,13 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         "Sampling root table {} for ~{} rows ({:.3} percent of the input) using {threads_used} thread(s). This may take a while...",
         root.name, target, percentage
     );
+    let start_time = Instant::now();
     conn.execute_batch(&sql)
         .with_context(|| format!("Failed to sample root table '{}'", root.name))?;
+    println!("Sampling took: {:?}", start_time.elapsed());
+    println!("Removing root table data from local disk...");
+    std::fs::remove_dir_all(&local_root_data_path)
+        .with_context(|| format!("Failed to remove dir: '{}'", &local_root_data_path))?;
 
     // re-enable multi-threading
     conn.execute("RESET threads;", [])

@@ -189,6 +189,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     let local_root_data_path = format!("/tmp/local_source/{}", root.name);
     let local_glob = format!("{local_root_data_path}/*.parquet");
+
     // copy root table locally to speed up sampling.
     std::fs::create_dir_all(&local_root_data_path)
         .with_context(|| "Failed to make root table data directory")?;
@@ -225,6 +226,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         sample_arg = sample_arg,
         seed = config.sampling_seed,
     );
+
     println!(
         "Sampling root table {} for ~{} rows ({:.5} percent of the input) using {threads_used} thread(s). This may take a while...",
         root.name, target, percentage
@@ -233,6 +235,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     conn.execute_batch(&sql)
         .with_context(|| format!("Failed to sample root table '{}'", root.name))?;
     println!("Sampling took: {:?}", start_time.elapsed());
+
     println!("Removing root table data from local disk...");
     std::fs::remove_dir_all(&local_root_data_path)
         .with_context(|| format!("Failed to remove dir: '{}'", &local_root_data_path))?;

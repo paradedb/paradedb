@@ -853,9 +853,9 @@ async fn generated_aggregate_join(database: Db) {
         // Build join with selected number of tables
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 
-        // Generate join expression
+        // Generate join expression (include LEFT/FULL to cover outer-join aggregate paths)
         let join = arb_joins(
-            Just(JoinType::Inner),
+            prop_oneof![Just(JoinType::Inner), Just(JoinType::Left), Just(JoinType::Full)],
             tables_for_join.clone(),
             join_key_columns.clone(),
         );

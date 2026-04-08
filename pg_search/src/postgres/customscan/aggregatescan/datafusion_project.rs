@@ -271,8 +271,7 @@ fn arrow_value_to_datum(
         DataType::List(_) | DataType::LargeList(_) => list_to_datum(col, row_idx, typoid),
         DataType::Binary => {
             let val = col.as_any().downcast_ref::<BinaryArray>()?.value(row_idx);
-            // If 16 bytes, likely UUID
-            if val.len() == 16 {
+            if typoid == pg_sys::UUIDOID {
                 let uuid = pgrx::Uuid::from_bytes(val.try_into().ok()?);
                 uuid.into_datum()
             } else {
@@ -288,6 +287,9 @@ fn arrow_value_to_datum(
             uuid.into_datum()
         }
         _ => {
+            // Warning (not error) to avoid crashing the entire query for a
+            // missing type mapping. Returning None drops this datum, which the
+            // caller handles. Extend the match arms above to add support.
             pgrx::warning!(
                 "Unsupported Arrow type {:?} (Postgres OID {}) for aggregate projection",
                 col.data_type(),
@@ -347,103 +349,40 @@ fn list_to_datum(col: &ArrayRef, row_idx: usize, _typoid: pg_sys::Oid) -> Option
     use arrow_array::*;
     use arrow_schema::DataType;
 
+    /// Downcast an Arrow array to `$ArrayType`, collect nullable elements into
+    /// `Vec<Option<$RustType>>`, and convert to a Postgres array datum.
+    macro_rules! collect_list {
+        ($inner:expr, $ArrayType:ty, $RustType:ty) => {{
+            let arr = $inner.as_any().downcast_ref::<$ArrayType>()?;
+            let vals: Vec<Option<$RustType>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i).into())
+                    }
+                })
+                .collect();
+            vals.into_datum()
+        }};
+    }
+
     let list = col.as_any().downcast_ref::<ListArray>()?;
     let inner = list.value(row_idx);
     let inner_type = inner.data_type();
 
     match inner_type {
-        DataType::Utf8 => {
-            let arr = inner.as_any().downcast_ref::<StringArray>()?;
-            let vals: Vec<Option<String>> = (0..arr.len())
-                .map(|i| {
-                    if arr.is_null(i) {
-                        None
-                    } else {
-                        Some(arr.value(i).to_string())
-                    }
-                })
-                .collect();
-            vals.into_datum()
-        }
-        DataType::Utf8View => {
-            let arr = inner.as_any().downcast_ref::<StringViewArray>()?;
-            let vals: Vec<Option<String>> = (0..arr.len())
-                .map(|i| {
-                    if arr.is_null(i) {
-                        None
-                    } else {
-                        Some(arr.value(i).to_string())
-                    }
-                })
-                .collect();
-            vals.into_datum()
-        }
-        DataType::LargeUtf8 => {
-            let arr = inner.as_any().downcast_ref::<LargeStringArray>()?;
-            let vals: Vec<Option<String>> = (0..arr.len())
-                .map(|i| {
-                    if arr.is_null(i) {
-                        None
-                    } else {
-                        Some(arr.value(i).to_string())
-                    }
-                })
-                .collect();
-            vals.into_datum()
-        }
-        DataType::Int64 => {
-            let arr = inner.as_any().downcast_ref::<Int64Array>()?;
-            let vals: Vec<Option<i64>> = (0..arr.len())
-                .map(|i| {
-                    if arr.is_null(i) {
-                        None
-                    } else {
-                        Some(arr.value(i))
-                    }
-                })
-                .collect();
-            vals.into_datum()
-        }
-        DataType::Int32 => {
-            let arr = inner.as_any().downcast_ref::<Int32Array>()?;
-            let vals: Vec<Option<i32>> = (0..arr.len())
-                .map(|i| {
-                    if arr.is_null(i) {
-                        None
-                    } else {
-                        Some(arr.value(i))
-                    }
-                })
-                .collect();
-            vals.into_datum()
-        }
-        DataType::Float64 => {
-            let arr = inner.as_any().downcast_ref::<Float64Array>()?;
-            let vals: Vec<Option<f64>> = (0..arr.len())
-                .map(|i| {
-                    if arr.is_null(i) {
-                        None
-                    } else {
-                        Some(arr.value(i))
-                    }
-                })
-                .collect();
-            vals.into_datum()
-        }
-        DataType::Boolean => {
-            let arr = inner.as_any().downcast_ref::<BooleanArray>()?;
-            let vals: Vec<Option<bool>> = (0..arr.len())
-                .map(|i| {
-                    if arr.is_null(i) {
-                        None
-                    } else {
-                        Some(arr.value(i))
-                    }
-                })
-                .collect();
-            vals.into_datum()
-        }
+        DataType::Utf8 => collect_list!(inner, StringArray, String),
+        DataType::Utf8View => collect_list!(inner, StringViewArray, String),
+        DataType::LargeUtf8 => collect_list!(inner, LargeStringArray, String),
+        DataType::Int64 => collect_list!(inner, Int64Array, i64),
+        DataType::Int32 => collect_list!(inner, Int32Array, i32),
+        DataType::Float64 => collect_list!(inner, Float64Array, f64),
+        DataType::Boolean => collect_list!(inner, BooleanArray, bool),
         _ => {
+            // Warning (not error) because returning None silently drops the row,
+            // but crashing the query is worse for the user. This branch indicates
+            // a missing type mapping — extend the macro arms above to fix.
             pgrx::warning!(
                 "Unsupported Arrow List element type {:?} for ARRAY_AGG projection",
                 inner_type

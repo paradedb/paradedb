@@ -76,7 +76,7 @@ FROM df_fallback_products
 WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'
 GROUP BY category;
 
--- Test 2.2: Results should be correct (all 11 groups, not truncated)
+-- Test 2.2: With bucket limit = 1, Tantivy returns only 1 group (truncated)
 SELECT category, COUNT(*)
 FROM df_fallback_products
 WHERE description @@@ 'laptop OR shoes OR jacket OR robot OR coffee OR headphones OR yoga OR book OR pen OR desk OR lamp'

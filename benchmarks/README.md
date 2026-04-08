@@ -60,5 +60,5 @@ Example:
 
 ```bash
 # This will fail (as the output already exists), so use different inputs/outputs for experimentation
-cargo run --release -- convert --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ --output s3://paradedb-benchmarks/datasets/stackoverflow/sampled/10k/parquet/ --config ./datasets/stackoverflow/config.toml --rows 100000
+cargo run --release -- sample --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ --output s3://paradedb-benchmarks/datasets/stackoverflow/sampled/10k/parquet/ --config ./datasets/stackoverflow/config.toml --rows 100000
 ```

@@ -108,6 +108,11 @@ pub struct JoinAggregateEntry {
     pub output_index: usize,
     /// Postgres result type OID (INT8OID for COUNT, FLOAT8OID for others).
     pub result_type_oid: pg_sys::Oid,
+    /// Whether this aggregate uses DISTINCT (e.g., SUM(DISTINCT col)).
+    /// For CountDistinct this is implicitly true via AggKind; for other
+    /// aggregates this flag drives the DataFusion `distinct` parameter.
+    #[serde(default)]
+    pub distinct: bool,
 }
 
 /// The complete aggregate target list for a join aggregate query.
@@ -128,7 +133,6 @@ fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> O
     match aggfnoid {
         F_COUNT_ANY if has_distinct => Some(AggKind::CountDistinct),
         F_COUNT_ANY => Some(AggKind::Count),
-        _ if has_distinct => None,
         F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
             Some(AggKind::Avg)
         }
@@ -236,8 +240,9 @@ pub unsafe fn extract_aggregate_targetlist(
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let has_distinct = !(*aggref).aggdistinct.is_null();
 
-            // Reject FILTER (WHERE ...) clauses on aggregates — DataFusion's
-            // aggregate plan doesn't propagate per-aggregate filter predicates.
+            // Reject FILTER (WHERE ...) clauses on aggregates — DataFusion
+            // doesn't propagate per-aggregate filter predicates and would
+            // silently produce wrong results if we didn't fall back.
             if !(*aggref).aggfilter.is_null() {
                 return Err(
                     "FILTER clauses on aggregates are not supported for aggregate-on-join".into(),
@@ -257,12 +262,13 @@ pub unsafe fn extract_aggregate_targetlist(
                 .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
 
             // For STRING_AGG, extract the separator from the second argument
-            if matches!(agg_kind, AggKind::StringAgg(_)) {
+            let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
+            if is_string_agg {
                 let separator = extract_string_agg_separator(aggref).unwrap_or_else(|| ",".into());
                 agg_kind = AggKind::StringAgg(separator);
             }
 
-            let field_refs = extract_aggref_field_refs(aggref, sources)?;
+            let field_refs = extract_aggref_field_refs(aggref, sources, is_string_agg)?;
             // Use the actual Postgres result type from the Aggref node,
             // not a guessed type — this avoids segfaults from type mismatches
             let result_type_oid = (*aggref).aggtype;
@@ -273,6 +279,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 field_refs,
                 output_index: idx,
                 result_type_oid,
+                distinct: has_distinct,
             });
         } else {
             return Err(format!(
@@ -318,11 +325,14 @@ unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Option<St
 
 /// Extract the field reference from an `Aggref`'s arguments.
 ///
-/// For `COUNT(*)`: returns `None` (no field).
-/// For `COUNT(col)`, `SUM(col)`, etc.: returns `Some((rti, attno, field_name))`.
+/// For `COUNT(*)`: returns empty (no field).
+/// For `COUNT(col)`, `SUM(col)`, etc.: returns the column reference.
+/// For `STRING_AGG(col, sep)`: only processes the first arg (column),
+/// skipping the separator which is handled by `extract_string_agg_separator`.
 unsafe fn extract_aggref_field_refs(
     aggref: *mut pg_sys::Aggref,
     sources: &[JoinAggSource],
+    is_string_agg: bool,
 ) -> Result<Vec<(pg_sys::Index, pg_sys::AttrNumber, String)>, String> {
     // COUNT(*) has no arguments
     if (*aggref).aggstar {
@@ -334,8 +344,15 @@ unsafe fn extract_aggref_field_refs(
         return Err("aggregate function has no arguments".into());
     }
 
-    let mut refs = Vec::with_capacity(args.len());
-    for arg_ptr in args.iter_ptr() {
+    // For STRING_AGG, only the first arg is the column reference;
+    // the second arg is the separator constant.
+    let num_field_args = if is_string_agg { 1 } else { args.len() };
+
+    let mut refs = Vec::with_capacity(num_field_args);
+    for (arg_idx, arg_ptr) in args.iter_ptr().enumerate() {
+        if arg_idx >= num_field_args {
+            break;
+        }
         let expr = (*arg_ptr).expr;
 
         // The argument must be a bare Var (possibly wrapped in RelabelType).

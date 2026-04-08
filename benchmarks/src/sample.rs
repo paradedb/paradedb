@@ -244,14 +244,14 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
          SELECT * FROM  read_parquet('{local_path}') \
-         USING SAMPLE system({row_count} ROWS) REPEATABLE({seed})",
+         USING SAMPLE system({percentage:.5} PERCENT) REPEATABLE({seed})",
         name = root.name,
         local_path = local_glob,
-        row_count = target,
+        percentage = percentage,
         seed = config.sampling_seed,
     );
     println!(
-        "Sampling root table {} for ~{} rows ({:.3} percent of the input) using {threads_used} thread(s). This may take a while...",
+        "Sampling root table {} for ~{} rows ({:.5} percent of the input) using {threads_used} thread(s). This may take a while...",
         root.name, target, percentage
     );
     let start_time = Instant::now();

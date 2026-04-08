@@ -1440,87 +1440,35 @@ unsafe fn add_vars_to_tlist(expr_node: *mut pg_sys::Node, tlist: &mut PgList<pg_
         return;
     }
 
-    let vars = crate::postgres::utils::expr_collect_vars(expr_node, false);
-    for var_ref in vars {
+    for var_ptr in crate::postgres::var::find_vars(expr_node) {
+        let varno = (*var_ptr).varno as pg_sys::Index;
+        let varattno = (*var_ptr).varattno;
+
+        // Skip non-base-relation vars and system columns
+        if varno == 0 || varattno <= 0 {
+            continue;
+        }
+
         // Check if this (varno, varattno) already exists in the target list
         let already_present = tlist.iter_ptr().any(|te| {
             if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
                 let existing = (*te).expr as *mut pg_sys::Var;
-                (*existing).varno as pg_sys::Index == var_ref.rti
-                    && (*existing).varattno == var_ref.attno
+                (*existing).varno as pg_sys::Index == varno && (*existing).varattno == varattno
             } else {
                 false
             }
         });
 
         if !already_present {
-            // Look up the type info for this Var from the range table entry
-            // by creating a Var node that matches the original column.
             let resno = tlist.len() as pg_sys::AttrNumber + 1;
-
-            // We need to find the original Var in the expression tree to copy its type info
-            let original_var = find_var_in_expr(expr_node, var_ref.rti, var_ref.attno);
-            if let Some(var_ptr) = original_var {
-                let new_var = pg_sys::copyObjectImpl(var_ptr.cast()).cast::<pg_sys::Var>();
-                let te = pg_sys::makeTargetEntry(
-                    new_var.cast(),
-                    resno,
-                    std::ptr::null_mut(),
-                    true, // resjunk = true (not needed in output)
-                );
-                tlist.push(te);
-            }
+            let new_var = pg_sys::copyObjectImpl(var_ptr.cast()).cast::<pg_sys::Var>();
+            let te = pg_sys::makeTargetEntry(
+                new_var.cast(),
+                resno,
+                std::ptr::null_mut(),
+                true, // resjunk = true (not needed in output)
+            );
+            tlist.push(te);
         }
     }
-}
-
-/// Find a Var node with the given (varno, varattno) in an expression tree.
-unsafe fn find_var_in_expr(
-    node: *mut pg_sys::Node,
-    target_varno: pg_sys::Index,
-    target_attno: pg_sys::AttrNumber,
-) -> Option<*mut pg_sys::Var> {
-    if node.is_null() {
-        return None;
-    }
-
-    if (*node).type_ == pg_sys::NodeTag::T_Var {
-        let var = node as *mut pg_sys::Var;
-        if (*var).varno as pg_sys::Index == target_varno && (*var).varattno == target_attno {
-            return Some(var);
-        }
-    }
-
-    // Walk into known composite node types
-    match (*node).type_ {
-        pg_sys::NodeTag::T_OpExpr => {
-            let op = node as *mut pg_sys::OpExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*op).args);
-            for arg in args.iter_ptr() {
-                if let Some(v) = find_var_in_expr(arg, target_varno, target_attno) {
-                    return Some(v);
-                }
-            }
-        }
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = node as *mut pg_sys::BoolExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            for arg in args.iter_ptr() {
-                if let Some(v) = find_var_in_expr(arg, target_varno, target_attno) {
-                    return Some(v);
-                }
-            }
-        }
-        pg_sys::NodeTag::T_List => {
-            let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
-            for item in list.iter_ptr() {
-                if let Some(v) = find_var_in_expr(item, target_varno, target_attno) {
-                    return Some(v);
-                }
-            }
-        }
-        _ => {}
-    }
-
-    None
 }

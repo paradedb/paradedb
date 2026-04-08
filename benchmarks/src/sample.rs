@@ -207,10 +207,6 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     conn.execute("SET threads = 1;", [])
         .with_context(|| "Failed to set thread count")?;
 
-    let threads_used: u64 = conn
-        .query_row("SELECT current_setting('threads')", [], |row| row.get(0))
-        .with_context(|| "Failed to get current thread count")?;
-
     let percentage = (target as f64 / total_rows as f64) * 100.0;
     let sample_arg = if target <= 100_000 {
         format!("reservoir({target} ROWS)")
@@ -228,7 +224,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     );
 
     println!(
-        "Sampling root table {} for ~{} rows ({:.5} percent of the input) using {threads_used} thread(s). This may take a while...",
+        "Sampling root table {} for ~{} rows ({:.5} percent of the input)...",
         root.name, target, percentage
     );
     let start_time = Instant::now();

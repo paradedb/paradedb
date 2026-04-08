@@ -596,6 +596,24 @@ FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order';
 
+-- Parity check: TIMESTAMPTZ GROUP BY results must match native PG.
+-- The source data uses mixed timezones (+05:30, -04:00, UTC, America/New_York,
+-- Asia/Tokyo) so any incorrect tz_opt propagation would show up as a mismatch.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM tstz_orders o
+JOIN tstz_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category
+ORDER BY o.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT o.category, MIN(o.created_at), MAX(o.created_at)
+FROM tstz_orders o
+JOIN tstz_items i ON o.id = i.order_id
+WHERE o.description @@@ 'order'
+GROUP BY o.category
+ORDER BY o.category;
+
 DROP TABLE tstz_items;
 DROP TABLE tstz_orders;
 

@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 # See stressgres/README.md about this connection string.
 echo ""
-echo "Updating suite default connection_string..."
+echo "Updating suite to use Antithesis connection..."
 sed -i 's|postgresql://postgres:postgres@localhost:5432/postgres|postgresql://postgres:antithesis-super-secret-password@paradedb-rw:5432/paradedb|g' /home/app/stressgres/suites/vanilla-postgres.toml
 
 echo ""

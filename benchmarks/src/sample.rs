@@ -241,13 +241,18 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         .with_context(|| "Failed to get current thread count")?;
 
     let percentage = (target as f64 / total_rows as f64) * 100.0;
+    let sample_arg = if target <= 50_000 {
+        format!("reservoir({target} ROWS)")
+    } else {
+        format!("system({percentage:.5} PERCENT)")
+    };
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
          SELECT * FROM  read_parquet('{local_path}') \
-         USING SAMPLE system({percentage:.5} PERCENT) REPEATABLE({seed})",
+         USING SAMPLE {sample_arg} REPEATABLE({seed})",
         name = root.name,
         local_path = local_glob,
-        percentage = percentage,
+        sample_arg = sample_arg,
         seed = config.sampling_seed,
     );
     println!(

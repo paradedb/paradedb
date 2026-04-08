@@ -229,9 +229,10 @@ ORDER BY p.category;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
--- Section 9: STRING_AGG on 3-table join
+-- Section 9: COUNT(DISTINCT) on 3-table join
+-- (Replaces STRING_AGG(DISTINCT) which has non-deterministic ordering)
 -- =====================================================================
-SELECT p.category, STRING_AGG(DISTINCT t.tag_name, ', ')
+SELECT p.category, COUNT(DISTINCT t.tag_name)
 FROM mt_products p
 JOIN mt_tags t ON p.id = t.product_id
 JOIN mt_reviews r ON p.id = r.product_id

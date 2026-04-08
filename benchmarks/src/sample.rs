@@ -225,16 +225,13 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         .query_row("SELECT current_setting('threads')", [], |row| row.get(0))
         .with_context(|| "Failed to get current thread count")?;
 
-    // use bernoulli sampling method because it can skip entire row groups, depending on the
-    // percentage, potentially saving a ton of read-time. It does only support targeting a
-    // percentage, so we'll calculate that and accept some imprecision in the result count.
     let percentage = target as f64 / total_rows as f64;
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
          SELECT * FROM ( \
              SELECT * 
              FROM read_parquet('{glob}') \
-         ) USING SAMPLE bernoulli({percentage:.5} PERCENT) REPEATABLE({seed})",
+         ) USING SAMPLE system({percentage:.5} PERCENT) REPEATABLE({seed})",
         name = root.name,
         glob = root_glob,
         percentage = percentage,

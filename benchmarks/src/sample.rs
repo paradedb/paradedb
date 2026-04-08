@@ -165,7 +165,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     let output = args.output.trim_end_matches('/');
 
     let table_names: Vec<String> = config.tables.iter().map(|t| t.name.clone()).collect();
-    validate_input_output(&table_names, &conn, &args.input, &args.output)?;
+    validate_input_output(&table_names, &conn, input, output)?;
 
     // Determine processing order.
     let order = topological_order(&config)?;

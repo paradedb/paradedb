@@ -197,7 +197,7 @@ fn arrow_value_to_datum(
             let val = col.as_any().downcast_ref::<BooleanArray>()?.value(row_idx);
             val.into_datum()
         }
-        DataType::Timestamp(unit, tz_opt) => {
+        DataType::Timestamp(unit, _tz_opt) => {
             let nanos = match unit {
                 arrow_schema::TimeUnit::Nanosecond => col
                     .as_any()
@@ -219,8 +219,11 @@ fn arrow_value_to_datum(
                     .value(row_idx)
                     .checked_mul(1_000_000_000)?,
             };
-            let tz = tz_opt.as_deref().unwrap_or("UTC");
-            timestamp_nanos_to_datum(nanos, typoid, tz)
+            // DataFusion stores all timestamps as UTC internally. The Arrow
+            // tz_opt is source metadata, not a conversion directive — the nanos
+            // we extracted are already UTC, so we must tell pgrx "these
+            // components are UTC" regardless of the original source timezone.
+            timestamp_nanos_to_datum(nanos, typoid, "UTC")
         }
         DataType::Date32 => {
             // Date32: days since epoch → convert to nanoseconds

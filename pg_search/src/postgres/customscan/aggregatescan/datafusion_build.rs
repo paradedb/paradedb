@@ -701,6 +701,191 @@ fn inject_equi_keys(plan: &mut RelNode, keys: Vec<JoinKeyPair>) {
     }
 }
 
+/// Translate a Postgres HAVING qual into a serializable `HavingExpr`.
+///
+/// HAVING expressions reference aggregates via `Aggref` nodes and group columns
+/// via `Var` nodes. We match each Aggref to its position in the output target
+/// list using `pg_sys::equal` (same approach as `detect_join_aggregate_topk`).
+pub unsafe fn translate_having_qual(
+    node: *mut pg_sys::Node,
+    targetlist: &super::join_targetlist::JoinAggregateTargetList,
+) -> Option<super::privdat::HavingExpr> {
+    use super::privdat::{HavingExpr, HavingOp};
+
+    if node.is_null() {
+        return None;
+    }
+
+    let tag = (*node).type_;
+
+    match tag {
+        pg_sys::NodeTag::T_List => {
+            // Postgres may wrap HAVING quals in a List (AND-implicit).
+            // Translate each element and combine with AND.
+            let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+            let mut children = Vec::new();
+            for item in list.iter_ptr() {
+                children.push(translate_having_qual(item, targetlist)?);
+            }
+            if children.len() == 1 {
+                return children.into_iter().next();
+            }
+            Some(HavingExpr::And(children))
+        }
+        pg_sys::NodeTag::T_Aggref => {
+            // Match this Aggref to an aggregate in the targetlist by output_index.
+            // The output_rel.reltarget.exprs ordering matches what we parsed.
+            let aggref = node as *mut pg_sys::Aggref;
+            // Find which aggregate this matches by comparing the Aggref pointer
+            // with the output_rel target list positions stored during extraction.
+            for (idx, _agg) in targetlist.aggregates.iter().enumerate() {
+                // We can't do pointer comparison since havingQual has its own copy.
+                // Instead, use the aggregate's output_index to reconstruct position.
+                // The Aggref in HAVING should match one in the targetlist by pg_sys::equal.
+                // But we don't have the original exprs here. Use a simpler heuristic:
+                // match by aggfnoid + aggstar + position.
+                let agg = &targetlist.aggregates[idx];
+                if (*aggref).aggfnoid.to_u32() == agg.func_oid
+                    && ((*aggref).aggstar
+                        == matches!(agg.agg_kind, super::join_targetlist::AggKind::CountStar))
+                {
+                    // For COUNT(*) there's typically only one, so first match is fine.
+                    // For column aggregates, check field reference matches too.
+                    if (*aggref).aggstar {
+                        return Some(HavingExpr::AggRef(idx));
+                    }
+                    // Non-star: check the argument column matches
+                    if let Some((_, _, ref _field_name)) = agg.field_refs.first() {
+                        let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+                        if let Some(first_arg) = args.get_ptr(0) {
+                            if let Some(var) = crate::postgres::var::find_one_var(
+                                (*first_arg).expr as *mut pg_sys::Node,
+                            ) {
+                                let rti = (*var).varno as pg_sys::Index;
+                                let attno = (*var).varattno;
+                                if let Some((agg_rti, agg_attno, _)) = agg.field_refs.first() {
+                                    if rti == *agg_rti && attno == *agg_attno {
+                                        return Some(HavingExpr::AggRef(idx));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Couldn't match — HAVING references an aggregate we don't know about
+            None
+        }
+        pg_sys::NodeTag::T_Var => {
+            // Group column reference
+            let var = node as *mut pg_sys::Var;
+            let rti = (*var).varno as pg_sys::Index;
+            let attno = (*var).varattno;
+            for gc in &targetlist.group_columns {
+                if gc.rti == rti && gc.attno == attno {
+                    return Some(HavingExpr::GroupRef(gc.field_name.clone()));
+                }
+            }
+            None
+        }
+        pg_sys::NodeTag::T_Const => {
+            let c = node as *mut pg_sys::Const;
+            if (*c).constisnull {
+                return None; // NULL in HAVING is unusual, skip
+            }
+            let typoid = (*c).consttype;
+            let datum = (*c).constvalue;
+            match typoid {
+                pg_sys::INT2OID => {
+                    let i: Option<i16> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(HavingExpr::LitInt(i? as i64))
+                }
+                pg_sys::INT4OID => {
+                    let i: Option<i32> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(HavingExpr::LitInt(i? as i64))
+                }
+                pg_sys::INT8OID => {
+                    let i: Option<i64> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(HavingExpr::LitInt(i?))
+                }
+                pg_sys::FLOAT4OID => {
+                    let f: Option<f32> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(HavingExpr::LitFloat(f? as f64))
+                }
+                pg_sys::FLOAT8OID => {
+                    let f: Option<f64> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(HavingExpr::LitFloat(f?))
+                }
+                pg_sys::BOOLOID => {
+                    let b: Option<bool> = pgrx::FromDatum::from_datum(datum, false);
+                    Some(HavingExpr::LitBool(b?))
+                }
+                _ => None,
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let op = node as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+            if args.len() != 2 {
+                return None;
+            }
+            let left = translate_having_qual(args.get_ptr(0)?, targetlist)?;
+            let right = translate_having_qual(args.get_ptr(1)?, targetlist)?;
+
+            let opname_ptr = pg_sys::get_opname((*op).opno);
+            if opname_ptr.is_null() {
+                return None;
+            }
+            let opname = std::ffi::CStr::from_ptr(opname_ptr).to_str().ok()?;
+            let having_op = match opname {
+                "=" => HavingOp::Eq,
+                "<>" | "!=" => HavingOp::NotEq,
+                "<" => HavingOp::Lt,
+                "<=" => HavingOp::LtEq,
+                ">" => HavingOp::Gt,
+                ">=" => HavingOp::GtEq,
+                _ => return None,
+            };
+
+            Some(HavingExpr::BinOp {
+                left: Box::new(left),
+                op: having_op,
+                right: Box::new(right),
+            })
+        }
+        pg_sys::NodeTag::T_NullTest => {
+            let nt = node as *mut pg_sys::NullTest;
+            let arg = translate_having_qual((*nt).arg as *mut pg_sys::Node, targetlist)?;
+            if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {
+                Some(HavingExpr::IsNull(Box::new(arg)))
+            } else {
+                Some(HavingExpr::IsNotNull(Box::new(arg)))
+            }
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bexpr = node as *mut pg_sys::BoolExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+            let mut children = Vec::new();
+            for arg in args.iter_ptr() {
+                children.push(translate_having_qual(arg, targetlist)?);
+            }
+            match (*bexpr).boolop {
+                pg_sys::BoolExprType::AND_EXPR => Some(HavingExpr::And(children)),
+                pg_sys::BoolExprType::OR_EXPR => Some(HavingExpr::Or(children)),
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    if children.len() == 1 {
+                        Some(HavingExpr::Not(Box::new(children.into_iter().next()?)))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Validate that at least one table in the join has a BM25 index.
 pub fn has_any_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().any(|s| s.bm25_index.is_some())

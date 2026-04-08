@@ -30,14 +30,23 @@ pub enum SelectItem {
 pub struct GroupByExpr {
     pub group_by_columns: Vec<String>,
     pub target_list: Vec<SelectItem>,
+    pub having: Option<String>,
 }
 
 impl GroupByExpr {
     pub fn to_sql(&self) -> String {
         if self.group_by_columns.is_empty() {
-            String::new()
+            if let Some(ref having) = self.having {
+                format!("HAVING {}", having)
+            } else {
+                String::new()
+            }
         } else {
-            format!("GROUP BY {}", self.group_by_columns.join(", "))
+            let mut result = format!("GROUP BY {}", self.group_by_columns.join(", "));
+            if let Some(ref having) = self.having {
+                result.push_str(&format!(" HAVING {}", having));
+            }
+            result
         }
     }
 
@@ -50,6 +59,37 @@ impl GroupByExpr {
             })
             .collect::<Vec<_>>()
             .join(", ")
+    }
+}
+
+/// Generate an optional HAVING clause ~30% of the time when aggregates are available.
+/// The HAVING clause references an aggregate already in the SELECT list.
+fn arb_having(aggregates: Vec<String>) -> impl Strategy<Value = Option<String>> {
+    if aggregates.is_empty() {
+        Just(None).boxed()
+    } else {
+        // ~30% chance of generating a HAVING clause
+        proptest::bool::weighted(0.3)
+            .prop_flat_map(move |include_having| {
+                if include_having {
+                    let aggs = aggregates.clone();
+                    proptest::sample::select(aggs)
+                        .prop_map(|agg| {
+                            // COUNT(*) always returns a non-negative integer
+                            if agg == "COUNT(*)" {
+                                Some(format!("{} > 0", agg))
+                            } else {
+                                // SUM, AVG, MIN, MAX can return NULL for empty groups,
+                                // so use IS NOT NULL as a safe HAVING predicate
+                                Some(format!("{} IS NOT NULL", agg))
+                            }
+                        })
+                        .boxed()
+                } else {
+                    Just(None).boxed()
+                }
+            })
+            .boxed()
     }
 }
 
@@ -80,16 +120,28 @@ pub fn arb_group_by(
             move |selected_aggregates| {
                 if selected_columns.is_empty() {
                     // No GROUP BY - just aggregates
-                    let target_list = selected_aggregates
+                    let target_list: Vec<SelectItem> = selected_aggregates
                         .iter()
                         .map(|&agg| SelectItem::Aggregate(agg.to_string()))
                         .collect();
 
-                    Just(GroupByExpr {
-                        group_by_columns: vec![],
-                        target_list,
-                    })
-                    .boxed()
+                    // Optionally generate HAVING ~30% of the time when aggregates exist
+                    let having_aggs: Vec<String> = target_list
+                        .iter()
+                        .filter_map(|item| match item {
+                            SelectItem::Aggregate(agg) => Some(agg.clone()),
+                            _ => None,
+                        })
+                        .collect();
+                    let target_list_clone = target_list.clone();
+
+                    arb_having(having_aggs)
+                        .prop_map(move |having| GroupByExpr {
+                            group_by_columns: vec![],
+                            target_list: target_list_clone.clone(),
+                            having,
+                        })
+                        .boxed()
                 } else {
                     // GROUP BY - aggregates and columns.
                     // Choose a subset of columns for grouping
@@ -109,12 +161,21 @@ pub fn arb_group_by(
 
                     let selected_columns_clone = selected_columns.clone();
 
+                    // Collect aggregate strings for HAVING generation
+                    let having_aggs: Vec<String> = select_items
+                        .iter()
+                        .filter_map(|item| match item {
+                            SelectItem::Aggregate(agg) => Some(agg.clone()),
+                            _ => None,
+                        })
+                        .collect();
+
                     // Generate a random permutation of the target list
-                    Just(select_items)
-                        .prop_shuffle()
-                        .prop_map(move |permuted_target_list| GroupByExpr {
+                    (Just(select_items).prop_shuffle(), arb_having(having_aggs))
+                        .prop_map(move |(permuted_target_list, having)| GroupByExpr {
                             group_by_columns: selected_columns_clone.clone(),
                             target_list: permuted_target_list,
+                            having,
                         })
                         .boxed()
                 }
@@ -132,6 +193,7 @@ mod tests {
         let expr = GroupByExpr {
             group_by_columns: vec![],
             target_list: vec![SelectItem::Aggregate("COUNT(*)".to_string())],
+            having: None,
         };
         assert_eq!(expr.to_sql(), "");
         assert_eq!(expr.to_select_list(), "COUNT(*)");
@@ -145,6 +207,7 @@ mod tests {
                 SelectItem::Column("name".to_string()),
                 SelectItem::Aggregate("COUNT(*)".to_string()),
             ],
+            having: None,
         };
         assert_eq!(expr.to_sql(), "GROUP BY name");
         assert_eq!(expr.to_select_list(), "name, COUNT(*)");
@@ -158,6 +221,7 @@ mod tests {
                 SelectItem::Aggregate("COUNT(*)".to_string()),
                 SelectItem::Column("name".to_string()),
             ],
+            having: None,
         };
         assert_eq!(expr.to_sql(), "GROUP BY name");
         assert_eq!(expr.to_select_list(), "COUNT(*), name");
@@ -172,8 +236,34 @@ mod tests {
                 SelectItem::Column("name".to_string()),
                 SelectItem::Column("color".to_string()),
             ],
+            having: None,
         };
         assert_eq!(expr.to_sql(), "GROUP BY name, color");
         assert_eq!(expr.to_select_list(), "COUNT(*), name, color");
+    }
+
+    #[test]
+    fn test_group_by_expr_with_having() {
+        let expr = GroupByExpr {
+            group_by_columns: vec!["name".to_string()],
+            target_list: vec![
+                SelectItem::Column("name".to_string()),
+                SelectItem::Aggregate("COUNT(*)".to_string()),
+            ],
+            having: Some("COUNT(*) > 0".to_string()),
+        };
+        assert_eq!(expr.to_sql(), "GROUP BY name HAVING COUNT(*) > 0");
+        assert_eq!(expr.to_select_list(), "name, COUNT(*)");
+    }
+
+    #[test]
+    fn test_group_by_expr_having_without_group_by() {
+        let expr = GroupByExpr {
+            group_by_columns: vec![],
+            target_list: vec![SelectItem::Aggregate("COUNT(*)".to_string())],
+            having: Some("COUNT(*) > 0".to_string()),
+        };
+        assert_eq!(expr.to_sql(), "HAVING COUNT(*) > 0");
+        assert_eq!(expr.to_select_list(), "COUNT(*)");
     }
 }

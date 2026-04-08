@@ -69,6 +69,7 @@ pub fn create_aggregate_session_context() -> SessionContext {
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
 /// scan(s) → join → aggregate [→ sort → limit].
+#[allow(clippy::too_many_arguments)]
 pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
@@ -76,6 +77,7 @@ pub async fn build_join_aggregate_plan(
     join_level_predicates: &[JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
+    having_filter: Option<&crate::postgres::customscan::aggregatescan::privdat::HavingExpr>,
     ctx: &SessionContext,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     // Step 1: Build the join DataFrame from the RelNode tree
@@ -136,7 +138,14 @@ pub async fn build_join_aggregate_plan(
         .collect::<Result<Vec<Expr>>>()?;
 
     // Step 4: Apply aggregate
-    let df = df.aggregate(group_exprs, agg_exprs)?;
+    let mut df = df.aggregate(group_exprs, agg_exprs)?;
+
+    // Step 4.5: Apply HAVING filter (post-aggregate)
+    if let Some(having) = having_filter {
+        if let Some(expr) = having_expr_to_datafusion(having, targetlist) {
+            df = df.filter(expr)?;
+        }
+    }
 
     // Step 5: If TopK is requested, add sort + limit so DataFusion handles it internally
     if let Some(topk) = topk {
@@ -153,6 +162,7 @@ pub async fn build_join_aggregate_plan(
 
 /// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].
 ///
+/// Unlike JoinScan's `build_relnode_df`, this version:
 /// - Does NOT include CTID columns (no heap fetch needed for aggregates)
 /// - Does NOT handle LIMIT, ORDER BY, DISTINCT, or output projection
 ///   (those are handled by the aggregate layer above)
@@ -341,6 +351,79 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
 
         let field_name = source.column_name(attno)?;
         Some(make_col(&alias, &field_name))
+    }
+}
+
+/// Translate a serialized `HavingExpr` to a DataFusion `Expr`.
+/// Aggregate references use the `agg_{idx}` aliases from the aggregate step.
+fn having_expr_to_datafusion(
+    expr: &crate::postgres::customscan::aggregatescan::privdat::HavingExpr,
+    targetlist: &JoinAggregateTargetList,
+) -> Option<Expr> {
+    use crate::postgres::customscan::aggregatescan::privdat::{HavingExpr, HavingOp};
+    use datafusion::logical_expr::Operator;
+
+    match expr {
+        HavingExpr::AggRef(idx) => {
+            if *idx < targetlist.aggregates.len() {
+                Some(datafusion::prelude::col(format!("agg_{}", idx)))
+            } else {
+                None
+            }
+        }
+        HavingExpr::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
+        HavingExpr::LitInt(v) => Some(lit(*v)),
+        HavingExpr::LitFloat(v) => Some(lit(*v)),
+        HavingExpr::LitBool(v) => Some(lit(*v)),
+        HavingExpr::BinOp { left, op, right } => {
+            let l = having_expr_to_datafusion(left, targetlist)?;
+            let r = having_expr_to_datafusion(right, targetlist)?;
+            let df_op = match op {
+                HavingOp::Eq => Operator::Eq,
+                HavingOp::NotEq => Operator::NotEq,
+                HavingOp::Lt => Operator::Lt,
+                HavingOp::LtEq => Operator::LtEq,
+                HavingOp::Gt => Operator::Gt,
+                HavingOp::GtEq => Operator::GtEq,
+            };
+            Some(Expr::BinaryExpr(datafusion::logical_expr::BinaryExpr::new(
+                Box::new(l),
+                df_op,
+                Box::new(r),
+            )))
+        }
+        HavingExpr::And(children) => {
+            let mut exprs: Vec<Expr> = children
+                .iter()
+                .filter_map(|c| having_expr_to_datafusion(c, targetlist))
+                .collect();
+            if exprs.is_empty() {
+                return None;
+            }
+            let mut result = exprs.remove(0);
+            for e in exprs {
+                result = result.and(e);
+            }
+            Some(result)
+        }
+        HavingExpr::Or(children) => {
+            let mut exprs: Vec<Expr> = children
+                .iter()
+                .filter_map(|c| having_expr_to_datafusion(c, targetlist))
+                .collect();
+            if exprs.is_empty() {
+                return None;
+            }
+            let mut result = exprs.remove(0);
+            for e in exprs {
+                result = result.or(e);
+            }
+            Some(result)
+        }
+        HavingExpr::Not(inner) => {
+            let e = having_expr_to_datafusion(inner, targetlist)?;
+            Some(Expr::Not(Box::new(e)))
+        }
     }
 }
 

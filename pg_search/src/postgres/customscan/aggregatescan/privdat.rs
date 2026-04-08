@@ -25,6 +25,40 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
 
+/// Serializable representation of a HAVING clause expression.
+/// References aggregate results by index and group columns by name.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum HavingExpr {
+    /// Reference to an aggregate result by its index in targetlist.aggregates.
+    /// Translates to `col("agg_{idx}")` in DataFusion.
+    AggRef(usize),
+    /// Reference to a GROUP BY column by field name.
+    GroupRef(String),
+    /// Literal values
+    LitInt(i64),
+    LitFloat(f64),
+    LitBool(bool),
+    /// Comparison operator
+    BinOp {
+        left: Box<HavingExpr>,
+        op: HavingOp,
+        right: Box<HavingExpr>,
+    },
+    And(Vec<HavingExpr>),
+    Or(Vec<HavingExpr>),
+    Not(Box<HavingExpr>),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum HavingOp {
+    Eq,
+    NotEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+}
+
 /// TopK sort+limit info pushed into the DataFusion aggregate plan.
 /// Allows DataFusion to handle ORDER BY aggregate + LIMIT internally.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -72,6 +106,9 @@ pub enum PrivateData {
         /// plan_custom_path so setrefs transforms their Var nodes.
         #[serde(default)]
         multi_table_clause_count: usize,
+        /// HAVING clause filter applied after aggregation.
+        #[serde(default)]
+        having_filter: Option<HavingExpr>,
     },
 }
 

@@ -39,7 +39,7 @@ use pgrx::PgList;
 /// Simplified aggregate classification for the DataFusion backend.
 /// Unlike [`AggregateType`] (Tantivy-oriented), this enum is lightweight and maps
 /// directly to DataFusion aggregate expressions.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggKind {
     CountStar,
     Count,

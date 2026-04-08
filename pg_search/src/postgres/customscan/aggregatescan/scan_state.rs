@@ -58,6 +58,8 @@ pub struct DataFusionAggState {
     /// INDEX_VAR references in custom_exprs back to original (rti, attno)
     /// pairs during DataFusion expression translation.
     pub custom_scan_tlist: *mut pg_sys::List,
+    /// HAVING clause filter applied after aggregation.
+    pub having_filter: Option<crate::postgres::customscan::aggregatescan::privdat::HavingExpr>,
     /// Tokio runtime for async DataFusion execution.
     pub runtime: Option<tokio::runtime::Runtime>,
     /// DataFusion result stream.

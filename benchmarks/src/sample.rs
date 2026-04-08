@@ -237,8 +237,8 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         seed = config.sampling_seed,
     );
     println!(
-        "Sampling root table {} for {} rows. This may take a while...",
-        root.name, target
+        "Sampling root table {} for ~{} rows ({:.3} percent of the input). This may take a while...",
+        root.name, target, percentage
     );
     conn.execute_batch(&sql)
         .with_context(|| format!("Failed to sample root table '{}'", root.name))?;

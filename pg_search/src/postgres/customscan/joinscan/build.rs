@@ -890,6 +890,21 @@ impl RelNode {
         }
     }
 
+    /// Returns true if any `JoinNode` in the tree has an empty `equi_keys` list.
+    /// Used to reject plans where an intermediate join (e.g., CROSS JOIN inside
+    /// a 3-table query) would cause DataFusion to error or produce empty batches.
+    pub fn has_join_without_keys(&self) -> bool {
+        match self {
+            RelNode::Scan(_) => false,
+            RelNode::Join(j) => {
+                j.equi_keys.is_empty()
+                    || j.left.has_join_without_keys()
+                    || j.right.has_join_without_keys()
+            }
+            RelNode::Filter(f) => f.input.has_join_without_keys(),
+        }
+    }
+
     /// Extract the top-level join_level_expr if present.
     pub fn join_level_expr(&self) -> Option<&JoinLevelExpr> {
         match self {

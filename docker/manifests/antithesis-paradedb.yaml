@@ -262,6 +262,7 @@ spec:
       - pg_cron
     parameters:
       cron.database_name: postgres
+      autovacuum_naptime: "1s"
 
   monitoring:
     enablePodMonitor: false

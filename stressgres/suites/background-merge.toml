@@ -39,7 +39,12 @@ BEGIN
 END;
 $$;
 
-ALTER DATABASE stressgres SET work_mem = '1GB';
+DO $$
+DECLARE
+   dbname text := current_database();
+BEGIN
+   EXECUTE format('ALTER DATABASE %I SET work_mem = %L', dbname, '1GB');
+END $$;
 """
 
 [server.teardown]

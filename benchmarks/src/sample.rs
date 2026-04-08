@@ -221,6 +221,10 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     //conn.execute("SET threads = 1;", [])
     //.with_context(|| "Failed to set thread count")?;
 
+    let threads_used: u64 = conn
+        .query_row("SELECT current_setting('threads'):", [], |row| row.get(0))
+        .with_context(|| "Failed to get current thread count")?;
+
     // use bernoulli sampling method because it can skip entire row groups, depending on the
     // percentage, potentially saving a ton of read-time. It does only support targeting a
     // percentage, so we'll calculate that and accept some imprecision in the result count.
@@ -237,7 +241,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         seed = config.sampling_seed,
     );
     println!(
-        "Sampling root table {} for ~{} rows ({:.5} percent of the input). This may take a while...",
+        "Sampling root table {} for ~{} rows ({:.5} percent of the input) using {threads_used} thread(s). This may take a while...",
         root.name, target, percentage
     );
     conn.execute_batch(&sql)

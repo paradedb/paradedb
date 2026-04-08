@@ -221,7 +221,8 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     // copy root table locally to speed up sampling.
     println!("Copying root table data to local disk...");
     let sql = format!(
-        "COPY (SELECT * FROM read_parquet('{}') TO '{}' (FORMAT PARQUET, OVERWRITE true)",
+        "COPY (SELECT * FROM read_parquet('{}')) \
+         TO '{}' (FORMAT PARQUET, OVERWRITE true)",
         root_glob, local_root_data_path
     );
     conn.execute_batch(&sql)

@@ -58,7 +58,13 @@ WITH (key_field='id');
 SELECT description, rating
 FROM mock_items
 WHERE description ||| 'sleek running shoes';
-ERROR:  Query is ambiguous: column `description` matches multiple indexed fields: `description`, `literal_description`. Use `description::pdb.alias(...)` to choose one
+     description     | rating 
+---------------------+--------
+ Sleek running shoes |      5
+ White jogging shoes |      3
+ Generic shoes       |      4
+(3 rows)
+
 DROP INDEX search_idx;
 CREATE INDEX search_idx ON mock_items
 USING bm25 (

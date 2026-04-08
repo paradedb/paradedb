@@ -111,6 +111,7 @@ SELECT description, rating
 FROM mock_items
 WHERE description::pdb.alias('simple_description') ||| 'sleek running shoes';
 
+DROP INDEX search_idx;
 DROP TYPE aliased_description_fields;
 
 -- A tokenized column without an alias should be selected over the aliased version
@@ -126,7 +127,7 @@ USING bm25 (
     ROW(
       description::pdb.simple,
       description::pdb.literal('alias=literal_description')
-    )::aliased_description_fields
+    )::partially_aliased_description_fields
   ),
   rating
 )
@@ -137,5 +138,6 @@ SELECT description, rating
 FROM mock_items
 WHERE description ||| 'sleek running shoes';
 
-DROP TABLE mock_items;
+DROP INDEX search_idx;
 DROP TYPE partially_aliased_description_fields;
+DROP TABLE mock_items;

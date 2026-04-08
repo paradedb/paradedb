@@ -20,6 +20,7 @@ FROM generate_series(1, 5000) g;
 CREATE INDEX hfv_idx ON hfv_test USING bm25 (id, body) WITH (key_field = 'id');
 -- Baseline: query with heap_filter predicate works before any deletes.
 SELECT count(*) FROM hfv_test WHERE body @@@ 'fox' AND extra = 5;
+WARNING:  heap filter on `(extra = 5)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
    500
@@ -32,6 +33,7 @@ VACUUM hfv_test;
 -- This query uses the heap_filter path (extra is not in the BM25 index).
 -- Before the fix, this would ERROR with "could not read blocks ... read only 0 of 8192 bytes".
 SELECT count(*) FROM hfv_test WHERE body @@@ 'fox' AND extra = 5;
+WARNING:  heap filter on `(extra = 5)`: the column is not indexed in the bm25 index. This may impact query performance.
  count 
 -------
    100

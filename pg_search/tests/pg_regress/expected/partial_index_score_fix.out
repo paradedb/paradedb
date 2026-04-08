@@ -63,8 +63,8 @@ SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                        QUERY PLAN                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on partial_test
@@ -72,13 +72,14 @@ ORDER BY score DESC;
          Index: partial_test_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(rating >= 4)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(rating >= 4)"}]}}]}}
 (8 rows)
 
 SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
+WARNING:  heap filter on `(rating >= 4)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | description  |  category   | rating |   score    
 ----+--------------+-------------+--------+------------
   1 | Apple iPhone | Electronics |      5 | 0.47000363
@@ -95,8 +96,8 @@ FROM partial_test
 WHERE category = 'Electronics' AND rating >= 4
 AND id @@@ paradedb.all()
 ORDER BY rating DESC;
-                                                                                       QUERY PLAN                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC
    ->  Custom Scan (ParadeDB Base Scan) on partial_test
@@ -105,7 +106,7 @@ ORDER BY rating DESC;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(rating >= 4)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(rating >= 4)"}]}}]}}
 (9 rows)
 
 SELECT id, description, category, rating
@@ -113,6 +114,7 @@ FROM partial_test
 WHERE category = 'Electronics' AND rating >= 4
 AND id @@@ paradedb.all()
 ORDER BY rating DESC;
+WARNING:  heap filter on `(rating >= 4)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |  description   |  category   | rating 
 ----+----------------+-------------+--------
   1 | Apple iPhone   | Electronics |      5

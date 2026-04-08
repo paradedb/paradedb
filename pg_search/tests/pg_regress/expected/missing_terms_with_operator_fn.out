@@ -26,8 +26,8 @@ BEGIN;
 ALTER EXTENSION pg_search DROP FUNCTION paradedb.terms_with_operator;
 DROP FUNCTION paradedb.terms_with_operator;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM missing_fn WHERE id = ANY(ARRAY[3]) AND id @@@ paradedb.all() ORDER BY id;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on missing_fn
@@ -37,10 +37,11 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM missing_fn WHERE id =
          Fast Fields: id
          Scores: false
          Full Index Scan: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(id = ANY ('{3}'::integer[]))"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(id = ANY ('{3}'::integer[]))"}]}}]}}
 (10 rows)
 
 SELECT * FROM missing_fn WHERE id = ANY(ARRAY[3]) AND id @@@ paradedb.all() ORDER BY id;
+WARNING:  heap filter on `(id = ANY ('{3}'::integer[]))`: the column is not indexed in the bm25 index. This may impact query performance.
  id 
 ----
   3

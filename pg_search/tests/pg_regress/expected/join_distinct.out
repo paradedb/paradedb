@@ -499,6 +499,9 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless' AND s.name = 'TechCorp'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  heap filter on `(name = 'TechCorp'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(name = 'TechCorp'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(name = 'TechCorp'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
                                                                                                     QUERY PLAN                                                                                                     
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -516,7 +519,7 @@ ORDER BY p.name
            :       VisibilityFilterExec: tables=[s, p]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
+           :             PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(name = 'TechCorp'::text)"}]}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (18 rows)

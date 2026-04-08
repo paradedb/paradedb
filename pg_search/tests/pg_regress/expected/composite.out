@@ -2033,8 +2033,8 @@ SELECT id, name, rating, in_stock
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics') AND rating > 4.0 AND in_stock = true
 ORDER BY rating DESC, id;
-                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC, id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2042,13 +2042,14 @@ ORDER BY rating DESC, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}},"field_filters":[{"heap_filter":"in_stock"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"in_stock"}]}}]}}
 (8 rows)
 
 SELECT id, name, rating, in_stock
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics') AND rating > 4.0 AND in_stock = true
 ORDER BY rating DESC, id;
+WARNING:  heap filter on `in_stock`: the column is not indexed in the bm25 index. This may impact query performance.
  id |       name        | rating | in_stock 
 ----+-------------------+--------+----------
   3 | Gaming Mouse      |    4.8 | t

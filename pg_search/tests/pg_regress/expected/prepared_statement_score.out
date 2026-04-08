@@ -71,6 +71,7 @@ EXECUTE search_desc('keyboard', 0);
 (2 rows)
 
 EXECUTE search_desc('keyboard', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -80,8 +81,8 @@ EXECUTE search_desc('keyboard', 0);
 -- Show plan for 6th execution (should be generic plan by default, but still use Custom Scan)
 EXPLAIN (COSTS OFF)
 EXECUTE search_desc('keyboard', 0);
-                                                                                                                                                              QUERY PLAN                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
@@ -92,12 +93,13 @@ EXECUTE search_desc('keyboard', 0);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 5
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ParameterRequiresRuntime","heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
 -- 6th execution should use generic plan (by default)
 -- This should still return scores, not NULL
 EXECUTE search_desc('keyboard', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -120,8 +122,8 @@ LIMIT 5;
 -- Show plan with forced generic plan (should still use Custom Scan)
 EXPLAIN (COSTS OFF)
 EXECUTE search_generic('keyboard', 0);
-                                                                                                                                                              QUERY PLAN                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
@@ -132,11 +134,12 @@ EXECUTE search_generic('keyboard', 0);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 5
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ParameterRequiresRuntime","heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
 -- This should return scores even with forced generic plan
 EXECUTE search_generic('keyboard', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -145,6 +148,7 @@ EXECUTE search_generic('keyboard', 0);
 
 -- Test different search terms
 EXECUTE search_generic('shoes', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |     description     |   score   
 ----+---------------------+-----------
   5 | Generic shoes       | 2.8772602
@@ -206,8 +210,8 @@ SET plan_cache_mode = force_generic_plan;
 -- Show plan with pdb.score() function
 EXPLAIN (COSTS OFF)
 EXECUTE search_pdb('keyboard', 0);
-                                                                                                                                                              QUERY PLAN                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
@@ -218,10 +222,11 @@ EXECUTE search_pdb('keyboard', 0);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 5
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ParameterRequiresRuntime","heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
 EXECUTE search_pdb('keyboard', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -245,8 +250,8 @@ LIMIT 10;
 -- When $2 = 0, should return results
 EXPLAIN (COSTS OFF)
 EXECUTE test_filter('shoes', 0);
-                                                                                                                                                              QUERY PLAN                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
@@ -257,10 +262,11 @@ EXECUTE test_filter('shoes', 0);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ParameterRequiresRuntime","heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
 EXECUTE test_filter('shoes', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |     description     |   score   
 ----+---------------------+-----------
   5 | Generic shoes       | 2.8772602
@@ -271,8 +277,8 @@ EXECUTE test_filter('shoes', 0);
 -- When $2 = 1, should return NO results (filter condition fails)
 EXPLAIN (COSTS OFF)
 EXECUTE test_filter('shoes', 1);
-                                                                                                                                                              QUERY PLAN                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
@@ -283,7 +289,7 @@ EXECUTE test_filter('shoes', 1);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ParameterRequiresRuntime","heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
 EXECUTE test_filter('shoes', 1);
@@ -294,8 +300,8 @@ EXECUTE test_filter('shoes', 1);
 -- When $2 = 0 again, should return results
 EXPLAIN (COSTS OFF)
 EXECUTE test_filter('keyboard', 0);
-                                                                                                                                                              QUERY PLAN                                                                                                                                                               
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($2 = 0)
@@ -306,10 +312,11 @@ EXECUTE test_filter('keyboard', 0);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($2 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ParameterRequiresRuntime","heap_filter":"($2 = 0)"}]}}]}}
 (11 rows)
 
 EXECUTE test_filter('keyboard', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -333,8 +340,8 @@ LIMIT 10;
 -- Should return shoes with rating > 3
 EXPLAIN (COSTS OFF)
 EXECUTE test_complex('shoes', 3, 0);
-                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($3 = 0)
@@ -345,10 +352,12 @@ EXECUTE test_complex('shoes', 3, 0);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ParameterRequiresRuntime","heap_filter":"($3 = 0)"}]}}]}}
 (11 rows)
 
 EXECUTE test_complex('shoes', 3, 0);
+WARNING:  heap filter on `(rating > $2)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `($3 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |     description     | rating |   score   
 ----+---------------------+--------+-----------
   5 | Generic shoes       |      4 | 2.8772602
@@ -358,8 +367,8 @@ EXECUTE test_complex('shoes', 3, 0);
 -- Should return NO results (filter $3 = 1 fails)
 EXPLAIN (COSTS OFF)
 EXECUTE test_complex('shoes', 3, 1);
-                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($3 = 0)
@@ -370,7 +379,7 @@ EXECUTE test_complex('shoes', 3, 1);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ParameterRequiresRuntime","heap_filter":"($3 = 0)"}]}}]}}
 (11 rows)
 
 EXECUTE test_complex('shoes', 3, 1);
@@ -381,8 +390,8 @@ EXECUTE test_complex('shoes', 3, 1);
 -- Should return shoes with rating > 2
 EXPLAIN (COSTS OFF)
 EXECUTE test_complex('shoes', 2, 0);
-                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          One-Time Filter: ($3 = 0)
@@ -393,10 +402,12 @@ EXECUTE test_complex('shoes', 2, 0);
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 10
-               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"($3 = 0)"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.parse_with_field('description'::paradedb.fieldname, $1, NULL::boolean, NULL::boolean))"}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(rating > $2)"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ParameterRequiresRuntime","heap_filter":"($3 = 0)"}]}}]}}
 (11 rows)
 
 EXECUTE test_complex('shoes', 2, 0);
+WARNING:  heap filter on `(rating > $2)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `($3 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |     description     | rating |   score   
 ----+---------------------+--------+-----------
   5 | Generic shoes       |      4 | 2.8772602

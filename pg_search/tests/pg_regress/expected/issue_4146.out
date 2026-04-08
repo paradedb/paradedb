@@ -469,8 +469,13 @@ WHERE
 ORDER BY
     d.title ASC
 LIMIT 50;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.id, d.title, d.parents
    ->  Unique
@@ -493,7 +498,7 @@ LIMIT 50;
                  :               PgSearchScan: segments=1, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null,"is_datetime":false}}
                  :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_0@0, id@1, title@2, parents@3, ctid_2@4, id@6]
                  :               CooperativeExec
-                 :                 PgSearchScan: segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
+                 :                 PgSearchScan: segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
                  :               CooperativeExec
                  :                 PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (25 rows)
@@ -512,6 +517,11 @@ WHERE
 ORDER BY
     d.title ASC
 LIMIT 50;
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the column is not indexed in the bm25 index. This may impact query performance.
                   id                  |                      title                       |         parents          
 --------------------------------------+--------------------------------------------------+--------------------------
  00000001-1000-0000-0110-000000011000 | Document Title 10670 - d4af2d263e57f8d5fb92df991 | SFR 615ee94d40192144e7fd

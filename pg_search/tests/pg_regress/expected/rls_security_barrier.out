@@ -98,6 +98,8 @@ SELECT id,
        pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
 FROM rls_score_bug_test
 WHERE title ||| 'sheriff';
+WARNING:  heap filter on `rls_bug_check_definer(org_id)`: function expressions are not indexable. This may impact query performance.
+WARNING:  heap filter on `rls_bug_check_definer(org_id)`: function expressions are not indexable. This may impact query performance.
  id |             title              |   score   |                snippet                
 ----+--------------------------------+-----------+---------------------------------------
   1 | sheriff department los angeles | 0.6747451 | <b>sheriff</b> department los angeles
@@ -108,15 +110,15 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id)
 FROM rls_score_bug_test
 WHERE title ||| 'sheriff';
-                                                                                                                                                                   QUERY PLAN                                                                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on rls_score_bug_test
    Table: rls_score_bug_test
    Index: rls_score_bug_bm25
    Exec Method: ColumnarExecState
    Fast Fields: id
    Scores: true
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"field_filters":[{"heap_filter":"rls_bug_check_definer(org_id)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"field_filters":[{"reason":"FunctionNotIndexable","heap_filter":"rls_bug_check_definer(org_id)"}]}}]}}
 (7 rows)
 
 COMMIT;

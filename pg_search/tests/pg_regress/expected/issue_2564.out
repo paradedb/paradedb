@@ -171,8 +171,8 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
-                                                                                                                                                 QUERY PLAN                                                                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                               QUERY PLAN                                                                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: d.id
    ->  Custom Scan (ParadeDB Base Scan) on documents d
@@ -190,7 +190,7 @@ ORDER BY d.id;
                        Scores: true
                           TopK Order By: pdb.score() desc
                           TopK Limit: 1
-                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(documentid = $1)"}]}}]}}
+                       Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(documentid = $1)"}]}}]}}
 (18 rows)
 
 SELECT d.id, d.title, d.parents,
@@ -203,6 +203,8 @@ SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
+WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
   id  |    title     | parents  | file_title  
 ------+--------------+----------+-------------
  doc1 | Invoice 2023 | Factures | Invoice PDF

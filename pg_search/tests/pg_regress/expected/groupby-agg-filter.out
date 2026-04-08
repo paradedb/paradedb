@@ -480,6 +480,14 @@ SELECT
     COUNT(*) FILTER (WHERE description @@@ 'laptop') AS laptop_count,
     COUNT(*) FILTER (WHERE description IS NOT NULL AND description @@@ 'laptop') AS laptop_not_null
 FROM filter_agg_test;
+WARNING:  heap filter on `(description IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
+WARNING:  heap filter on `(description IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
+WARNING:  heap filter on `(description IS NOT NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
+WARNING:  heap filter on `(description IS NOT NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
+WARNING:  heap filter on `(description IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
+WARNING:  heap filter on `(description IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
+WARNING:  heap filter on `(description IS NOT NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
+WARNING:  heap filter on `(description IS NOT NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
  total | null_descriptions | laptop_count | laptop_not_null 
 -------+-------------------+--------------+-----------------
     20 |                 2 |            2 |               2

@@ -544,8 +544,8 @@ WHERE a.content @@@ 'machine learning'
   AND a.author_id IN (1, 2)
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
-                                                                                                                                                             QUERY PLAN                                                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                           QUERY PLAN                                                                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Nested Loop Left Join
          ->  Custom Scan (ParadeDB Base Scan) on articles a
@@ -555,7 +555,7 @@ LIMIT 5;
                Scores: true
                   TopK Order By: pdb.score() desc
                   TopK Limit: 5
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"machine learning","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(author_id = ANY ('{1,2}'::integer[]))"}]}}]}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"machine learning","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"reason":"ColumnNotIndexed","heap_filter":"(author_id = ANY ('{1,2}'::integer[]))"}]}}]}}
          ->  Aggregate
                ->  Seq Scan on comments c
                      Filter: (article_id = a.id)
@@ -578,6 +578,7 @@ WHERE a.content @@@ 'machine learning'
   AND a.author_id IN (1, 2)
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  heap filter on `(author_id = ANY ('{1,2}'::integer[]))`: the column is not indexed in the bm25 index. This may impact query performance.
  id |          title          | score_value |   score   |       last_comment       
 ----+-------------------------+-------------+-----------+--------------------------
   2 | Machine Learning Basics |       82.30 | 4.5998363 | Thu Jan 04 19:00:00 2024

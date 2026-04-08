@@ -296,7 +296,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
         let table = &config.tables[idx];
         println!("  Writing '{}'...", table.name);
         let sql = format!(
-            "COPY sampled_{name} TO '{output}/{name}/' (FORMAT PARQUET, PER_THREAD_OUTPUT true)",
+            "COPY sampled_{name} TO '{output}/{name}' (FORMAT PARQUET, PER_THREAD_OUTPUT true)",
             name = table.name,
             output = output,
         );

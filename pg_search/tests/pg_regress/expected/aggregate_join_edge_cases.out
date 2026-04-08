@@ -229,32 +229,16 @@ JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: p.category
-   ->  Gather Merge
-         Workers Planned: 1
-         ->  Merge Join
-               Merge Cond: (p.category = r.category)
-               ->  Sort
-                     Sort Key: p.category
-                     ->  Parallel Custom Scan (ParadeDB Base Scan) on ec_products p
-                           Table: ec_products
-                           Index: ec_products_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: category
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
-               ->  Sort
-                     Sort Key: r.category
-                     ->  Hash Join
-                           Hash Cond: (r.category = s.category)
-                           ->  Seq Scan on ec_reviews r
-                           ->  Hash
-                                 ->  Seq Scan on ec_suppliers s
-(22 rows)
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Sort
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
+         Group By: category
+         Aggregates: COUNT(*)(*), SUM(rating)
+(7 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating)
 FROM ec_products p
@@ -263,7 +247,6 @@ JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
   category   | count | sum 
 -------------+-------+-----
  Clothing    |     4 |  14
@@ -299,33 +282,16 @@ LEFT JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: p.category
-   ->  Gather Merge
-         Workers Planned: 1
-         ->  Merge Left Join
-               Merge Cond: (p.category = s.category)
-               ->  Merge Left Join
-                     Merge Cond: (p.category = r.category)
-                     ->  Sort
-                           Sort Key: p.category
-                           ->  Parallel Custom Scan (ParadeDB Base Scan) on ec_products p
-                                 Table: ec_products
-                                 Index: ec_products_idx
-                                 Exec Method: ColumnarExecState
-                                 Fast Fields: category
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
-                     ->  Sort
-                           Sort Key: r.category
-                           ->  Seq Scan on ec_reviews r
-               ->  Sort
-                     Sort Key: s.category
-                     ->  Seq Scan on ec_suppliers s
-(23 rows)
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Sort
+   Sort Key: p.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
+         Group By: category
+         Aggregates: COUNT(*)(*), COUNT(rating), COUNT(supplier_name)
+(7 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
 FROM ec_products p
@@ -334,7 +300,6 @@ LEFT JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
   category   | count | count | count 
 -------------+-------+-------+-------
  Books       |     1 |     0 |     0

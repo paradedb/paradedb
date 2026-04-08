@@ -517,8 +517,8 @@ unsafe fn try_extract_one_equi_key(
 /// Walk the WHERE clause quals and attach equi-join keys to the appropriate join nodes.
 ///
 /// For implicit joins (comma-separated FROM), the equi-keys live in the WHERE clause
-/// rather than in an ON clause. This function extracts them and pushes them into the
-/// `equi_keys` of the topmost `JoinNode`.
+/// rather than in an ON clause. Each key is distributed to the correct join level
+/// using [`inject_equi_keys`] so that 3+ table joins work correctly.
 unsafe fn extract_equi_keys_from_quals(
     quals: *mut pg_sys::Node,
     sources: &[JoinAggSource],
@@ -529,15 +529,7 @@ unsafe fn extract_equi_keys_from_quals(
         return Ok(());
     }
 
-    // Push equi-keys into the topmost join node
-    match plan {
-        RelNode::Join(ref mut join_node) => {
-            join_node.equi_keys.extend(keys);
-        }
-        _ => {
-            // Single scan — keys from WHERE don't apply to a non-join
-        }
-    }
+    inject_equi_keys(plan, keys);
 
     Ok(())
 }
@@ -686,18 +678,61 @@ pub unsafe fn has_non_equi_join_quals(
     analyze_join_path_restrictinfo(input_rel, sources).unhandled > 0
 }
 
-/// Inject extracted equi-join keys into the topmost JoinNode of the plan.
+/// Distribute extracted equi-join keys to the correct join level in the plan.
+///
+/// For 2-table joins this is equivalent to pushing all keys to the topmost
+/// JoinNode. For 3+ table joins, each key is placed at the deepest JoinNode
+/// where one RTI is in the left subtree and the other is in the right subtree.
+/// This prevents `resolve_against` failures caused by both RTIs being in the
+/// same subtree of a higher-level join.
 fn inject_equi_keys(plan: &mut RelNode, keys: Vec<JoinKeyPair>) {
+    for key in keys {
+        inject_single_equi_key(plan, key);
+    }
+}
+
+/// Place a single equi-key at the correct join level.
+/// Returns `true` if the key was successfully placed.
+fn inject_single_equi_key(plan: &mut RelNode, key: JoinKeyPair) -> bool {
     match plan {
         RelNode::Join(ref mut join_node) => {
-            join_node.equi_keys.extend(keys);
+            let outer_in_left = join_node.left.contains_rti(key.outer_rti);
+            let outer_in_right = join_node.right.contains_rti(key.outer_rti);
+            let inner_in_left = join_node.left.contains_rti(key.inner_rti);
+            let inner_in_right = join_node.right.contains_rti(key.inner_rti);
+
+            // Key spans the two sides of this join — place it here
+            if (outer_in_left && inner_in_right) || (outer_in_right && inner_in_left) {
+                let dup = join_node.equi_keys.iter().any(|k| {
+                    (k.outer_rti == key.outer_rti
+                        && k.outer_attno == key.outer_attno
+                        && k.inner_rti == key.inner_rti
+                        && k.inner_attno == key.inner_attno)
+                        || (k.outer_rti == key.inner_rti
+                            && k.outer_attno == key.inner_attno
+                            && k.inner_rti == key.outer_rti
+                            && k.inner_attno == key.outer_attno)
+                });
+                if !dup {
+                    join_node.equi_keys.push(key);
+                }
+                return true;
+            }
+
+            // Both RTIs in left subtree — recurse left
+            if outer_in_left && inner_in_left {
+                return inject_single_equi_key(&mut join_node.left, key);
+            }
+
+            // Both RTIs in right subtree — recurse right
+            if outer_in_right && inner_in_right {
+                return inject_single_equi_key(&mut join_node.right, key);
+            }
+
+            false
         }
-        RelNode::Filter(ref mut filter) => {
-            inject_equi_keys(&mut filter.input, keys);
-        }
-        RelNode::Scan(_) => {
-            // Single scan — no join to inject into
-        }
+        RelNode::Filter(ref mut filter) => inject_single_equi_key(&mut filter.input, key),
+        RelNode::Scan(_) => false,
     }
 }
 

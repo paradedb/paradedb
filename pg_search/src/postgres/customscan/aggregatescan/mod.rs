@@ -899,16 +899,6 @@ impl AggregateScan {
             return Vec::new();
         }
 
-        // Only 2-table joins are supported; 3+ table joins produce
-        // unreliable plans in DataFusion (empty batches, join errors).
-        if sources.len() > 2 {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported",
-                "join".to_string(),
-            );
-            return Vec::new();
-        }
-
         // At least one table must have a BM25 index
         if !has_any_bm25_index(&sources) {
             return Vec::new();

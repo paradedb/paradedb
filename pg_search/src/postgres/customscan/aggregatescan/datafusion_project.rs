@@ -223,7 +223,7 @@ fn arrow_value_to_datum(
             // tz_opt is source metadata, not a conversion directive — the nanos
             // we extracted are already UTC, so we must tell pgrx "these
             // components are UTC" regardless of the original source timezone.
-            timestamp_nanos_to_datum(nanos, typoid, "UTC")
+            timestamp_nanos_to_datum(nanos, typoid)
         }
         DataType::Date32 => {
             // Date32: days since epoch → convert to nanoseconds
@@ -232,7 +232,7 @@ fn arrow_value_to_datum(
                 .downcast_ref::<arrow_array::Date32Array>()?
                 .value(row_idx);
             let nanos = (days as i64).checked_mul(86_400_000_000_000)?;
-            timestamp_nanos_to_datum(nanos, typoid, "UTC")
+            timestamp_nanos_to_datum(nanos, typoid)
         }
         DataType::Date64 => {
             // Date64: milliseconds since epoch → convert to nanoseconds
@@ -241,7 +241,7 @@ fn arrow_value_to_datum(
                 .downcast_ref::<arrow_array::Date64Array>()?
                 .value(row_idx);
             let nanos = millis.checked_mul(1_000_000)?;
-            timestamp_nanos_to_datum(nanos, typoid, "UTC")
+            timestamp_nanos_to_datum(nanos, typoid)
         }
         DataType::Decimal128(_, scale) => {
             let val = col
@@ -320,45 +320,15 @@ fn float64_to_datum(val: f64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
 }
 
 /// Convert nanosecond timestamp to the appropriate Postgres date/time datum.
-fn timestamp_nanos_to_datum(nanos: i64, typoid: pg_sys::Oid, tz: &str) -> Option<pg_sys::Datum> {
-    use crate::postgres::types_arrow::ts_nanos_to_date_time;
-    use pgrx::datum;
-
-    let dt = ts_nanos_to_date_time(nanos);
-    let prim = dt.into_primitive();
-    let (h, m, s, micro) = prim.as_hms_micro();
-    let fractional_sec = s as f64 + (micro as f64 / 1_000_000.0);
-
-    match typoid {
-        pg_sys::TIMESTAMPTZOID => datum::TimestampWithTimeZone::with_timezone(
-            prim.year(),
-            prim.month().into(),
-            prim.day(),
-            h,
-            m,
-            fractional_sec,
-            tz,
-        )
-        .ok()?
-        .into_datum(),
-        pg_sys::TIMESTAMPOID => datum::Timestamp::new(
-            prim.year(),
-            prim.month().into(),
-            prim.day(),
-            h,
-            m,
-            fractional_sec,
-        )
-        .ok()?
-        .into_datum(),
-        pg_sys::DATEOID => datum::Date::new(prim.year(), prim.month().into(), prim.day())
-            .ok()?
-            .into_datum(),
-        _ => {
-            pgrx::warning!("Unsupported type OID {:?} for timestamp projection", typoid);
-            None
-        }
-    }
+///
+/// Delegates to `types_arrow::try_convert_timestamp_nanos_to_datum` which handles
+/// the nanos→PrimitiveDateTime→pgrx datum conversion for all timestamp-family OIDs.
+fn timestamp_nanos_to_datum(nanos: i64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
+    use pgrx::PgOid;
+    let oid = PgOid::from(typoid);
+    crate::postgres::types_arrow::try_convert_timestamp_nanos_to_datum(nanos, &oid)
+        .and_then(|r| r.ok())
+        .flatten()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

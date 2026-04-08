@@ -448,6 +448,112 @@ async fn generated_group_by_aggregates(database: Db) {
     });
 }
 
+///
+/// Property test for STDDEV/VARIANCE aggregates — ensures equivalence between
+/// PostgreSQL native and ParadeDB's DataFusion aggregate backend.
+///
+/// STDDEV and VARIANCE return FLOAT8 which cannot be compared exactly due to
+/// floating-point precision differences between DataFusion and PostgreSQL.
+/// Results are rounded to 6 decimal places before comparison.
+///
+#[rstest]
+#[tokio::test]
+async fn generated_group_by_stddev(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    let table_name = "users";
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 50)], COLUMNS);
+
+    let columns: Vec<_> = COLUMNS
+        .iter()
+        .filter(|col| col.is_groupable && col.is_whereable)
+        .cloned()
+        .collect();
+
+    let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
+
+    proptest!(|(
+        text_where_expr in arb_wheres(
+            vec![table_name],
+            &columns,
+        ),
+        numeric_where_expr in arb_wheres(
+            vec![table_name],
+            &columns_named(vec!["age", "price", "rating"]),
+        ),
+        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["STDDEV(price)", "VARIANCE(price)", "STDDEV(age)", "VARIANCE(age)"]),
+        gucs in any::<PgGucs>(),
+    )| {
+        let select_list = group_by_expr.to_select_list();
+        let group_by_clause = group_by_expr.to_sql();
+
+        let pg_where_clause = format!(
+            "({}) AND ({})",
+            text_where_expr.to_sql(" = "),
+            numeric_where_expr.to_sql(" < ")
+        );
+
+        let bm25_where_clause = format!(
+            "({}) AND ({})",
+            text_where_expr.to_sql("@@@"),
+            numeric_where_expr.to_sql(" < ")
+        );
+
+        let pg_query = format!(
+            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause}",
+        );
+
+        let bm25_query = format!(
+            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause}",
+        );
+
+        // Custom result comparator that rounds f64 values to 6 decimal places
+        let compare_results = |query: &str, conn: &mut PgConnection| -> Vec<String> {
+            let rows = query.fetch_dynamic(conn);
+            let mut string_rows: Vec<String> = rows
+                .into_iter()
+                .map(|row| {
+                    let mut row_string = String::new();
+                    for i in 0..row.len() {
+                        if i > 0 {
+                            row_string.push('|');
+                        }
+
+                        let value_str = if let Ok(val) = row.try_get::<f64, _>(i) {
+                            format!("{:.6}", (val * 1_000_000.0).round() / 1_000_000.0)
+                        } else if let Ok(val) = row.try_get::<i64, _>(i) {
+                            val.to_string()
+                        } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                            val.to_string()
+                        } else if let Ok(val) = row.try_get::<String, _>(i) {
+                            val
+                        } else {
+                            "NULL".to_string()
+                        };
+
+                        row_string.push_str(&value_str);
+                    }
+                    row_string
+                })
+                .collect();
+
+            string_rows.sort();
+            string_rows
+        };
+
+        compare(&pg_query, &bm25_query, &gucs, &mut pool.pull(), &setup_sql, compare_results)?;
+    });
+}
+
 #[rstest]
 #[tokio::test]
 async fn generated_paging_small(database: Db) {

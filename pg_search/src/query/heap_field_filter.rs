@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt;
 use std::ptr::NonNull;
 
 use crate::postgres::heap::HeapFetchState;
@@ -29,16 +30,39 @@ use tantivy::{
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
     DocId, DocSet, Score, SegmentReader, Term, TERMINATED,
 };
-/// Core heap-based field filter using PostgreSQL expression evaluation
-/// This approach stores a serialized representation of the PostgreSQL expression
-/// and evaluates it directly against heap tuples, supporting any PostgreSQL operator or function
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HeapFilterReason {
+    ColumnNotIndexed,
+    FunctionNotIndexable,
+    NullTestRequiresHeap,
+    BoolTestRequiresHeap,
+    ParameterRequiresRuntime,
+}
+
+impl fmt::Display for HeapFilterReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ColumnNotIndexed => write!(f, "the column is not indexed in the bm25 index"),
+            Self::FunctionNotIndexable => write!(f, "function expressions are not indexable"),
+            Self::NullTestRequiresHeap => {
+                write!(f, "NULL tests on non-indexed fields require heap access")
+            }
+            Self::BoolTestRequiresHeap => {
+                write!(f, "boolean tests on non-indexed fields require heap access")
+            }
+            Self::ParameterRequiresRuntime => {
+                write!(f, "parameter expressions require runtime evaluation")
+            }
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HeapFieldFilter {
-    /// PostgreSQL expression node that can be serialized and reconstructed
     expr_node: PostgresPointer,
-    /// Human-readable description of the expression for EXPLAIN output
     pub heap_filter: String,
-    pub reason: String,
+    pub reason: HeapFilterReason,
 
     #[serde(skip)]
     initialized_expression: Option<(*mut pg_sys::ExprState, Option<NonNull<pg_sys::PlanState>>)>,
@@ -72,7 +96,11 @@ unsafe impl Sync for HeapFieldFilter {}
 
 impl HeapFieldFilter {
     /// Create a new HeapFieldFilter from a PostgreSQL expression node
-    pub unsafe fn new(expr_node: *mut pg_sys::Node, heap_filter: String, reason: String) -> Self {
+    pub unsafe fn new(
+        expr_node: *mut pg_sys::Node,
+        heap_filter: String,
+        reason: HeapFilterReason,
+    ) -> Self {
         Self {
             expr_node: PostgresPointer(expr_node.cast()),
             heap_filter,

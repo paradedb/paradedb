@@ -25,7 +25,7 @@ use crate::postgres::customscan::{operator_oid, score_funcoids};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::VarContext;
-use crate::query::heap_field_filter::HeapFieldFilter;
+use crate::query::heap_field_filter::{HeapFieldFilter, HeapFilterReason};
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use pg_sys::BoolExprType;
@@ -108,7 +108,7 @@ pub enum Qual {
         expr_node: *mut pg_sys::Node,
         expr_desc: String,
         search_query_input: Box<SearchQueryInput>,
-        reason: String,
+        reason: HeapFilterReason,
     },
     And(Vec<Qual>),
     Or(Vec<Qual>),
@@ -643,7 +643,7 @@ pub unsafe fn extract_quals(
                     expr_node: node,
                     expr_desc: deparse_expr(Some(context), indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
-                    reason: "function expressions are not indexable".into(),
+                    reason: HeapFilterReason::FunctionNotIndexable,
                 })
             } else {
                 None
@@ -783,7 +783,7 @@ pub unsafe fn extract_quals(
                     expr_node: node,
                     expr_desc: deparse_expr(Some(context), indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
-                    reason: "the column is not indexed in the bm25 index".into(),
+                    reason: HeapFilterReason::ColumnNotIndexed,
                 })
             }
         }
@@ -832,7 +832,7 @@ pub unsafe fn extract_quals(
                     expr_node: node,
                     expr_desc: deparse_expr(Some(context), indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
-                    reason: "NULL tests require heap access without full planner context".into(),
+                    reason: HeapFilterReason::NullTestRequiresHeap,
                 })
             }
         }
@@ -1208,7 +1208,7 @@ unsafe fn try_pushdown(
                 expr_node: opexpr_node,
                 expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
-                reason: "the column is not indexed in the bm25 index".into(),
+                reason: HeapFilterReason::ColumnNotIndexed,
             })
         } else if has_param {
             state.uses_heap_expr = true;
@@ -1217,7 +1217,7 @@ unsafe fn try_pushdown(
                 expr_node: opexpr_node,
                 expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
-                reason: "parameter expressions require runtime evaluation".into(),
+                reason: HeapFilterReason::ParameterRequiresRuntime,
             })
         } else if convert_external_to_special_qual {
             Some(Qual::ExternalExpr)
@@ -1407,7 +1407,7 @@ unsafe fn booltest(
             expr_node: node,
             expr_desc: deparse_expr(Some(context), indexrel, node),
             search_query_input: Box::new(SearchQueryInput::All),
-            reason: "boolean tests on non-indexed fields require heap access".into(),
+            reason: HeapFilterReason::BoolTestRequiresHeap,
         });
     }
     None
@@ -1771,7 +1771,7 @@ unsafe fn create_heap_expr_for_field_ref(
     rti: pg_sys::Index,
     indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
-    reason: &str,
+    reason: HeapFilterReason,
 ) -> Option<Qual> {
     if (*var_node).varno as pg_sys::Index == rti {
         if !gucs::enable_filter_pushdown() {
@@ -1783,7 +1783,7 @@ unsafe fn create_heap_expr_for_field_ref(
             expr_node,
             expr_desc: deparse_expr(Some(&context), indexrel, expr_node),
             search_query_input: Box::new(SearchQueryInput::All),
-            reason: reason.to_string(),
+            reason,
         })
     } else {
         None
@@ -1810,7 +1810,7 @@ unsafe fn try_create_heap_expr_from_var(
         rti,
         indexrel,
         uses_tantivy_to_query,
-        "the column is not indexed in the bm25 index",
+        HeapFilterReason::ColumnNotIndexed,
     )
 }
 
@@ -1830,7 +1830,7 @@ unsafe fn try_create_heap_expr_from_null_test(
             rti,
             indexrel,
             uses_tantivy_to_query,
-            "NULL tests on non-indexed fields require heap access",
+            HeapFilterReason::NullTestRequiresHeap,
         )
     } else {
         None

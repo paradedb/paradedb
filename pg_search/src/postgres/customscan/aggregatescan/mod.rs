@@ -68,7 +68,7 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
-use crate::postgres::utils::{is_unnest_func, make_text_const};
+use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use chrono::{DateTime as ChronoDateTime, Utc};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
@@ -1429,46 +1429,5 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
         }
     } else {
         "UNKNOWN".to_string()
-    }
-}
-
-/// Add Var nodes referenced by an expression to `custom_scan_tlist` if they
-/// are not already present. This ensures `set_customscan_references` can
-/// create INDEX_VAR references for expressions in `custom_exprs`.
-unsafe fn add_vars_to_tlist(expr_node: *mut pg_sys::Node, tlist: &mut PgList<pg_sys::TargetEntry>) {
-    if expr_node.is_null() {
-        return;
-    }
-
-    for var_ptr in crate::postgres::var::find_vars(expr_node) {
-        let varno = (*var_ptr).varno as pg_sys::Index;
-        let varattno = (*var_ptr).varattno;
-
-        // Skip non-base-relation vars and system columns
-        if varno == 0 || varattno <= 0 {
-            continue;
-        }
-
-        // Check if this (varno, varattno) already exists in the target list
-        let already_present = tlist.iter_ptr().any(|te| {
-            if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
-                let existing = (*te).expr as *mut pg_sys::Var;
-                (*existing).varno as pg_sys::Index == varno && (*existing).varattno == varattno
-            } else {
-                false
-            }
-        });
-
-        if !already_present {
-            let resno = tlist.len() as pg_sys::AttrNumber + 1;
-            let new_var = pg_sys::copyObjectImpl(var_ptr.cast()).cast::<pg_sys::Var>();
-            let te = pg_sys::makeTargetEntry(
-                new_var.cast(),
-                resno,
-                std::ptr::null_mut(),
-                true, // resjunk = true (not needed in output)
-            );
-            tlist.push(te);
-        }
     }
 }

@@ -244,10 +244,10 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
          SELECT * FROM  read_parquet('{local_path}') \
-         USING SAMPLE system({percentage:.3} PERCENT) REPEATABLE({seed})",
+         USING SAMPLE system({row_count} ROWS) REPEATABLE({seed})",
         name = root.name,
         local_path = local_glob,
-        percentage = percentage,
+        row_count = target,
         seed = config.sampling_seed,
     );
     println!(

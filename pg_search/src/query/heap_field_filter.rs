@@ -38,6 +38,7 @@ pub struct HeapFieldFilter {
     expr_node: PostgresPointer,
     /// Human-readable description of the expression for EXPLAIN output
     pub heap_filter: String,
+    pub reason: String,
 
     #[serde(skip)]
     initialized_expression: Option<(*mut pg_sys::ExprState, Option<NonNull<pg_sys::PlanState>>)>,
@@ -50,6 +51,7 @@ impl Clone for HeapFieldFilter {
         Self {
             expr_node: self.expr_node.clone(),
             heap_filter: self.heap_filter.clone(),
+            reason: self.reason.clone(),
             initialized_expression: None,
             heap_fetch_state: None,
         }
@@ -58,7 +60,9 @@ impl Clone for HeapFieldFilter {
 
 impl PartialEq for HeapFieldFilter {
     fn eq(&self, other: &HeapFieldFilter) -> bool {
-        self.expr_node == other.expr_node && self.heap_filter == other.heap_filter
+        self.expr_node == other.expr_node
+            && self.heap_filter == other.heap_filter
+            && self.reason == other.reason
     }
 }
 
@@ -68,10 +72,11 @@ unsafe impl Sync for HeapFieldFilter {}
 
 impl HeapFieldFilter {
     /// Create a new HeapFieldFilter from a PostgreSQL expression node
-    pub unsafe fn new(expr_node: *mut pg_sys::Node, heap_filter: String) -> Self {
+    pub unsafe fn new(expr_node: *mut pg_sys::Node, heap_filter: String, reason: String) -> Self {
         Self {
             expr_node: PostgresPointer(expr_node.cast()),
             heap_filter,
+            reason,
             initialized_expression: None,
             heap_fetch_state: None,
         }

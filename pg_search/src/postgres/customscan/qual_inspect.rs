@@ -105,13 +105,10 @@ pub enum Qual {
     /// Heap-based expression evaluation for non-indexed predicates
     /// Contains an underlying search query that must be executed first
     HeapExpr {
-        /// The PostgreSQL expression node to evaluate
         expr_node: *mut pg_sys::Node,
-        /// Description of the expression for debugging
         expr_desc: String,
-        /// The search query to execute before applying the heap filter
-        /// Can be All (scan whole relation) or a more specific query
         search_query_input: Box<SearchQueryInput>,
+        reason: String,
     },
     And(Vec<Qual>),
     Or(Vec<Qual>),
@@ -401,10 +398,11 @@ impl From<&Qual> for SearchQueryInput {
                 expr_node,
                 expr_desc,
                 search_query_input,
+                reason,
             } => {
-                // Create HeapFieldFilter from the PostgreSQL expression
-                let field_filters =
-                    vec![unsafe { HeapFieldFilter::new(*expr_node, expr_desc.clone()) }];
+                let field_filters = vec![unsafe {
+                    HeapFieldFilter::new(*expr_node, expr_desc.clone(), reason.clone())
+                }];
 
                 SearchQueryInput::HeapFilter {
                     indexed_query: search_query_input.clone(),
@@ -645,6 +643,7 @@ pub unsafe fn extract_quals(
                     expr_node: node,
                     expr_desc: deparse_expr(Some(context), indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
+                    reason: "function expressions are not indexable".into(),
                 })
             } else {
                 None
@@ -778,15 +777,13 @@ pub unsafe fn extract_quals(
                     return None;
                 }
 
-                // We're creating a HeapExpr here - this is a "guess" that it will be needed,
-                // but it's safe because filter_pushdown is enabled, which means PostgreSQL's
-                // executor will handle the filtering if this predicate can't be pushed down.
                 state.uses_heap_expr = true;
                 state.uses_tantivy_to_query = true;
                 Some(Qual::HeapExpr {
                     expr_node: node,
                     expr_desc: deparse_expr(Some(context), indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
+                    reason: "the column is not indexed in the bm25 index".into(),
                 })
             }
         }
@@ -835,6 +832,7 @@ pub unsafe fn extract_quals(
                     expr_node: node,
                     expr_desc: deparse_expr(Some(context), indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
+                    reason: "NULL tests require heap access without full planner context".into(),
                 })
             }
         }
@@ -1210,21 +1208,16 @@ unsafe fn try_pushdown(
                 expr_node: opexpr_node,
                 expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
+                reason: "the column is not indexed in the bm25 index".into(),
             })
         } else if has_param {
-            // Predicate doesn't reference our relation (e.g., $2 = 0 in prepared statements)
-            // Check if it contains PARAM nodes - if so, create a HeapExpr that will be evaluated at execution
-            // This prevents qual extraction from failing entirely when we have
-            // expressions like: description @@@ $1 AND $2 = 0
-
-            // Create HeapExpr for parameter expressions
-            // These will be evaluated by PostgreSQL's executor at runtime
             state.uses_heap_expr = true;
             state.uses_tantivy_to_query = true;
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
                 expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
+                reason: "parameter expressions require runtime evaluation".into(),
             })
         } else if convert_external_to_special_qual {
             Some(Qual::ExternalExpr)
@@ -1414,6 +1407,7 @@ unsafe fn booltest(
             expr_node: node,
             expr_desc: deparse_expr(Some(context), indexrel, node),
             search_query_input: Box::new(SearchQueryInput::All),
+            reason: "boolean tests on non-indexed fields require heap access".into(),
         });
     }
     None
@@ -1777,9 +1771,9 @@ unsafe fn create_heap_expr_for_field_ref(
     rti: pg_sys::Index,
     indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
+    reason: &str,
 ) -> Option<Qual> {
     if (*var_node).varno as pg_sys::Index == rti {
-        // Check if custom scan for non-indexed fields is enabled
         if !gucs::enable_filter_pushdown() {
             return None;
         }
@@ -1789,6 +1783,7 @@ unsafe fn create_heap_expr_for_field_ref(
             expr_node,
             expr_desc: deparse_expr(Some(&context), indexrel, expr_node),
             search_query_input: Box::new(SearchQueryInput::All),
+            reason: reason.to_string(),
         })
     } else {
         None
@@ -1815,10 +1810,10 @@ unsafe fn try_create_heap_expr_from_var(
         rti,
         indexrel,
         uses_tantivy_to_query,
+        "the column is not indexed in the bm25 index",
     )
 }
 
-/// Try to create a HeapExpr from a NullTest for non-indexed fields
 unsafe fn try_create_heap_expr_from_null_test(
     nulltest: *mut pg_sys::NullTest,
     rti: pg_sys::Index,
@@ -1826,9 +1821,7 @@ unsafe fn try_create_heap_expr_from_null_test(
     indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
-    // Extract the field being tested
     let arg = (*nulltest).arg;
-    // Check if the arg is a Var referencing our relation
     if let Some(var) = nodecast!(Var, T_Var, arg) {
         create_heap_expr_for_field_ref(
             root,
@@ -1837,6 +1830,7 @@ unsafe fn try_create_heap_expr_from_null_test(
             rti,
             indexrel,
             uses_tantivy_to_query,
+            "NULL tests on non-indexed fields require heap access",
         )
     } else {
         None

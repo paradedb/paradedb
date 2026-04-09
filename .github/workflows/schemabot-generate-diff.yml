@@ -52,11 +52,16 @@ jobs:
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
+      # NOTE: Do NOT add hashFiles('**/Cargo.lock') to shared-key. The action
+      # already hashes Cargo.lock internally as its fileHash component. Putting
+      # it in shared-key defeats the built-in restore-key fallback: when
+      # Cargo.lock changes, both the primary key AND the restore prefix change,
+      # so there is zero fallback and every Cargo.lock change causes a cold build.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
 

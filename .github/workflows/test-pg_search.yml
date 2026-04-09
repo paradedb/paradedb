@@ -94,13 +94,17 @@ jobs:
       #   already hashes it internally. Putting it in shared-key defeats the
       #   restore-key fallback and causes cold builds on every lockfile change.
       # - Do NOT add arch to shared-key — the action includes the Rust target
-      #   triple in its envHash. Keeping shared-key arch-free lets all debug-mode
-      #   workflows (lint, test, schemabot, etc.) share the same cache.
+      #   triple in its envHash, so the cache still remains architecture-aware.
+      #
+      # - For test-pg_search specifically, keep coverage builds on a dedicated shared-key (*-llvm-cov). cargo-llvm-cov uses
+      #   instrumented artifacts in a separate target tree, so sharing a key
+      #   with non-coverage workflows tends to restore caches that don't help
+      #   this workflow's first llvm-cov build.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg${{ matrix.pg_version }}
+          shared-key: pg${{ matrix.pg_version }}-llvm-cov
           cache-targets: true
           cache-all-crates: true
 
@@ -219,17 +223,16 @@ jobs:
           sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
           sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
 
-      - name: Compile & install pg_search extension (system)
-        if: matrix.pg_impl == 'system'
-        working-directory: pg_search/
-        run: cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-
-      - name: Source LLVM coverage environment (pgrx)
-        if: matrix.pg_impl == 'pgrx'
+      - name: Source LLVM coverage environment
         run: |
           source <(cargo llvm-cov show-env --export-prefix)
           cargo llvm-cov clean --workspace
           env | grep -E '^(RUSTC_WRAPPER=|LLVM_PROFILE_FILE=|CARGO_LLVM_COV|__CARGO_LLVM_COV)' >> "$GITHUB_ENV"
+
+      - name: Compile & install pg_search extension (system)
+        if: matrix.pg_impl == 'system'
+        working-directory: pg_search/
+        run: cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Compile & install pg_search extension (pgrx)
         if: matrix.pg_impl == 'pgrx'

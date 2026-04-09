@@ -23,6 +23,14 @@ panic = "unwind"
 opt-level = 3
 codegen-units = 1
 
+# CI test profile: same optimizations as release but with parallel-friendly
+# LTO and codegen settings. fat LTO + codegen-units=1 is entirely single-threaded;
+# thin LTO is parallelizable and 16 codegen units let LLVM use all cores.
+[profile.ci]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+
 [profile.release-with-debug]
 inherits = "release"
 debug = true

@@ -223,16 +223,20 @@ jobs:
           sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
           sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
 
-      - name: Source LLVM coverage environment
+      - name: Compile & install pg_search extension (system)
+        if: matrix.pg_impl == 'system'
+        working-directory: pg_search/
+        run: |
+          source <(cargo llvm-cov show-env --export-prefix)
+          cargo llvm-cov clean --workspace
+          cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+
+      - name: Source LLVM coverage environment (pgrx)
+        if: matrix.pg_impl == 'pgrx'
         run: |
           source <(cargo llvm-cov show-env --export-prefix)
           cargo llvm-cov clean --workspace
           env | grep -E '^(RUSTC_WRAPPER=|LLVM_PROFILE_FILE=|CARGO_LLVM_COV|__CARGO_LLVM_COV)' >> "$GITHUB_ENV"
-
-      - name: Compile & install pg_search extension (system)
-        if: matrix.pg_impl == 'system'
-        working-directory: pg_search/
-        run: cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Compile & install pg_search extension (pgrx)
         if: matrix.pg_impl == 'pgrx'
@@ -244,6 +248,7 @@ jobs:
         if: matrix.pg_impl == 'system'
         working-directory: pg_search/
         run: |
+          source <(cargo llvm-cov show-env --export-prefix)
           sudo chown -R $(whoami) /var/run/postgresql/
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
 

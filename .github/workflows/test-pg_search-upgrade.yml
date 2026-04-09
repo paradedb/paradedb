@@ -51,8 +51,6 @@ jobs:
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
-      # Only save cache on non-PR events; PRs restore from the default branch.
-      # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -60,7 +58,6 @@ jobs:
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof mold
@@ -157,7 +154,7 @@ jobs:
 
       - name: Compile & install pg_search
         working-directory: pg_search/
-        run: mold -run cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: mold -run cargo pgrx install --profile ci --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via pgrx
         working-directory: pg_search/

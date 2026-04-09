@@ -51,8 +51,6 @@ jobs:
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
-      # Only save cache on non-PR events; PRs restore from the default branch.
-      # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -60,7 +58,6 @@ jobs:
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -92,7 +89,7 @@ jobs:
           echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
-        run: mold -run cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
+        run: mold -run cargo pgrx schema --profile ci -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
 
       - name: Switch to Base git rev and Generate Schema Again
         run: |

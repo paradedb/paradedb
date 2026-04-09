@@ -405,32 +405,37 @@ extension_sql!(
 );
 
 pub fn snippet_funcoids() -> [pg_sys::Oid; 2] {
-    const SIGNATURES: &[&str; 2] = &[
-        "pdb.snippet(anyelement, text, text, int, int, int)",
-        "paradedb.snippet(anyelement, text, text, int, int, int)",
-    ];
-    get_snippet_funcoids(SIGNATURES)
+    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *OID_CACHE.get_or_init(|| {
+        resolve_funcoids(&[
+            "pdb.snippet(anyelement, text, text, int, int, int)",
+            "paradedb.snippet(anyelement, text, text, int, int, int)",
+        ])
+    })
 }
 
 pub fn snippets_funcoids() -> [pg_sys::Oid; 2] {
-    const SIGNATURES: &[&str; 2] = &[
-        "pdb.snippets(anyelement, text, text, int, int, int, text)",
-        "paradedb.snippets(anyelement, text, text, int, int, int, text)",
-    ];
-    get_snippet_funcoids(SIGNATURES)
+    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *OID_CACHE.get_or_init(|| {
+        resolve_funcoids(&[
+            "pdb.snippets(anyelement, text, text, int, int, int, text)",
+            "paradedb.snippets(anyelement, text, text, int, int, int, text)",
+        ])
+    })
 }
 
 pub fn snippet_positions_funcoids() -> [pg_sys::Oid; 2] {
-    const SIGNATURES: &[&str; 2] = &[
-        "pdb.snippet_positions(anyelement, int, int)",
-        "paradedb.snippet_positions(anyelement, int, int)",
-    ];
-    get_snippet_funcoids(SIGNATURES)
+    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *OID_CACHE.get_or_init(|| {
+        resolve_funcoids(&[
+            "pdb.snippet_positions(anyelement, int, int)",
+            "paradedb.snippet_positions(anyelement, int, int)",
+        ])
+    })
 }
 
-fn get_snippet_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
-    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| unsafe {
+fn resolve_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
+    unsafe {
         signatures
             .iter()
             .map(|signature| {
@@ -445,7 +450,7 @@ fn get_snippet_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
             .collect::<Vec<pg_sys::Oid>>()
             .try_into()
             .expect("expected exactly 2 snippet funcoids")
-    })
+    }
 }
 
 pub unsafe fn uses_snippets(

@@ -145,8 +145,16 @@ jobs:
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       # ---------- pgrx-managed Postgres setup ----------
-      - name: Initialize pgrx environment (pgrx download)
+      - name: Cache pgrx-compiled Postgres
         if: matrix.pg_impl == 'pgrx'
+        id: cache-pgrx-pg
+        uses: actions/cache@v5
+        with:
+          path: ~/.pgrx
+          key: pgrx-pg-${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Initialize pgrx environment (pgrx download)
+        if: matrix.pg_impl == 'pgrx' && steps.cache-pgrx-pg.outputs.cache-hit != 'true'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
       # Needed for hybrid search unit/integration tests

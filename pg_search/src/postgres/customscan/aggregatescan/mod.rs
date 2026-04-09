@@ -1148,14 +1148,19 @@ impl AggregateScan {
     }
 }
 
-/// Detects ORDER BY on aggregate + LIMIT for join aggregate queries.
-/// Returns `Some(DataFusionTopK)` when the sort clause targets a single aggregate
-/// that can be pushed down into the DataFusion plan as sort + limit.
+/// Detects ORDER BY + LIMIT for join aggregate queries and returns a
+/// [`DataFusionTopK`] describing the sort target, direction, and K.
 ///
-/// NOTE: shares structural pattern with `build::detect_aggregate_orderby` (single-table
-/// variant). Both parse sort clause → aggref identity → direction → reltarget match →
-/// LIMIT. They diverge in target list type (`TargetList` vs `JoinAggregateTargetList`)
-/// which makes a generic extraction non-trivial without trait machinery.
+/// Supports two patterns:
+/// - **ORDER BY aggregate LIMIT K** (e.g., `ORDER BY COUNT(*) DESC LIMIT 5`)
+/// - **ORDER BY group_column LIMIT K** (e.g., `ORDER BY category LIMIT 5`)
+///
+/// Pushing sort+limit into the DataFusion plan enables three optimizations
+/// depending on the sort target (handled by DataFusion's built-in
+/// `TopKAggregation` optimizer rule and `SortExec(fetch=K)`):
+/// - GROUP BY key ordering → early termination after K groups
+/// - MIN/MAX ordering → PriorityMap-based group pruning during aggregation
+/// - COUNT/SUM/AVG ordering → `SortExec(fetch=K)` bounded heap
 unsafe fn detect_join_aggregate_topk(
     args: &CreateUpperPathsHookArgs,
     targetlist: &join_targetlist::JoinAggregateTargetList,
@@ -1165,6 +1170,12 @@ unsafe fn detect_join_aggregate_topk(
         return None;
     }
 
+    // Must have a LIMIT for TopK to matter
+    let limit_offset = LimitOffset::from_parse(parse);
+    let limit = limit_offset.limit()? as usize;
+    let offset = limit_offset.offset().unwrap_or(0) as usize;
+    let k = limit + offset;
+
     // Only single sort clause for TopK
     let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
     if sort_clauses.len() != 1 {
@@ -1173,14 +1184,6 @@ unsafe fn detect_join_aggregate_topk(
 
     let sort_clause_ptr = sort_clauses.get_ptr(0)?;
     let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
-
-    // The sort expression must BE an aggregate, not merely contain one.
-    // e.g. ORDER BY ABS(SUM(score)) wraps the aggregate — ABS breaks
-    // monotonicity so Tantivy's ordering wouldn't match Postgres.
-    let aggref = targetlist::find_single_aggref_in_expr(sort_expr)?;
-    if aggref as *mut pg_sys::Node != sort_expr {
-        return None;
-    }
 
     let direction =
         SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
@@ -1204,23 +1207,45 @@ unsafe fn detect_join_aggregate_topk(
     }
     let pos = match_pos?;
 
-    // Check if this output position corresponds to an aggregate in the join targetlist
-    let agg_idx = targetlist
+    // Try aggregate target: ORDER BY COUNT(*), SUM(x), MIN(x), etc.
+    if let Some(agg_idx) = targetlist
         .aggregates
         .iter()
-        .position(|a| a.output_index == pos)?;
+        .position(|a| a.output_index == pos)
+    {
+        // The sort expression must BE an aggregate, not merely contain one.
+        // e.g. ORDER BY ABS(SUM(score)) wraps the aggregate — ABS breaks
+        // monotonicity so DataFusion's ordering wouldn't match Postgres.
+        if targetlist::find_single_aggref_in_expr(sort_expr)
+            .is_none_or(|a| a as *mut pg_sys::Node != sort_expr)
+        {
+            return None;
+        }
+        return Some(privdat::DataFusionTopK {
+            sort_target: privdat::TopKSortTarget::Aggregate(agg_idx),
+            direction,
+            k,
+        });
+    }
 
-    // Extract LIMIT
-    let limit_offset = LimitOffset::from_parse(parse);
-    let limit = limit_offset.limit()? as usize;
-    let offset = limit_offset.offset().unwrap_or(0) as usize;
-    let k = limit + offset;
+    // Try group column: ORDER BY category, ORDER BY name, etc.
+    if let Some(gc_idx) = targetlist
+        .group_columns
+        .iter()
+        .position(|gc| gc.output_index == pos)
+    {
+        // The sort expression must be a simple Var (group column reference).
+        if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
+            return None;
+        }
+        return Some(privdat::DataFusionTopK {
+            sort_target: privdat::TopKSortTarget::GroupColumn(gc_idx),
+            direction,
+            k,
+        });
+    }
 
-    Some(privdat::DataFusionTopK {
-        sort_agg_idx: agg_idx,
-        direction,
-        k,
-    })
+    None
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders

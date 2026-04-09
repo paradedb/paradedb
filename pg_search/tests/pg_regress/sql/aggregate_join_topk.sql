@@ -270,5 +270,106 @@ WHERE p.description @@@ 'laptop OR mouse'
 GROUP BY p.category
 ORDER BY p.category;
 
+-- =====================================================================
+-- Test 14: ORDER BY group column LIMIT — TopK on GROUP BY key
+-- DataFusion's TopKAggregation can push the limit into AggregateExec
+-- for early termination after K distinct groups.
+--
+-- NOTE: Postgres adds a redundant Limit → Sort above the AggregateScan
+-- because scanrelid=0 CustomScans cannot declare pathkeys via setrefs.c.
+-- DataFusion handles the sort+limit internally; the Postgres Sort is a
+-- no-op on the already-sorted K rows.
+-- =====================================================================
+-- Re-insert the deleted row so counts are predictable
+INSERT INTO topk_products (id, description, category, price, rating)
+VALUES (3, 'Wireless mouse for office', 'Electronics', 29.99, 4);
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY p.category
+LIMIT 3;
+
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY p.category
+LIMIT 3;
+
+-- Parity: native PG must agree
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY p.category
+LIMIT 3;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
+-- Test 15: ORDER BY group column DESC LIMIT
+-- =====================================================================
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY p.category DESC
+LIMIT 2;
+
+-- Parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY p.category DESC
+LIMIT 2;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
+-- Test 16: ORDER BY MIN(price) LIMIT — PriorityMap-based pruning
+-- DataFusion's TopKAggregation can use a PriorityMap to prune groups
+-- during aggregation for MIN/MAX ordering.
+--
+-- NOTE: The EXPLAIN shows Limit → Sort above the AggregateScan because
+-- scanrelid=0 CustomScans cannot declare pathkeys. DataFusion handles
+-- the sort+limit internally; the Postgres Sort is redundant on K rows.
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.category, MIN(p.price), MAX(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY MIN(p.price) ASC
+LIMIT 3;
+
+SELECT p.category, MIN(p.price), MAX(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY MIN(p.price) ASC
+LIMIT 3;
+
+-- Parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, MIN(p.price), MAX(p.price)
+FROM topk_products p
+JOIN topk_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
+GROUP BY p.category
+ORDER BY MIN(p.price) ASC
+LIMIT 3;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
 DROP TABLE topk_tags;
 DROP TABLE topk_products;

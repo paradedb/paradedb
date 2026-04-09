@@ -60,7 +60,7 @@ WHERE p.description @@@ 'laptop';
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-   Aggregates: COUNT(*)(*)
+   Aggregates: COUNT(*)
 (4 rows)
 
 SELECT COUNT(*)
@@ -83,7 +83,7 @@ WHERE p.description @@@ 'laptop';
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-   Aggregates: COUNT(*)(*), SUM(price), AVG(rating)
+   Aggregates: COUNT(*), SUM(price), AVG(rating)
 (4 rows)
 
 SELECT COUNT(*), SUM(p.price), AVG(p.rating)
@@ -215,7 +215,7 @@ ORDER BY p.category;
          Backend: DataFusion
          Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
          Group By: category
-         Aggregates: COUNT(*)(*)
+         Aggregates: COUNT(*)
 (9 rows)
 
 SELECT p.category, COUNT(*)
@@ -569,7 +569,7 @@ WHERE a.description @@@ 'laptop OR shoes';
  Custom Scan (ParadeDB Aggregate Scan)
    Backend: DataFusion
    Indexes: idx_comp_a (a), idx_comp_b (b)
-   Aggregates: COUNT(*)(*)
+   Aggregates: COUNT(*)
 (4 rows)
 
 SELECT COUNT(*)
@@ -1119,7 +1119,7 @@ WHERE p.description @@@ 'laptop' AND p.price > 500;
    Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-   Aggregates: COUNT(*)(*), SUM(price)
+   Aggregates: COUNT(*), SUM(price)
 (5 rows)
 
 SELECT COUNT(*), SUM(p.price)
@@ -1384,7 +1384,7 @@ WHERE p.description @@@ 'laptop OR shoes';
    Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('COUNT'::text), pdb.agg_fn('COUNT'::text)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
-   Aggregates: COUNT(*)(*), COUNT(category), COUNT(tag_name)
+   Aggregates: COUNT(*), COUNT(category), COUNT(tag_name)
 (5 rows)
 
 SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
@@ -1483,7 +1483,7 @@ GROUP BY i.metadata->>'category';
    Backend: DataFusion
    Indexes: agg_json_items_idx (i), agg_json_orders_idx (o)
    Group By: metadata.category
-   Aggregates: COUNT(*)(*), SUM(qty)
+   Aggregates: COUNT(*), SUM(qty)
 (6 rows)
 
 -- Test 16.2: JSON sub-field GROUP BY results

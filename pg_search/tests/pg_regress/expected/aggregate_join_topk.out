@@ -73,7 +73,7 @@ GROUP BY p.category;
    Backend: DataFusion
    Indexes: topk_products_idx (p), topk_tags_idx (t)
    Group By: category
-   Aggregates: COUNT(*)(*)
+   Aggregates: COUNT(*)
 (6 rows)
 
 SELECT p.category, COUNT(*)
@@ -113,7 +113,7 @@ LIMIT 3;
                Backend: DataFusion
                Indexes: topk_products_idx (p), topk_tags_idx (t)
                Group By: category
-               Aggregates: COUNT(*)(*)
+               Aggregates: COUNT(*)
 (11 rows)
 
 SELECT p.category, COUNT(*)
@@ -271,7 +271,7 @@ LIMIT 1;
                Backend: DataFusion
                Indexes: topk_products_idx (p), topk_tags_idx (t)
                Group By: category
-               Aggregates: COUNT(*)(*)
+               Aggregates: COUNT(*)
 (11 rows)
 
 SELECT p.category, COUNT(*)

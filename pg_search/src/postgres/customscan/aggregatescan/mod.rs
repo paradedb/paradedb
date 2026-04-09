@@ -368,7 +368,9 @@ impl CustomScan for AggregateScan {
                     .iter()
                     .map(|a| {
                         if a.field_refs.is_empty() {
-                            format!("{}(*)", a.agg_kind)
+                            // CountStar displays as "COUNT(*)" — no extra wrapping needed.
+                            // Other no-arg aggregates (none currently) also use Display directly.
+                            a.agg_kind.to_string()
                         } else {
                             let fields: Vec<&str> =
                                 a.field_refs.iter().map(|(_, _, n)| n.as_str()).collect();

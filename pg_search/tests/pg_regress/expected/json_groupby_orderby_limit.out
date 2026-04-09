@@ -85,7 +85,7 @@ LIMIT 5;
                Backend: DataFusion
                Indexes: idx_json_single (json_test_single)
                Group By: metadata.category
-               Aggregates: COUNT(*)(*)
+               Aggregates: COUNT(*)
 (11 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count

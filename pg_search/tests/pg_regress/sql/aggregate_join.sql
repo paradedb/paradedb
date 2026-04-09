@@ -984,6 +984,76 @@ GROUP BY p.category
 ORDER BY p.category;
 
 -- =====================================================================
+-- SECTION 16: ORDER BY within aggregates (STRING_AGG, ARRAY_AGG)
+-- =====================================================================
+
+-- Test 16.1: STRING_AGG with ORDER BY on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 16.2: STRING_AGG ORDER BY parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 16.3: STRING_AGG ORDER BY DESC
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name DESC)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 16.4: ARRAY_AGG with ORDER BY on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 16.5: ARRAY_AGG ORDER BY parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 16.6: ARRAY_AGG ORDER BY DESC
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name DESC)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

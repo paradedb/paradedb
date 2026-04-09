@@ -847,7 +847,15 @@ async fn generated_aggregate_join(database: Db) {
         // GROUP BY + aggregates
         group_by_expr in arb_group_by(
             grouping_columns.iter().map(|c| format!("{}.{}", all_tables[0], c)).collect::<Vec<_>>(),
-            vec!["COUNT(*)", "SUM(users.age)", "AVG(users.age)", "MIN(users.rating)", "MAX(users.rating)"],
+            vec![
+                "COUNT(*)",
+                "SUM(users.age)",
+                "AVG(users.age)",
+                "MIN(users.rating)",
+                "MAX(users.rating)",
+                "STRING_AGG(users.name, ', ' ORDER BY users.name)",
+                "ARRAY_AGG(users.name ORDER BY users.name)",
+            ],
         ),
     )| {
         // Build join with selected number of tables

@@ -182,9 +182,13 @@ pub async fn build_join_aggregate_plan(
         df = df.filter(expr)?;
     }
 
-    // Step 5: If TopK is requested, add sort + limit so DataFusion handles it internally
+    // Step 5: If TopK is requested, add sort + limit so DataFusion handles
+    // it internally. DataFusion's built-in TopKAggregation optimizer rule
+    // can then push the limit into AggregateExec for group-key and MIN/MAX
+    // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
+    // bounded TopK heap.
     if let Some(topk) = topk {
-        let sort_col_name = format!("agg_{}", topk.sort_agg_idx);
+        let sort_col_name = topk.sort_target.resolve_sort_col_name(targetlist, plan);
         let sort_expr = datafusion::prelude::col(&sort_col_name)
             .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         let df = df.sort(vec![sort_expr])?;

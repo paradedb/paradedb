@@ -364,6 +364,7 @@ impl SearchIndexReader {
     fn open_index_components(
         index_relation: &PgSearchRelation,
         mvcc_style: MvccSatisfies,
+        needs_tokenizers: bool,
     ) -> Result<IndexComponents> {
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
@@ -376,7 +377,9 @@ impl SearchIndexReader {
             .total_docs()
             .load(std::sync::atomic::Ordering::Relaxed) as u64;
         let schema = index_relation.schema()?;
-        setup_tokenizers(index_relation, &mut index)?;
+        if needs_tokenizers {
+            setup_tokenizers(index_relation, &mut index)?;
+        }
 
         let reader = index
             .reader_builder()
@@ -427,7 +430,8 @@ impl SearchIndexReader {
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
     ) -> Result<Self> {
-        let components = Self::open_index_components(index_relation, mvcc_style)?;
+        let needs_tokenizers = search_query_input.needs_tokenizer();
+        let components = Self::open_index_components(index_relation, mvcc_style, needs_tokenizers)?;
         let IndexComponents {
             cleanup_lock,
             index,
@@ -1438,7 +1442,8 @@ impl SearchIndexReader {
 impl SearchIndexManifest {
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
-        let components = SearchIndexReader::open_index_components(index_relation, mvcc_style)?;
+        let components =
+            SearchIndexReader::open_index_components(index_relation, mvcc_style, false)?;
         Ok(Self {
             searcher: components.searcher,
             _cleanup_lock: components.cleanup_lock,

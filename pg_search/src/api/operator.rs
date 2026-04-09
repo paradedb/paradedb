@@ -527,6 +527,7 @@ pub unsafe fn field_name_from_node(
                 }
             }
         }
+
         match &candidate_field_names[..] {
             [] => {
                 return None;
@@ -535,13 +536,26 @@ pub unsafe fn field_name_from_node(
                 return Some(field_name.clone());
             }
             _ => {
+                // If there are multiple candidate index fields and one of them matches the name
+                // of the column, choose that one.
+                let column_field_name = attname_from_var(heaprel, var);
+                if let Some(field_name) = column_field_name.as_ref().and_then(|column_field_name| {
+                    candidate_field_names
+                        .iter()
+                        .find(|field_name| *field_name == column_field_name)
+                        .cloned()
+                }) {
+                    return Some(field_name);
+                }
+
+                // Otherwise, the query is ambiguous and we need to error.
                 let mut names: Vec<String> = candidate_field_names
                     .into_iter()
                     .map(|f| format!("`{}`", f))
                     .collect();
                 names.sort();
 
-                let column_name = attname_from_var(heaprel, var)
+                let column_name = column_field_name
                     .map(|f| f.to_string())
                     .unwrap_or_else(|| "<unknown>".to_string());
 

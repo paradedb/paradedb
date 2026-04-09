@@ -61,12 +61,30 @@ pub enum HavingOp {
     GtEq,
 }
 
+/// Identifies whether a TopK sort targets an aggregate result or a GROUP BY column.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum TopKSortTarget {
+    /// Sort by an aggregate result (e.g., ORDER BY COUNT(*)).
+    /// The value is the index into `JoinAggregateTargetList.aggregates`.
+    Aggregate(usize),
+    /// Sort by a GROUP BY column (e.g., ORDER BY category).
+    /// The value is the index into `JoinAggregateTargetList.group_columns`.
+    GroupColumn(usize),
+}
+
 /// TopK sort+limit info pushed into the DataFusion aggregate plan.
-/// Allows DataFusion to handle ORDER BY aggregate + LIMIT internally.
+///
+/// When the sort target is a GROUP BY column or MIN/MAX aggregate, DataFusion's
+/// built-in `TopKAggregation` optimizer rule can push the limit into
+/// `AggregateExec`, enabling early termination (group-key ordering) or
+/// PriorityMap-based pruning (MIN/MAX ordering) during aggregation.
+///
+/// For COUNT/SUM/AVG ordering, DataFusion's `SortExec(fetch=K)` uses a bounded
+/// TopK heap — still more efficient than letting Postgres sort above us.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DataFusionTopK {
-    /// Index into `JoinAggregateTargetList.aggregates` for the sort target.
-    pub sort_agg_idx: usize,
+    /// What the ORDER BY targets.
+    pub sort_target: TopKSortTarget,
     pub direction: crate::api::SortDirection,
     /// Maximum number of rows to return (LIMIT + OFFSET).
     pub k: usize,

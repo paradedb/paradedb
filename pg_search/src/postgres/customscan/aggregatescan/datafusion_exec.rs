@@ -161,9 +161,22 @@ pub async fn build_join_aggregate_plan(
         df = df.filter(expr)?;
     }
 
-    // Step 5: If TopK is requested, add sort + limit so DataFusion handles it internally
+    // Step 5: If TopK is requested, add sort + limit so DataFusion handles
+    // it internally. DataFusion's built-in TopKAggregation optimizer rule
+    // can then push the limit into AggregateExec for group-key and MIN/MAX
+    // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
+    // bounded TopK heap.
     if let Some(topk) = topk {
-        let sort_col_name = format!("agg_{}", topk.sort_agg_idx);
+        use crate::postgres::customscan::aggregatescan::privdat::TopKSortTarget;
+        let sort_col_name = match &topk.sort_target {
+            TopKSortTarget::Aggregate(idx) => format!("agg_{}", idx),
+            TopKSortTarget::GroupColumn(idx) => {
+                let gc = &targetlist.group_columns[*idx];
+                let source = plan.source_for_rti_in_subtree(gc.rti);
+                let (alias, _) = resolve_source_column(source, gc.rti, &gc.field_name, plan);
+                format!("{}.{}", alias, gc.field_name)
+            }
+        };
         let sort_expr = datafusion::prelude::col(&sort_col_name)
             .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         let df = df.sort(vec![sort_expr])?;

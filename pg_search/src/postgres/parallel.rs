@@ -20,10 +20,6 @@ use crate::postgres::ParallelScanState;
 use pgrx::{pg_guard, pg_sys};
 use tantivy::index::SegmentId;
 
-/// Safety margin for DSM allocation: actual segment count can exceed target_segment_count due to
-/// concurrent writes between plan and execute.
-const PARALLEL_SEGMENT_ESTIMATE_MULTIPLIER: usize = 64;
-
 #[pg_guard]
 pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {
     let state = target.cast::<ParallelScanState>();
@@ -70,7 +66,7 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     let nsegments = if rel.is_null() {
         u16::MAX as usize
     } else {
-        estimated_parallel_segments(rel)
+        crate::postgres::options::BM25IndexOptions::from_relation(rel).target_segment_count()
     };
     ParallelScanState::size_of(&[nsegments], 0, &[], false)
 }
@@ -112,27 +108,11 @@ pub unsafe fn maybe_init_parallel_scan(
         return None;
     }
 
-    // Read indexRelation before mutable borrow of scan
-    let rel = (*scan).indexRelation;
-
     let state = get_bm25_scan_state(&mut scan)?;
 
     let _mutex = state.acquire_mutex();
 
     if !state.is_initialized() {
-        // If concurrent writes created more segments than the DSM can hold, fall back to serial
-        // scan to avoid a shared memory overflow.
-        let estimated_segments = estimated_parallel_segments(rel);
-        let actual_segments = searcher.segment_readers().len();
-        if actual_segments > estimated_segments {
-            state.mark_initialized_empty();
-            pgrx::warning!(
-                "Actual segment count ({}) exceeds estimated ({}), falling back to serial scan",
-                actual_segments,
-                estimated_segments
-            );
-            return None;
-        }
         state.populate(&[searcher.segment_readers()], 0, &[], false);
     }
     Some(unsafe { pg_sys::ParallelWorkerNumber })
@@ -151,9 +131,4 @@ fn get_bm25_scan_state(scan: &mut pg_sys::IndexScanDesc) -> Option<&mut Parallel
         let scan = scan.as_mut().unwrap_unchecked();
         bm25_shared_state(scan)
     }
-}
-
-unsafe fn estimated_parallel_segments(rel: pg_sys::Relation) -> usize {
-    crate::postgres::options::BM25IndexOptions::from_relation(rel).target_segment_count()
-        * PARALLEL_SEGMENT_ESTIMATE_MULTIPLIER
 }

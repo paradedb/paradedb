@@ -384,7 +384,7 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
 
 pub fn score_funcoids() -> [pg_sys::Oid; 2] {
     static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| unsafe {
+    *OID_CACHE.get_or_init(|| {
         [
             unsafe {
                 direct_function_call::<pg_sys::Oid>(

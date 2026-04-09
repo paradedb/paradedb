@@ -116,6 +116,8 @@ WHERE company_name &&& 'Jarvi'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
+WARNING:  heap filter on `(end_date IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
+WARNING:  heap filter on `(end_date IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
               profile_id              | best_score 
 --------------------------------------+------------
  a0000000-0000-0000-0000-000000000001 |  11.528142
@@ -135,6 +137,8 @@ WHERE title &&& 'developer'
 GROUP BY profile_id
 ORDER BY best_score DESC, profile_id
 LIMIT 5;
+WARNING:  heap filter on `(end_date IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
+WARNING:  heap filter on `(end_date IS NULL)`: NULL tests on non-indexed fields require heap access. This may impact query performance.
               profile_id              | best_score 
 --------------------------------------+------------
  a0000000-0000-0000-0000-000000000001 |  2.5257165

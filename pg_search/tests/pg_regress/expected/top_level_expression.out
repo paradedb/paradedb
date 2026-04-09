@@ -30,6 +30,7 @@ FROM test
 WHERE (test.content &&& 'Beijing') AND jsonb_path_exists(test.extra, '$.type')
 ORDER BY pdb.score(test.id) DESC
 LIMIT 10;
+WARNING:  heap filter on `jsonb_path_exists(extra, '$."type"'::jsonpath, '{}'::jsonb, false)`: function expressions are not indexable. This may impact query performance.
    score    |          content          |                       extra                       
 ------------+---------------------------+---------------------------------------------------
  0.34388584 | Beijing CBD area          | {"type": "business", "district": "Chaoyang"}

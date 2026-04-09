@@ -209,6 +209,8 @@ SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
+WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(documentid = $1)`: the column is not indexed in the bm25 index. This may impact query performance.
   id  |    title     | parents  | file_title  
 ------+--------------+----------+-------------
  doc1 | Invoice 2023 | Factures | Invoice PDF

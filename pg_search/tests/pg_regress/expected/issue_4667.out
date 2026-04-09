@@ -38,6 +38,8 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
+WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
                                                                                                                                               QUERY PLAN                                                                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -84,6 +86,8 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
+WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
  id |    nameSort    | nameIsNull | followersSort | followersIsNull | senioritySort | seniorityIsNull 
 ----+----------------+------------+---------------+-----------------+---------------+-----------------
   3 | Carol Manager  | f          |           800 | f               | manager       | f
@@ -100,6 +104,7 @@ FROM people AS p
 WHERE p.id @@@ pdb.all()
 AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
+WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
                                                                                                                        QUERY PLAN                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -127,6 +132,8 @@ FROM people AS p
 WHERE p.id @@@ pdb.all()
 AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
+WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(seniority_slug = ANY ('{manager,director}'::text[]))`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
  id | nameIsNull 
 ----+------------
   1 | f

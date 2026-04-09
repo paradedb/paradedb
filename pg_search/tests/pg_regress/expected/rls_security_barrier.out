@@ -98,6 +98,8 @@ SELECT id,
        pdb.snippet(title, start_tag => '<b>', end_tag => '</b>') AS snippet
 FROM rls_score_bug_test
 WHERE title ||| 'sheriff';
+WARNING:  heap filter on `rls_bug_check_definer(org_id)`: function expressions are not indexable. This may impact query performance.
+WARNING:  heap filter on `rls_bug_check_definer(org_id)`: function expressions are not indexable. This may impact query performance.
  id |             title              |   score   |                snippet                
 ----+--------------------------------+-----------+---------------------------------------
   1 | sheriff department los angeles | 0.6747451 | <b>sheriff</b> department los angeles

@@ -71,6 +71,7 @@ EXECUTE search_desc('keyboard', 0);
 (2 rows)
 
 EXECUTE search_desc('keyboard', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -98,6 +99,7 @@ EXECUTE search_desc('keyboard', 0);
 -- 6th execution should use generic plan (by default)
 -- This should still return scores, not NULL
 EXECUTE search_desc('keyboard', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -137,6 +139,7 @@ EXECUTE search_generic('keyboard', 0);
 
 -- This should return scores even with forced generic plan
 EXECUTE search_generic('keyboard', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -145,6 +148,7 @@ EXECUTE search_generic('keyboard', 0);
 
 -- Test different search terms
 EXECUTE search_generic('shoes', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |     description     |   score   
 ----+---------------------+-----------
   5 | Generic shoes       | 2.8772602
@@ -222,6 +226,7 @@ EXECUTE search_pdb('keyboard', 0);
 (11 rows)
 
 EXECUTE search_pdb('keyboard', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -261,6 +266,7 @@ EXECUTE test_filter('shoes', 0);
 (11 rows)
 
 EXECUTE test_filter('shoes', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |     description     |   score   
 ----+---------------------+-----------
   5 | Generic shoes       | 2.8772602
@@ -310,6 +316,7 @@ EXECUTE test_filter('keyboard', 0);
 (11 rows)
 
 EXECUTE test_filter('keyboard', 0);
+WARNING:  heap filter on `($2 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |       description        |   score   
 ----+--------------------------+-----------
   2 | Plastic Keyboard         | 3.2668595
@@ -349,6 +356,8 @@ EXECUTE test_complex('shoes', 3, 0);
 (11 rows)
 
 EXECUTE test_complex('shoes', 3, 0);
+WARNING:  heap filter on `(rating > $2)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `($3 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |     description     | rating |   score   
 ----+---------------------+--------+-----------
   5 | Generic shoes       |      4 | 2.8772602
@@ -397,6 +406,8 @@ EXECUTE test_complex('shoes', 2, 0);
 (11 rows)
 
 EXECUTE test_complex('shoes', 2, 0);
+WARNING:  heap filter on `(rating > $2)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `($3 = 0)`: parameter expressions require runtime evaluation. This may impact query performance.
  id |     description     | rating |   score   
 ----+---------------------+--------+-----------
   5 | Generic shoes       |      4 | 2.8772602

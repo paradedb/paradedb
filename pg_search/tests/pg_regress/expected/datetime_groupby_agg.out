@@ -116,6 +116,8 @@ WHERE transactions.organization_id = 'org1'
     AND transactions.as_of_date BETWEEN '2025-12-25' AND '2026-02-01'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
+WARNING:  heap filter on `(organization_id = 'org1'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(organization_id = 'org1'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
  count_all | as_of_date 
 -----------+------------
          2 | 12-26-2025

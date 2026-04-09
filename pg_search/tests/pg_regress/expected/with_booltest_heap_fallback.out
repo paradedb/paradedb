@@ -49,6 +49,7 @@ FROM booltest_simple
 WHERE description @@@ 'hello'
   AND flag IS TRUE
 ORDER BY id;
+WARNING:  heap filter on `(flag IS TRUE)`: boolean tests on non-indexed fields require heap access. This may impact query performance.
  id | description | flag 
 ----+-------------+------
   1 | hello world | t

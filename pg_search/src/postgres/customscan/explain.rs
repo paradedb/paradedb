@@ -56,6 +56,7 @@ pub fn cleanup_json_for_explain(json_value: &mut serde_json::Value) {
             // Keep the heap_filter field which contains the human-readable SQL expression
             if obj.contains_key("expr_node") && obj.contains_key("heap_filter") {
                 obj.remove("expr_node");
+                obj.remove("reason");
             }
 
             // Handle PostgresExpression: remove raw node (internal representation)

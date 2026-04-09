@@ -193,6 +193,7 @@ ORDER BY id LIMIT 5;
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
 WHERE metadata->>'color' IN ('white', 'black') AND id @@@ paradedb.all()
 ORDER BY id LIMIT 5;
+WARNING:  heap filter on `((metadata ->> 'color'::text) = ANY ('{white,black}'::text[]))`: the column is not indexed in the bm25 index. This may impact query performance.
   description   | ?column? | in_stock 
 ----------------+----------+----------
  Computer mouse | white    | true

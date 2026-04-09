@@ -578,6 +578,7 @@ WHERE a.content @@@ 'machine learning'
   AND a.author_id IN (1, 2)
 ORDER BY paradedb.score(a.id) DESC
 LIMIT 5;
+WARNING:  heap filter on `(author_id = ANY ('{1,2}'::integer[]))`: the column is not indexed in the bm25 index. This may impact query performance.
  id |          title          | score_value |   score   |       last_comment       
 ----+-------------------------+-------------+-----------+--------------------------
   2 | Machine Learning Basics |       82.30 | 4.5998363 | Thu Jan 04 19:00:00 2024

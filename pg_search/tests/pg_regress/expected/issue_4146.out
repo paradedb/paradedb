@@ -469,6 +469,11 @@ WHERE
 ORDER BY
     d.title ASC
 LIMIT 50;
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
                                                                                                                    QUERY PLAN                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -512,6 +517,11 @@ WHERE
 ORDER BY
     d.title ASC
 LIMIT 50;
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(parents ~~ 'SFR%'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
                   id                  |                      title                       |         parents          
 --------------------------------------+--------------------------------------------------+--------------------------
  00000001-1000-0000-0110-000000011000 | Document Title 10670 - d4af2d263e57f8d5fb92df991 | SFR 615ee94d40192144e7fd

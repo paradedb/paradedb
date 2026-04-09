@@ -1512,6 +1512,7 @@ FROM logs
 WHERE description @@@ 'error' AND description = 'Database connection error'
 ORDER BY timestamp DESC
 LIMIT 1;
+WARNING:  heap filter on `(description = 'Database connection error'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
  id |        description        |                                                      agg                                                       
 ----+---------------------------+----------------------------------------------------------------------------------------------------------------
   1 | Database connection error | {"buckets": [{"key": "database", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}

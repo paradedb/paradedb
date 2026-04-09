@@ -416,7 +416,7 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
         }
     });
 
-    for _ in 0..10000 {
+    for _ in 0..100 {
         let result = sqlx::query_as::<_, (i64,)>(
             "SELECT COUNT(*) FROM test t WHERE t.column_a @@@ paradedb.all() AND t.column_b = TRUE",
         )

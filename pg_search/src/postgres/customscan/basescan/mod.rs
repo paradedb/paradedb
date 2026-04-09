@@ -84,8 +84,13 @@ use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::extract_const_i64;
 use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
+use std::cell::RefCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
+
+thread_local! {
+    static SEGMENT_COUNT_CACHE: RefCell<HashMap<pg_sys::Oid, usize>> = RefCell::new(HashMap::default());
+}
 
 #[derive(Default)]
 pub struct BaseScan;
@@ -151,6 +156,13 @@ impl BaseScan {
             std::ptr::NonNull::new(planstate),
         )
         .expect("should be able to open the search index reader");
+
+        let index_oid = indexrel.oid();
+        let real_segment_count = search_reader.total_segment_count();
+        SEGMENT_COUNT_CACHE.with(|cache| {
+            cache.borrow_mut().insert(index_oid, real_segment_count);
+        });
+
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -619,12 +631,18 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
-            let segment_count = {
+            let index_oid = bm25_index.oid();
+            let segment_count = SEGMENT_COUNT_CACHE.with(|cache| {
+                if let Some(&count) = cache.borrow().get(&index_oid) {
+                    return count;
+                }
                 let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
-                let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
+                let segment_count = directory.total_segment_count();
                 Index::open(directory).expect("custom_scan: should be able to open index");
-                segment_count.load(Ordering::Relaxed)
-            };
+                let count = segment_count.load(Ordering::Relaxed);
+                cache.borrow_mut().insert(index_oid, count);
+                count
+            });
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");

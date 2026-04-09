@@ -32,7 +32,7 @@ use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
     MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
-use crate::postgres::customscan::pullup::resolve_fast_field;
+use crate::postgres::customscan::pullup::{resolve_fast_field, resolve_fast_field_by_name};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
@@ -806,25 +806,6 @@ pub fn has_any_bm25_index(sources: &[JoinAggSource]) -> bool {
 /// Required because DataFusion needs to scan all tables via `PgSearchTableProvider`.
 pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().all(|s| s.bm25_index.is_some())
-}
-
-/// Resolve a fast field by Tantivy field name (e.g., `metadata.category`).
-/// Used for JSON sub-fields where `resolve_fast_field(attno)` fails because
-/// the attno maps to the parent JSON column rather than the sub-field.
-fn resolve_fast_field_by_name(
-    field_name: &str,
-    index: &PgSearchRelation,
-) -> Option<WhichFastField> {
-    let schema = index.schema().ok()?;
-    let search_field = schema.search_field(field_name)?;
-    if search_field.is_fast() {
-        Some(WhichFastField::Named(
-            field_name.to_string(),
-            search_field.field_type(),
-        ))
-    } else {
-        None
-    }
 }
 
 /// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on

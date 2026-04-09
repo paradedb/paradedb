@@ -132,10 +132,18 @@ jobs:
           cache-targets: true
           cache-all-crates: true
 
-      - name: Install cargo-pgrx
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
-      - name: Initialize cargo-pgrx environment
+      - name: Initialize pgrx environment
         run: cargo pgrx init "--pg18=download" --configure-flag="--without-readline"
 
       - name: Add pgrx PostgreSQL binaries to PATH

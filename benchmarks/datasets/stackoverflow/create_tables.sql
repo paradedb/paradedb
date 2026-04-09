@@ -24,7 +24,7 @@ CREATE TABLE stackoverflow_posts (
     post_type_id SMALLINT,
     score INTEGER,
     tags VARCHAR,
-    view_count INTEGER,
+    view_count INTEGER
 );
 
 CREATE TABLE comments (
@@ -34,7 +34,7 @@ CREATE TABLE comments (
     post_id INTEGER,
     user_id INTEGER,
     user_display_name VARCHAR,
-    score INTEGER,
+    score INTEGER
 );
 
 CREATE TABLE users (
@@ -50,5 +50,5 @@ CREATE TABLE users (
     down_votes INTEGER,
     views INTEGER,
     profile_image_url VARCHAR,
-    website_url VARCHAR,
+    website_url VARCHAR
 );

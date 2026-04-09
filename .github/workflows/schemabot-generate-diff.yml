@@ -51,11 +51,13 @@ jobs:
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
+      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+      # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
 

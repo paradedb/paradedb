@@ -52,7 +52,7 @@ WITH (
     numeric_fields='{"product_id": {"fast": true}, "rating": {"fast": true}}'
 );
 -- =====================================================================
--- Test 1: 3-table join → should fall back to Postgres native
+-- Test 1: 3-table join → should use DataFusion backend
 -- =====================================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*)
@@ -60,39 +60,20 @@ FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop';
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: count(*)
-   ->  Nested Loop
-         Join Filter: (p.id = t.product_id)
-         ->  Hash Join
-               Output: p.id, r.product_id
-               Inner Unique: true
-               Hash Cond: (r.product_id = p.id)
-               ->  Seq Scan on public.fb_reviews r
-                     Output: r.id, r.product_id, r.rating
-               ->  Hash
-                     Output: p.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.fb_products p
-                           Output: p.id
-                           Table: fb_products
-                           Index: fb_products_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-         ->  Seq Scan on public.fb_tags t
-               Output: t.id, t.product_id, t.tag_name
-(22 rows)
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: pdb.agg_fn('COUNT(*)'::text)
+   Backend: DataFusion
+   Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+   Aggregates: COUNT(*)(*)
+(5 rows)
 
 SELECT COUNT(*)
 FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop';
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
  count 
 -------
      2
@@ -106,7 +87,6 @@ JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
   category   | count | sum 
 -------------+-------+-----
  Clothing    |     1 |   4
@@ -139,39 +119,15 @@ JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: p.category, count(*), sum(r.rating), avg(r.rating), min(r.rating), max(r.rating)
-   Group Key: p.category
-   ->  Sort
-         Output: p.category, r.rating
-         Sort Key: p.category
-         ->  Nested Loop
-               Output: p.category, r.rating
-               Join Filter: (p.id = t.product_id)
-               ->  Hash Join
-                     Output: p.category, p.id, r.rating, r.product_id
-                     Inner Unique: true
-                     Hash Cond: (r.product_id = p.id)
-                     ->  Seq Scan on public.fb_reviews r
-                           Output: r.id, r.product_id, r.rating
-                     ->  Hash
-                           Output: p.category, p.id
-                           ->  Custom Scan (ParadeDB Base Scan) on public.fb_products p
-                                 Output: p.category, p.id
-                                 Table: fb_products
-                                 Index: fb_products_idx
-                                 Exec Method: ColumnarExecState
-                                 Fast Fields: category, id
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-               ->  Materialize
-                     Output: t.product_id
-                     ->  Seq Scan on public.fb_tags t
-                           Output: t.product_id
-(29 rows)
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: p.category, (count(*)), (sum(r.rating)), (avg(r.rating)), (min(r.rating)), (max(r.rating))
+   Backend: DataFusion
+   Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+   Group By: category
+   Aggregates: COUNT(*)(*), SUM(rating), AVG(rating), MIN(rating), MAX(rating)
+(6 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating), MIN(r.rating), MAX(r.rating)
 FROM fb_products p
@@ -180,12 +136,11 @@ JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
-  category   | count | sum |        avg         | min | max 
--------------+-------+-----+--------------------+-----+-----
- Clothing    |     1 |   4 | 4.0000000000000000 |   4 |   4
- Electronics |     2 |   9 | 4.5000000000000000 |   4 |   5
- Sports      |     1 |   3 | 3.0000000000000000 |   3 |   3
+  category   | count | sum | avg | min | max 
+-------------+-------+-----+-----+-----+-----
+ Clothing    |     1 |   4 |   4 |   4 |   4
+ Electronics |     2 |   9 | 4.5 |   4 |   5
+ Sports      |     1 |   3 |   3 |   3 |   3
 (3 rows)
 
 -- Test 1e: 3-table star schema (tags and reviews both join to products)
@@ -194,7 +149,6 @@ FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop';
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
  count 
 -------
      2
@@ -210,7 +164,6 @@ JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
  tag_name | count | sum 
 ----------+-------+-----
  fitness  |     1 |   3
@@ -226,29 +179,14 @@ LEFT JOIN fb_tags t ON p.id = t.product_id
 LEFT JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: p.category
-   ->  Sort
-         Sort Key: p.category
-         ->  Nested Loop Left Join
-               Join Filter: (p.id = t.product_id)
-               ->  Hash Right Join
-                     Hash Cond: (r.product_id = p.id)
-                     ->  Seq Scan on fb_reviews r
-                     ->  Hash
-                           ->  Custom Scan (ParadeDB Base Scan) on fb_products p
-                                 Table: fb_products
-                                 Index: fb_products_idx
-                                 Exec Method: ColumnarExecState
-                                 Fast Fields: category, id
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket","lenient":null,"conjunction_mode":null}}}}
-               ->  Materialize
-                     ->  Seq Scan on fb_tags t
-(19 rows)
+                             QUERY PLAN                              
+---------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
+   Group By: category
+   Aggregates: COUNT(*)(*), COUNT(rating)
+(5 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM fb_products p
@@ -257,7 +195,6 @@ LEFT JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported (table: join)
   category   | count | count 
 -------------+-------+-------
  Clothing    |     1 |     1

@@ -933,6 +933,116 @@ async fn generated_aggregate_join(database: Db) {
     });
 }
 
+/// Property test for DISTINCT aggregates on multi-table joins — ensures
+/// SUM(DISTINCT), COUNT(DISTINCT), AVG(DISTINCT) produce the same results
+/// via DataFusion aggregate pushdown as native PostgreSQL.
+#[rstest]
+#[tokio::test]
+async fn generated_aggregate_join_distinct(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
+    let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+
+    let text_columns = columns_named(vec!["name"]);
+    let join_key_columns = vec!["id", "age"];
+    let grouping_columns: Vec<&str> = COLUMNS
+        .iter()
+        .filter(|col| col.is_groupable && col.is_whereable)
+        .map(|col| col.name)
+        .collect();
+
+    proptest!(|(
+        num_tables in 2..=3usize,
+        outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
+        group_by_expr in arb_group_by(
+            grouping_columns.iter().map(|c| format!("{}.{}", all_tables[0], c)).collect::<Vec<_>>(),
+            vec![
+                "COUNT(DISTINCT users.age)",
+                "SUM(DISTINCT users.age)",
+                "AVG(DISTINCT users.age)",
+            ],
+        ),
+    )| {
+        let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
+
+        let join = arb_joins(
+            prop_oneof![Just(JoinType::Inner), Just(JoinType::Left)],
+            tables_for_join.clone(),
+            join_key_columns.clone(),
+        );
+
+        let join_expr = {
+            use proptest::strategy::ValueTree;
+            use proptest::test_runner::TestRunner;
+            let mut runner = TestRunner::default();
+            join.new_tree(&mut runner).unwrap().current()
+        };
+
+        let join_clause = join_expr.to_sql();
+        let select_list = group_by_expr.to_select_list();
+        let group_by_clause = group_by_expr.to_sql();
+
+        let bm25_where = outer_bm25.to_sql("@@@");
+        let pg_where = outer_bm25.to_sql(" = ");
+
+        let pg_query = format!(
+            "SELECT {select_list} {join_clause} WHERE {pg_where} {group_by_clause}"
+        );
+        let bm25_query = format!(
+            "SELECT {select_list} {join_clause} WHERE {bm25_where} {group_by_clause}"
+        );
+
+        let gucs = PgGucs {
+            aggregate_custom_scan: true,
+            join_custom_scan: true,
+            custom_scan: true,
+            ..PgGucs::default()
+        };
+
+        compare(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| {
+                let rows = query.fetch_dynamic(conn);
+                let mut string_rows: Vec<String> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let mut row_string = String::new();
+                        for i in 0..row.len() {
+                            if i > 0 {
+                                row_string.push('|');
+                            }
+                            let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<f64, _>(i) {
+                                format!("{:.6}", val)
+                            } else if let Ok(val) = row.try_get::<String, _>(i) {
+                                val
+                            } else {
+                                "NULL".to_string()
+                            };
+                            row_string.push_str(&value_str);
+                        }
+                        row_string
+                    })
+                    .collect();
+                string_rows.sort();
+                string_rows
+            },
+        )?;
+    });
+}
+
 ///
 /// Property test for STDDEV/VARIANCE aggregates — ensures equivalence between
 /// PostgreSQL native and ParadeDB's DataFusion aggregate backend.

@@ -63,7 +63,7 @@ WITH (
 );
 
 -- =====================================================================
--- Test 1: 3-table join → should fall back to Postgres native
+-- Test 1: 3-table join → should use DataFusion backend
 -- =====================================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*)

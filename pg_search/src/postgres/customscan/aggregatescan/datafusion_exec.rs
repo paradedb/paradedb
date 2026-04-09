@@ -143,6 +143,27 @@ pub async fn build_join_aggregate_plan(
                     ))
                 }
             }?;
+            // Apply DISTINCT flag for non-CountDistinct aggregates.
+            // CountDistinct already sets distinct=true via new_udf above.
+            let agg_expr = if agg.distinct
+                && !matches!(agg.agg_kind, AggKind::CountDistinct | AggKind::CountStar)
+            {
+                match agg_expr {
+                    Expr::AggregateFunction(af) => Expr::AggregateFunction(
+                        datafusion::logical_expr::expr::AggregateFunction::new_udf(
+                            af.func,
+                            af.params.args,
+                            true,
+                            af.params.filter,
+                            af.params.order_by,
+                            af.params.null_treatment,
+                        ),
+                    ),
+                    other => other,
+                }
+            } else {
+                agg_expr
+            };
             // Alias for stable reference
             Ok(agg_expr.alias(format!("agg_{}", i)))
         })

@@ -1004,61 +1004,39 @@ DELETE FROM agg_join_tags WHERE product_id IN (9901, 9902);
 DELETE FROM agg_join_products WHERE id IN (9901, 9902);
 -- =====================================================================
 -- SECTION 12: Non-COUNT DISTINCT aggregates fall back to native PG
--- Verifies SUM(DISTINCT), AVG(DISTINCT) do NOT route through DataFusion.
+-- Verifies SUM(DISTINCT), AVG(DISTINCT) route through DataFusion.
 -- =====================================================================
--- SUM(DISTINCT) should NOT show AggregateScan
+-- SUM(DISTINCT) should show AggregateScan (DataFusion supports DISTINCT)
 EXPLAIN (COSTS OFF)
 SELECT p.category, SUM(DISTINCT t.product_id)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: unsupported aggregate function OID: 2108 (table: join)
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: p.category
-   ->  Sort
-         Sort Key: p.category, t.product_id
-         ->  Hash Join
-               Hash Cond: (t.product_id = p.id)
-               ->  Seq Scan on agg_join_tags t
-               ->  Hash
-                     ->  Custom Scan (ParadeDB Base Scan) on agg_join_products p
-                           Table: agg_join_products
-                           Index: agg_join_products_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: category, id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+   Group By: category
+   Aggregates: SUM(product_id)
+(5 rows)
 
--- AVG(DISTINCT) should NOT show AggregateScan
+-- AVG(DISTINCT) should show AggregateScan (DataFusion supports DISTINCT)
 EXPLAIN (COSTS OFF)
 SELECT p.category, AVG(DISTINCT t.product_id)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: unsupported aggregate function OID: 2101 (table: join)
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: p.category
-   ->  Sort
-         Sort Key: p.category, t.product_id
-         ->  Hash Join
-               Hash Cond: (t.product_id = p.id)
-               ->  Seq Scan on agg_join_tags t
-               ->  Hash
-                     ->  Custom Scan (ParadeDB Base Scan) on agg_join_products p
-                           Table: agg_join_products
-                           Index: agg_join_products_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: category, id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Backend: DataFusion
+   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+   Group By: category
+   Aggregates: AVG(product_id)
+(5 rows)
 
 -- COUNT(DISTINCT) should still show AggregateScan (this still works)
 EXPLAIN (COSTS OFF)
@@ -1299,32 +1277,15 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument must be a direct column reference; wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join (table: join)
-                                                                                       QUERY PLAN                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: p.category, string_agg(t.tag_name, ', '::text)
-   Group Key: p.category
-   ->  Sort
-         Output: p.category, t.tag_name
-         Sort Key: p.category
-         ->  Hash Join
-               Output: p.category, t.tag_name
-               Inner Unique: true
-               Hash Cond: (t.product_id = p.id)
-               ->  Seq Scan on public.agg_join_tags t
-                     Output: t.id, t.product_id, t.tag_name
-               ->  Hash
-                     Output: p.category, p.id
-                     ->  Custom Scan (ParadeDB Base Scan) on public.agg_join_products p
-                           Output: p.category, p.id
-                           Table: agg_join_products
-                           Index: agg_join_products_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: category, id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                         QUERY PLAN                          
+-------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: p.category, (string_agg(t.tag_name, ', '::text))
+   Backend: DataFusion
+   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+   Group By: category
+   Aggregates: STRING_AGG(tag_name)
+(6 rows)
 
 SELECT p.category, STRING_AGG(t.tag_name, ', ')
 FROM agg_join_products p
@@ -1332,7 +1293,6 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: aggregate argument must be a direct column reference; wrapped expressions (COALESCE, casts) are not supported for aggregate-on-join (table: join)
   category   |          string_agg          
 -------------+------------------------------
  Electronics | tech, computer, tech, gaming

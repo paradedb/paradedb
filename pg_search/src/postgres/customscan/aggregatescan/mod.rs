@@ -899,16 +899,6 @@ impl AggregateScan {
             return Vec::new();
         }
 
-        // Only 2-table joins are supported; 3+ table joins produce
-        // unreliable plans in DataFusion (empty batches, join errors).
-        if sources.len() > 2 {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported",
-                "join".to_string(),
-            );
-            return Vec::new();
-        }
-
         // At least one table must have a BM25 index
         if !has_any_bm25_index(&sources) {
             return Vec::new();
@@ -961,13 +951,14 @@ impl AggregateScan {
             }
         };
 
-        // Reject CROSS JOINs (no equi-join keys). Without join keys the
-        // second table's PgSearchTableProvider has no Named fields, producing
-        // empty RecordBatches. Single-table scans (sources.len() == 1) have
+        // Reject plans with any join node that has no equi-keys (CROSS JOIN).
+        // Without join keys, PgSearchTableProvider has no Named fields,
+        // producing empty RecordBatches or DataFusion "join condition should
+        // not be empty" errors. Single-table scans (sources.len() == 1) have
         // no join keys by definition and are allowed — they reach this path
         // when routed from RELOPT_BASEREL (e.g., max_buckets overflow or
         // ORDER BY aggregate + LIMIT).
-        if sources.len() > 1 && plan.join_keys().is_empty() {
+        if sources.len() > 1 && plan.has_join_without_keys() {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
                 "join".to_string(),

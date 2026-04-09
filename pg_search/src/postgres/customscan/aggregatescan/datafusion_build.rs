@@ -26,17 +26,16 @@
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
-    FilterNode, JoinKeyPair, JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource,
-    JoinSourceCandidate, JoinType, MultiTablePredicateInfo, PlannerRootId, RelNode,
+    lookup_base_rel_info, try_extract_equi_key, FilterNode, JoinKeyPair, JoinLevelExpr,
+    JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
+    MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid, get_rte};
+use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
@@ -70,6 +69,9 @@ pub struct JoinAggSource {
 
 /// Extract all tables participating in the join from `input_rel.relids` and look up
 /// their RTE / BM25 index information.
+///
+/// Delegates per-relation metadata lookup to the shared [`lookup_base_rel_info`]
+/// in `joinscan/build.rs`.
 pub unsafe fn collect_join_agg_sources(
     root: *mut pg_sys::PlannerInfo,
     input_rel: &pg_sys::RelOptInfo,
@@ -78,27 +80,9 @@ pub unsafe fn collect_join_agg_sources(
     let rtis: Vec<pg_sys::Index> = bms_iter(input_rel.relids).collect();
 
     for rti in rtis {
-        let rte = get_rte(
-            (*root).simple_rel_array_size as usize,
-            (*root).simple_rte_array,
-            rti,
-        );
-        let Some(rte) = rte else { continue };
-
-        let Some(relid) = get_plain_relation_relid(rte) else {
+        let Some((relid, alias, bm25_index)) = lookup_base_rel_info(root, rti) else {
             continue;
         };
-
-        let alias = if !(*rte).eref.is_null() && !(*(*rte).eref).aliasname.is_null() {
-            std::ffi::CStr::from_ptr((*(*rte).eref).aliasname)
-                .to_str()
-                .ok()
-                .map(|s| s.to_string())
-        } else {
-            None
-        };
-
-        let bm25_index = rel_get_bm25_index(relid).map(|(_, idx)| idx);
 
         sources.push(JoinAggSource {
             rti,
@@ -128,7 +112,7 @@ pub unsafe fn collect_join_agg_sources(
 ///    operators whose two sides reference different base relations.
 ///
 /// The parse tree gives the skeleton, the path gives the keys, and
-/// [`inject_equi_keys`] attaches the keys to the topmost `JoinNode`.
+/// [`RelNode::inject_equi_keys`] attaches the keys to the correct join levels.
 pub unsafe fn extract_join_tree_from_parse(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinAggSource],
@@ -151,7 +135,7 @@ pub unsafe fn extract_join_tree_from_parse(
     let path_info = analyze_join_path_restrictinfo(input_rel, sources);
 
     if !path_info.equi_keys.is_empty() {
-        inject_equi_keys(&mut plan, path_info.equi_keys);
+        plan.inject_equi_keys(path_info.equi_keys);
     }
 
     // Fix plan_positions (they default to 0 from JoinSourceCandidate)
@@ -452,73 +436,21 @@ unsafe fn extract_equi_keys_from_expr(
 
 /// Try to extract a single equi-join key from an `OpExpr`.
 ///
-/// Returns `Some(JoinKeyPair)` if the expression is `var1 = var2` where
-/// `var1` and `var2` reference different tables.
+/// Delegates to the shared [`try_extract_equi_key`] in `joinscan/build.rs`,
+/// scoping the valid RTIs to the tables participating in this aggregate join.
 unsafe fn try_extract_one_equi_key(
     op: *mut pg_sys::OpExpr,
     sources: &[JoinAggSource],
 ) -> Option<JoinKeyPair> {
-    let opno = (*op).opno;
-
-    // Check if operator is an equality operator
-    // Check if operator is merge-joinable (i.e., an equality operator).
-    // Pass InvalidOid to check any input type.
-    if !pg_sys::op_mergejoinable(opno, pg_sys::Oid::INVALID) {
-        return None;
-    }
-
-    let args = PgList::<pg_sys::Node>::from_pg((*op).args);
-    if args.len() != 2 {
-        return None;
-    }
-
-    let left_node = args.get_ptr(0)?;
-    let right_node = args.get_ptr(1)?;
-
-    // Both sides must be Var nodes
-    let left_var = nodecast!(Var, T_Var, left_node)?;
-    let right_var = nodecast!(Var, T_Var, right_node)?;
-
-    let left_rti = (*left_var).varno as pg_sys::Index;
-    let right_rti = (*right_var).varno as pg_sys::Index;
-
-    // Must reference different tables
-    if left_rti == right_rti {
-        return None;
-    }
-
-    // Both tables must be in our sources (early-return None if not)
-    sources.iter().find(|s| s.rti == left_rti)?;
-    sources.iter().find(|s| s.rti == right_rti)?;
-
-    let left_attno = (*left_var).varattno;
-    let right_attno = (*right_var).varattno;
-
-    // Get type info
-    let mut typlen: i16 = 0;
-    let mut typbyval: bool = false;
-    pg_sys::get_typlenbyval(
-        (*left_var).vartype,
-        &mut typlen as *mut _,
-        &mut typbyval as *mut _,
-    );
-
-    Some(JoinKeyPair {
-        outer_rti: left_rti,
-        outer_attno: left_attno,
-        inner_rti: right_rti,
-        inner_attno: right_attno,
-        type_oid: (*left_var).vartype,
-        typlen,
-        typbyval,
-    })
+    let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.rti).collect();
+    try_extract_equi_key(op, &valid_rtis)
 }
 
 /// Walk the WHERE clause quals and attach equi-join keys to the appropriate join nodes.
 ///
 /// For implicit joins (comma-separated FROM), the equi-keys live in the WHERE clause
-/// rather than in an ON clause. This function extracts them and pushes them into the
-/// `equi_keys` of the topmost `JoinNode`.
+/// rather than in an ON clause. Each key is distributed to the correct join level
+/// using [`RelNode::inject_equi_keys`] so that 3+ table joins work correctly.
 unsafe fn extract_equi_keys_from_quals(
     quals: *mut pg_sys::Node,
     sources: &[JoinAggSource],
@@ -529,15 +461,7 @@ unsafe fn extract_equi_keys_from_quals(
         return Ok(());
     }
 
-    // Push equi-keys into the topmost join node
-    match plan {
-        RelNode::Join(ref mut join_node) => {
-            join_node.equi_keys.extend(keys);
-        }
-        _ => {
-            // Single scan — keys from WHERE don't apply to a non-join
-        }
-    }
+    plan.inject_equi_keys(keys);
 
     Ok(())
 }
@@ -684,21 +608,6 @@ pub unsafe fn has_non_equi_join_quals(
     sources: &[JoinAggSource],
 ) -> bool {
     analyze_join_path_restrictinfo(input_rel, sources).unhandled > 0
-}
-
-/// Inject extracted equi-join keys into the topmost JoinNode of the plan.
-fn inject_equi_keys(plan: &mut RelNode, keys: Vec<JoinKeyPair>) {
-    match plan {
-        RelNode::Join(ref mut join_node) => {
-            join_node.equi_keys.extend(keys);
-        }
-        RelNode::Filter(ref mut filter) => {
-            inject_equi_keys(&mut filter.input, keys);
-        }
-        RelNode::Scan(_) => {
-            // Single scan — no join to inject into
-        }
-    }
 }
 
 impl super::privdat::HavingExpr {

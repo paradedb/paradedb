@@ -808,6 +808,25 @@ pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().all(|s| s.bm25_index.is_some())
 }
 
+/// Resolve a fast field by Tantivy field name (e.g., `metadata.category`).
+/// Used for JSON sub-fields where `resolve_fast_field(attno)` fails because
+/// the attno maps to the parent JSON column rather than the sub-field.
+fn resolve_fast_field_by_name(
+    field_name: &str,
+    index: &PgSearchRelation,
+) -> Option<WhichFastField> {
+    let schema = index.schema().ok()?;
+    let search_field = schema.search_field(field_name)?;
+    if search_field.is_fast() {
+        Some(WhichFastField::Named(
+            field_name.to_string(),
+            search_field.field_type(),
+        ))
+    } else {
+        None
+    }
+}
+
 /// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on
 /// columns referenced in the target list (GROUP BY + aggregate arguments) and
 /// join keys. Without this, `PgSearchTableProvider` exposes an empty schema.
@@ -850,15 +869,20 @@ pub unsafe fn populate_required_fields(
         // PgSearchTableProvider can expose them as Arrow columns.
         for gc in &targetlist.group_columns {
             if source.contains_rti(gc.rti) {
-                match resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
-                    Some(field) => source.scan_info.add_field(gc.attno, field),
-                    None => {
-                        return Err(format!(
-                            "GROUP BY column (attno={}) is not a fast field on table {}",
-                            gc.attno,
-                            source.scan_info.heaprelid.to_u32()
-                        ));
-                    }
+                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
+                    source.scan_info.add_field(gc.attno, field);
+                } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
+                    // JSON sub-field (e.g., metadata.category from metadata->>'category').
+                    // The attno maps to the parent JSON column, but Tantivy stores
+                    // sub-fields as separate fast fields with dotted names.
+                    source.scan_info.add_field_by_name(gc.attno, field);
+                } else {
+                    return Err(format!(
+                        "GROUP BY column '{}' (attno={}) is not a fast field on table {}",
+                        gc.field_name,
+                        gc.attno,
+                        source.scan_info.heaprelid.to_u32()
+                    ));
                 }
             }
         }

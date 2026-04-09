@@ -41,6 +41,8 @@ SELECT
     CASE WHEN i % 2 = 0 THEN 'us' ELSE 'ca' END
 FROM generate_series(1, 100000) i;
 
+ANALYZE places;
+
 -- Force parallel execution settings to match user's environment
 SET max_parallel_workers_per_gather = 4;
 SET min_parallel_table_scan_size = 0;

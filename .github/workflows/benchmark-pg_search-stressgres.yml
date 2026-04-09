@@ -187,11 +187,9 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
           echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
-      # NOTE: Do NOT add hashFiles('**/Cargo.lock') to shared-key. The action
-      # already hashes Cargo.lock internally as its fileHash component. Putting
-      # it in shared-key defeats the built-in restore-key fallback: when
-      # Cargo.lock changes, both the primary key AND the restore prefix change,
-      # so there is zero fallback and every Cargo.lock change causes a cold build.
+      # NOTE: Do NOT add hashFiles('**/Cargo.lock') to shared-key — the action
+      # already hashes it internally. Putting it in shared-key defeats the
+      # restore-key fallback and causes cold builds on every Cargo.lock change.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:

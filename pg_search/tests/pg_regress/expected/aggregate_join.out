@@ -1176,7 +1176,6 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: HAVING clause is not supported for aggregate-on-join (table: join)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -1209,7 +1208,6 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 HAVING SUM(p.price) > 100
 ORDER BY p.category;
-WARNING:  Aggregate Scan (DataFusion) not used: HAVING clause is not supported for aggregate-on-join (table: join)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96

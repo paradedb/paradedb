@@ -17,11 +17,11 @@ license = "AGPL-3.0"
 [profile.dev]
 panic = "unwind"
 
-# CI test profile: same optimizations as release but with parallel-friendly
+# CI test profile: parallel-friendly
 # LTO and codegen settings. fat LTO + codegen-units=1 is entirely single-threaded;
 # thin LTO is parallelizable and 16 codegen units let LLVM use all cores.
 [profile.ci]
-inherits = "release"
+lnherits = "debug"
 lto = "thin"
 codegen-units = 16
 

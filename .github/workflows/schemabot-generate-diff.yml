@@ -68,8 +68,8 @@ jobs:
 
       - name: Install pg-schema-diff and its Required Dependencies
         run: |
-          sudo apt install clang llvm diffutils
-          cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
+          sudo apt install clang llvm diffutils mold
+          mold -run cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
 
       - name: Cache pgrx binary
         id: cache-pgrx
@@ -80,7 +80,7 @@ jobs:
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        run: mold -run cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx environment
         run: |
@@ -89,7 +89,7 @@ jobs:
           echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
-        run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
+        run: mold -run cargo pgrx schema --profile ci -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
 
       - name: Switch to Base git rev and Generate Schema Again
         run: |
@@ -101,14 +101,15 @@ jobs:
           THIS_PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
           if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
             # Install cargo-pgrx
-            cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force --debug
+            mold -run cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force --debug
 
             # Initialize it (again) -- probably unnecessary, but might as well in case ~/.pgrx/config.toml ever changes
             cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           fi
 
           # Generate schema
-          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
+          # Cannot use --profile ci here: the base branch may not have [profile.ci] in Cargo.toml
+          mold -run cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
 
       - name: Generate Schema Diffs
         run: |

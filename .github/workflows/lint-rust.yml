@@ -57,7 +57,7 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y libfontconfig1-dev postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          sudo apt-get update && sudo apt-get install -y libfontconfig1-dev mold postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Cache pgrx binary
@@ -69,7 +69,7 @@ jobs:
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
-        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        run: mold -run cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx environment
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
@@ -81,10 +81,10 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
 
       - name: Install cargo-machete
-        run: cargo install -j $(nproc) cargo-machete --locked --debug
+        run: mold -run cargo install -j $(nproc) cargo-machete --locked --debug
 
       - name: Install taplo
-        run: cargo install -j $(nproc) taplo-cli --version ^0.9 --locked --debug
+        run: mold -run cargo install -j $(nproc) taplo-cli --version ^0.9 --locked --debug
 
       - name: Run cargo-machete
         run: cargo machete

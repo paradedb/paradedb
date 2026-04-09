@@ -56,7 +56,7 @@ stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=Mock
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
-    facets = facets.extract(rows)
+    facets.extract(rows)
 
 ```
 

@@ -45,8 +45,10 @@ count_with_operator_stmt = select(func.count(MockItem.id)).where(
 )
 
 with Session(engine) as session:
-    count_without_operator = session.execute(count_without_operator_stmt).scalar_one()
-    count_with_operator = session.execute(count_with_operator_stmt).scalar_one()
+    {
+        "count_without_operator": session.execute(count_without_operator_stmt).scalar_one(),
+        "count_with_operator": session.execute(count_with_operator_stmt).scalar_one(),
+    }
 ```
 
 ```ruby Rails

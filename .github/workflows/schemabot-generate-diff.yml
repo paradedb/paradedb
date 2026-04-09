@@ -44,9 +44,7 @@ jobs:
 
       - name: Extract pgrx Version
         id: pgrx
-        run: |
-          version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
-          echo "version=$version" >> $GITHUB_OUTPUT
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

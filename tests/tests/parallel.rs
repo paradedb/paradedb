@@ -416,7 +416,7 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
         }
     });
 
-    // Originally this ran 10,000 times which took quite some time. On my machine, running 400 times seemms
+    // Originally this ran 10,000 times which took quite some time. On my machine and in CI, running 400 times seemms
     // to be enough to reliably reproduce the bug and makes the test run much faster.
     for _ in 0..400 {
         let result = sqlx::query_as::<_, (i64,)>(

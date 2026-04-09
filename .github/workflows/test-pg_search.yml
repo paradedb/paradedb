@@ -116,7 +116,7 @@ jobs:
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
       - name: Install cargo-llvm-cov
-        run: cargo install -j $(nproc) cargo-llvm-cov --locked --debug
+        run: command -v cargo-llvm-cov || cargo install -j $(nproc) cargo-llvm-cov --locked --debug
 
       # ---------- System-managed Postgres setup ----------
       - name: Install & Configure Supported PostgreSQL Version (system)

@@ -87,11 +87,18 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
+      # Cache notes:
+      # - Do NOT add hashFiles('**/Cargo.lock') to shared-key — the action
+      #   already hashes it internally. Putting it in shared-key defeats the
+      #   restore-key fallback and causes cold builds on every lockfile change.
+      # - Do NOT add arch to shared-key — the action includes the Rust target
+      #   triple in its envHash. Keeping shared-key arch-free lets all debug-mode
+      #   workflows (lint, test, schemabot, etc.) share the same cache.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
 

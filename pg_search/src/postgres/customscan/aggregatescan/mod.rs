@@ -275,6 +275,7 @@ impl CustomScan for AggregateScan {
                 topk,
                 join_level_predicates,
                 multi_table_predicates,
+                having_filter,
                 ..
             } => {
                 // Replace Aggrefs for DataFusion path too
@@ -292,6 +293,7 @@ impl CustomScan for AggregateScan {
                     multi_table_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    having_filter,
                     runtime: None,
                     stream: None,
                     current_batch: None,
@@ -993,6 +995,16 @@ impl AggregateScan {
         // redundant Sort above us, which is correct (just wasteful on K rows).
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
+        // Extract HAVING clause if present
+        let having_filter = unsafe {
+            let parse = builder.args().root().parse;
+            if !parse.is_null() && !(*parse).havingQual.is_null() {
+                privdat::HavingExpr::from_pg_node((*parse).havingQual, &targetlist)
+            } else {
+                None
+            }
+        };
+
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();
         let mut custom_path = builder.build(PrivateData::DataFusion {
@@ -1002,6 +1014,7 @@ impl AggregateScan {
             join_level_predicates,
             multi_table_predicates,
             multi_table_clause_count,
+            having_filter,
         });
 
         // Append raw PG Expr pointers to custom_private after the serialized
@@ -1057,6 +1070,7 @@ impl AggregateScan {
                     &df_state.join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    df_state.having_filter.as_ref(),
                     &ctx,
                 )
                 .await?;

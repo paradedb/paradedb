@@ -146,9 +146,7 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
         if name_ptr.is_null() {
             return None;
         }
-        let owned = std::ffi::CStr::from_ptr(name_ptr).to_str().ok()?.to_owned();
-        pg_sys::pfree(name_ptr.cast());
-        owned
+        std::ffi::CStr::from_ptr(name_ptr).to_str().ok()?.to_owned()
     };
     match name.as_str() {
         "stddev" | "stddev_samp" => Some(AggKind::StddevSamp),
@@ -183,12 +181,6 @@ pub unsafe fn extract_aggregate_targetlist(
     let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
-    }
-
-    // Check for HAVING — not supported
-    let parse = args.root().parse;
-    if !parse.is_null() && !(*parse).havingQual.is_null() {
-        return Err("HAVING clause is not supported for aggregate-on-join".into());
     }
 
     let mut group_columns = Vec::new();

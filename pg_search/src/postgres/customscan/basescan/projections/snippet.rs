@@ -26,6 +26,7 @@ use pgrx::{
     default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
     FromDatum, IntoDatum, PgList,
 };
+use std::sync::OnceLock;
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
@@ -428,7 +429,8 @@ pub fn snippet_positions_funcoids() -> [pg_sys::Oid; 2] {
 }
 
 fn get_snippet_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
-    unsafe {
+    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *OID_CACHE.get_or_init(|| unsafe {
         signatures
             .iter()
             .map(|signature| {
@@ -443,7 +445,7 @@ fn get_snippet_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
             .collect::<Vec<pg_sys::Oid>>()
             .try_into()
             .expect("expected exactly 2 snippet funcoids")
-    }
+    })
 }
 
 pub unsafe fn uses_snippets(

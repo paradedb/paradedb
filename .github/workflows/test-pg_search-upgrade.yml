@@ -154,7 +154,7 @@ jobs:
 
       - name: Compile & install pg_search
         working-directory: pg_search/
-        run: mold -run cargo pgrx install --profile ci --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: mold -run cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via pgrx
         working-directory: pg_search/

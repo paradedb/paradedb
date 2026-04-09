@@ -63,10 +63,18 @@ jobs:
           sudo apt-get update && sudo apt-get install -y libfontconfig1-dev postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Install pgrx
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Initialize pgrx for Current PostgreSQL Version
+      - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+
+      - name: Initialize pgrx environment
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       - name: Run Rustfmt

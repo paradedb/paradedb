@@ -206,10 +206,18 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      - name: Install cargo-pgrx
-        run: cargo install -j $(nproc) cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Initialize cargo-pgrx environment
+      - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
+
+      - name: Initialize pgrx environment
         run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
 
       - name: Compile & install pg_search extension

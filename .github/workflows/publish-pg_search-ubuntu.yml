@@ -164,8 +164,7 @@ jobs:
 
       - name: Extract pgrx Version
         id: pgrx
-        working-directory: pg_search/
-        run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') >> $GITHUB_OUTPUT
+        run: echo version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml) >> $GITHUB_OUTPUT
 
       - name: Cache pgrx binary
         id: cache-pgrx

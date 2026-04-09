@@ -242,7 +242,7 @@ pub fn arrow_array_to_datum(
     Ok(datum)
 }
 
-fn try_convert_timestamp_nanos_to_datum(
+pub(crate) fn try_convert_timestamp_nanos_to_datum(
     ts_nanos: i64,
     oid: &PgOid,
 ) -> Option<Result<Option<pg_sys::Datum>, String>> {

@@ -24,19 +24,40 @@
 //! `JoinExpr` nodes, and reconstruct a [`RelNode`] tree that downstream code can
 //! lower into a DataFusion plan.
 
+use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
-    JoinKeyPair, JoinNode, JoinSource, JoinSourceCandidate, JoinType, PlannerRootId, RelNode,
+    FilterNode, JoinKeyPair, JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource,
+    JoinSourceCandidate, JoinType, MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid, get_rte};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
+
+/// Result type for `extract_join_tree_from_parse`: the plan tree, search
+/// predicates, multi-table predicate info, and raw PG Expr clause pointers.
+type JoinTreeResult = (
+    RelNode,
+    Vec<JoinLevelSearchPredicate>,
+    Vec<MultiTablePredicateInfo>,
+    Vec<*mut pg_sys::Expr>,
+);
+
+/// Result type for `build_search_filter`: the filter expression, search
+/// predicates, multi-table predicate info, and raw PG Expr clause pointers.
+type SearchFilterResult = (
+    JoinLevelExpr,
+    Vec<JoinLevelSearchPredicate>,
+    Vec<MultiTablePredicateInfo>,
+    Vec<*mut pg_sys::Expr>,
+);
 
 /// Metadata about a table participating in the join, collected during parse-tree walk.
 #[derive(Debug)]
@@ -112,7 +133,7 @@ pub unsafe fn extract_join_tree_from_parse(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinAggSource],
     input_rel: &pg_sys::RelOptInfo,
-) -> Result<RelNode, String> {
+) -> Result<JoinTreeResult, String> {
     let parse = (*root).parse;
     if parse.is_null() {
         return Err("parse tree is null".into());
@@ -125,10 +146,12 @@ pub unsafe fn extract_join_tree_from_parse(
 
     let mut plan = build_relnode_from_fromexpr(root, jointree, sources)?;
 
-    // Extract equi-join keys from the input_rel's cheapest path
-    let equi_keys = extract_equi_keys_from_path(input_rel, sources);
-    if !equi_keys.is_empty() {
-        inject_equi_keys(&mut plan, equi_keys);
+    // Walk the cheapest path's joinrestrictinfo once to extract both equi-join
+    // keys and cross-table @@@ search predicates (mirrors JoinScan's approach).
+    let path_info = analyze_join_path_restrictinfo(input_rel, sources);
+
+    if !path_info.equi_keys.is_empty() {
+        inject_equi_keys(&mut plan, path_info.equi_keys);
     }
 
     // Fix plan_positions (they default to 0 from JoinSourceCandidate)
@@ -136,7 +159,62 @@ pub unsafe fn extract_join_tree_from_parse(
         source.plan_position = position;
     }
 
-    Ok(plan)
+    // Build a FilterNode from cross-table predicates using JoinScan's
+    // transform_to_search_expr for the actual transformation.
+    // Handles both @@@ predicates and non-@@@ cross-table predicates
+    // (like `b.id > 5`) that reference fast fields.
+    //
+    // Try path-based extraction first, then fall back to the parse tree's
+    // FromExpr.quals. The path walk can miss predicates when the cheapest
+    // path isn't a standard join type (e.g. with certain GUC combinations),
+    // while the parse tree is always available.
+    let mut join_level_predicates = Vec::new();
+    let mut multi_table_predicates = Vec::new();
+    let mut multi_table_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
+
+    // 1. Path-based extraction
+    if !path_info.search_clauses.is_empty() {
+        if let Some((filter_expr, predicates, mt_predicates, mt_clauses)) =
+            build_search_filter(root, &path_info.search_clauses, sources, &plan)
+        {
+            join_level_predicates = predicates;
+            multi_table_predicates = mt_predicates;
+            multi_table_clauses = mt_clauses;
+            plan = RelNode::Filter(Box::new(FilterNode {
+                input: plan,
+                predicate: filter_expr,
+            }));
+        }
+    }
+
+    // 2. Fallback: parse tree quals
+    if join_level_predicates.is_empty()
+        && multi_table_predicates.is_empty()
+        && !(*jointree).quals.is_null()
+    {
+        let mut parse_clauses = Vec::new();
+        collect_cross_table_search_quals((*jointree).quals, &mut parse_clauses);
+        if !parse_clauses.is_empty() {
+            if let Some((filter_expr, predicates, mt_predicates, mt_clauses)) =
+                build_search_filter(root, &parse_clauses, sources, &plan)
+            {
+                join_level_predicates = predicates;
+                multi_table_predicates = mt_predicates;
+                multi_table_clauses = mt_clauses;
+                plan = RelNode::Filter(Box::new(FilterNode {
+                    input: plan,
+                    predicate: filter_expr,
+                }));
+            }
+        }
+    }
+
+    Ok((
+        plan,
+        join_level_predicates,
+        multi_table_predicates,
+        multi_table_clauses,
+    ))
 }
 
 /// Walk a `FromExpr` and produce a `RelNode` tree.
@@ -301,9 +379,9 @@ unsafe fn build_join_node(
 
     let join_type = JoinType::try_from(join.jointype).map_err(|e| e.to_string())?;
 
-    // Support INNER and LEFT/RIGHT JOINs
+    // Support INNER, LEFT/RIGHT, and FULL OUTER JOINs
     match join_type {
-        JoinType::Inner | JoinType::Left | JoinType::Right => {}
+        JoinType::Inner | JoinType::Left | JoinType::Right | JoinType::Full => {}
         _ => {
             return Err(format!(
                 "aggregate-on-join does not support {} JOIN",
@@ -464,140 +542,148 @@ unsafe fn extract_equi_keys_from_quals(
     Ok(())
 }
 
-/// Extract equi-join keys from the `input_rel`'s cheapest planned path.
-///
-/// At `UPPERREL_GROUP_AGG`, `input_rel` is a `RELOPT_JOINREL` whose cheapest
-/// path is a tree of `JoinPath` nodes (NestPath / MergePath / HashPath). Each
-/// `JoinPath` carries a `joinrestrictinfo` list of `RestrictInfo` nodes — these
-/// are the join conditions the planner collected from WHERE and ON clauses.
-///
-/// We recursively walk this path tree and, for each `RestrictInfo`, check if its
-/// clause is an `OpExpr` with a merge-joinable (equality) operator whose two
-/// `Var` arguments reference different base relations in our `sources`. If so,
-/// we extract a `JoinKeyPair` with the (rti, attno) from each side plus type info.
-unsafe fn extract_equi_keys_from_path(
-    input_rel: &pg_sys::RelOptInfo,
-    sources: &[JoinAggSource],
-) -> Vec<JoinKeyPair> {
-    let mut keys = Vec::new();
-
-    // Walk the cheapest_total_path chain looking for JoinPath nodes
-    let path = input_rel.cheapest_total_path;
-    if path.is_null() {
-        return keys;
-    }
-
-    extract_keys_from_path_recursive(path, sources, &mut keys);
-    keys
+/// Result of a single walk over the cheapest path's `joinrestrictinfo`.
+struct PathRestrictInfo {
+    /// Equi-join keys (`a.id = b.id`).
+    equi_keys: Vec<JoinKeyPair>,
+    /// Cross-table @@@ clause pointers (will be transformed via
+    /// `build_search_filter` after plan_positions are assigned).
+    search_clauses: Vec<*mut pg_sys::Node>,
+    /// Number of RestrictInfo entries we couldn't classify as equi-keys or
+    /// @@@ predicates. Non-zero means unhandled quals that would be silently
+    /// dropped — the caller should reject the DataFusion path.
+    unhandled: usize,
 }
 
-/// Check whether the join path has non-equi-join quals that our DataFusion
-/// backend can't execute (e.g., cross-table OR conditions, inequality filters).
+/// Walk `input_rel.cheapest_total_path` once, classifying every
+/// `joinrestrictinfo` entry as an equi-join key, a cross-table
+/// predicate (@@@ or non-@@@), or unhandled.
 ///
-/// Uses the same path-walking strategy as [`extract_equi_keys_from_path`] but
-/// counts total `RestrictInfo` entries vs. those that are equi-join keys. If
-/// `total > equi`, the remaining entries are post-join filters we'd silently
-/// drop, producing wrong results — so the caller rejects the DataFusion path.
+/// For LEFT/RIGHT JOINs, ON-clause predicates (`is_pushed_down=false`)
+/// affect matching and NULL-extension semantics — they cannot be
+/// correctly applied as post-join filters. These are counted as
+/// "unhandled", causing `has_non_equi_join_quals` to reject the
+/// DataFusion path for such queries.
+unsafe fn analyze_join_path_restrictinfo(
+    input_rel: &pg_sys::RelOptInfo,
+    sources: &[JoinAggSource],
+) -> PathRestrictInfo {
+    let mut info = PathRestrictInfo {
+        equi_keys: Vec::new(),
+        search_clauses: Vec::new(),
+        unhandled: 0,
+    };
+    let path = input_rel.cheapest_total_path;
+    if !path.is_null() {
+        let search_op = anyelement_query_input_opoid();
+        walk_path_restrictinfo(path, sources, search_op, &mut info);
+    }
+    info
+}
+
+unsafe fn walk_path_restrictinfo(
+    path: *mut pg_sys::Path,
+    sources: &[JoinAggSource],
+    search_op: pg_sys::Oid,
+    info: &mut PathRestrictInfo,
+) {
+    if path.is_null() {
+        return;
+    }
+    let tag = (*path).type_;
+    let is_join_path = matches!(
+        tag,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    );
+    if !is_join_path {
+        return;
+    }
+
+    let join_path = path as *mut pg_sys::JoinPath;
+    let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
+
+    // For outer joins (LEFT/RIGHT), ON-clause predicates affect matching
+    // and NULL-extension — they must NOT be applied as post-join filters.
+    // PostgreSQL marks ON-clause restrictions with is_pushed_down=false
+    // and a non-null outer_relids. We only accept cross-table predicates
+    // that are pushed down (WHERE-clause) for non-inner joins.
+    let is_inner = (*join_path).jointype == pg_sys::JoinType::JOIN_INNER;
+
+    for ri in restrict_list.iter_ptr() {
+        let clause = (*ri).clause as *mut pg_sys::Node;
+        if clause.is_null() {
+            continue;
+        }
+
+        // 1. Equi-join key?
+        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
+            if let Some(key) = try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources) {
+                let dup = info.equi_keys.iter().any(|k| {
+                    (k.outer_rti == key.outer_rti
+                        && k.outer_attno == key.outer_attno
+                        && k.inner_rti == key.inner_rti
+                        && k.inner_attno == key.inner_attno)
+                        || (k.outer_rti == key.inner_rti
+                            && k.outer_attno == key.inner_attno
+                            && k.inner_rti == key.outer_rti
+                            && k.inner_attno == key.outer_attno)
+                });
+                if !dup {
+                    info.equi_keys.push(key);
+                }
+                continue;
+            }
+        }
+
+        // 2. Cross-table predicate?
+        // Covers both @@@ predicates and non-@@@ cross-table predicates
+        // (like `b.id > 5`) that reference fast fields and can be translated.
+        //
+        // For outer joins, reject ON-clause predicates (is_pushed_down=false)
+        // since they affect matching semantics, not post-join filtering.
+        //
+        // Single-table @@@ predicates (rtis.len() == 1) are already handled
+        // via baserestrictinfo in build_scan_node — they don't appear here
+        // under normal planning. If one does, it's counted as unhandled
+        // (conservative: reject the path rather than risk double-applying).
+        if !is_inner && !(*ri).is_pushed_down {
+            // ON-clause predicate for an outer join — can't apply as post-join
+            // filter without changing NULL-extension semantics. Count as unhandled
+            // so has_non_equi_join_quals rejects the DataFusion path.
+            info.unhandled += 1;
+            continue;
+        }
+
+        let rtis = expr_collect_rtis(clause);
+        if rtis.len() > 1 {
+            let has_search = expr_contains_any_operator(clause, &[search_op]);
+            let acceptable = if has_search {
+                true // build_search_filter will validate the full tree
+            } else {
+                all_vars_are_fast_fields_for_agg(clause, sources)
+            };
+            if acceptable {
+                if !info.search_clauses.iter().any(|&c| std::ptr::eq(c, clause)) {
+                    info.search_clauses.push(clause);
+                }
+                continue;
+            }
+        }
+
+        // 3. Unhandled
+        info.unhandled += 1;
+    }
+
+    walk_path_restrictinfo((*join_path).outerjoinpath, sources, search_op, info);
+    walk_path_restrictinfo((*join_path).innerjoinpath, sources, search_op, info);
+}
+
+/// Check whether the join path has quals we can't handle.
 pub unsafe fn has_non_equi_join_quals(
     input_rel: &pg_sys::RelOptInfo,
     sources: &[JoinAggSource],
 ) -> bool {
-    let path = input_rel.cheapest_total_path;
-    if path.is_null() {
-        return false;
-    }
-    let mut total_restrict = 0usize;
-    let mut equi_keys = 0usize;
-    count_restrict_entries_recursive(path, sources, &mut total_restrict, &mut equi_keys);
-    total_restrict > equi_keys
-}
-
-unsafe fn count_restrict_entries_recursive(
-    path: *mut pg_sys::Path,
-    sources: &[JoinAggSource],
-    total: &mut usize,
-    equi: &mut usize,
-) {
-    if path.is_null() {
-        return;
-    }
-    let tag = (*path).type_;
-    let is_join_path = matches!(
-        tag,
-        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
-    );
-    if is_join_path {
-        let join_path = path as *mut pg_sys::JoinPath;
-        let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
-        *total += restrict_list.len();
-        for ri in restrict_list.iter_ptr() {
-            let clause = (*ri).clause as *mut pg_sys::Node;
-            if !clause.is_null()
-                && (*clause).type_ == pg_sys::NodeTag::T_OpExpr
-                && try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources).is_some()
-            {
-                *equi += 1;
-            }
-        }
-        count_restrict_entries_recursive((*join_path).outerjoinpath, sources, total, equi);
-        count_restrict_entries_recursive((*join_path).innerjoinpath, sources, total, equi);
-    }
-}
-
-/// Recursively walk a path tree extracting equi-join keys from JoinPath nodes.
-unsafe fn extract_keys_from_path_recursive(
-    path: *mut pg_sys::Path,
-    sources: &[JoinAggSource],
-    keys: &mut Vec<JoinKeyPair>,
-) {
-    if path.is_null() {
-        return;
-    }
-
-    let tag = (*path).type_;
-
-    // Check if this is a join-type path
-    let is_join_path = matches!(
-        tag,
-        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
-    );
-
-    if is_join_path {
-        let join_path = path as *mut pg_sys::JoinPath;
-        let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*join_path).joinrestrictinfo);
-
-        for ri in restrict_list.iter_ptr() {
-            let clause = (*ri).clause as *mut pg_sys::Node;
-            if clause.is_null() {
-                continue;
-            }
-            // Look for OpExpr equality clauses
-            if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
-                if let Some(key) = try_extract_one_equi_key(clause as *mut pg_sys::OpExpr, sources)
-                {
-                    // Avoid duplicates
-                    if !keys.iter().any(|k| {
-                        (k.outer_rti == key.outer_rti
-                            && k.outer_attno == key.outer_attno
-                            && k.inner_rti == key.inner_rti
-                            && k.inner_attno == key.inner_attno)
-                            || (k.outer_rti == key.inner_rti
-                                && k.outer_attno == key.inner_attno
-                                && k.inner_rti == key.outer_rti
-                                && k.inner_attno == key.outer_attno)
-                    }) {
-                        keys.push(key);
-                    }
-                }
-            }
-        }
-
-        // Recurse into subpaths
-        extract_keys_from_path_recursive((*join_path).outerjoinpath, sources, keys);
-        extract_keys_from_path_recursive((*join_path).innerjoinpath, sources, keys);
-    }
-
-    // If it's a non-join path (e.g., CustomPath wrapping our BaseScan), stop recursing
+    analyze_join_path_restrictinfo(input_rel, sources).unhandled > 0
 }
 
 /// Inject extracted equi-join keys into the topmost JoinNode of the plan.
@@ -611,6 +697,193 @@ fn inject_equi_keys(plan: &mut RelNode, keys: Vec<JoinKeyPair>) {
         }
         RelNode::Scan(_) => {
             // Single scan — no join to inject into
+        }
+    }
+}
+
+impl super::privdat::HavingExpr {
+    /// Translate a Postgres HAVING qual node tree into a serializable `HavingExpr`.
+    ///
+    /// HAVING expressions reference aggregates via `Aggref` nodes and group columns
+    /// via `Var` nodes. We match each Aggref to its position in the output target
+    /// list using `pg_sys::equal` (same approach as `detect_join_aggregate_topk`).
+    pub unsafe fn from_pg_node(
+        node: *mut pg_sys::Node,
+        targetlist: &super::join_targetlist::JoinAggregateTargetList,
+    ) -> Option<Self> {
+        use super::privdat::HavingOp;
+
+        if node.is_null() {
+            return None;
+        }
+
+        let tag = (*node).type_;
+
+        match tag {
+            pg_sys::NodeTag::T_List => {
+                // Postgres may wrap HAVING quals in a List (AND-implicit).
+                // Translate each element and combine with AND.
+                let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+                let mut children = Vec::new();
+                for item in list.iter_ptr() {
+                    children.push(Self::from_pg_node(item, targetlist)?);
+                }
+                if children.len() == 1 {
+                    return children.into_iter().next();
+                }
+                Some(Self::And(children))
+            }
+            pg_sys::NodeTag::T_Aggref => {
+                // Match this Aggref to an aggregate in the targetlist by output_index.
+                // The output_rel.reltarget.exprs ordering matches what we parsed.
+                let aggref = node as *mut pg_sys::Aggref;
+                // Find which aggregate this matches by comparing the Aggref pointer
+                // with the output_rel target list positions stored during extraction.
+                for (idx, _agg) in targetlist.aggregates.iter().enumerate() {
+                    // We can't do pointer comparison since havingQual has its own copy.
+                    // Instead, use the aggregate's output_index to reconstruct position.
+                    // The Aggref in HAVING should match one in the targetlist by pg_sys::equal.
+                    // But we don't have the original exprs here. Use a simpler heuristic:
+                    // match by aggfnoid + aggstar + position.
+                    let agg = &targetlist.aggregates[idx];
+                    if (*aggref).aggfnoid.to_u32() == agg.func_oid
+                        && ((*aggref).aggstar
+                            == matches!(agg.agg_kind, super::join_targetlist::AggKind::CountStar))
+                    {
+                        // For COUNT(*) there's typically only one, so first match is fine.
+                        // For column aggregates, check field reference matches too.
+                        if (*aggref).aggstar {
+                            return Some(Self::AggRef(idx));
+                        }
+                        // Non-star: check the argument column matches
+                        if let Some((_, _, ref _field_name)) = agg.field_refs.first() {
+                            let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+                            if let Some(first_arg) = args.get_ptr(0) {
+                                if let Some(var) = crate::postgres::var::find_one_var(
+                                    (*first_arg).expr as *mut pg_sys::Node,
+                                ) {
+                                    let rti = (*var).varno as pg_sys::Index;
+                                    let attno = (*var).varattno;
+                                    if let Some((agg_rti, agg_attno, _)) = agg.field_refs.first() {
+                                        if rti == *agg_rti && attno == *agg_attno {
+                                            return Some(Self::AggRef(idx));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Couldn't match — HAVING references an aggregate we don't know about
+                None
+            }
+            pg_sys::NodeTag::T_Var => {
+                // Group column reference
+                let var = node as *mut pg_sys::Var;
+                let rti = (*var).varno as pg_sys::Index;
+                let attno = (*var).varattno;
+                for gc in &targetlist.group_columns {
+                    if gc.rti == rti && gc.attno == attno {
+                        return Some(Self::GroupRef(gc.field_name.clone()));
+                    }
+                }
+                None
+            }
+            pg_sys::NodeTag::T_Const => {
+                let c = node as *mut pg_sys::Const;
+                if (*c).constisnull {
+                    return None; // NULL in HAVING is unusual, skip
+                }
+                let typoid = (*c).consttype;
+                let datum = (*c).constvalue;
+                match typoid {
+                    pg_sys::INT2OID => {
+                        let i: Option<i16> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitInt(i? as i64))
+                    }
+                    pg_sys::INT4OID => {
+                        let i: Option<i32> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitInt(i? as i64))
+                    }
+                    pg_sys::INT8OID => {
+                        let i: Option<i64> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitInt(i?))
+                    }
+                    pg_sys::FLOAT4OID => {
+                        let f: Option<f32> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitFloat(f? as f64))
+                    }
+                    pg_sys::FLOAT8OID => {
+                        let f: Option<f64> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitFloat(f?))
+                    }
+                    pg_sys::BOOLOID => {
+                        let b: Option<bool> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitBool(b?))
+                    }
+                    _ => None,
+                }
+            }
+            pg_sys::NodeTag::T_OpExpr => {
+                let op = node as *mut pg_sys::OpExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+                if args.len() != 2 {
+                    return None;
+                }
+                let left = Self::from_pg_node(args.get_ptr(0)?, targetlist)?;
+                let right = Self::from_pg_node(args.get_ptr(1)?, targetlist)?;
+
+                let opname_ptr = pg_sys::get_opname((*op).opno);
+                if opname_ptr.is_null() {
+                    return None;
+                }
+                let opname = std::ffi::CStr::from_ptr(opname_ptr).to_str().ok()?;
+                let having_op = match opname {
+                    "=" => HavingOp::Eq,
+                    "<>" | "!=" => HavingOp::NotEq,
+                    "<" => HavingOp::Lt,
+                    "<=" => HavingOp::LtEq,
+                    ">" => HavingOp::Gt,
+                    ">=" => HavingOp::GtEq,
+                    _ => return None,
+                };
+
+                Some(Self::BinOp {
+                    left: Box::new(left),
+                    op: having_op,
+                    right: Box::new(right),
+                })
+            }
+            pg_sys::NodeTag::T_NullTest => {
+                let nt = node as *mut pg_sys::NullTest;
+                let arg = Self::from_pg_node((*nt).arg as *mut pg_sys::Node, targetlist)?;
+                if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {
+                    Some(Self::IsNull(Box::new(arg)))
+                } else {
+                    Some(Self::IsNotNull(Box::new(arg)))
+                }
+            }
+            pg_sys::NodeTag::T_BoolExpr => {
+                let bexpr = node as *mut pg_sys::BoolExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+                let mut children = Vec::new();
+                for arg in args.iter_ptr() {
+                    children.push(Self::from_pg_node(arg, targetlist)?);
+                }
+                match (*bexpr).boolop {
+                    pg_sys::BoolExprType::AND_EXPR => Some(Self::And(children)),
+                    pg_sys::BoolExprType::OR_EXPR => Some(Self::Or(children)),
+                    pg_sys::BoolExprType::NOT_EXPR => {
+                        if children.len() == 1 {
+                            Some(Self::Not(Box::new(children.into_iter().next()?)))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
         }
     }
 }
@@ -632,9 +905,17 @@ pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
 pub unsafe fn populate_required_fields(
     plan: &mut RelNode,
     targetlist: &super::join_targetlist::JoinAggregateTargetList,
+    multi_table_clauses: &[*mut pg_sys::Expr],
 ) -> Result<(), String> {
     let join_keys = plan.join_keys();
     let mut sources = plan.sources_mut();
+
+    // Collect Var references from multi-table predicate clauses so their
+    // columns are registered in the PgSearchTableProvider schema.
+    let multi_table_vars: Vec<crate::postgres::utils::VarRef> = multi_table_clauses
+        .iter()
+        .flat_map(|&clause| expr_collect_vars(clause.cast(), false))
+        .collect();
 
     // Open relations once per source and reuse throughout
     let source_rels: Vec<_> = sources
@@ -715,7 +996,147 @@ pub unsafe fn populate_required_fields(
                 }
             }
         }
+
+        // Add fields referenced in multi-table predicate clauses — these
+        // are cross-table expressions like `b.id > 5` that DataFusion
+        // evaluates at join time. Their columns must be in the schema.
+        for var_ref in &multi_table_vars {
+            if source.contains_rti(var_ref.rti) {
+                match resolve_fast_field(var_ref.attno as i32, &tupdesc, indexrel) {
+                    Some(field) => source.scan_info.add_field(var_ref.attno, field),
+                    None => {
+                        return Err(format!(
+                            "multi-table predicate column (attno={}) is not a fast field on table {}",
+                            var_ref.attno,
+                            source.scan_info.heaprelid.to_u32()
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Cross-table @@@ predicate extraction for AggregateScan
+// ---------------------------------------------------------------------------
+
+/// Check if all Var references in an expression are fast fields, using
+/// `JoinAggSource` metadata (aggregate scan variant of the JoinScan
+/// `all_vars_are_fast_fields_recursive`).
+unsafe fn all_vars_are_fast_fields_for_agg(
+    node: *mut pg_sys::Node,
+    sources: &[JoinAggSource],
+) -> bool {
+    let vars = expr_collect_vars(node, false);
+
+    for var_ref in vars {
+        let mut source_found = false;
+        for source in sources {
+            if source.rti == var_ref.rti {
+                let bm25_index = match &source.bm25_index {
+                    Some(idx) => idx,
+                    None => return false,
+                };
+                let heaprel = PgSearchRelation::open(source.relid);
+                if resolve_fast_field(var_ref.attno as i32, &heaprel.tuple_desc(), bm25_index)
+                    .is_none()
+                {
+                    return false;
+                }
+                source_found = true;
+                break;
+            }
+        }
+        if !source_found {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Transform collected cross-table clause pointers into a `JoinLevelExpr`
+/// tree by delegating to JoinScan's [`transform_to_search_expr`] via a
+/// temporary [`JoinCSClause`]. After plan_positions have been assigned,
+/// `plan.sources()` returns `&[&JoinSource]` — the same type JoinScan uses —
+/// so the shared function works directly.
+///
+/// Returns `(filter_expr, search_predicates, multi_table_predicates, multi_table_clauses)`.
+unsafe fn build_search_filter(
+    root: *mut pg_sys::PlannerInfo,
+    clauses: &[*mut pg_sys::Node],
+    _sources: &[JoinAggSource],
+    plan: &RelNode,
+) -> Option<SearchFilterResult> {
+    use crate::postgres::customscan::joinscan::build::JoinCSClause;
+    use crate::postgres::customscan::joinscan::predicate::transform_to_search_expr;
+
+    let sources = plan.sources();
+    let mut temp_clause = JoinCSClause::new(plan.clone());
+    let mut multi_table_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
+    let mut expr_trees: Vec<JoinLevelExpr> = Vec::new();
+
+    for &clause in clauses {
+        match transform_to_search_expr(
+            root,
+            clause,
+            &sources,
+            &mut temp_clause,
+            &mut multi_table_clauses,
+        ) {
+            Some(expr) => expr_trees.push(expr),
+            // If any clause can't be fully transformed, bail out.
+            // Returning None leaves the clause as "unhandled", which causes
+            // has_non_equi_join_quals to reject the DataFusion path.
+            None => return None,
+        }
+    }
+
+    if expr_trees.is_empty() {
+        return None;
+    }
+
+    let final_expr = if expr_trees.len() == 1 {
+        expr_trees.pop().unwrap()
+    } else {
+        JoinLevelExpr::And(expr_trees)
+    };
+
+    Some((
+        final_expr,
+        temp_clause.join_level_predicates,
+        temp_clause.multi_table_predicates,
+        multi_table_clauses,
+    ))
+}
+
+/// Walk a parse-tree expression (typically `FromExpr.quals`) and collect
+/// cross-table clause pointers. Flattens top-level AND conjuncts and
+/// selects those that reference >1 relation (either @@@ or non-@@@ with fast fields).
+unsafe fn collect_cross_table_search_quals(
+    node: *mut pg_sys::Node,
+    clauses: &mut Vec<*mut pg_sys::Node>,
+) {
+    if node.is_null() {
+        return;
+    }
+    // Flatten top-level ANDs
+    if (*node).type_ == pg_sys::NodeTag::T_BoolExpr {
+        let boolexpr = node as *mut pg_sys::BoolExpr;
+        if (*boolexpr).boolop == pg_sys::BoolExprType::AND_EXPR {
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            for arg in args.iter_ptr() {
+                collect_cross_table_search_quals(arg, clauses);
+            }
+            return;
+        }
+    }
+    // Keep cross-table conjuncts (both @@@ and non-@@@)
+    let rtis = expr_collect_rtis(node);
+    if rtis.len() > 1 {
+        clauses.push(node);
+    }
 }

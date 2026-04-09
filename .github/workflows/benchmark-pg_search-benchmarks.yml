@@ -203,11 +203,14 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
           echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
+      # Separate prefix-key from debug workflows — benchmarks compile with --release.
+      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+      # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-benchmarks-rust-cache"
-          shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ env.pg_version }}
           cache-targets: true
           cache-all-crates: true
           cache-on-failure: true
@@ -219,10 +222,18 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      - name: Install cargo-pgrx
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
 
-      - name: Initialize cargo-pgrx environment
+      - name: Initialize pgrx environment
         run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
 
       - name: Compile & install pg_search extension
@@ -344,5 +355,5 @@ jobs:
         if: failure() && github.event_name == 'push'
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> \`benchmark-pg_search-benchmarks\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          MESSAGE="<!here> \`benchmark-pg_search-benchmarks\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

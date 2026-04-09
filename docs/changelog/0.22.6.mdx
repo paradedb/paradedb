@@ -1,0 +1,24 @@
+---
+title: 0.22.6
+noindex: true
+---
+
+## New Features 🎉
+
+- Support expressions in JoinScan DISTINCT target lists (e.g., `upper(name)`, `name IS NULL`).
+
+## Stability Improvements 💪
+
+- Fix JoinScan `DISTINCT` planning for deferred keys.
+- Fix JoinScan pushdown with outer-only `ORDER BY` pathkeys.
+- Fix `pdb.score()` with `SELECT` subquery in `WHERE` clause.
+- Handle `IN (SELECT ...) OR IS NULL` via LeftMark JoinScan.
+- Fix score filter for joins and cases without other quals.
+- Handle pruned columns in nested semi/anti join keys.
+- Handle aliased indexed expressions in search resolution and top-k order by.
+- Lower x86_64 target-cpu from x86-64-v3 to x86-64-v2 for broader hardware compatibility.
+- Prevent DSM buffer overflow in PG18 parallel index scans.
+- Fix `PlaceHolderVar found where not expected` error.
+- Restore `pdb.agg(jsonb)` if accidentally removed by an upgrade script.
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.22.6).

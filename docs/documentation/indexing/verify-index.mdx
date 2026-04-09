@@ -16,9 +16,28 @@ These functions are useful for:
 
 The `pdb.verify_index` function performs structural integrity checks on a BM25 index:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT * FROM pdb.verify_index('search_idx');
 ```
+
+```python Django
+from paradedb import paradedb_verify_index
+
+paradedb_verify_index("search_idx")
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_verify_index(engine, "search_idx")
+```
+
+```ruby Rails
+ParadeDB.paradedb_verify_index("search_idx")
+```
+
+</CodeGroup>
 
 This returns a table with three columns:
 
@@ -43,9 +62,35 @@ This returns a table with three columns:
 
 To verify that all indexed entries still exist in the heap table, use the `heapallindexed` option:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT * FROM pdb.verify_index('search_idx', heapallindexed := true);
 ```
+
+```python Django
+from paradedb import paradedb_verify_index
+
+paradedb_verify_index("search_idx", heapallindexed=True)
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_verify_index(
+    engine,
+    "search_idx",
+    heapallindexed=True,
+)
+```
+
+```ruby Rails
+ParadeDB.paradedb_verify_index(
+  "search_idx",
+  heapallindexed: true
+)
+```
+
+</CodeGroup>
 
 This adds an additional check that validates every indexed `ctid` (tuple identifier) references a valid row in the table.
 This is particularly useful for detecting index entries that reference deleted or non-existent rows.
@@ -62,7 +107,8 @@ This is particularly useful for detecting index entries that reference deleted o
 
 For large indexes, you can check a random sample of documents instead of all documents:
 
-```sql
+<CodeGroup>
+```sql SQL
 -- Check 10% of documents
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
@@ -70,24 +116,88 @@ SELECT * FROM pdb.verify_index('search_idx',
 );
 ```
 
+```python Django
+from paradedb import paradedb_verify_index
+
+paradedb_verify_index(
+    "search_idx",
+    heapallindexed=True,
+    sample_rate=0.1,
+)
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_verify_index(
+    engine,
+    "search_idx",
+    heapallindexed=True,
+    sample_rate=0.1,
+)
+```
+
+```ruby Rails
+ParadeDB.paradedb_verify_index(
+  "search_idx",
+  heapallindexed: true,
+  sample_rate: 0.1
+)
+```
+
+</CodeGroup>
+
 ### Progress Reporting
 
 For long-running verifications, enable progress reporting to see status updates:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     report_progress := true
 );
 ```
 
-Progress messages are emitted via PostgreSQL's `WARNING` channel.
+```python Django
+from paradedb import paradedb_verify_index
+
+paradedb_verify_index(
+    "search_idx",
+    heapallindexed=True,
+    report_progress=True,
+)
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_verify_index(
+    engine,
+    "search_idx",
+    heapallindexed=True,
+    report_progress=True,
+)
+```
+
+```ruby Rails
+ParadeDB.paradedb_verify_index(
+  "search_idx",
+  heapallindexed: true,
+  report_progress: true
+)
+```
+
+</CodeGroup>
+
+Progress messages are emitted via PostgreSQL's `NOTICE` channel.
 
 ### Verbose Mode
 
 For detailed logging including segment-by-segment progress and resume hints, enable verbose mode:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     report_progress := true,
@@ -95,13 +205,73 @@ SELECT * FROM pdb.verify_index('search_idx',
 );
 ```
 
+```python Django
+from paradedb import paradedb_verify_index
+
+paradedb_verify_index(
+    "search_idx",
+    heapallindexed=True,
+    report_progress=True,
+    verbose=True,
+)
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_verify_index(
+    engine,
+    "search_idx",
+    heapallindexed=True,
+    report_progress=True,
+    verbose=True,
+)
+```
+
+```ruby Rails
+ParadeDB.paradedb_verify_index(
+  "search_idx",
+  heapallindexed: true,
+  report_progress: true,
+  verbose: true
+)
+```
+
+</CodeGroup>
+
 ### Stop on First Error
 
 To stop verification immediately when the first error is found (similar to `pg_amcheck --on-error-stop`):
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT * FROM pdb.verify_index('search_idx', on_error_stop := true);
 ```
+
+```python Django
+from paradedb import paradedb_verify_index
+
+paradedb_verify_index("search_idx", on_error_stop=True)
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_verify_index(
+    engine,
+    "search_idx",
+    on_error_stop=True,
+)
+```
+
+```ruby Rails
+ParadeDB.paradedb_verify_index(
+  "search_idx",
+  on_error_stop: true
+)
+```
+
+</CodeGroup>
 
 ## Parallel Verification
 
@@ -114,9 +284,28 @@ This allows you to utilize multiple CPU cores by running verification in paralle
 
 First, list all segments in the index:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT * FROM pdb.index_segments('search_idx');
 ```
+
+```python Django
+from paradedb import paradedb_index_segments
+
+paradedb_index_segments("search_idx")
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_index_segments(engine, "search_idx")
+```
+
+```ruby Rails
+ParadeDB.paradedb_index_segments("search_idx")
+```
+
+</CodeGroup>
 
 ```
  partition_name | segment_idx | segment_id | num_docs | num_deleted | max_doc
@@ -131,7 +320,8 @@ SELECT * FROM pdb.index_segments('search_idx');
 
 Then verify specific segments using the `segment_ids` parameter:
 
-```sql
+<CodeGroup>
+```sql SQL
 -- Worker 1: Verify even segments
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
@@ -143,13 +333,71 @@ SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     segment_ids := ARRAY[1, 3]
 );
+
 ```
+
+```python Django
+from paradedb import paradedb_verify_index
+
+# Worker 1: Verify even segments
+paradedb_verify_index(
+    "search_idx",
+    heapallindexed=True,
+    segment_ids=[0, 2],
+)
+
+# Worker 2: Verify odd segments
+paradedb_verify_index(
+    "search_idx",
+    heapallindexed=True,
+    segment_ids=[1, 3],
+)
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+# Worker 1: Verify even segments
+diagnostics.paradedb_verify_index(
+    engine,
+    "search_idx",
+    heapallindexed=True,
+    segment_ids=[0, 2],
+)
+
+# Worker 2: Verify odd segments
+diagnostics.paradedb_verify_index(
+    engine,
+    "search_idx",
+    heapallindexed=True,
+    segment_ids=[1, 3],
+)
+```
+
+```ruby Rails
+# Worker 1: Verify even segments
+ParadeDB.paradedb_verify_index(
+  "search_idx",
+  heapallindexed: true,
+  segment_ids: [0, 2]
+)
+
+# Worker 2: Verify odd segments
+ParadeDB.paradedb_verify_index(
+  "search_idx",
+  heapallindexed: true,
+  segment_ids: [1, 3]
+)
+```
+
+</CodeGroup>
 
 ### Automation Example
 
 Distribute verification across N workers:
 
-```sql
+<CodeGroup>
+```sql SQL
 -- Get segments for worker 0 (of 4 workers)
 SELECT array_agg(segment_idx) AS segments
 FROM pdb.index_segments('search_idx')
@@ -164,21 +412,81 @@ SELECT * FROM pdb.verify_index('search_idx',
         WHERE segment_idx % 4 = 0
     )
 );
+
 ```
+
+```python Django
+from paradedb import paradedb_index_segments, paradedb_verify_index
+
+paradedb_verify_index(
+    "search_idx",
+    heapallindexed=True,
+    segment_ids=[
+        row["segment_idx"]
+        for row in paradedb_index_segments("search_idx")
+        if row["segment_idx"] % 4 == 0
+    ],
+)
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_verify_index(
+    engine,
+    "search_idx",
+    heapallindexed=True,
+    segment_ids=[
+        row["segment_idx"]
+        for row in diagnostics.paradedb_index_segments(engine, "search_idx")
+        if row["segment_idx"] % 4 == 0
+    ],
+)
+```
+
+```ruby Rails
+ParadeDB.paradedb_verify_index(
+  "search_idx",
+  heapallindexed: true,
+  segment_ids: ParadeDB.paradedb_index_segments("search_idx").filter_map { |row|
+    row["segment_idx"] if row["segment_idx"] % 4 == 0
+  })
+```
+
+</CodeGroup>
 
 ## Verifying All BM25 Indexes
 
 To verify all BM25 indexes in the database at once:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT * FROM pdb.verify_all_indexes();
 ```
+
+```python Django
+from paradedb import paradedb_verify_all_indexes
+
+paradedb_verify_all_indexes()
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_verify_all_indexes(engine)
+```
+
+```ruby Rails
+ParadeDB.paradedb_verify_all_indexes()
+```
+</CodeGroup>
 
 ### Filtering by Pattern
 
 Filter indexes by schema or name pattern (using SQL `LIKE` syntax):
 
-```sql
+<CodeGroup>
+```sql SQL
 -- Verify indexes in the 'public' schema only
 SELECT * FROM pdb.verify_all_indexes(schema_pattern := 'public');
 
@@ -193,13 +501,90 @@ SELECT * FROM pdb.verify_all_indexes(
 );
 ```
 
+```python Django
+from paradedb import paradedb_verify_all_indexes
+
+# Verify indexes in the 'public' schema only
+paradedb_verify_all_indexes(schema_pattern="public")
+
+# Verify indexes matching a name pattern
+paradedb_verify_all_indexes(index_pattern="search_%")
+
+# Combine filters
+paradedb_verify_all_indexes(
+    schema_pattern="app_%",
+    index_pattern="%_idx",
+    heapallindexed=True,
+)
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+# Verify indexes in the 'public' schema only
+diagnostics.paradedb_verify_all_indexes(
+    engine,
+    schema_pattern="public",
+)
+
+# Verify indexes matching a name pattern
+diagnostics.paradedb_verify_all_indexes(
+    engine,
+    index_pattern="search_%",
+)
+
+# Combine filters
+diagnostics.paradedb_verify_all_indexes(
+    engine,
+    schema_pattern="app_%",
+    index_pattern="%_idx",
+    heapallindexed=True,
+)
+```
+
+```ruby Rails
+# Verify indexes in the 'public' schema only
+ParadeDB.paradedb_verify_all_indexes(schema_pattern: "public")
+
+# Verify indexes matching a name pattern
+ParadeDB.paradedb_verify_all_indexes(index_pattern: "search_%")
+
+# Combine filters
+ParadeDB.paradedb_verify_all_indexes(
+  schema_pattern: "app_%",
+  index_pattern: "%_idx",
+  heapallindexed: true
+)
+```
+
+</CodeGroup>
+
 ## Listing All BM25 Indexes
 
 To see all BM25 indexes in the database with summary statistics:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT * FROM pdb.indexes();
 ```
+
+```python Django
+from paradedb import paradedb_indexes
+
+paradedb_indexes()
+```
+
+```python SQLAlchemy
+from paradedb.sqlalchemy import diagnostics
+
+diagnostics.paradedb_indexes(engine)
+```
+
+```ruby Rails
+ParadeDB.paradedb_indexes()
+```
+
+</CodeGroup>
 
 ```
  schemaname |  tablename  |   indexname   | indexrelid | num_segments | total_docs

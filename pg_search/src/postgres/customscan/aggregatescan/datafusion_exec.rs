@@ -31,18 +31,26 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
 use crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK;
-use crate::postgres::customscan::joinscan::build::{JoinSource, RelNode, RelationAlias};
+use crate::postgres::customscan::joinscan::build::{
+    JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
+};
 use crate::postgres::customscan::joinscan::scan_state::build_base_session;
-use crate::postgres::customscan::joinscan::translator::{build_equi_join_exprs, make_col};
+use crate::postgres::customscan::joinscan::translator::{
+    build_equi_join_exprs, make_col, ColumnMapper, PredicateTranslator,
+};
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::functions_aggregate::count::count_udaf;
-use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
+use datafusion::functions_aggregate::expr_fn::{
+    array_agg, avg, bool_and, bool_or, count, max, min, stddev, stddev_pop, sum, var_pop,
+    var_sample,
+};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
+use pgrx::pg_sys;
 
 /// Creates a DataFusion [`SessionContext`] for aggregate workloads.
 ///
@@ -62,14 +70,26 @@ pub fn create_aggregate_session_context() -> SessionContext {
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
 /// scan(s) → join → aggregate [→ sort → limit].
+#[allow(clippy::too_many_arguments)]
 pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
     topk: Option<&DataFusionTopK>,
+    join_level_predicates: &[JoinLevelSearchPredicate],
+    custom_exprs: *mut pg_sys::List,
+    custom_scan_tlist: *mut pg_sys::List,
+    having_filter: Option<&crate::postgres::customscan::aggregatescan::privdat::HavingExpr>,
     ctx: &SessionContext,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     // Step 1: Build the join DataFrame from the RelNode tree
-    let df = build_relnode_df(ctx, plan).await?;
+    let df = build_relnode_df(
+        ctx,
+        plan,
+        join_level_predicates,
+        custom_exprs,
+        custom_scan_tlist,
+    )
+    .await?;
 
     // Step 2: Build GROUP BY expressions
     let group_exprs: Vec<Expr> = targetlist
@@ -108,6 +128,20 @@ pub async fn build_join_aggregate_plan(
                 AggKind::Avg => agg_field_col(agg, plan).map(avg),
                 AggKind::Min => agg_field_col(agg, plan).map(min),
                 AggKind::Max => agg_field_col(agg, plan).map(max),
+                AggKind::StddevSamp => agg_field_col(agg, plan).map(stddev),
+                AggKind::StddevPop => agg_field_col(agg, plan).map(stddev_pop),
+                AggKind::VarSamp => agg_field_col(agg, plan).map(var_sample),
+                AggKind::VarPop => agg_field_col(agg, plan).map(var_pop),
+                AggKind::BoolAnd => agg_field_col(agg, plan).map(bool_and),
+                AggKind::BoolOr => agg_field_col(agg, plan).map(bool_or),
+                AggKind::ArrayAgg => agg_field_col(agg, plan).map(array_agg),
+                AggKind::StringAgg(ref sep) => {
+                    let col_expr = agg_field_col(agg, plan)?;
+                    Ok(datafusion::functions_aggregate::string_agg::string_agg(
+                        col_expr,
+                        lit(sep.clone()),
+                    ))
+                }
             }?;
             // Alias for stable reference
             Ok(agg_expr.alias(format!("agg_{}", i)))
@@ -115,7 +149,17 @@ pub async fn build_join_aggregate_plan(
         .collect::<Result<Vec<Expr>>>()?;
 
     // Step 4: Apply aggregate
-    let df = df.aggregate(group_exprs, agg_exprs)?;
+    let mut df = df.aggregate(group_exprs, agg_exprs)?;
+
+    // Step 4.5: Apply HAVING filter (post-aggregate)
+    if let Some(having) = having_filter {
+        let expr = having.to_datafusion(targetlist).ok_or_else(|| {
+            DataFusionError::Internal(
+                "Failed to translate HAVING clause to DataFusion expression".to_string(),
+            )
+        })?;
+        df = df.filter(expr)?;
+    }
 
     // Step 5: If TopK is requested, add sort + limit so DataFusion handles it internally
     if let Some(topk) = topk {
@@ -140,6 +184,9 @@ pub async fn build_join_aggregate_plan(
 fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
+    join_level_predicates: &'a [JoinLevelSearchPredicate],
+    custom_exprs: *mut pg_sys::List,
+    custom_scan_tlist: *mut pg_sys::List,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
@@ -151,8 +198,22 @@ fn build_relnode_df<'a>(
                 Ok(df.alias(&alias)?)
             }
             RelNode::Join(join) => {
-                let left_df = build_relnode_df(ctx, &join.left).await?;
-                let right_df = build_relnode_df(ctx, &join.right).await?;
+                let left_df = build_relnode_df(
+                    ctx,
+                    &join.left,
+                    join_level_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
+                )
+                .await?;
+                let right_df = build_relnode_df(
+                    ctx,
+                    &join.right,
+                    join_level_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
+                )
+                .await?;
 
                 let on = build_equi_join_exprs(join)?;
 
@@ -164,6 +225,7 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::Right => {
                         JoinType::Right
                     }
+                    crate::postgres::customscan::joinscan::build::JoinType::Full => JoinType::Full,
                     unsupported => {
                         return Err(DataFusionError::NotImplemented(format!(
                             "Aggregate-on-join does not support {} JOIN",
@@ -179,15 +241,204 @@ fn build_relnode_df<'a>(
                 }
             }
             RelNode::Filter(filter) => {
-                // For now, filters in the RelNode tree are not expected for aggregate queries.
-                // The search predicates are pushed into PgSearchTableProvider at scan level.
-                let df = build_relnode_df(ctx, &filter.input).await?;
-                // TODO: translate filter.predicate to DataFusion Expr if needed
-                Ok(df)
+                let df = build_relnode_df(
+                    ctx,
+                    &filter.input,
+                    join_level_predicates,
+                    custom_exprs,
+                    custom_scan_tlist,
+                )
+                .await?;
+
+                let has_predicates = !join_level_predicates.is_empty() || !custom_exprs.is_null();
+
+                if !has_predicates {
+                    // No predicates to apply — pass through
+                    return Ok(df);
+                }
+
+                // Build a ctid_map: plan_position → ctid column expression.
+                // In the aggregate path, ctid columns are real (not deferred),
+                // and the ctid field is named "ctid" (from WhichFastField::Ctid)
+                // in the table provider schema. After aliasing, it's accessible
+                // as `<alias>.ctid`.
+                let sources = filter.input.sources();
+                let ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = sources
+                    .iter()
+                    .map(|s| {
+                        let alias = RelationAlias::new(s.scan_info.alias.as_deref())
+                            .execution(s.plan_position);
+                        let ctid_col = make_col(&alias, "ctid");
+                        (s.plan_position as pg_sys::Index, ctid_col)
+                    })
+                    .collect();
+
+                // No deferred positions in aggregate path (no VisibilityFilterExec)
+                let deferred_positions = crate::api::HashSet::default();
+
+                // Translate custom_exprs (non-@@@ cross-table predicates) using
+                // PredicateTranslator, mirroring JoinScan's scan_state.rs:562-576.
+                // After setrefs, Vars in custom_exprs are INDEX_VAR references
+                // that index into custom_scan_tlist. We need a mapper to resolve
+                // them back to the correct DataFusion column names.
+                let mut translated_exprs = Vec::new();
+                if !custom_exprs.is_null() {
+                    let mapper = AggregateIndexVarMapper {
+                        sources: &sources,
+                        custom_scan_tlist,
+                    };
+                    let translator =
+                        PredicateTranslator::new(&sources).with_mapper(Box::new(mapper));
+                    unsafe {
+                        let expr_list = pgrx::PgList::<pg_sys::Node>::from_pg(custom_exprs);
+                        for (i, expr_node) in expr_list.iter_ptr().enumerate() {
+                            let expr = translator.translate(expr_node).ok_or_else(|| {
+                                DataFusionError::Internal(format!(
+                                    "Failed to translate aggregate custom expression at index {}",
+                                    i
+                                ))
+                            })?;
+                            translated_exprs.push(expr);
+                        }
+                    }
+                }
+
+                let filter_expr = unsafe {
+                    PredicateTranslator::translate_join_level_expr(
+                        &filter.predicate,
+                        &translated_exprs,
+                        &ctid_map,
+                        join_level_predicates,
+                        &deferred_positions,
+                        &sources,
+                    )
+                }
+                .ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "Failed to translate aggregate filter expression: {:?}",
+                        filter.predicate
+                    ))
+                })?;
+
+                df.filter(filter_expr)
             }
         }
     }
     .boxed_local()
+}
+
+/// Maps INDEX_VAR references (from setrefs-transformed custom_exprs) back to
+/// DataFusion column names. In the aggregate scan, custom_scan_tlist mirrors
+/// the plan's targetlist (plus any Vars we added for predicates), and INDEX_VAR
+/// varattno indexes into it. We resolve each Var by looking up the original
+/// (rti, attno) from custom_scan_tlist and finding the corresponding source.
+struct AggregateIndexVarMapper<'a> {
+    sources: &'a [&'a JoinSource],
+    custom_scan_tlist: *mut pg_sys::List,
+}
+
+impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
+    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        let (rti, attno) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
+            // INDEX_VAR: look up the original Var from custom_scan_tlist.
+            // varattno is 1-indexed into the target list.
+            unsafe {
+                let tlist = pgrx::PgList::<pg_sys::TargetEntry>::from_pg(self.custom_scan_tlist);
+                let idx = (varattno - 1) as usize;
+                let te = tlist.get_ptr(idx)?;
+                if (*(*te).expr).type_ != pg_sys::NodeTag::T_Var {
+                    return None;
+                }
+                let var = (*te).expr as *mut pg_sys::Var;
+                ((*var).varno as pg_sys::Index, (*var).varattno)
+            }
+        } else {
+            (varno, varattno)
+        };
+
+        let (plan_position, source) = self
+            .sources
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.contains_rti(rti))?;
+
+        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
+
+        let field_name = source.column_name(attno)?;
+        Some(make_col(&alias, &field_name))
+    }
+}
+
+impl crate::postgres::customscan::aggregatescan::privdat::HavingExpr {
+    /// Translate this `HavingExpr` to a DataFusion `Expr`.
+    /// Aggregate references use the `agg_{idx}` aliases from the aggregate step.
+    fn to_datafusion(&self, targetlist: &JoinAggregateTargetList) -> Option<Expr> {
+        use crate::postgres::customscan::aggregatescan::privdat::HavingOp;
+        use datafusion::logical_expr::Operator;
+
+        match self {
+            Self::AggRef(idx) => {
+                if *idx < targetlist.aggregates.len() {
+                    Some(datafusion::prelude::col(format!("agg_{}", idx)))
+                } else {
+                    None
+                }
+            }
+            Self::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
+            Self::LitInt(v) => Some(lit(*v)),
+            Self::LitFloat(v) => Some(lit(*v)),
+            Self::LitBool(v) => Some(lit(*v)),
+            Self::BinOp { left, op, right } => {
+                let l = left.to_datafusion(targetlist)?;
+                let r = right.to_datafusion(targetlist)?;
+                let df_op = match op {
+                    HavingOp::Eq => Operator::Eq,
+                    HavingOp::NotEq => Operator::NotEq,
+                    HavingOp::Lt => Operator::Lt,
+                    HavingOp::LtEq => Operator::LtEq,
+                    HavingOp::Gt => Operator::Gt,
+                    HavingOp::GtEq => Operator::GtEq,
+                };
+                Some(Expr::BinaryExpr(datafusion::logical_expr::BinaryExpr::new(
+                    Box::new(l),
+                    df_op,
+                    Box::new(r),
+                )))
+            }
+            Self::And(children) => {
+                // All children must translate — if any fails, the whole AND is
+                // untranslatable and we must fall back to Postgres (not silently drop it).
+                let exprs: Vec<Expr> = children
+                    .iter()
+                    .map(|c| c.to_datafusion(targetlist))
+                    .collect::<Option<Vec<Expr>>>()?;
+                let mut result = exprs.into_iter();
+                let first = result.next()?;
+                Some(result.fold(first, |acc, e| acc.and(e)))
+            }
+            Self::Or(children) => {
+                let exprs: Vec<Expr> = children
+                    .iter()
+                    .map(|c| c.to_datafusion(targetlist))
+                    .collect::<Option<Vec<Expr>>>()?;
+                let mut result = exprs.into_iter();
+                let first = result.next()?;
+                Some(result.fold(first, |acc, e| acc.or(e)))
+            }
+            Self::Not(inner) => {
+                let e = inner.to_datafusion(targetlist)?;
+                Some(Expr::Not(Box::new(e)))
+            }
+            Self::IsNull(inner) => {
+                let e = inner.to_datafusion(targetlist)?;
+                Some(e.is_null())
+            }
+            Self::IsNotNull(inner) => {
+                let e = inner.to_datafusion(targetlist)?;
+                Some(e.is_not_null())
+            }
+        }
+    }
 }
 
 /// Build a DataFusion [`DataFrame`] for a single scan source.

@@ -18,10 +18,48 @@
 use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
-use crate::postgres::customscan::joinscan::build::RelNode;
+use crate::postgres::customscan::joinscan::build::{
+    JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
+};
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
+
+/// Serializable representation of a HAVING clause expression.
+/// References aggregate results by index and group columns by name.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum HavingExpr {
+    /// Reference to an aggregate result by its index in targetlist.aggregates.
+    /// Translates to `col("agg_{idx}")` in DataFusion.
+    AggRef(usize),
+    /// Reference to a GROUP BY column by field name.
+    GroupRef(String),
+    /// Literal values
+    LitInt(i64),
+    LitFloat(f64),
+    LitBool(bool),
+    /// Comparison operator
+    BinOp {
+        left: Box<HavingExpr>,
+        op: HavingOp,
+        right: Box<HavingExpr>,
+    },
+    And(Vec<HavingExpr>),
+    Or(Vec<HavingExpr>),
+    Not(Box<HavingExpr>),
+    IsNull(Box<HavingExpr>),
+    IsNotNull(Box<HavingExpr>),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum HavingOp {
+    Eq,
+    NotEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+}
 
 /// TopK sort+limit info pushed into the DataFusion aggregate plan.
 /// Allows DataFusion to handle ORDER BY aggregate + LIMIT internally.
@@ -56,6 +94,23 @@ pub enum PrivateData {
         targetlist: JoinAggregateTargetList,
         /// Optional TopK sort+limit pushed down from Postgres.
         topk: Option<DataFusionTopK>,
+        /// Cross-table search predicates extracted from WHERE quals.
+        /// These are @@@ predicates that reference multiple tables and cannot
+        /// be pushed to individual table scans.
+        #[serde(default)]
+        join_level_predicates: Vec<JoinLevelSearchPredicate>,
+        /// Non-@@@ cross-table predicates (like `b.id > 5`) that reference
+        /// fast fields and can be evaluated by DataFusion at join time.
+        #[serde(default)]
+        multi_table_predicates: Vec<MultiTablePredicateInfo>,
+        /// Number of raw PG Expr pointers stored in custom_private after the
+        /// serialized PrivateData. These are moved to custom_exprs during
+        /// plan_custom_path so setrefs transforms their Var nodes.
+        #[serde(default)]
+        multi_table_clause_count: usize,
+        /// HAVING clause filter applied after aggregation.
+        #[serde(default)]
+        having_filter: Option<HavingExpr>,
     },
 }
 

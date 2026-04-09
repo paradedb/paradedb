@@ -48,11 +48,13 @@ jobs:
         with:
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 
+      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+      # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ env.pg_version }}
           cache-targets: true
           cache-all-crates: true
 
@@ -63,10 +65,19 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
           echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Install cargo-pgrx
-        run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
-          cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+
+      - name: Initialize pgrx environment
+        run: cargo pgrx init "--pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
 
       - name: Generate pg_search Schema
         run: cargo pgrx schema -p pg_search pg${{ env.pg_version }} > pg_search.schema.sql
@@ -89,5 +100,5 @@ jobs:
         if: failure()
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> \`publish-pg_search-schema\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          MESSAGE="<!here> \`publish-pg_search-schema\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

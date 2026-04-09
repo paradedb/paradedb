@@ -41,6 +41,7 @@ SELECT
     END,
     CASE WHEN i % 2 = 0 THEN 'us' ELSE 'ca' END
 FROM generate_series(1, 100000) i;
+ANALYZE places;
 -- Force parallel execution settings to match user's environment
 SET max_parallel_workers_per_gather = 4;
 SET min_parallel_table_scan_size = 0;
@@ -62,7 +63,7 @@ WHERE name &&& 'assist wireless';
    Output: count(*)
    ->  Gather
          Output: (PARTIAL count(*))
-         Workers Planned: 3
+         Workers Planned: 1
          ->  Partial Aggregate
                Output: PARTIAL count(*)
                ->  Parallel Custom Scan (ParadeDB Base Scan) on public.places
@@ -95,7 +96,7 @@ WHERE name &&& 'assist wireless' AND country_code = 'us';
    Output: count(*)
    ->  Gather
          Output: (PARTIAL count(*))
-         Workers Planned: 3
+         Workers Planned: 1
          ->  Partial Aggregate
                Output: PARTIAL count(*)
                ->  Parallel Custom Scan (ParadeDB Base Scan) on public.places
@@ -158,7 +159,7 @@ WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all
    Output: count(*)
    ->  Gather
          Output: (PARTIAL count(*))
-         Workers Planned: 3
+         Workers Planned: 1
          ->  Partial Aggregate
                Output: PARTIAL count(*)
                ->  Parallel Custom Scan (ParadeDB Base Scan) on public.places

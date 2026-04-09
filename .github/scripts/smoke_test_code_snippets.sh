@@ -24,6 +24,8 @@ cleanup() {
 }
 
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 export PARADEDB_HOST PARADEDB_PORT PARADEDB_DATABASE PARADEDB_USER PARADEDB_PASSWORD
 export PGHOST="$PARADEDB_HOST"
@@ -38,12 +40,25 @@ GREEN=$'\033[32m'
 RED=$'\033[31m'
 RESET=$'\033[0m'
 
+exit_if_interrupted() {
+  local status="$1"
+
+  if [[ $status -eq 130 || $status -eq 143 ]]; then
+    exit "$status"
+  fi
+}
+
 run_psql_file() {
   local sql_file="$1"
   local output
+  local status
 
-  if ! output="$("${PSQL[@]}" -f "$sql_file" 2>&1 >/dev/null)"; then
+  if output="$("${PSQL[@]}" -f "$sql_file" 2>&1 >/dev/null)"; then
+    :
+  else
+    status=$?
     printf '%s\n' "$output" >&2
+    exit_if_interrupted "$status"
     return 1
   fi
 
@@ -108,6 +123,7 @@ PY
     echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
     django_pass_count=$((django_pass_count + 1))
   else
+    exit_if_interrupted "$?"
     echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
     django_fail_count=$((django_fail_count + 1))
   fi
@@ -133,6 +149,7 @@ RUBY
     echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
     rails_pass_count=$((rails_pass_count + 1))
   else
+    exit_if_interrupted "$?"
     echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
     rails_fail_count=$((rails_fail_count + 1))
   fi
@@ -155,6 +172,7 @@ PY
     echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
     sqlalchemy_pass_count=$((sqlalchemy_pass_count + 1))
   else
+    exit_if_interrupted "$?"
     echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
     sqlalchemy_fail_count=$((sqlalchemy_fail_count + 1))
   fi

@@ -277,3 +277,259 @@ fn test_join_aggregate_after_delete(mut conn: PgConnection) {
         "After deleting laptop with 2 tags, count should decrease by 2"
     );
 }
+
+/// Regression test for cross-table NOT predicate being silently dropped.
+///
+/// `NOT (a.name @@@ 'bob' AND b.name @@@ 'bob')` spans both tables and
+/// cannot be pushed to individual table scans. The DataFusion aggregate path
+/// must apply it as a post-join filter; without that, the count is too high.
+///
+/// Uses enough rows (~10 per table, matching the CI `generated_joins_small`
+/// setup) so that the Aggregate Scan naturally wins the cost competition
+/// with default GUCs.
+#[rstest]
+fn test_join_aggregate_cross_table_not_predicate(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE users (
+        id SERIAL PRIMARY KEY,
+        name TEXT
+    );
+    CREATE TABLE items (
+        id SERIAL PRIMARY KEY,
+        name TEXT
+    );
+    -- First row is a deterministic 'bob'/'bob' pair; the rest are random.
+    INSERT INTO users (name) VALUES ('bob');
+    INSERT INTO users (name)
+        SELECT (ARRAY['alice','charlie','dave','eve','frank','grace','heidi','ivan','judy'])
+               [floor(random()*9+1)::int]
+        FROM generate_series(1, 10);
+    INSERT INTO items (name) VALUES ('bob');
+    INSERT INTO items (name)
+        SELECT (ARRAY['apple','banana','cherry','date','elderberry','fig','grape','honeydew','kiwi'])
+               [floor(random()*9+1)::int]
+        FROM generate_series(1, 10);
+    CREATE INDEX users_idx ON users USING bm25 (id, name)
+    WITH (key_field='id', text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+    CREATE INDEX items_idx ON items USING bm25 (id, name)
+    WITH (key_field='id', text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}');
+    "#
+    .execute(&mut conn);
+
+    // Get the correct count from Postgres with all custom scans off.
+    "SET paradedb.enable_custom_scan TO off".execute(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+
+    let (pg_count,) = r#"
+        SELECT COUNT(*)
+        FROM users u JOIN items i ON u.id = i.id
+        WHERE NOT ((u.name = 'bob') AND (i.name = 'bob'))
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    // Enable aggregate scan (the only custom scan active).
+    "SET paradedb.enable_aggregate_custom_scan TO on".execute(&mut conn);
+
+    // Verify the Aggregate Scan is chosen.
+    let explain_lines: Vec<(String,)> = r#"
+        EXPLAIN SELECT COUNT(*)
+        FROM users u JOIN items i ON u.id = i.id
+        WHERE NOT ((u.name @@@ 'bob') AND (i.name @@@ 'bob'))
+    "#
+    .fetch::<(String,)>(&mut conn);
+    let explain = explain_lines
+        .iter()
+        .map(|(s,)| s.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        explain.contains("ParadeDB Aggregate Scan"),
+        "Expected DataFusion Aggregate Scan to be chosen.\nEXPLAIN:\n{explain}"
+    );
+
+    // Verify the result matches Postgres.
+    let (bm25_count,) = r#"
+        SELECT COUNT(*)
+        FROM users u JOIN items i ON u.id = i.id
+        WHERE NOT ((u.name @@@ 'bob') AND (i.name @@@ 'bob'))
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    assert_eq!(
+        pg_count, bm25_count,
+        "Cross-table NOT predicate must not be dropped. \
+         Postgres={pg_count}, DataFusion aggregate={bm25_count}"
+    );
+}
+
+// =====================================================================
+// HAVING clause tests
+// =====================================================================
+
+#[rstest]
+fn test_join_aggregate_having_count(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+
+    // With DataFusion (ON): HAVING COUNT(*) > 2 should filter groups
+    let df_rows: Vec<(String, i64)> = r#"
+        SELECT p.category, COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
+        GROUP BY p.category
+        HAVING COUNT(*) > 2
+        ORDER BY p.category
+    "#
+    .fetch(&mut conn);
+
+    // With Postgres native (OFF)
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let pg_rows: Vec<(String, i64)> = r#"
+        SELECT p.category, COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
+        GROUP BY p.category
+        HAVING COUNT(*) > 2
+        ORDER BY p.category
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(
+        df_rows.len(),
+        pg_rows.len(),
+        "HAVING COUNT(*) > 2: row count mismatch: DataFusion={} vs Postgres={}",
+        df_rows.len(),
+        pg_rows.len()
+    );
+    for (df, pg) in df_rows.iter().zip(pg_rows.iter()) {
+        assert_eq!(df.0, pg.0, "HAVING: category mismatch");
+        assert_eq!(df.1, pg.1, "HAVING: count mismatch for {}", df.0);
+    }
+}
+
+#[rstest]
+fn test_join_aggregate_having_sum(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+
+    // HAVING SUM(price) > 500 with DataFusion
+    let df_rows: Vec<(String, i64, f64)> = r#"
+        SELECT p.category, COUNT(*), SUM(p.price)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
+        GROUP BY p.category
+        HAVING SUM(p.price) > 500
+        ORDER BY p.category
+    "#
+    .fetch(&mut conn);
+
+    // With Postgres native
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let pg_rows: Vec<(String, i64, f64)> = r#"
+        SELECT p.category, COUNT(*), SUM(p.price)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy'
+        GROUP BY p.category
+        HAVING SUM(p.price) > 500
+        ORDER BY p.category
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(
+        df_rows.len(),
+        pg_rows.len(),
+        "HAVING SUM > 500: row count mismatch"
+    );
+    for (df, pg) in df_rows.iter().zip(pg_rows.iter()) {
+        assert_eq!(df.0, pg.0, "category mismatch");
+        assert_eq!(df.1, pg.1, "count mismatch for {}", df.0);
+        assert!(
+            (df.2 - pg.2).abs() < 0.01,
+            "SUM mismatch for {}: df={} pg={}",
+            df.0,
+            df.2,
+            pg.2
+        );
+    }
+}
+
+// =====================================================================
+// Negative / fallback tests — verify graceful fallback to Postgres native
+// =====================================================================
+
+#[rstest]
+fn test_join_aggregate_3table_falls_back(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+
+    // Create a third table
+    r#"
+    CREATE TABLE reviews (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER,
+        score INTEGER
+    );
+    INSERT INTO reviews (product_id, score) VALUES (1, 5), (2, 4), (3, 3);
+    CREATE INDEX reviews_idx ON reviews
+    USING bm25 (id, product_id, score)
+    WITH (
+        key_field='id',
+        numeric_fields='{"product_id": {"fast": true}, "score": {"fast": true}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    // 3-table join COUNT(*) — should fall back but still produce correct results
+    let (df_count,) = r#"
+        SELECT COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        JOIN reviews r ON p.id = r.product_id
+        WHERE p.description @@@ 'laptop'
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let (pg_count,) = r#"
+        SELECT COUNT(*)
+        FROM products p
+        JOIN tags t ON p.id = t.product_id
+        JOIN reviews r ON p.id = r.product_id
+        WHERE p.description @@@ 'laptop'
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    assert_eq!(
+        df_count, pg_count,
+        "3-table join should produce same count whether DataFusion is ON or OFF"
+    );
+}
+
+#[rstest]
+fn test_join_aggregate_cross_join_falls_back(mut conn: PgConnection) {
+    setup_join_tables(&mut conn);
+
+    // CROSS JOIN — should fall back to Postgres native
+    let (df_count,) = r#"
+        SELECT COUNT(*)
+        FROM products p
+        CROSS JOIN tags t
+        WHERE p.description @@@ 'laptop'
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO off".execute(&mut conn);
+    let (pg_count,) = r#"
+        SELECT COUNT(*)
+        FROM products p
+        CROSS JOIN tags t
+        WHERE p.description @@@ 'laptop'
+    "#
+    .fetch_one::<(i64,)>(&mut conn);
+
+    assert_eq!(
+        df_count, pg_count,
+        "CROSS JOIN should produce same count whether DataFusion is ON or OFF"
+    );
+}

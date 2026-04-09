@@ -19,7 +19,7 @@ use crate::api::AsCStr;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
 use crate::postgres::customscan::joinscan::build::{
-    JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
+    JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode, RelationAlias,
 };
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
@@ -70,6 +70,33 @@ pub enum TopKSortTarget {
     /// Sort by a GROUP BY column (e.g., ORDER BY category).
     /// The value is the index into `JoinAggregateTargetList.group_columns`.
     GroupColumn(usize),
+}
+
+impl TopKSortTarget {
+    /// Resolve the DataFusion column name for the sort target.
+    ///
+    /// Aggregate targets use the `agg_{idx}` alias assigned during aggregate
+    /// expression building. Group column targets resolve to `{table_alias}.{field}`
+    /// via the join plan's source metadata.
+    pub fn resolve_sort_col_name(
+        &self,
+        targetlist: &JoinAggregateTargetList,
+        plan: &RelNode,
+    ) -> String {
+        match self {
+            TopKSortTarget::Aggregate(idx) => format!("agg_{}", idx),
+            TopKSortTarget::GroupColumn(idx) => {
+                let gc = &targetlist.group_columns[*idx];
+                let source = plan.source_for_rti_in_subtree(gc.rti);
+                let alias = if let Some(src) = source {
+                    RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position)
+                } else {
+                    format!("unknown_rti_{}", gc.rti)
+                };
+                format!("{}.{}", alias, gc.field_name)
+            }
+        }
+    }
 }
 
 /// TopK sort+limit info pushed into the DataFusion aggregate plan.

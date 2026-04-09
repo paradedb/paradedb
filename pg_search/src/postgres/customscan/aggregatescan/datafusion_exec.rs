@@ -167,16 +167,7 @@ pub async fn build_join_aggregate_plan(
     // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
     // bounded TopK heap.
     if let Some(topk) = topk {
-        use crate::postgres::customscan::aggregatescan::privdat::TopKSortTarget;
-        let sort_col_name = match &topk.sort_target {
-            TopKSortTarget::Aggregate(idx) => format!("agg_{}", idx),
-            TopKSortTarget::GroupColumn(idx) => {
-                let gc = &targetlist.group_columns[*idx];
-                let source = plan.source_for_rti_in_subtree(gc.rti);
-                let (alias, _) = resolve_source_column(source, gc.rti, &gc.field_name, plan);
-                format!("{}.{}", alias, gc.field_name)
-            }
-        };
+        let sort_col_name = topk.sort_target.resolve_sort_col_name(targetlist, plan);
         let sort_expr = datafusion::prelude::col(&sort_col_name)
             .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         let df = df.sort(vec![sort_expr])?;

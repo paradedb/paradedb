@@ -62,6 +62,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 };
 use pgrx::*;
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 
 enum RHSValue {
     Text(String),
@@ -119,27 +120,25 @@ pub fn anyelement_query_input_procoid() -> pg_sys::Oid {
 }
 
 pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regoperatorin,
-            &[c"@@@(anyelement, paradedb.searchqueryinput)".into_datum()],
-        )
-        .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist")
-    }
-}
-
-pub fn anyelement_pdb_query_opoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regoperatorin,
-            &[c"@@@(anyelement, pdb.query)".into_datum()],
-        )
-        .expect("the `@@@(anyelement, pdb.query)` operator should exist")
-    }
+    anyelement_search_opoids()[0]
 }
 
 pub fn anyelement_search_opoids() -> [pg_sys::Oid; 2] {
-    [anyelement_query_input_opoid(), anyelement_pdb_query_opoid()]
+    static CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
+        [
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regoperatorin,
+                &[c"@@@(anyelement, paradedb.searchqueryinput)".into_datum()],
+            )
+            .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist"),
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regoperatorin,
+                &[c"@@@(anyelement, pdb.query)".into_datum()],
+            )
+            .expect("the `@@@(anyelement, pdb.query)` operator should exist"),
+        ]
+    })
 }
 
 pub fn is_anyelement_search_opoid(opno: pg_sys::Oid) -> bool {

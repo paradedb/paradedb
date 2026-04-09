@@ -336,7 +336,7 @@ pub async fn build_joinscan_physical_plan(
 fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
-    partitioning_rti: pg_sys::Index,
+    partitioning_plan_position: usize,
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
     ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
@@ -344,8 +344,21 @@ fn build_relnode_df<'a>(
     let f = async move {
         match node {
             RelNode::Scan(source) => {
-                let is_parallel = source.scan_info.heap_rti == partitioning_rti;
                 let plan_position = source.plan_position;
+                // Use plan_position (globally unique) instead of heap_rti to identify
+                // the partitioning source. heap_rti values are local to each
+                // PlannerInfo and can collide when SubPlan-extracted sources (e.g.
+                // from NOT IN subqueries) share the same range-table index as the
+                // outer table.
+                //
+                // Invariant: plan_position is assigned as the DFS enumeration
+                // index in JoinCSClause::new (build.rs), and
+                // partitioning_source_index() returns the index into the same
+                // DFS-ordered sources() array. Both sources() and sources_mut()
+                // maintain left-first DFS order via collect_sources /
+                // collect_sources_mut, so plan_position == partitioning_plan_position
+                // iff this source is the chosen partitioning source.
+                let is_parallel = plan_position == partitioning_plan_position;
 
                 // Compute the position of this source among non-partitioning sources so execution
                 // can retrieve the correct canonical segment IDs during decode.
@@ -377,7 +390,7 @@ fn build_relnode_df<'a>(
                 let left_df = build_relnode_df(
                     ctx,
                     &join.left,
-                    partitioning_rti,
+                    partitioning_plan_position,
                     join_clause,
                     translated_exprs,
                     ctid_map,
@@ -386,7 +399,7 @@ fn build_relnode_df<'a>(
                 let right_df = build_relnode_df(
                     ctx,
                     &join.right,
-                    partitioning_rti,
+                    partitioning_plan_position,
                     join_clause,
                     translated_exprs,
                     ctid_map,
@@ -472,7 +485,7 @@ fn build_relnode_df<'a>(
                 let mut df = build_relnode_df(
                     ctx,
                     &filter.input,
-                    partitioning_rti,
+                    partitioning_plan_position,
                     join_clause,
                     translated_exprs,
                     ctid_map,
@@ -557,7 +570,7 @@ fn build_clause_df<'a>(
 
         let plan = &join_clause.plan;
 
-        let partitioning_rti = join_clause.partitioning_source().scan_info.heap_rti;
+        let partitioning_plan_position = join_clause.partitioning_source_index();
 
         let mapper = CombinedMapper {
             sources: &plan_sources,
@@ -596,7 +609,7 @@ fn build_clause_df<'a>(
         let mut df = build_relnode_df(
             ctx,
             plan,
-            partitioning_rti,
+            partitioning_plan_position,
             join_clause,
             &translated_exprs,
             &ctid_map,
@@ -744,6 +757,13 @@ fn build_clause_df<'a>(
                         if !distinct_col_map.is_empty() {
                             resolve_distinct_col(true, 0, 0, "")
                         } else {
+                            // TODO: this heap_rti lookup has the same collision
+                            // risk as the partitioning check fixed above — if a
+                            // NOT IN subquery source shares the same RTI as the
+                            // outer table, the wrong score column could be
+                            // selected. Low risk since ORDER BY scores typically
+                            // reference outer-query tables. Fix by switching
+                            // OrderByFeature::Score to carry plan_position.
                             join_clause
                                 .plan
                                 .sources()

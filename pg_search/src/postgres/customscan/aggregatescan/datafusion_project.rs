@@ -268,10 +268,32 @@ fn arrow_value_to_datum(
                 float64_to_datum(f_val, typoid)
             }
         }
+        DataType::List(_) | DataType::LargeList(_) => list_to_datum(col, row_idx, typoid),
+        DataType::Binary => {
+            let val = col.as_any().downcast_ref::<BinaryArray>()?.value(row_idx);
+            if typoid == pg_sys::UUIDOID {
+                let uuid = pgrx::Uuid::from_bytes(val.try_into().ok()?);
+                uuid.into_datum()
+            } else {
+                val.to_vec().into_datum()
+            }
+        }
+        DataType::FixedSizeBinary(16) => {
+            let val = col
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()?
+                .value(row_idx);
+            let uuid = pgrx::Uuid::from_bytes(val.try_into().ok()?);
+            uuid.into_datum()
+        }
         _ => {
+            // Warning (not error) to avoid crashing the entire query for a
+            // missing type mapping. Returning None drops this datum, which the
+            // caller handles. Extend the match arms above to add support.
             pgrx::warning!(
-                "Unsupported Arrow type {:?} for aggregate projection",
-                col.data_type()
+                "Unsupported Arrow type {:?} (Postgres OID {}) for aggregate projection",
+                col.data_type(),
+                typoid.to_u32()
             );
             None
         }
@@ -316,6 +338,57 @@ fn float64_to_datum(val: f64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
             numeric.into_datum()
         }
         _ => val.into_datum(), // Default to f64
+    }
+}
+
+/// Convert an Arrow List array element to a Postgres array datum.
+///
+/// Handles `ARRAY_AGG` results by converting the inner array elements to
+/// a Postgres array via `Vec<T>::into_datum()`.
+fn list_to_datum(col: &ArrayRef, row_idx: usize, _typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
+    use arrow_array::*;
+    use arrow_schema::DataType;
+
+    /// Downcast an Arrow array to `$ArrayType`, collect nullable elements into
+    /// `Vec<Option<$RustType>>`, and convert to a Postgres array datum.
+    macro_rules! collect_list {
+        ($inner:expr, $ArrayType:ty, $RustType:ty) => {{
+            let arr = $inner.as_any().downcast_ref::<$ArrayType>()?;
+            let vals: Vec<Option<$RustType>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i).into())
+                    }
+                })
+                .collect();
+            vals.into_datum()
+        }};
+    }
+
+    let list = col.as_any().downcast_ref::<ListArray>()?;
+    let inner = list.value(row_idx);
+    let inner_type = inner.data_type();
+
+    match inner_type {
+        DataType::Utf8 => collect_list!(inner, StringArray, String),
+        DataType::Utf8View => collect_list!(inner, StringViewArray, String),
+        DataType::LargeUtf8 => collect_list!(inner, LargeStringArray, String),
+        DataType::Int64 => collect_list!(inner, Int64Array, i64),
+        DataType::Int32 => collect_list!(inner, Int32Array, i32),
+        DataType::Float64 => collect_list!(inner, Float64Array, f64),
+        DataType::Boolean => collect_list!(inner, BooleanArray, bool),
+        _ => {
+            // Warning (not error) because returning None silently drops the row,
+            // but crashing the query is worse for the user. This branch indicates
+            // a missing type mapping — extend the macro arms above to fix.
+            pgrx::warning!(
+                "Unsupported Arrow List element type {:?} for ARRAY_AGG projection",
+                inner_type
+            );
+            None
+        }
     }
 }
 

@@ -52,6 +52,11 @@ pub enum AggKind {
     StddevPop,
     VarSamp,
     VarPop,
+    BoolAnd,
+    BoolOr,
+    ArrayAgg,
+    /// STRING_AGG(col, separator) — stores the separator string.
+    StringAgg(String),
 }
 
 impl std::fmt::Display for AggKind {
@@ -68,6 +73,10 @@ impl std::fmt::Display for AggKind {
             AggKind::StddevPop => write!(f, "STDDEV_POP"),
             AggKind::VarSamp => write!(f, "VAR_SAMP"),
             AggKind::VarPop => write!(f, "VAR_POP"),
+            AggKind::BoolAnd => write!(f, "BOOL_AND"),
+            AggKind::BoolOr => write!(f, "BOOL_OR"),
+            AggKind::ArrayAgg => write!(f, "ARRAY_AGG"),
+            AggKind::StringAgg(_) => write!(f, "STRING_AGG"),
         }
     }
 }
@@ -153,6 +162,11 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
         "stddev_pop" => Some(AggKind::StddevPop),
         "variance" | "var_samp" => Some(AggKind::VarSamp),
         "var_pop" => Some(AggKind::VarPop),
+        "bool_and" | "every" => Some(AggKind::BoolAnd),
+        "bool_or" => Some(AggKind::BoolOr),
+        "array_agg" => Some(AggKind::ArrayAgg),
+        // STRING_AGG separator is extracted later in extract_aggregate_targetlist
+        "string_agg" => Some(AggKind::StringAgg(",".into())),
         _ => None,
     }
 }
@@ -239,8 +253,14 @@ pub unsafe fn extract_aggregate_targetlist(
                 );
             }
 
-            let agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
+            let mut agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
                 .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
+
+            // For STRING_AGG, extract the separator from the second argument
+            if matches!(agg_kind, AggKind::StringAgg(_)) {
+                let separator = extract_string_agg_separator(aggref).unwrap_or_else(|| ",".into());
+                agg_kind = AggKind::StringAgg(separator);
+            }
 
             let field_refs = extract_aggref_field_refs(aggref, sources)?;
             // Use the actual Postgres result type from the Aggref node,
@@ -266,6 +286,34 @@ pub unsafe fn extract_aggregate_targetlist(
         group_columns,
         aggregates,
     })
+}
+
+/// Extract the separator string from a STRING_AGG's second argument.
+///
+/// STRING_AGG(col, separator) stores the separator as the second TargetEntry.
+/// Returns `None` if the separator cannot be extracted (non-const, missing).
+unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Option<String> {
+    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+    if args.len() < 2 {
+        return None;
+    }
+    let second_arg = args.get_ptr(1)?;
+    let expr = (*second_arg).expr as *mut pg_sys::Node;
+    if expr.is_null() || (*expr).type_ != pg_sys::NodeTag::T_Const {
+        return None;
+    }
+    let konst = expr as *mut pg_sys::Const;
+    if (*konst).constisnull {
+        return None;
+    }
+    let datum = (*konst).constvalue;
+    let text_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
+    let cstr = pg_sys::text_to_cstring(text_ptr);
+    if cstr.is_null() {
+        return None;
+    }
+    let s = std::ffi::CStr::from_ptr(cstr).to_str().ok()?.to_owned();
+    Some(s)
 }
 
 /// Extract the field reference from an `Aggref`'s arguments.

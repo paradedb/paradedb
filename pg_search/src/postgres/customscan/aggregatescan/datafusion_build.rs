@@ -379,9 +379,9 @@ unsafe fn build_join_node(
 
     let join_type = JoinType::try_from(join.jointype).map_err(|e| e.to_string())?;
 
-    // Support INNER and LEFT/RIGHT JOINs
+    // Support INNER, LEFT/RIGHT, and FULL OUTER JOINs
     match join_type {
-        JoinType::Inner | JoinType::Left | JoinType::Right => {}
+        JoinType::Inner | JoinType::Left | JoinType::Right | JoinType::Full => {}
         _ => {
             return Err(format!(
                 "aggregate-on-join does not support {} JOIN",

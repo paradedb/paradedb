@@ -270,7 +270,8 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
             "CREATE TABLE sampled_{name} AS \
              SELECT c.* \
              FROM read_parquet('{glob}') c \
-             INNER JOIN sampled_{parent} p ON c.\"{jk}\" = p.\"{pk}\"",
+             WHERE c.\"{jk}\" IN 
+                (SELECT {pk} from sampled_{parent})",
             name = table.name,
             parent = parent,
             jk = join_key,

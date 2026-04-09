@@ -22,13 +22,8 @@ concurrency:
 
 jobs:
   test-docs:
-<<<<<<< HEAD
-    name: Test Docs for Broken Links & SEO Issues
-    runs-on: ubuntu-latest
-=======
     name: Test Docs for Broken Links, SEO Issues, and Code Snippets
     runs-on: ubicloud-standard-8-arm-ubuntu-2404
->>>>>>> 67923dde2 (ci: fix Rust cache fallback by removing Cargo.lock hash from shared-key (#4705))
 
     steps:
       - name: Checkout Git Repository
@@ -113,8 +108,6 @@ jobs:
           fi
 
           echo "🎉 All SEO checks passed!"
-<<<<<<< HEAD
-=======
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -160,4 +153,3 @@ jobs:
 
       - name: Smoke Test Code Snippets
         run: ./.github/scripts/smoke_test_code_snippets.sh
->>>>>>> 67923dde2 (ci: fix Rust cache fallback by removing Cargo.lock hash from shared-key (#4705))

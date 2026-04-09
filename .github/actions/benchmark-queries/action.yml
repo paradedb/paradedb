@@ -44,7 +44,7 @@ runs:
         fi
 
         # Run the benchmark.
-        cargo run --release -- benchmark \
+        cargo run --release -- benchmark generated \
           --url postgresql://localhost:288${{ env.pg_version }}/postgres \
           --rows ${NUM_ROWS} \
           --type pg_search \

@@ -62,7 +62,12 @@ jobs:
         runner: [ubicloud-standard-8-arm-ubuntu-2404]
         arch: [arm64]
         include:
-          # Add pgrx-managed Postgres for PG 18 (regular runner)
+          # pgrx compiles Postgres from source with --enable-cassert and --enable-debug,
+          # which enables C-level Assert() checks that catch memory corruption, invalid
+          # internal state, and broken invariants. System Postgres packages from
+          # apt.postgresql.org are release builds where Assert() compiles to a no-op,
+          # and there is no runtime toggle or debug apt package — cassert is compile-time
+          # only. This run is the only way we get Postgres assertion coverage in CI.
           - pg_version: 18
             pg_impl: pgrx
             runner: ubicloud-standard-8-arm-ubuntu-2404

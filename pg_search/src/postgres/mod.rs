@@ -617,6 +617,15 @@ impl ParallelScanState {
         self.remaining_segments = 0;
     }
 
+    /// Signal that initialization is complete with zero segments available.
+    /// Used to trigger serial scan fallback when the DSM region is too small for the actual
+    /// segment count. Wakes workers so they exit cleanly.
+    pub fn mark_initialized_empty(&mut self) {
+        self.nsegments = 0;
+        self.remaining_segments = 0;
+        self.init_cv.broadcast();
+    }
+
     pub fn acquire_mutex(&mut self) -> impl Drop {
         self.mutex.acquire()
     }

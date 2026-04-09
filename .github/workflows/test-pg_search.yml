@@ -40,11 +40,11 @@ jobs:
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         run: |
-          if [[ ${{ github.event_name }} == "push" || ${{ github.event_name }} == "schedule" ]]; then
+          if [[ ${{ github.event_name }} == "push" ]]; then
             echo "Push event detected; using only PostgreSQL version 18."
             echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
-            echo "Pull request event detected, using all PostgreSQL versions."
+            echo "Pull request or schedule event detected, using all PostgreSQL versions."
             echo "matrix=[15, 16, 17, 18]" >> $GITHUB_OUTPUT
           fi
 
@@ -96,6 +96,10 @@ jobs:
       # - Do NOT add arch to shared-key — the action includes the Rust target
       #   triple in its envHash. Keeping shared-key arch-free lets all debug-mode
       #   workflows (lint, test, schemabot, etc.) share the same cache.
+      # PR branches restore from the default branch cache but don't save their own
+      # entries — this prevents cache thrashing that fills the 30 GB limit and causes
+      # every entry to be evicted before reuse. The nightly schedule run warms caches
+      # for all PG versions on the default branch.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -103,6 +107,7 @@ jobs:
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install required system tools
         run: |

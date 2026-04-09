@@ -89,7 +89,7 @@ jobs:
           echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
-        run: mold -run cargo pgrx schema --profile ci -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
+        run: mold -run cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
 
       - name: Switch to Base git rev and Generate Schema Again
         run: |

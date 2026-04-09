@@ -48,9 +48,8 @@ jobs:
         with:
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 
-      # NOTE: Do NOT add hashFiles('**/Cargo.lock') to shared-key — the action
-      # already hashes it internally. Putting it in shared-key defeats the
-      # restore-key fallback and causes cold builds on every Cargo.lock change.
+      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+      # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:

@@ -50,9 +50,8 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # NOTE: Do NOT add hashFiles('**/Cargo.lock') to shared-key — the action
-      # already hashes it internally. Putting it in shared-key defeats the
-      # restore-key fallback and causes cold builds on every Cargo.lock change.
+      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+      # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:

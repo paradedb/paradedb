@@ -103,7 +103,11 @@ jobs:
           cache-all-crates: true
 
       - name: Install required system tools
-        run: sudo apt-get update && sudo apt-get install -y lsof
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            lsof build-essential clang flex bison pkg-config ca-certificates git \
+            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
+            libcurl4-openssl-dev
 
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
@@ -112,7 +116,7 @@ jobs:
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
       - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov --locked
+        run: cargo install -j $(nproc) cargo-llvm-cov --locked --debug
 
       # ---------- System-managed Postgres setup ----------
       - name: Install & Configure Supported PostgreSQL Version (system)
@@ -158,11 +162,6 @@ jobs:
         run: |
           set -euxo pipefail
 
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential clang flex bison pkg-config ca-certificates git \
-            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev
-
           git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
           cd citus
 
@@ -182,12 +181,6 @@ jobs:
           CITUS_VERSION: v14.0.0
         run: |
           set -euxo pipefail
-
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential clang flex bison pkg-config ca-certificates git \
-            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
-            libcurl4-openssl-dev
 
           git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
           cd citus

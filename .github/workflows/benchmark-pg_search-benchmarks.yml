@@ -223,7 +223,7 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
 
       - name: Install cargo-pgrx
-        run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
+        run: cargo install -j $(nproc) cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
 
       - name: Initialize cargo-pgrx environment
         run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`

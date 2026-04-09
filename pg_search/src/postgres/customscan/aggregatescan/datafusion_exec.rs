@@ -26,6 +26,7 @@
 
 use std::sync::Arc;
 
+use super::join_targetlist::AggOrderByEntry;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
@@ -41,11 +42,14 @@ use crate::postgres::customscan::joinscan::translator::{
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
+use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
     array_agg, avg, bool_and, bool_or, count, max, min, stddev, stddev_pop, sum, var_pop,
     var_sample,
 };
+use datafusion::functions_aggregate::string_agg::string_agg_udaf;
+use datafusion::logical_expr::expr::{AggregateFunction, Sort};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -134,13 +138,38 @@ pub async fn build_join_aggregate_plan(
                 AggKind::VarPop => agg_field_col(agg, plan).map(var_pop),
                 AggKind::BoolAnd => agg_field_col(agg, plan).map(bool_and),
                 AggKind::BoolOr => agg_field_col(agg, plan).map(bool_or),
-                AggKind::ArrayAgg => agg_field_col(agg, plan).map(array_agg),
+                AggKind::ArrayAgg => {
+                    let col_expr = agg_field_col(agg, plan)?;
+                    if agg.order_by.is_empty() {
+                        Ok(array_agg(col_expr))
+                    } else {
+                        Ok(Expr::AggregateFunction(AggregateFunction::new_udf(
+                            array_agg_udaf(),
+                            vec![col_expr],
+                            false,
+                            None,
+                            agg_order_by_exprs(&agg.order_by, plan),
+                            None,
+                        )))
+                    }
+                }
                 AggKind::StringAgg(ref sep) => {
                     let col_expr = agg_field_col(agg, plan)?;
-                    Ok(datafusion::functions_aggregate::string_agg::string_agg(
-                        col_expr,
-                        lit(sep.clone()),
-                    ))
+                    let sep_lit = lit(sep.clone());
+                    if agg.order_by.is_empty() {
+                        Ok(datafusion::functions_aggregate::string_agg::string_agg(
+                            col_expr, sep_lit,
+                        ))
+                    } else {
+                        Ok(Expr::AggregateFunction(AggregateFunction::new_udf(
+                            string_agg_udaf(),
+                            vec![col_expr, sep_lit],
+                            false,
+                            None,
+                            agg_order_by_exprs(&agg.order_by, plan),
+                            None,
+                        )))
+                    }
                 }
             }?;
             // Apply DISTINCT flag for non-CountDistinct aggregates.
@@ -570,6 +599,22 @@ fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
     let source = plan.source_for_rti_in_subtree(*rti);
     let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
     Ok(make_col(&alias, field_name))
+}
+
+/// Convert aggregate ORDER BY entries to DataFusion `Sort` expressions.
+fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort> {
+    order_by
+        .iter()
+        .map(|entry| {
+            let source = plan.source_for_rti_in_subtree(entry.rti);
+            let (alias, _) = resolve_source_column(source, entry.rti, &entry.field_name, plan);
+            Sort::new(
+                make_col(&alias, &entry.field_name),
+                entry.direction.is_asc(),
+                entry.direction.is_nulls_first(),
+            )
+        })
+        .collect()
 }
 
 /// Build DataFusion column expressions for all of an aggregate's field references.

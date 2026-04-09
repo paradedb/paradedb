@@ -366,6 +366,14 @@ fn build_relnode_df<'a>(
                 // PlannerInfo and can collide when SubPlan-extracted sources (e.g.
                 // from NOT IN subqueries) share the same range-table index as the
                 // outer table.
+                //
+                // Invariant: plan_position is assigned as the DFS enumeration
+                // index in JoinCSClause::new (build.rs), and
+                // partitioning_source_index() returns the index into the same
+                // DFS-ordered sources() array. Both sources() and sources_mut()
+                // maintain left-first DFS order via collect_sources /
+                // collect_sources_mut, so plan_position == partitioning_plan_position
+                // iff this source is the chosen partitioning source.
                 let is_parallel = plan_position == partitioning_plan_position;
 
                 // Compute the position of this source among non-partitioning sources so execution
@@ -738,6 +746,13 @@ fn build_clause_df<'a>(
                         if !distinct_col_map.is_empty() {
                             resolve_distinct_col(true, 0, 0, "")
                         } else {
+                            // TODO: this heap_rti lookup has the same collision
+                            // risk as the partitioning check fixed above — if a
+                            // NOT IN subquery source shares the same RTI as the
+                            // outer table, the wrong score column could be
+                            // selected. Low risk since ORDER BY scores typically
+                            // reference outer-query tables. Fix by switching
+                            // OrderByFeature::Score to carry plan_position.
                             join_clause
                                 .plan
                                 .sources()

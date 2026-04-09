@@ -808,21 +808,6 @@ pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().all(|s| s.bm25_index.is_some())
 }
 
-/// Look up a 1-based attribute number from a field name in the tuple descriptor.
-fn attno_from_field_name(
-    field_name: &str,
-    tupdesc: &pgrx::PgTupleDesc<'_>,
-) -> Option<pg_sys::AttrNumber> {
-    for i in 0..tupdesc.len() {
-        if let Some(att) = tupdesc.get(i) {
-            if att.name() == field_name {
-                return Some((i + 1) as pg_sys::AttrNumber);
-            }
-        }
-    }
-    None
-}
-
 /// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on
 /// columns referenced in the target list (GROUP BY + aggregate arguments) and
 /// join keys. Without this, `PgSearchTableProvider` exposes an empty schema.
@@ -902,16 +887,14 @@ pub unsafe fn populate_required_fields(
         for agg in &targetlist.aggregates {
             for ob in &agg.order_by {
                 if source.contains_rti(ob.rti) {
-                    if let Some(attno) = attno_from_field_name(&ob.field_name, &tupdesc) {
-                        match resolve_fast_field(attno as i32, &tupdesc, indexrel) {
-                            Some(field) => source.scan_info.add_field(attno, field),
-                            None => {
-                                return Err(format!(
-                                    "aggregate ORDER BY column '{}' is not a fast field on table {}",
-                                    ob.field_name,
-                                    source.scan_info.heaprelid.to_u32()
-                                ));
-                            }
+                    match resolve_fast_field(ob.attno as i32, &tupdesc, indexrel) {
+                        Some(field) => source.scan_info.add_field(ob.attno, field),
+                        None => {
+                            return Err(format!(
+                                "aggregate ORDER BY column '{}' is not a fast field on table {}",
+                                ob.field_name,
+                                source.scan_info.heaprelid.to_u32()
+                            ));
                         }
                     }
                 }

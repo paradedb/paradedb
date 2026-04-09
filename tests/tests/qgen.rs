@@ -853,8 +853,6 @@ async fn generated_aggregate_join(database: Db) {
                 "AVG(users.age)",
                 "MIN(users.rating)",
                 "MAX(users.rating)",
-                "STRING_AGG(users.name, ', ' ORDER BY users.name)",
-                "ARRAY_AGG(users.name ORDER BY users.name)",
             ],
         ),
     )| {

@@ -100,6 +100,8 @@ pub struct JoinGroupColumn {
 pub struct AggOrderByEntry {
     /// Table RTI for the ORDER BY column.
     pub rti: pg_sys::Index,
+    /// 1-based attribute number in the source relation's tuple descriptor.
+    pub attno: pg_sys::AttrNumber,
     /// Resolved field name (from the BM25 index schema).
     pub field_name: String,
     /// Sort direction including NULLS FIRST/LAST.
@@ -479,6 +481,7 @@ unsafe fn extract_aggref_order_by(
 
         entries.push(AggOrderByEntry {
             rti,
+            attno,
             field_name,
             direction,
         });

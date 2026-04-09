@@ -151,7 +151,7 @@ jobs:
 
       - name: Compile & install pg_search extension (pgrx)
         working-directory: pg_search/
-        run: mold -run cargo pgrx install --profile ci --pg-config ~/.pgrx/18.*/pgrx-install/bin/pg_config --features="pg18,block_tracker"
+        run: mold -run cargo pgrx install --pg-config ~/.pgrx/18.*/pgrx-install/bin/pg_config --features="pg18,block_tracker"
 
       - name: Add extension to shared_preload_libraries
         working-directory: /home/runner/.pgrx/data-18/

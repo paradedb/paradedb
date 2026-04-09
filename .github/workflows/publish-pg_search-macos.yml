@@ -119,7 +119,7 @@ jobs:
           echo version=$version >> $GITHUB_OUTPUT
 
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_search/

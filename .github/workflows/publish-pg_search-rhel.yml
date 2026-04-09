@@ -226,7 +226,7 @@ jobs:
         run: echo version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') >> $GITHUB_OUTPUT
 
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_search/

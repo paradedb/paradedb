@@ -37,7 +37,7 @@ use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid};
+use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
@@ -198,24 +198,11 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     rel: *mut pg_sys::RelOptInfo,
     rti: pg_sys::Index,
 ) -> Option<(RelNode, Vec<JoinKeyPair>)> {
-    let rtable = (*(*root).parse).rtable;
-    if rtable.is_null() {
-        return None;
-    }
-
-    let rte = pg_sys::rt_fetch(rti, rtable);
-    let relid = get_plain_relation_relid(rte)?;
+    let (relid, alias, _bm25_opt) = super::build::lookup_base_rel_info(root, rti)?;
 
     let mut side_info = JoinSourceCandidate::new(root.into(), rti).with_heaprelid(relid);
-
-    if !(*rte).eref.is_null() {
-        let eref = (*rte).eref;
-        if !(*eref).aliasname.is_null() {
-            let alias_cstr = std::ffi::CStr::from_ptr((*eref).aliasname);
-            if let Ok(alias) = alias_cstr.to_str() {
-                side_info = side_info.with_alias(alias.to_string());
-            }
-        }
+    if let Some(alias) = alias {
+        side_info = side_info.with_alias(alias);
     }
 
     // Top-level SubPlans (e.g. `col IN (SELECT ...)`)

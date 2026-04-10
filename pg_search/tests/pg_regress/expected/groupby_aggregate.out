@@ -714,7 +714,7 @@ LIMIT 10;
                Backend: DataFusion
                Indexes: products_idx (products)
                Group By: category
-               Aggregates: COUNT(*)(*)
+               Aggregates: COUNT(*)
 (11 rows)
 
 SELECT category
@@ -909,7 +909,7 @@ LIMIT 2;
                Backend: DataFusion
                Indexes: products_idx (products)
                Group By: category
-               Aggregates: COUNT(*)(*)
+               Aggregates: COUNT(*)
 (11 rows)
 
 SELECT category, COUNT(*) as product_count
@@ -947,7 +947,7 @@ LIMIT 10;
                Backend: DataFusion
                Indexes: products_idx (products)
                Group By: category
-               Aggregates: COUNT(*)(*)
+               Aggregates: COUNT(*)
 (11 rows)
 
 SELECT category, COUNT(*) as pcount

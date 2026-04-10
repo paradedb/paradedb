@@ -66,7 +66,7 @@ WHERE p.description @@@ 'laptop';
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
    Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
-   Aggregates: COUNT(*)(*)
+   Aggregates: COUNT(*)
 (5 rows)
 
 SELECT COUNT(*)
@@ -126,7 +126,7 @@ GROUP BY p.category;
    Backend: DataFusion
    Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
    Group By: category
-   Aggregates: COUNT(*)(*), SUM(rating), AVG(rating), MIN(rating), MAX(rating)
+   Aggregates: COUNT(*), SUM(rating), AVG(rating), MIN(rating), MAX(rating)
 (6 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating), MIN(r.rating), MAX(r.rating)
@@ -185,7 +185,7 @@ GROUP BY p.category;
    Backend: DataFusion
    Indexes: fb_products_idx (p), fb_tags_idx (t), fb_reviews_idx (r)
    Group By: category
-   Aggregates: COUNT(*)(*), COUNT(rating)
+   Aggregates: COUNT(*), COUNT(rating)
 (5 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating)
@@ -251,7 +251,7 @@ HAVING COUNT(*) > 0;
    Backend: DataFusion
    Indexes: fb_products_idx (p), fb_tags_idx (t)
    Group By: category
-   Aggregates: COUNT(*)(*)
+   Aggregates: COUNT(*)
 (6 rows)
 
 SELECT p.category, COUNT(*)

@@ -420,6 +420,7 @@ impl JoinSourceCandidate {
         // `expr_context` only lives until the end of this function,
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
+        let needs_tokenizer_manager = query.needs_tokenizer();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query,
@@ -427,6 +428,7 @@ impl JoinSourceCandidate {
             MvccSatisfies::LargestSegment,
             NonNull::new(expr_context.as_ptr()),
             None,
+            needs_tokenizer_manager,
         )
         .expect("Failed to open index reader for estimation");
 

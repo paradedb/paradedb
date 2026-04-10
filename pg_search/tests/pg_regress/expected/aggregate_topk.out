@@ -42,7 +42,7 @@ LIMIT 3;
                Backend: DataFusion
                Indexes: idx_mock_items (mock_items)
                Group By: category
-               Aggregates: COUNT(*)(*)
+               Aggregates: COUNT(*)
 (11 rows)
 
 SELECT category, COUNT(*)
@@ -120,7 +120,7 @@ LIMIT 2;
                Backend: DataFusion
                Indexes: idx_mock_items (mock_items)
                Group By: category
-               Aggregates: COUNT(*)(*)
+               Aggregates: COUNT(*)
 (11 rows)
 
 SELECT category, COUNT(*)
@@ -216,7 +216,7 @@ LIMIT 3;
                Backend: DataFusion
                Indexes: idx_mock_items (mock_items)
                Group By: category
-               Aggregates: COUNT(*)(*), SUM(rating), MIN(rating), MAX(rating)
+               Aggregates: COUNT(*), SUM(rating), MIN(rating), MAX(rating)
 (11 rows)
 
 SELECT category, COUNT(*), SUM(rating), MIN(rating), MAX(rating)
@@ -254,7 +254,7 @@ LIMIT 1;
                Backend: DataFusion
                Indexes: idx_mock_items (mock_items)
                Group By: category
-               Aggregates: COUNT(*)(*)
+               Aggregates: COUNT(*)
 (11 rows)
 
 SELECT category, COUNT(*)

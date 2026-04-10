@@ -125,6 +125,16 @@ impl ScanInfo {
         }
     }
 
+    /// Add a field identified by name rather than attno.
+    /// Used for JSON sub-fields (e.g., `metadata.category`) which share the
+    /// parent column's attno but have distinct Tantivy field names.
+    pub fn add_field_by_name(&mut self, attno: pg_sys::AttrNumber, field: WhichFastField) {
+        let name = field.name();
+        if !self.fields.iter().any(|f| f.field.name() == name) {
+            self.fields.push(FieldInfo { attno, field });
+        }
+    }
+
     /// Returns true if this scan's index produces sorted output.
     pub fn is_sorted(&self) -> bool {
         self.sort_order.is_some()

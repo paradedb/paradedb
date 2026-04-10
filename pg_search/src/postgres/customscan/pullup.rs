@@ -129,6 +129,27 @@ pub unsafe fn resolve_fast_field(
     }
 }
 
+/// Resolve a fast field by Tantivy field name (e.g., `metadata.category`).
+///
+/// Used for JSON sub-fields where [`resolve_fast_field`] fails because the attno
+/// maps to the parent JSON column rather than the sub-field. Tantivy stores JSON
+/// sub-fields as separate fast fields with dotted names.
+pub fn resolve_fast_field_by_name(
+    field_name: &str,
+    index: &PgSearchRelation,
+) -> Option<WhichFastField> {
+    let schema = index.schema().ok()?;
+    let search_field = schema.search_field(field_name)?;
+    if search_field.is_fast() {
+        Some(WhichFastField::Named(
+            field_name.to_string(),
+            search_field.field_type(),
+        ))
+    } else {
+        None
+    }
+}
+
 /// Returns the `SearchFieldType` if it's supported for fast field pullup execution.
 ///
 /// Returns `Some(SearchFieldType)` if the type is supported for fast field execution,

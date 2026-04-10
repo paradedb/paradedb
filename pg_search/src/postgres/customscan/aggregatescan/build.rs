@@ -508,27 +508,7 @@ pub(super) unsafe fn has_aggregate_orderby_with_limit(args: &CreateUpperPathsHoo
     let Some(aggref) = find_single_aggref_in_expr(sort_expr) else {
         return false;
     };
-    if aggref as *mut pg_sys::Node != sort_expr {
-        return false;
-    }
-
-    // Verify GROUP BY uses simple column references (Var nodes).
-    // Complex expressions like `metadata->>'category'` (OpExpr) can't be handled
-    // by the DataFusion aggregate path which requires Var or Aggref target entries.
-    // TODO: extend the DataFusion path to support JSON sub-field GROUP BY expressions.
-    // This requires PgSearchTableProvider to expose JSON sub-fields (e.g., `metadata.category`)
-    // as separate Arrow columns, and populate_required_fields to register them by field name
-    // rather than attno. Until then, these queries stay in Tantivy which handles JSON
-    // sub-paths natively via TermsAggregation.
-    let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
-    for group_clause_ptr in group_clauses.iter_ptr() {
-        let group_expr = pg_sys::get_sortgroupclause_expr(group_clause_ptr, (*parse).targetList);
-        if !group_expr.is_null() && (*group_expr).type_ != pg_sys::NodeTag::T_Var {
-            return false;
-        }
-    }
-
-    true
+    aggref as *mut pg_sys::Node == sort_expr
 }
 
 /// Detects ORDER BY on aggregate metrics (e.g., ORDER BY COUNT(*) DESC)

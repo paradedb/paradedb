@@ -1,5 +1,6 @@
 root_table = "stackoverflow_posts"
-sampling_seed = 723                # sum of the characters in "ParadeDB" as ascii
+sampling_seed = 723                                              # sum of the characters in "ParadeDB" as ascii
+s3_base_path = "s3://paradedb-benchmarks/datasets/stackoverflow"
 
 [[tables]]
 name = "stackoverflow_posts"

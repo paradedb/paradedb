@@ -316,9 +316,15 @@ impl SearchPredicateUDF {
             MvccSatisfies::Snapshot
         };
 
+        let needs_tokenizer_manager = query.needs_tokenizer();
         let reader = SearchIndexReader::open_with_context(
-            &index_rel, query, false, // score_needed
-            mvcc_style, None, None,
+            &index_rel,
+            query,
+            false, // score_needed
+            mvcc_style,
+            None,
+            None,
+            needs_tokenizer_manager,
         )
         .map_err(|e| {
             datafusion::common::DataFusionError::Internal(format!("Failed to open reader: {e}"))

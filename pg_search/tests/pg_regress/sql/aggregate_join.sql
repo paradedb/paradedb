@@ -420,16 +420,16 @@ WHERE p.description @@@ 'laptop';
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
--- SECTION 10a: STDDEV/VARIANCE aggregates on JOIN
+-- SECTION 10: STDDEV/VARIANCE aggregates on JOIN
 -- =====================================================================
 
--- Test 10a.1: STDDEV and VARIANCE on join
+-- Test 10.1: STDDEV and VARIANCE on join
 SELECT STDDEV(p.price), VARIANCE(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
 
--- Test 10a.2: STDDEV_POP and VAR_POP on join with GROUP BY
+-- Test 10.2: STDDEV_POP and VAR_POP on join with GROUP BY
 -- Uses p.price (not p.rating) so Electronics has actual variance (999.99 vs 1299.99)
 SELECT p.category, STDDEV_POP(p.price), VAR_POP(p.price)
 FROM agg_join_products p
@@ -437,9 +437,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
 
--- Test 10a.3: STDDEV parity — DataFusion vs Postgres native
--- Note: floating-point STDDEV/VARIANCE results may differ in the least-significant
--- digits due to DataFusion using a different internal algorithm than Postgres.
+-- Test 10.3: STDDEV parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT STDDEV(p.price)
 FROM agg_join_products p
@@ -453,7 +451,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
 
 -- =====================================================================
--- SECTION 10b: Date/Timestamp aggregates on JOIN
+-- SECTION 11: Date/Timestamp aggregates on JOIN
 -- =====================================================================
 
 CREATE TABLE ts_orders (
@@ -495,13 +493,13 @@ WITH (
     text_fields='{"item_name": {"fast": true}}'
 );
 
--- Test 10b.1: MIN/MAX on timestamp column via join
+-- Test 10.1: MIN/MAX on timestamp column via join
 SELECT MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order';
 
--- Test 10b.2: GROUP BY with timestamp aggregate
+-- Test 10.2: GROUP BY with timestamp aggregate
 SELECT o.category, MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
@@ -526,7 +524,7 @@ GROUP BY o.category;
 DROP TABLE ts_items;
 DROP TABLE ts_orders;
 
--- Test 10b.3: TIMESTAMPTZ column via join
+-- Test 10.3: TIMESTAMPTZ column via join
 CREATE TABLE tstz_orders (
     id SERIAL PRIMARY KEY,
     description TEXT,
@@ -709,10 +707,10 @@ DELETE FROM agg_join_products WHERE id IN (9901, 9902);
 
 -- =====================================================================
 -- SECTION 12: Non-COUNT DISTINCT aggregates fall back to native PG
--- Verifies SUM(DISTINCT), AVG(DISTINCT) do NOT route through DataFusion.
+-- Verifies SUM(DISTINCT), AVG(DISTINCT) route through DataFusion.
 -- =====================================================================
 
--- SUM(DISTINCT) should NOT show AggregateScan
+-- SUM(DISTINCT) should show AggregateScan (DataFusion supports DISTINCT)
 EXPLAIN (COSTS OFF)
 SELECT p.category, SUM(DISTINCT t.product_id)
 FROM agg_join_products p
@@ -720,7 +718,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
 
--- AVG(DISTINCT) should NOT show AggregateScan
+-- AVG(DISTINCT) should show AggregateScan (DataFusion supports DISTINCT)
 EXPLAIN (COSTS OFF)
 SELECT p.category, AVG(DISTINCT t.product_id)
 FROM agg_join_products p
@@ -768,6 +766,292 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
 SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
+-- SECTION 12: Post-join filter execution
+-- =====================================================================
+
+-- Test 12.1: Post-join filter with simple comparison
+-- The price > 500 filter cannot be pushed to the scan level for the join,
+-- so it should be applied as a DataFusion filter between join and aggregate.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop' AND p.price > 500;
+
+SELECT COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop' AND p.price > 500;
+
+-- Test 12.2: Post-join filter parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop' AND p.price > 500;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
+-- SECTION 13: HAVING clause support
+-- =====================================================================
+
+-- Test 13.1: HAVING COUNT(*) > N — DataFusion applies filter post-aggregate
+SELECT p.category, COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+HAVING COUNT(*) > 1
+ORDER BY p.category;
+
+-- Test 13.2: HAVING parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+HAVING COUNT(*) > 1
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 13.3: HAVING with SUM — non-COUNT aggregate in HAVING
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+HAVING SUM(p.price) > 100
+ORDER BY p.category;
+
+-- Test 13.4: HAVING SUM parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+HAVING SUM(p.price) > 100
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
+-- SECTION 14: Additional aggregate functions (BOOL_AND/OR, ARRAY_AGG, STRING_AGG)
+-- =====================================================================
+
+-- Add a boolean column for BOOL_AND/OR tests
+ALTER TABLE agg_join_products ADD COLUMN in_stock BOOLEAN DEFAULT true;
+UPDATE agg_join_products SET in_stock = false WHERE category = 'Toys';
+
+-- We need fast field access for in_stock; recreate BM25 index
+DROP INDEX agg_join_products_idx;
+CREATE INDEX agg_join_products_idx ON agg_join_products
+USING bm25 (id, description, category, price, rating, in_stock)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}',
+    boolean_fields='{"in_stock": {"fast": true}}'
+);
+
+-- Test 14.1: BOOL_AND on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, BOOL_AND(p.in_stock)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR toy'
+GROUP BY p.category;
+
+SELECT p.category, BOOL_AND(p.in_stock)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR toy'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 14.2: BOOL_OR on join
+SELECT p.category, BOOL_OR(p.in_stock)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR toy'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 14.3: STRING_AGG on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, STRING_AGG(t.tag_name, ', ')
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+SELECT p.category, STRING_AGG(t.tag_name, ', ')
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 14.4: BOOL_AND/OR parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR toy'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, BOOL_AND(p.in_stock), BOOL_OR(p.in_stock)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR toy'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 13.5: ARRAY_AGG on join
+SELECT p.category, ARRAY_AGG(t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 13.6: ARRAY_AGG parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, ARRAY_AGG(t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Clean up the added column (drop+recreate index)
+DROP INDEX agg_join_products_idx;
+ALTER TABLE agg_join_products DROP COLUMN in_stock;
+CREATE INDEX agg_join_products_idx ON agg_join_products
+USING bm25 (id, description, category, price, rating)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    numeric_fields='{"price": {"fast": true}, "rating": {"fast": true}}'
+);
+
+-- =====================================================================
+-- SECTION 15: FULL OUTER JOIN aggregates
+-- =====================================================================
+
+-- Test 15.1: FULL OUTER JOIN with COUNT — includes unmatched rows from both sides
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
+FROM agg_join_products p
+FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
+FROM agg_join_products p
+FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes';
+
+-- Test 15.2: FULL OUTER JOIN with GROUP BY
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 15.3: FULL OUTER JOIN parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT p.category, COUNT(*), SUM(p.price)
+FROM agg_join_products p
+FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- =====================================================================
+-- SECTION 16: ORDER BY within aggregates (STRING_AGG, ARRAY_AGG)
+-- =====================================================================
+
+-- Test 16.1: STRING_AGG with ORDER BY on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 16.2: STRING_AGG ORDER BY parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 16.3: STRING_AGG ORDER BY DESC
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name DESC)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 16.4: ARRAY_AGG with ORDER BY on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 16.5: ARRAY_AGG ORDER BY parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 16.6: ARRAY_AGG ORDER BY DESC
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name DESC)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
 
 -- =====================================================================
 -- Clean up

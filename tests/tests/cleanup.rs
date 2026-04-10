@@ -22,10 +22,10 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
-fn validate_checksum(mut conn: PgConnection) {
+fn verify_index(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let (count,) =
-        "select count(*) from paradedb.validate_checksum('paradedb.bm25_search_bm25_index')"
+        "SELECT count(*) FROM pdb.verify_index('paradedb.bm25_search_bm25_index') WHERE NOT passed"
             .fetch_one::<(i64,)>(&mut conn);
     assert_eq!(count, 0);
 }

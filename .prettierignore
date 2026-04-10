@@ -2,6 +2,7 @@
 /docs/documentation/full-text/term.mdx
 /docs/documentation/query-builder/compound/all.mdx
 /docs/documentation/tokenizers/multiple-per-field.mdx
+/docs/documentation/indexing/verify-index.mdx
 **/*.csv
 **/*.csv.gz
 **/*.json

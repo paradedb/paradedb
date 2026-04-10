@@ -984,7 +984,77 @@ GROUP BY p.category
 ORDER BY p.category;
 
 -- =====================================================================
--- SECTION 16: JSON sub-field GROUP BY on join (DataFusion path)
+-- SECTION 16: ORDER BY within aggregates (STRING_AGG, ARRAY_AGG)
+-- =====================================================================
+
+-- Test 16.1: STRING_AGG with ORDER BY on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 16.2: STRING_AGG ORDER BY parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 16.3: STRING_AGG ORDER BY DESC
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name DESC)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 16.4: ARRAY_AGG with ORDER BY on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 16.5: ARRAY_AGG ORDER BY parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 16.6: ARRAY_AGG ORDER BY DESC
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name DESC)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- =====================================================================
+-- SECTION 17: JSON sub-field GROUP BY on join (DataFusion path)
 -- =====================================================================
 
 CREATE TABLE agg_json_items (
@@ -1020,7 +1090,7 @@ WITH (
     numeric_fields='{"item_id": {"fast": true}, "qty": {"fast": true}}'
 );
 
--- Test 16.1: GROUP BY JSON sub-field on join — EXPLAIN shows DataFusion
+-- Test 17.1: GROUP BY JSON sub-field on join — EXPLAIN shows DataFusion
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
@@ -1028,7 +1098,7 @@ JOIN agg_json_orders o ON i.id = o.item_id
 WHERE i.id @@@ paradedb.all()
 GROUP BY i.metadata->>'category';
 
--- Test 16.2: JSON sub-field GROUP BY results
+-- Test 17.2: JSON sub-field GROUP BY results
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
@@ -1036,7 +1106,7 @@ WHERE i.id @@@ paradedb.all()
 GROUP BY i.metadata->>'category'
 ORDER BY category;
 
--- Test 16.3: JSON sub-field GROUP BY parity — DataFusion vs Postgres native
+-- Test 17.3: JSON sub-field GROUP BY parity — DataFusion vs Postgres native
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
 FROM agg_json_items i

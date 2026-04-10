@@ -887,6 +887,25 @@ pub unsafe fn populate_required_fields(
             }
         }
 
+        // Add fields referenced in aggregate ORDER BY clauses (e.g.,
+        // STRING_AGG(col, ',' ORDER BY col2) needs col2 as a fast field).
+        for agg in &targetlist.aggregates {
+            for ob in &agg.order_by {
+                if source.contains_rti(ob.rti) {
+                    match resolve_fast_field(ob.attno as i32, &tupdesc, indexrel) {
+                        Some(field) => source.scan_info.add_field(ob.attno, field),
+                        None => {
+                            return Err(format!(
+                                "aggregate ORDER BY column '{}' is not a fast field on table {}",
+                                ob.field_name,
+                                source.scan_info.heaprelid.to_u32()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
         // Add join key fields — these MUST be resolvable as fast fields because
         // DataFusion reads them from the BM25 index. If a join key can't be
         // resolved, the PgSearchTableProvider would have no data columns, producing

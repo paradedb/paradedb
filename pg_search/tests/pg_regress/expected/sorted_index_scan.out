@@ -180,9 +180,8 @@ ORDER BY priority DESC NULLS LAST, id ASC;
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 2
-   ->  Incremental Sort
+   ->  Sort
          Sort Key: priority DESC NULLS LAST, id
-         Presorted Key: priority
          ->  Parallel Custom Scan (ParadeDB Base Scan) on sorted_scan_test
                Table: sorted_scan_test
                Index: sorted_scan_test_idx
@@ -191,7 +190,7 @@ ORDER BY priority DESC NULLS LAST, id ASC;
                Order By: priority DESC
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 \echo 'Test 1.7: ORDER BY exact match (parallel) - Gather Merge only expected'
 Test 1.7: ORDER BY exact match (parallel) - Gather Merge only expected
@@ -1424,9 +1423,8 @@ ORDER BY priority DESC NULLS LAST, id ASC;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
    Workers Planned: 4
-   ->  Incremental Sort
+   ->  Sort
          Sort Key: priority DESC NULLS LAST, id
-         Presorted Key: priority
          ->  Parallel Custom Scan (ParadeDB Base Scan) on parallel_sorted_test
                Table: parallel_sorted_test
                Index: parallel_sorted_test_idx
@@ -1435,7 +1433,7 @@ ORDER BY priority DESC NULLS LAST, id ASC;
                Order By: priority DESC
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 RESET enable_incremental_sort;
 RESET enable_gathermerge;

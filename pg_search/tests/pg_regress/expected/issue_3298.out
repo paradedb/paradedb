@@ -26,7 +26,7 @@ SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => AR
    Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.term_set($1))"}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-   InitPlan 1
+   InitPlan 1 (returns $0)
      ->  Limit
            Output: (paradedb.term('category'::paradedb.fieldname, allowed_categories.category))
            ->  Seq Scan on public.allowed_categories
@@ -53,12 +53,12 @@ FROM mock_items;
    Tantivy Query: "all"
      Applies to Aggregates: COUNT(*), COUNT(*), COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{"query":{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.term_set($1))"}}},"type":"FilterQuery"}},"2":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{"query":{"postgres_expression":{"expr":{"expr_desc":"paradedb.with_index('search_idx'::regclass, paradedb.term_set($2))"}}},"type":"FilterQuery"}}}
-   InitPlan 1
+   InitPlan 1 (returns $0)
      ->  Limit
            Output: (paradedb.term('category'::paradedb.fieldname, allowed_categories.category))
            ->  Seq Scan on public.allowed_categories
                  Output: paradedb.term('category'::paradedb.fieldname, allowed_categories.category)
-   InitPlan 2
+   InitPlan 2 (returns $1)
      ->  Limit
            Output: (paradedb.term('category'::paradedb.fieldname, allowed_categories_1.category))
            ->  Seq Scan on public.allowed_categories allowed_categories_1

@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::rel::PgSearchRelation;
 use crate::{DEFAULT_STARTUP_COST, UNKNOWN_SELECTIVITY};
 use pgrx::*;
 
@@ -34,7 +35,7 @@ pub unsafe extern "C-unwind" fn amcostestimate(
     assert!(!(*path).indexinfo.is_null());
 
     let indexrel = unsafe {
-        PgRelation::with_lock(
+        PgSearchRelation::with_lock(
             (*(*path).indexinfo).indexoid,
             pg_sys::AccessShareLock as pg_sys::LOCKMODE,
         )
@@ -43,13 +44,25 @@ pub unsafe extern "C-unwind" fn amcostestimate(
     // TODO: Convert to use RowEstimate.
     let reltuples = indexrel
         .heap_relation()
-        .expect("index relation must have a valid corresponding heap relation")
+        .expect("indexrel should be an index")
         .reltuples()
         .unwrap_or(1.0) as f64;
-    let page_estimate = pg_sys::RelationGetNumberOfBlocksInFork(
-        indexrel.as_ptr(),
-        pg_sys::ForkNumber::MAIN_FORKNUM,
-    );
+
+    let page_estimate = if indexrel.relkind() == pg_sys::RELKIND_PARTITIONED_INDEX {
+        unsafe {
+            indexrel
+                .heap_relation()
+                .map(|heap| (*heap.rd_rel).relpages as u32)
+                .unwrap_or(0)
+        }
+    } else {
+        unsafe {
+            pg_sys::RelationGetNumberOfBlocksInFork(
+                indexrel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+            )
+        }
+    };
     drop(indexrel);
 
     // start these at zero

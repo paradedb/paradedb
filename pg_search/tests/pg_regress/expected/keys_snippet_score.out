@@ -137,8 +137,8 @@ ORDER BY id;
  b5faacc0-9eba-441a-81f8-820b46a3b57e | jet<b>blue</b>
  ea1181a0-5d3e-4f5f-a6ab-b1354ffc91ad | <b>blue</b> bloods
  eb833eb6-c598-4042-b84a-0045828fceea | <b>blue</b>&#x27;s clues
- f159c89e-2162-48cd-85e3-e42b71d2ecd0 | <b>blue</b>tooth
  f159c89e-2162-48cd-85e3-e42b71d2ecd0 | blue<b>tooth</b>
+ f159c89e-2162-48cd-85e3-e42b71d2ecd0 | <b>blue</b>tooth
  f6e85626-298e-4112-9abb-3856f8aa046a | yellow<b>tooth</b>
 (8 rows)
 
@@ -206,8 +206,8 @@ ORDER BY id;
  Thu May 04 10:10:11 2023 PDT | <b>blue</b>bell
  Thu May 11 14:17:18 2023 PDT | <b>blue</b> skies
  Tue May 09 14:15:16 2023 PDT | yellow<b>tooth</b>
- Wed May 03 06:09:10 2023 PDT | <b>blue</b>tooth
  Wed May 03 06:09:10 2023 PDT | blue<b>tooth</b>
+ Wed May 03 06:09:10 2023 PDT | <b>blue</b>tooth
 (8 rows)
 
 -- Clean up

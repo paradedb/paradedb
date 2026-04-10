@@ -1382,6 +1382,10 @@ impl CustomScan for BaseScan {
 
             state.custom_state_mut().open_relations(lockmode);
 
+            if state.custom_state().heaprel().relkind() == pg_sys::RELKIND_PARTITIONED_TABLE {
+                return;
+            }
+
             // For EXPLAIN ANALYZE queries, we need to continue with full initialization
             // For EXPLAIN-only (without ANALYZE), begin_custom_scan is not called at all
             if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
@@ -1390,13 +1394,15 @@ impl CustomScan for BaseScan {
             }
 
             // setup the structures we need to do mvcc checking and heap fetching
-            state.custom_state_mut().visibility_checker =
-                Some(VisibilityChecker::with_rel_and_snap(
-                    state.custom_state().heaprel(),
-                    pg_sys::GetActiveSnapshot(),
-                ));
-            state.custom_state_mut().doc_from_heap_state =
-                Some(HeapFetchState::new(state.custom_state().heaprel()));
+            if state.custom_state().heaprel().relkind() != pg_sys::RELKIND_PARTITIONED_TABLE {
+                state.custom_state_mut().visibility_checker =
+                    Some(VisibilityChecker::with_rel_and_snap(
+                        state.custom_state().heaprel(),
+                        pg_sys::GetActiveSnapshot(),
+                    ));
+                state.custom_state_mut().doc_from_heap_state =
+                    Some(HeapFetchState::new(state.custom_state().heaprel()));
+            }
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
@@ -1437,12 +1443,20 @@ impl CustomScan for BaseScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        if state.custom_state().heaprel().relkind() == pg_sys::RELKIND_PARTITIONED_TABLE {
+            return;
+        }
+
         Self::init_search_reader(state);
         state.custom_state_mut().reset();
     }
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        if state.custom_state().heaprel().relkind() == pg_sys::RELKIND_PARTITIONED_TABLE {
+            return std::ptr::null_mut();
+        }
+
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }

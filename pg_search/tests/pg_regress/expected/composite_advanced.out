@@ -716,169 +716,58 @@ BEGIN
     idx_sql := format('CREATE INDEX idx_dual_comp ON dual_comp_test USING bm25 (id, (%s), (%s)) WITH (key_field=''id'')', row_a, row_b);
     EXECUTE idx_sql;
 END $$;
+ERROR:  row is too big: size 10536, maximum size 8160
 -- Insert test data (a0400 is the last field in type A)
 INSERT INTO dual_comp_test (a0001, a0200, a0400, b0001, b0200, b0400)
 VALUES ('first_a', 'mid_a', 'last_a', 'first_b', 'mid_b', 'last_b');
 -- Test search on both composite types using pdb.parse
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ pdb.parse('a0001:first_a');
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"a0001:first_a","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 SELECT COUNT(*) AS a_first FROM dual_comp_test WHERE id @@@ pdb.parse('a0001:first_a');
- a_first 
----------
-       1
-(1 row)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0400:last_a');
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"a0400:last_a","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 SELECT COUNT(*) AS a_last FROM dual_comp_test WHERE id @@@ pdb.parse('a0400:last_a');
- a_last 
---------
-      1
-(1 row)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ pdb.parse('b0001:first_b');
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"b0001:first_b","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 SELECT COUNT(*) AS b_first FROM dual_comp_test WHERE id @@@ pdb.parse('b0001:first_b');
- b_first 
----------
-       1
-(1 row)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last_b');
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"b0400:last_b","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last_b');
- b_last 
---------
-      1
-(1 row)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 ------------------------------------------------------------
 -- TEST: pdb functions on composite fields (field @@@ pdb.function())
 ------------------------------------------------------------
 -- pdb.term() on composite field from type A
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"a0001","value":"first_a","is_datetime":false}}}}
-(7 rows)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
- term_a 
---------
-      1
-(1 row)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 -- pdb.term() on composite field from type B
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"b0001","value":"first_b","is_datetime":false}}}}
-(7 rows)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
- term_b 
---------
-      1
-(1 row)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 -- pdb.match() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"match":{"field":"a0200","value":"mid_a","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(7 rows)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 SELECT COUNT(*) AS match_a FROM dual_comp_test WHERE a0200 @@@ pdb.match('mid_a');
- match_a 
----------
-       1
-(1 row)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 -- pdb.regex() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*');
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
-         Table: dual_comp_test
-         Index: idx_dual_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"regex":{"field":"b0400","pattern":"last.*"}}}}
-(7 rows)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*');
- regex_b 
----------
-       1
-(1 row)
-
+ERROR:  `dual_comp_test` does not contain a `USING bm25` index
 -- Test pdb functions on MVCC test table composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');

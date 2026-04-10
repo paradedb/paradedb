@@ -109,7 +109,7 @@ AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
          Sort Key: p.id, ((p.full_name IS NULL))
          ->  Custom Scan (ParadeDB Base Scan) on public.people p
                Output: p.id, (p.full_name IS NULL)
-               Filter: ((p.company_id IS NULL) OR (ANY (p.company_id = (hashed SubPlan 1).col1)))
+               Filter: ((p.company_id IS NULL) OR (hashed SubPlan 1))
                Table: people
                Index: people_search_idx
                Exec Method: NormalScanExecState

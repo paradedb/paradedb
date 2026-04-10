@@ -359,14 +359,17 @@ impl BaseScanState {
         }
         self.query_count = 0;
         self.virtual_tuple_count = 0;
-        if self.visibility_checker.is_some() {
-            self.visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
-                self.heaprel(),
-                unsafe { pg_sys::GetActiveSnapshot() },
-            ));
-        }
-        if self.doc_from_heap_state.is_some() {
-            self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));
+
+        if self.heaprel().relkind() != pg_sys::RELKIND_PARTITIONED_TABLE {
+            if self.visibility_checker.is_some() {
+                self.visibility_checker = Some(VisibilityChecker::with_rel_and_snap(
+                    self.heaprel(),
+                    unsafe { pg_sys::GetActiveSnapshot() },
+                ));
+            }
+            if self.doc_from_heap_state.is_some() {
+                self.doc_from_heap_state = Some(HeapFetchState::new(self.heaprel()));
+            }
         }
         self.window_aggregate_results = None;
         self.exec_method_mut().reset(self);
@@ -376,7 +379,12 @@ impl BaseScanState {
     ///
     /// This function supports text, text[], and json/jsonb fields
     unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
-        let heaprel = self.heaprel.as_ref().expect("should have a heap relation");
+        let heaprel = match self.heaprel.as_ref() {
+            Some(rel) => rel,
+            None => {
+                pgrx::error!("doc_from_heap: should have a heap relation");
+            }
+        };
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
 
@@ -575,7 +583,6 @@ mod tests {
             (stale_ctid >> 16) > 0,
             "test needs a tuple outside block zero",
         );
-
         let heaprel = PgSearchRelation::open(heap_oid);
         unsafe {
             push_active_snapshot();

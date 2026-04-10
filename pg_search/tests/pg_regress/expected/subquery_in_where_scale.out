@@ -38,7 +38,7 @@ LIMIT 100;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: test_pages_scale.id, test_pages_scale.content
-   InitPlan 1
+   InitPlan 1 (returns $0)
      ->  Seq Scan on public.test_metadata_scale
            Output: test_metadata_scale.value
            Filter: (test_metadata_scale.name = 'pages-row-id-max'::text)
@@ -185,7 +185,7 @@ LIMIT 100;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: test_pages_scale.id, test_pages_scale.content
-   InitPlan 1
+   InitPlan 1 (returns $0)
      ->  Seq Scan on public.test_metadata_scale
            Output: test_metadata_scale.value
            Filter: (test_metadata_scale.name = 'pages-row-id-max'::text)

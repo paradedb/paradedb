@@ -318,20 +318,32 @@ pub(crate) fn estimate_selectivity(
         return Some(search_query_input.selectivity_heuristic());
     }
 
-    let heap_rel = indexrel
+    if indexrel.relkind() == pg_sys::RELKIND_PARTITIONED_INDEX {
+        return Some(search_query_input.selectivity_heuristic());
+    }
+
+    let reltuples = indexrel
         .heap_relation()
-        .expect("indexrel should be an index");
-    let reltuples = heap_rel.reltuples().map(|r| r as f64);
+        .expect("indexrel should be an index")
+        .reltuples()
+        .map(|r| r as f64);
 
     let row_estimate = RowEstimate::from_reltuples(reltuples);
 
-    let search_reader = SearchIndexReader::open(
+    let search_reader = match SearchIndexReader::open(
         indexrel,
         search_query_input,
         false,
         MvccSatisfies::LargestSegment,
-    )
-    .expect("estimate_selectivity: should be able to open a SearchIndexReader");
+    ) {
+        Ok(reader) => reader,
+        Err(e) => {
+            pgrx::error!(
+                "estimate_selectivity: failed to open SearchIndexReader: {}",
+                e
+            );
+        }
+    };
 
     // We estimate both the number of matching docs and the total number of docs.
     // If reltuples is Known, total_rows will match it. If Unknown, total_rows

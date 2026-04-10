@@ -631,8 +631,13 @@ pub struct FilterExprBuildContext<'a> {
 impl FilterExpr {
     /// Translate a Postgres expression node tree into a serializable [`FilterExpr`].
     ///
-    /// Used for both HAVING quals (pass `targetlist`) and per-aggregate FILTER
-    /// clauses (pass `sources`). The context determines how leaf nodes are resolved.
+    /// Used for both HAVING quals and per-aggregate `FILTER (WHERE ...)` clauses.
+    /// The [`FilterExprBuildContext`] determines how leaf nodes are resolved:
+    /// - HAVING passes `targetlist` so `T_Aggref` → `AggRef` and `T_Var` → `GroupRef`
+    /// - FILTER passes `sources` so `T_Var` → `ColumnRef`
+    ///
+    /// Interior nodes (`T_OpExpr`, `T_BoolExpr`, `T_NullTest`, `T_RelabelType`,
+    /// `T_Const`, `T_List`) behave identically in both contexts.
     pub unsafe fn from_pg_node(
         node: *mut pg_sys::Node,
         ctx: &FilterExprBuildContext<'_>,
@@ -645,6 +650,9 @@ impl FilterExpr {
 
         match tag {
             pg_sys::NodeTag::T_List => {
+                // Postgres sometimes wraps quals in an implicit-AND List.
+                // Translate each element and combine with AND (collapsing
+                // single-element lists to avoid a redundant And wrapper).
                 let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
                 let mut children = Vec::new();
                 for item in list.iter_ptr() {
@@ -656,6 +664,17 @@ impl FilterExpr {
                 Some(Self::And(children))
             }
             pg_sys::NodeTag::T_Aggref => {
+                // Only meaningful in the HAVING context. Match this Aggref to
+                // an aggregate already extracted into the targetlist, so the
+                // translated expression can reference `agg_{idx}` columns at
+                // exec time.
+                //
+                // We can't do pointer comparison because havingQual has its
+                // own copy of the Aggref node. Instead we match by function
+                // OID + aggstar, and for non-star aggregates also match on
+                // the (rti, attno) of the first argument. For COUNT(*) that's
+                // enough; for column aggregates the (rti, attno) check
+                // disambiguates cases like COUNT(a) vs COUNT(b).
                 let targetlist = ctx.targetlist?;
                 let aggref = node as *mut pg_sys::Aggref;
                 for (idx, agg) in targetlist.aggregates.iter().enumerate() {
@@ -666,6 +685,7 @@ impl FilterExpr {
                         if (*aggref).aggstar {
                             return Some(Self::AggRef(idx));
                         }
+                        // Non-star: confirm the argument column matches.
                         if let Some((_, _, ref _field_name)) = agg.field_refs.first() {
                             let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
                             if let Some(first_arg) = args.get_ptr(0) {
@@ -684,21 +704,27 @@ impl FilterExpr {
                         }
                     }
                 }
+                // HAVING referenced an aggregate we didn't extract — bail out
+                // of the DataFusion path and let Postgres handle it natively.
                 None
             }
             pg_sys::NodeTag::T_Var => {
+                // A plain column reference. HAVING can only reference group
+                // columns (any other Var would be a planner bug); FILTER can
+                // reference any column on the source tables, which we resolve
+                // by field name via the fast-field metadata.
                 let var = node as *mut pg_sys::Var;
                 let rti = (*var).varno as pg_sys::Index;
                 let attno = (*var).varattno;
 
-                // FILTER context: resolve to ColumnRef via sources
+                // FILTER context: resolve to ColumnRef via sources.
                 if let Some(sources) = ctx.sources {
                     let source = sources.iter().find(|s| s.rti == rti)?;
                     let field_name = fieldname_from_var(source.relid, var, attno)?.into_inner();
                     return Some(Self::ColumnRef { rti, field_name });
                 }
 
-                // HAVING context: resolve to GroupRef via targetlist
+                // HAVING context: resolve to GroupRef via targetlist.
                 if let Some(targetlist) = ctx.targetlist {
                     for gc in &targetlist.group_columns {
                         if gc.rti == rti && gc.attno == attno {
@@ -711,6 +737,8 @@ impl FilterExpr {
             pg_sys::NodeTag::T_Const => {
                 let c = node as *mut pg_sys::Const;
                 if (*c).constisnull {
+                    // NULL literals in HAVING/FILTER are unusual; don't try
+                    // to synthesize a typed NULL — bail and fall back to PG.
                     return None;
                 }
                 let typoid = (*c).consttype;

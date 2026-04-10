@@ -24,7 +24,9 @@
 
 use super::datafusion_build::JoinAggSource;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
-use crate::postgres::var::{fieldname_from_var, find_one_aggref};
+use crate::postgres::var::{
+    fieldname_from_var, find_one_aggref, find_one_var_and_fieldname, VarContext,
+};
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -246,6 +248,34 @@ pub unsafe fn extract_aggregate_targetlist(
                     )
                 })?
                 .into_inner();
+
+            group_columns.push(JoinGroupColumn {
+                rti,
+                attno,
+                field_name,
+                output_index: idx,
+            });
+        } else if let Some((var, field_name)) = find_one_var_and_fieldname(
+            VarContext::from_planner(args.root),
+            expr as *mut pg_sys::Node,
+        ) {
+            // GROUP BY on a complex expression (e.g., metadata->>'category').
+            // The resolver extracts the underlying Var and resolves the Tantivy
+            // field name (e.g., "metadata.category") from JSON operators.
+            let rti = (*var).varno as pg_sys::Index;
+            let attno = (*var).varattno;
+            let field_name = field_name.into_inner();
+
+            // Validate that the RTI is in our known sources. Unlike the T_Var
+            // branch above, we don't need the source itself — `find_one_var_and_fieldname`
+            // already resolved the Tantivy field name — but we want a clear error
+            // if the expression references a table that isn't part of the join.
+            if !sources.iter().any(|s| s.rti == rti) {
+                return Err(format!(
+                    "GROUP BY expression references table at RTI {} which is not in the join",
+                    rti
+                ));
+            }
 
             group_columns.push(JoinGroupColumn {
                 rti,

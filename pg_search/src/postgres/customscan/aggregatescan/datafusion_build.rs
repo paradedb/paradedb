@@ -32,7 +32,7 @@ use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
     MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
-use crate::postgres::customscan::pullup::resolve_fast_field;
+use crate::postgres::customscan::pullup::{resolve_fast_field, resolve_fast_field_by_name};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
@@ -850,15 +850,20 @@ pub unsafe fn populate_required_fields(
         // PgSearchTableProvider can expose them as Arrow columns.
         for gc in &targetlist.group_columns {
             if source.contains_rti(gc.rti) {
-                match resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
-                    Some(field) => source.scan_info.add_field(gc.attno, field),
-                    None => {
-                        return Err(format!(
-                            "GROUP BY column (attno={}) is not a fast field on table {}",
-                            gc.attno,
-                            source.scan_info.heaprelid.to_u32()
-                        ));
-                    }
+                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
+                    source.scan_info.add_field(gc.attno, field);
+                } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
+                    // JSON sub-field (e.g., metadata.category from metadata->>'category').
+                    // The attno maps to the parent JSON column, but Tantivy stores
+                    // sub-fields as separate fast fields with dotted names.
+                    source.scan_info.add_field_by_name(gc.attno, field);
+                } else {
+                    return Err(format!(
+                        "GROUP BY column '{}' (attno={}) is not a fast field on table {}",
+                        gc.field_name,
+                        gc.attno,
+                        source.scan_info.heaprelid.to_u32()
+                    ));
                 }
             }
         }

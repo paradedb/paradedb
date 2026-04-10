@@ -64,8 +64,10 @@ paradedb_topn_stmt = (
 )
 
 with Session(engine) as session:
-    standard_rows = session.execute(standard_topn_stmt).all()
-    paradedb_rows = session.execute(paradedb_topn_stmt).all()
+    {
+        "standard_rows": session.execute(standard_topn_stmt).all(),
+        "paradedb_rows": session.execute(paradedb_topn_stmt).all(),
+    }
 ```
 
 ```ruby Rails

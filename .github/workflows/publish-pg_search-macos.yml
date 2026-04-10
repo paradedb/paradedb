@@ -113,15 +113,20 @@ jobs:
 
       - name: Extract pgrx Version
         id: pgrx
-        working-directory: pg_search/
-        run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo version=$version >> $GITHUB_OUTPUT
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Initialize pgrx for Current PostgreSQL Version
+      - name: Initialize pgrx environment
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
@@ -224,5 +229,5 @@ jobs:
         if: failure()
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> \`publish-pg_search-macos\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          MESSAGE="<!here> \`publish-pg_search-macos\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

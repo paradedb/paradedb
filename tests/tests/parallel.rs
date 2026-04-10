@@ -416,7 +416,9 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
         }
     });
 
-    for _ in 0..10000 {
+    // Originally this ran 10,000 times which took quite some time. On my machine and in CI, running 400 times seems
+    // to be enough to reliably reproduce the bug (#4381) and makes the test run much faster.
+    for _ in 0..400 {
         let result = sqlx::query_as::<_, (i64,)>(
             "SELECT COUNT(*) FROM test t WHERE t.column_a @@@ paradedb.all() AND t.column_b = TRUE",
         )

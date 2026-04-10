@@ -55,8 +55,10 @@ term_query_2 = (
 )
 
 with Session(engine) as session:
-    rows_query_1 = session.execute(term_query_1).all()
-    rows_query_2 = session.execute(term_query_2).all()
+    {
+        "rows_query_1": session.execute(term_query_1).all(),
+        "rows_query_2": session.execute(term_query_2).all(),
+    }
 ```
 
 ```ruby Rails
@@ -152,7 +154,7 @@ stmt = (
 )
 
 with Session(engine) as session:
-    rows = session.execute(stmt).all()
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails

@@ -41,7 +41,7 @@ stmt = (
 )
 
 with Session(engine) as session:
-    rows = session.execute(stmt).all()
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -100,7 +100,7 @@ stmt = (
 )
 
 with Session(engine) as session:
-    rows = session.execute(stmt).all()
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -158,7 +158,7 @@ stmt = (
 )
 
 with Session(engine) as session:
-    rows = session.execute(stmt).all()
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -225,7 +225,7 @@ stmt = (
 )
 
 with Session(engine) as session:
-    rows = session.execute(stmt).all()
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -284,7 +284,7 @@ stmt = (
 )
 
 with Session(engine) as session:
-    rows = session.execute(stmt).all()
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -327,7 +327,7 @@ LIMIT 5;
 ```python Django
 from paradedb import Match, ParadeDB
 
-rows, facets = (
+(
     MockItem.objects
     .filter(description=ParadeDB(Match('running shoes', operator='OR')))
     .order_by('rating')
@@ -352,7 +352,7 @@ stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=Mock
 
 with Session(engine) as session:
     rows = session.execute(stmt).all()
-    aggregates = facets.extract(rows)
+    facets.extract(rows)
 ```
 
 ```ruby Rails

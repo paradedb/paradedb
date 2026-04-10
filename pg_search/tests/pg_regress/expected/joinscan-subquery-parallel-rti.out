@@ -1,0 +1,115 @@
+-- Regression test for heap_rti collision in parallel JoinScan with NOT IN subquery.
+--
+-- When a NOT IN (SELECT ...) subquery is extracted from baserestrictinfo as an
+-- ANTI join, the inner table's heap_rti comes from a separate PlannerInfo.
+-- Both the outer and inner tables can have heap_rti=1, causing the parallel
+-- partitioning logic to misidentify the partitioning source. Workers then open
+-- the wrong index with the wrong segment IDs, producing:
+-- "load_metas: ParallelWorker didn't load the correct segments"
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_custom_scan = on;
+SET paradedb.enable_join_custom_scan = on;
+SET paradedb.min_rows_per_worker = 0;
+SET max_parallel_workers = 4;
+SET max_parallel_workers_per_gather = 4;
+SET parallel_tuple_cost = 0;
+SET parallel_setup_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET min_parallel_index_scan_size = 0;
+SET parallel_leader_participation = off;
+DROP TABLE IF EXISTS js_rti_excluded CASCADE;
+DROP TABLE IF EXISTS js_rti_items CASCADE;
+DROP TABLE IF EXISTS js_rti_people CASCADE;
+-- items: main table with search predicate. category_id at attno=2 must be a
+-- fast field so the activation check passes even when the RTI collision causes
+-- the planner to check items' column 2 instead of excluded's column 2.
+CREATE TABLE js_rti_items (
+    id BIGINT PRIMARY KEY,
+    category_id BIGINT,
+    overview TEXT
+) WITH (autovacuum_enabled = false);
+CREATE TABLE js_rti_people (
+    id BIGINT PRIMARY KEY,
+    company_id BIGINT
+) WITH (autovacuum_enabled = false);
+-- excluded: NOT IN subquery table. company_id is at attno=2.
+CREATE TABLE js_rti_excluded (
+    id BIGINT PRIMARY KEY,
+    company_id BIGINT,
+    technology_name TEXT
+) WITH (autovacuum_enabled = false);
+SET paradedb.global_mutable_segment_rows = 0;
+CREATE INDEX js_rti_items_bm25 ON js_rti_items
+USING bm25 (id, category_id, overview)
+WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
+CREATE INDEX js_rti_people_bm25 ON js_rti_people
+USING bm25 (id, company_id)
+WITH (key_field = 'id', numeric_fields = '{"company_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
+CREATE INDEX js_rti_excluded_bm25 ON js_rti_excluded
+USING bm25 (id, company_id, technology_name)
+WITH (key_field = 'id', numeric_fields = '{"company_id": {"fast": true}}', target_segment_count = 64, background_layer_sizes = '0');
+-- Insert in batches to create multiple segments for parallel execution.
+INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(1, 10000) i;
+INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(10001, 20000) i;
+INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(20001, 30000) i;
+INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(30001, 40000) i;
+INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(40001, 50000) i;
+INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(50001, 60000) i;
+INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(60001, 70000) i;
+INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(70001, 80000) i;
+INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(80001, 90000) i;
+INSERT INTO js_rti_items SELECT i, i%10, CASE WHEN i%2=0 THEN 'software platform' ELSE 'hardware device' END FROM generate_series(90001, 100000) i;
+INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(1, 100000) i;
+INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(100001, 200000) i;
+INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(200001, 300000) i;
+INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(300001, 400000) i;
+INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(400001, 500000) i;
+INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(500001, 600000) i;
+INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(600001, 700000) i;
+INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(700001, 800000) i;
+INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(800001, 900000) i;
+INSERT INTO js_rti_people SELECT i, (i%100000)+1 FROM generate_series(900001, 1000000) i;
+INSERT INTO js_rti_excluded (id, company_id, technology_name) SELECT x, x*3, 'Marketo' FROM generate_series(1, 5000) x;
+RESET paradedb.global_mutable_segment_rows;
+ANALYZE;
+-- The query uses EXISTS and NOT IN subqueries (no explicit JOIN).
+-- Postgres pulls up EXISTS into a SEMI join, triggering JoinScan's join hook
+-- for items+people. The NOT IN stays as a SubPlan and is extracted as an ANTI
+-- join from items' baserestrictinfo inside collect_join_sources_base_rel.
+--
+-- Before the fix, parallel workers panic with:
+-- "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments"
+SELECT i.id
+FROM js_rti_items i
+WHERE i.overview @@@ 'software'
+  AND i.id NOT IN (
+      SELECT DISTINCT e.company_id
+      FROM js_rti_excluded e
+      WHERE e.id @@@ pdb.all()
+        AND e.technology_name === ARRAY['Marketo']
+  )
+  AND EXISTS (
+      SELECT p.id
+      FROM js_rti_people p
+      WHERE p.company_id = i.id
+  )
+ORDER BY i.id DESC
+LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+   id   
+--------
+ 100000
+  99998
+  99996
+  99994
+  99992
+  99990
+  99988
+  99986
+  99984
+  99982
+(10 rows)
+
+DROP TABLE js_rti_excluded CASCADE;
+DROP TABLE js_rti_items CASCADE;
+DROP TABLE js_rti_people CASCADE;

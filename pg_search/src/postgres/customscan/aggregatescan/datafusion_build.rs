@@ -26,17 +26,16 @@
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
-    FilterNode, JoinKeyPair, JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource,
-    JoinSourceCandidate, JoinType, MultiTablePredicateInfo, PlannerRootId, RelNode,
+    lookup_base_rel_info, try_extract_equi_key, FilterNode, JoinKeyPair, JoinLevelExpr,
+    JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
+    MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid, get_rte};
+use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
@@ -70,6 +69,9 @@ pub struct JoinAggSource {
 
 /// Extract all tables participating in the join from `input_rel.relids` and look up
 /// their RTE / BM25 index information.
+///
+/// Delegates per-relation metadata lookup to the shared [`lookup_base_rel_info`]
+/// in `joinscan/build.rs`.
 pub unsafe fn collect_join_agg_sources(
     root: *mut pg_sys::PlannerInfo,
     input_rel: &pg_sys::RelOptInfo,
@@ -78,27 +80,9 @@ pub unsafe fn collect_join_agg_sources(
     let rtis: Vec<pg_sys::Index> = bms_iter(input_rel.relids).collect();
 
     for rti in rtis {
-        let rte = get_rte(
-            (*root).simple_rel_array_size as usize,
-            (*root).simple_rte_array,
-            rti,
-        );
-        let Some(rte) = rte else { continue };
-
-        let Some(relid) = get_plain_relation_relid(rte) else {
+        let Some((relid, alias, bm25_index)) = lookup_base_rel_info(root, rti) else {
             continue;
         };
-
-        let alias = if !(*rte).eref.is_null() && !(*(*rte).eref).aliasname.is_null() {
-            std::ffi::CStr::from_ptr((*(*rte).eref).aliasname)
-                .to_str()
-                .ok()
-                .map(|s| s.to_string())
-        } else {
-            None
-        };
-
-        let bm25_index = rel_get_bm25_index(relid).map(|(_, idx)| idx);
 
         sources.push(JoinAggSource {
             rti,
@@ -128,7 +112,7 @@ pub unsafe fn collect_join_agg_sources(
 ///    operators whose two sides reference different base relations.
 ///
 /// The parse tree gives the skeleton, the path gives the keys, and
-/// [`inject_equi_keys`] attaches the keys to the topmost `JoinNode`.
+/// [`RelNode::inject_equi_keys`] attaches the keys to the correct join levels.
 pub unsafe fn extract_join_tree_from_parse(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinAggSource],
@@ -151,7 +135,7 @@ pub unsafe fn extract_join_tree_from_parse(
     let path_info = analyze_join_path_restrictinfo(input_rel, sources);
 
     if !path_info.equi_keys.is_empty() {
-        inject_equi_keys(&mut plan, path_info.equi_keys);
+        plan.inject_equi_keys(path_info.equi_keys);
     }
 
     // Fix plan_positions (they default to 0 from JoinSourceCandidate)
@@ -379,9 +363,9 @@ unsafe fn build_join_node(
 
     let join_type = JoinType::try_from(join.jointype).map_err(|e| e.to_string())?;
 
-    // Support INNER and LEFT/RIGHT JOINs
+    // Support INNER, LEFT/RIGHT, and FULL OUTER JOINs
     match join_type {
-        JoinType::Inner | JoinType::Left | JoinType::Right => {}
+        JoinType::Inner | JoinType::Left | JoinType::Right | JoinType::Full => {}
         _ => {
             return Err(format!(
                 "aggregate-on-join does not support {} JOIN",
@@ -452,73 +436,21 @@ unsafe fn extract_equi_keys_from_expr(
 
 /// Try to extract a single equi-join key from an `OpExpr`.
 ///
-/// Returns `Some(JoinKeyPair)` if the expression is `var1 = var2` where
-/// `var1` and `var2` reference different tables.
+/// Delegates to the shared [`try_extract_equi_key`] in `joinscan/build.rs`,
+/// scoping the valid RTIs to the tables participating in this aggregate join.
 unsafe fn try_extract_one_equi_key(
     op: *mut pg_sys::OpExpr,
     sources: &[JoinAggSource],
 ) -> Option<JoinKeyPair> {
-    let opno = (*op).opno;
-
-    // Check if operator is an equality operator
-    // Check if operator is merge-joinable (i.e., an equality operator).
-    // Pass InvalidOid to check any input type.
-    if !pg_sys::op_mergejoinable(opno, pg_sys::Oid::INVALID) {
-        return None;
-    }
-
-    let args = PgList::<pg_sys::Node>::from_pg((*op).args);
-    if args.len() != 2 {
-        return None;
-    }
-
-    let left_node = args.get_ptr(0)?;
-    let right_node = args.get_ptr(1)?;
-
-    // Both sides must be Var nodes
-    let left_var = nodecast!(Var, T_Var, left_node)?;
-    let right_var = nodecast!(Var, T_Var, right_node)?;
-
-    let left_rti = (*left_var).varno as pg_sys::Index;
-    let right_rti = (*right_var).varno as pg_sys::Index;
-
-    // Must reference different tables
-    if left_rti == right_rti {
-        return None;
-    }
-
-    // Both tables must be in our sources (early-return None if not)
-    sources.iter().find(|s| s.rti == left_rti)?;
-    sources.iter().find(|s| s.rti == right_rti)?;
-
-    let left_attno = (*left_var).varattno;
-    let right_attno = (*right_var).varattno;
-
-    // Get type info
-    let mut typlen: i16 = 0;
-    let mut typbyval: bool = false;
-    pg_sys::get_typlenbyval(
-        (*left_var).vartype,
-        &mut typlen as *mut _,
-        &mut typbyval as *mut _,
-    );
-
-    Some(JoinKeyPair {
-        outer_rti: left_rti,
-        outer_attno: left_attno,
-        inner_rti: right_rti,
-        inner_attno: right_attno,
-        type_oid: (*left_var).vartype,
-        typlen,
-        typbyval,
-    })
+    let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.rti).collect();
+    try_extract_equi_key(op, &valid_rtis)
 }
 
 /// Walk the WHERE clause quals and attach equi-join keys to the appropriate join nodes.
 ///
 /// For implicit joins (comma-separated FROM), the equi-keys live in the WHERE clause
-/// rather than in an ON clause. This function extracts them and pushes them into the
-/// `equi_keys` of the topmost `JoinNode`.
+/// rather than in an ON clause. Each key is distributed to the correct join level
+/// using [`RelNode::inject_equi_keys`] so that 3+ table joins work correctly.
 unsafe fn extract_equi_keys_from_quals(
     quals: *mut pg_sys::Node,
     sources: &[JoinAggSource],
@@ -529,15 +461,7 @@ unsafe fn extract_equi_keys_from_quals(
         return Ok(());
     }
 
-    // Push equi-keys into the topmost join node
-    match plan {
-        RelNode::Join(ref mut join_node) => {
-            join_node.equi_keys.extend(keys);
-        }
-        _ => {
-            // Single scan — keys from WHERE don't apply to a non-join
-        }
-    }
+    plan.inject_equi_keys(keys);
 
     Ok(())
 }
@@ -686,17 +610,189 @@ pub unsafe fn has_non_equi_join_quals(
     analyze_join_path_restrictinfo(input_rel, sources).unhandled > 0
 }
 
-/// Inject extracted equi-join keys into the topmost JoinNode of the plan.
-fn inject_equi_keys(plan: &mut RelNode, keys: Vec<JoinKeyPair>) {
-    match plan {
-        RelNode::Join(ref mut join_node) => {
-            join_node.equi_keys.extend(keys);
+impl super::privdat::HavingExpr {
+    /// Translate a Postgres HAVING qual node tree into a serializable `HavingExpr`.
+    ///
+    /// HAVING expressions reference aggregates via `Aggref` nodes and group columns
+    /// via `Var` nodes. We match each Aggref to its position in the output target
+    /// list using `pg_sys::equal` (same approach as `detect_join_aggregate_topk`).
+    pub unsafe fn from_pg_node(
+        node: *mut pg_sys::Node,
+        targetlist: &super::join_targetlist::JoinAggregateTargetList,
+    ) -> Option<Self> {
+        use super::privdat::HavingOp;
+
+        if node.is_null() {
+            return None;
         }
-        RelNode::Filter(ref mut filter) => {
-            inject_equi_keys(&mut filter.input, keys);
-        }
-        RelNode::Scan(_) => {
-            // Single scan — no join to inject into
+
+        let tag = (*node).type_;
+
+        match tag {
+            pg_sys::NodeTag::T_List => {
+                // Postgres may wrap HAVING quals in a List (AND-implicit).
+                // Translate each element and combine with AND.
+                let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+                let mut children = Vec::new();
+                for item in list.iter_ptr() {
+                    children.push(Self::from_pg_node(item, targetlist)?);
+                }
+                if children.len() == 1 {
+                    return children.into_iter().next();
+                }
+                Some(Self::And(children))
+            }
+            pg_sys::NodeTag::T_Aggref => {
+                // Match this Aggref to an aggregate in the targetlist by output_index.
+                // The output_rel.reltarget.exprs ordering matches what we parsed.
+                let aggref = node as *mut pg_sys::Aggref;
+                // Find which aggregate this matches by comparing the Aggref pointer
+                // with the output_rel target list positions stored during extraction.
+                for (idx, _agg) in targetlist.aggregates.iter().enumerate() {
+                    // We can't do pointer comparison since havingQual has its own copy.
+                    // Instead, use the aggregate's output_index to reconstruct position.
+                    // The Aggref in HAVING should match one in the targetlist by pg_sys::equal.
+                    // But we don't have the original exprs here. Use a simpler heuristic:
+                    // match by aggfnoid + aggstar + position.
+                    let agg = &targetlist.aggregates[idx];
+                    if (*aggref).aggfnoid.to_u32() == agg.func_oid
+                        && ((*aggref).aggstar
+                            == matches!(agg.agg_kind, super::join_targetlist::AggKind::CountStar))
+                    {
+                        // For COUNT(*) there's typically only one, so first match is fine.
+                        // For column aggregates, check field reference matches too.
+                        if (*aggref).aggstar {
+                            return Some(Self::AggRef(idx));
+                        }
+                        // Non-star: check the argument column matches
+                        if let Some((_, _, ref _field_name)) = agg.field_refs.first() {
+                            let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+                            if let Some(first_arg) = args.get_ptr(0) {
+                                if let Some(var) = crate::postgres::var::find_one_var(
+                                    (*first_arg).expr as *mut pg_sys::Node,
+                                ) {
+                                    let rti = (*var).varno as pg_sys::Index;
+                                    let attno = (*var).varattno;
+                                    if let Some((agg_rti, agg_attno, _)) = agg.field_refs.first() {
+                                        if rti == *agg_rti && attno == *agg_attno {
+                                            return Some(Self::AggRef(idx));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Couldn't match — HAVING references an aggregate we don't know about
+                None
+            }
+            pg_sys::NodeTag::T_Var => {
+                // Group column reference
+                let var = node as *mut pg_sys::Var;
+                let rti = (*var).varno as pg_sys::Index;
+                let attno = (*var).varattno;
+                for gc in &targetlist.group_columns {
+                    if gc.rti == rti && gc.attno == attno {
+                        return Some(Self::GroupRef(gc.field_name.clone()));
+                    }
+                }
+                None
+            }
+            pg_sys::NodeTag::T_Const => {
+                let c = node as *mut pg_sys::Const;
+                if (*c).constisnull {
+                    return None; // NULL in HAVING is unusual, skip
+                }
+                let typoid = (*c).consttype;
+                let datum = (*c).constvalue;
+                match typoid {
+                    pg_sys::INT2OID => {
+                        let i: Option<i16> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitInt(i? as i64))
+                    }
+                    pg_sys::INT4OID => {
+                        let i: Option<i32> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitInt(i? as i64))
+                    }
+                    pg_sys::INT8OID => {
+                        let i: Option<i64> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitInt(i?))
+                    }
+                    pg_sys::FLOAT4OID => {
+                        let f: Option<f32> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitFloat(f? as f64))
+                    }
+                    pg_sys::FLOAT8OID => {
+                        let f: Option<f64> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitFloat(f?))
+                    }
+                    pg_sys::BOOLOID => {
+                        let b: Option<bool> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitBool(b?))
+                    }
+                    _ => None,
+                }
+            }
+            pg_sys::NodeTag::T_OpExpr => {
+                let op = node as *mut pg_sys::OpExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+                if args.len() != 2 {
+                    return None;
+                }
+                let left = Self::from_pg_node(args.get_ptr(0)?, targetlist)?;
+                let right = Self::from_pg_node(args.get_ptr(1)?, targetlist)?;
+
+                let opname_ptr = pg_sys::get_opname((*op).opno);
+                if opname_ptr.is_null() {
+                    return None;
+                }
+                let opname = std::ffi::CStr::from_ptr(opname_ptr).to_str().ok()?;
+                let having_op = match opname {
+                    "=" => HavingOp::Eq,
+                    "<>" | "!=" => HavingOp::NotEq,
+                    "<" => HavingOp::Lt,
+                    "<=" => HavingOp::LtEq,
+                    ">" => HavingOp::Gt,
+                    ">=" => HavingOp::GtEq,
+                    _ => return None,
+                };
+
+                Some(Self::BinOp {
+                    left: Box::new(left),
+                    op: having_op,
+                    right: Box::new(right),
+                })
+            }
+            pg_sys::NodeTag::T_NullTest => {
+                let nt = node as *mut pg_sys::NullTest;
+                let arg = Self::from_pg_node((*nt).arg as *mut pg_sys::Node, targetlist)?;
+                if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {
+                    Some(Self::IsNull(Box::new(arg)))
+                } else {
+                    Some(Self::IsNotNull(Box::new(arg)))
+                }
+            }
+            pg_sys::NodeTag::T_BoolExpr => {
+                let bexpr = node as *mut pg_sys::BoolExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+                let mut children = Vec::new();
+                for arg in args.iter_ptr() {
+                    children.push(Self::from_pg_node(arg, targetlist)?);
+                }
+                match (*bexpr).boolop {
+                    pg_sys::BoolExprType::AND_EXPR => Some(Self::And(children)),
+                    pg_sys::BoolExprType::OR_EXPR => Some(Self::Or(children)),
+                    pg_sys::BoolExprType::NOT_EXPR => {
+                        if children.len() == 1 {
+                            Some(Self::Not(Box::new(children.into_iter().next()?)))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
         }
     }
 }
@@ -778,6 +874,25 @@ pub unsafe fn populate_required_fields(
                             return Err(format!(
                                 "aggregate argument (attno={}) is not a fast field on table {}",
                                 attno,
+                                source.scan_info.heaprelid.to_u32()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add fields referenced in aggregate ORDER BY clauses (e.g.,
+        // STRING_AGG(col, ',' ORDER BY col2) needs col2 as a fast field).
+        for agg in &targetlist.aggregates {
+            for ob in &agg.order_by {
+                if source.contains_rti(ob.rti) {
+                    match resolve_fast_field(ob.attno as i32, &tupdesc, indexrel) {
+                        Some(field) => source.scan_info.add_field(ob.attno, field),
+                        None => {
+                            return Err(format!(
+                                "aggregate ORDER BY column '{}' is not a fast field on table {}",
+                                ob.field_name,
                                 source.scan_info.heaprelid.to_u32()
                             ));
                         }

@@ -250,6 +250,9 @@ jobs:
         working-directory: tests/
         run: |
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
+          # The cached ~/.pgrx directory includes the data directory, so restore hits
+          # can already contain a pg_search database from a previous run.
+          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/dropdb --if-exists -p 288${{ matrix.pg_version }} -h localhost pg_search
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
       # ---------- Tests ----------

@@ -50,10 +50,13 @@ use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_match
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, PgList};
 
+<<<<<<< HEAD
 /// Flags for `pull_var_clause`: recurse through aggregates, window functions,
 /// and PlaceHolderVars to extract the underlying Var nodes.
 /// PVC_RECURSE_PLACEHOLDERS is required because `placeholder_support` wraps
 /// `pdb.score()` calls in PlaceHolderVar when joins are present.
+=======
+>>>>>>> 11ff2024b (fix: restore PVC_RECURSE_PLACEHOLDERS in JoinScan planning (#4744))
 const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_WINDOWFUNCS
     | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;

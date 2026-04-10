@@ -26,6 +26,8 @@ use std::process::Command;
 use std::time::Instant;
 
 mod convert;
+mod sample;
+mod utils;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -40,6 +42,8 @@ enum Commands {
     Benchmark(BenchmarkArgs),
     /// Convert parquet datasets in S3 to CSV format using DuckDB.
     Convert(convert::ConvertArgs),
+    /// Sample a CSV dataset to a target row count, preserving table relationships.
+    Sample(sample::SampleArgs),
 }
 
 #[derive(Parser)]
@@ -107,6 +111,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Benchmark(args) => run_benchmark(args).await,
         Commands::Convert(args) => convert::run_convert(args)?,
+        Commands::Sample(args) => sample::run_sample(args)?,
     }
     Ok(())
 }

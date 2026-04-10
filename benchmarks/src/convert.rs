@@ -17,7 +17,8 @@
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use duckdb::{AccessMode, Config, Connection};
+
+use crate::utils::{open_duckdb_conn, validate_input_output};
 
 #[derive(Parser)]
 pub struct ConvertArgs {
@@ -41,99 +42,13 @@ pub struct ConvertArgs {
     pub dry_run: bool,
 }
 
-fn open_duckdb_conn() -> Result<Connection> {
-    let config = Config::default()
-        .access_mode(AccessMode::Automatic)?
-        .enable_autoload_extension(true)?;
-    let conn = Connection::open_in_memory_with_flags(config)
-        .context("Failed to open DuckDB in-memory connection")?;
-
-    conn.execute_batch(
-        "CREATE OR REPLACE SECRET secret (TYPE s3, PROVIDER credential_chain);",
-    )
-    .context("Failed to configure S3 credentials. Ensure AWS credentials are available via environment variables, ~/.aws/credentials, or instance metadata.")?;
-
-    Ok(conn)
-}
-
-/// Validation phase:
-/// check that each table has at least one parquet file, and that the output location for each
-/// table is empty
-fn validate_conversion(
-    tables: &[String],
-    conn: &Connection,
-    input: &str,
-    output: &str,
-) -> Result<()> {
-    println!("Validating input and output paths...");
-    let mut missing_tables: Vec<String> = Vec::new();
-    let mut filled_outputs: Vec<String> = Vec::new();
-
-    for table in tables.iter() {
-        let input_glob = format!("{input}/{table}/*.parquet");
-        let input_file_count: usize = conn
-            .query_row(
-                &format!("SELECT count(*) FROM (SELECT * FROM glob('{input_glob}') LIMIT 1)"),
-                [],
-                |row| row.get(0),
-            )
-            .with_context(|| format!("Failed to check parquet files for table '{table}'"))?;
-        let input_exists = input_file_count > 0;
-
-        let output_glob = format!("{output}/{table}/*");
-        let output_file_count: usize = conn
-            .query_row(
-                &format!("SELECT count(*) FROM (SELECT * FROM glob('{output_glob}') LIMIT 1)"),
-                [],
-                |row| row.get(0),
-            )
-            .with_context(|| format!("Failed to check output files for table '{table}'"))?;
-        let output_empty = output_file_count == 0;
-
-        if !input_exists {
-            println!("  {table}: no parquet files found at '{input_glob}'");
-            missing_tables.push(table.clone());
-        }
-        if !output_empty {
-            println!("  {table}: output directory not empty '{output_glob}'");
-            filled_outputs.push(table.clone());
-        }
-        if input_exists && output_empty {
-            println!("  {table}: ok");
-        }
-    }
-
-    match (missing_tables.is_empty(), filled_outputs.is_empty()) {
-        (false, false) => bail!(
-            "No parquet files found for {} table(s): {}.\nOutput directories not empty for {} table(s): {}\nAborting before any conversion work.",
-            filled_outputs.len(),
-            filled_outputs.join(", "),
-            missing_tables.len(),
-            missing_tables.join(", ")
-        ),
-        (false, true) => bail!(
-            "No parquet files found for {} table(s): {}. Aborting before any conversion work.",
-            missing_tables.len(),
-            missing_tables.join(", ")
-        ),
-        (true, false) => bail!(
-            "Output directories not empty for {} table(s): {} Aborting before any conversion work.",
-            filled_outputs.len(),
-            filled_outputs.join(", "),
-        ),
-        (true, true) => {}
-    }
-
-    Ok(())
-}
-
 pub fn run_convert(args: ConvertArgs) -> Result<()> {
     let conn = open_duckdb_conn()?;
 
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
 
-    validate_conversion(&args.tables, &conn, input, output)?;
+    validate_input_output(&args.tables, &conn, input, output)?;
 
     if args.dry_run {
         println!("\nDry run: counting planned conversions...");
@@ -153,15 +68,6 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
         println!("\nDry run complete. No files were converted.");
         return Ok(());
     }
-
-    // Setup phase
-    conn.execute("INSTALL httpfs", [])
-        .with_context(|| "Failed to install httpfs extension")?;
-    conn.execute("LOAD httpfs", [])
-        .with_context(|| "Failed to load httpfs extension")?;
-    // Increase timeout (default is 30 seconds) to allow for working with larger files (200MB+)
-    conn.execute("SET http_timeout = 120", [])
-        .with_context(|| "Failed to configure http timeout")?;
 
     // Conversion phase: one COPY per table, DuckDB handles parallelism internally.
     println!("\nConverting parquet to CSV...");

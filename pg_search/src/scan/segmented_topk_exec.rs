@@ -76,6 +76,12 @@
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::postgres::customscan::joinscan::build::CtidColumn;
+use crate::postgres::customscan::joinscan::visibility_filter::{
+    materialize_deferred_ctid, DeferredCtidMaterializationState,
+};
+use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::rel::PgSearchRelation;
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
 use arrow_array::{
@@ -98,9 +104,10 @@ use datafusion::physical_plan::metrics::{
     Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
+use pgrx::pg_sys;
 use std::any::Any;
 use std::collections::BinaryHeap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
 
@@ -108,6 +115,60 @@ use tantivy::{DocId, SegmentOrdinal};
 pub struct DeferredSortColumn {
     pub sort_col_idx: usize,
     pub canonical: CanonicalColumn,
+}
+
+/// Visibility data absorbed from a `VisibilityFilterExec` during the `SegmentedTopKRule`
+/// optimization pass.
+///
+/// When `SegmentedTopKExec` absorbs a `VisibilityFilterExec` that was its direct child,
+/// it takes ownership of the plan_position/OID pairs and ctid resolvers so it can
+/// perform MVCC visibility checks inline — right after each prune cycle and at final
+/// emission — instead of deferring them to a separate downstream node.
+pub struct AbsorbedVisibilityData {
+    plan_pos_oids: Vec<(usize, pg_sys::Oid)>,
+    table_names: Vec<String>,
+    /// Per-plan_position FFHelpers for resolving packed DocAddresses to real ctids.
+    /// Wired by `VisibilityCtidResolverRule` after plan construction.
+    ctid_resolvers: Mutex<Vec<Option<Arc<FFHelper>>>>,
+}
+
+impl std::fmt::Debug for AbsorbedVisibilityData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AbsorbedVisibilityData")
+            .field("plan_pos_oids", &self.plan_pos_oids)
+            .field("table_names", &self.table_names)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AbsorbedVisibilityData {
+    pub fn new(plan_pos_oids: Vec<(usize, pg_sys::Oid)>, table_names: Vec<String>) -> Self {
+        let resolver_len = plan_pos_oids
+            .iter()
+            .map(|(p, _)| *p)
+            .max()
+            .map_or(0, |m| m + 1);
+        Self {
+            plan_pos_oids,
+            table_names,
+            ctid_resolvers: Mutex::new(vec![None; resolver_len]),
+        }
+    }
+
+    pub fn plan_pos_oids(&self) -> &[(usize, pg_sys::Oid)] {
+        &self.plan_pos_oids
+    }
+
+    pub fn set_ctid_resolver(&self, plan_pos: usize, ffhelper: Arc<FFHelper>) {
+        let mut resolvers = self
+            .ctid_resolvers
+            .lock()
+            .expect("AbsorbedVisibilityData ctid_resolvers lock poisoned");
+        if plan_pos >= resolvers.len() {
+            resolvers.resize(plan_pos + 1, None);
+        }
+        resolvers[plan_pos] = Some(ffhelper);
+    }
 }
 
 pub struct SegmentedTopKExec {
@@ -125,6 +186,10 @@ pub struct SegmentedTopKExec {
     /// string literals) that the scanner's `try_rewrite_binary` translates to
     /// per-segment ordinal bounds.
     dynamic_filter: Arc<DynamicFilterPhysicalExpr>,
+    /// Visibility data absorbed from a `VisibilityFilterExec` during plan optimization.
+    /// Present only for inner-join plans where VFExec was the direct child of
+    /// `TantivyLookupExec`. When present, this node owns MVCC visibility checking.
+    visibility_data: Option<Arc<AbsorbedVisibilityData>>,
     properties: Arc<PlanProperties>,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -153,6 +218,7 @@ impl SegmentedTopKExec {
         deferred_columns: Vec<DeferredSortColumn>,
         ffhelper: Arc<FFHelper>,
         k: usize,
+        visibility_data: Option<Arc<AbsorbedVisibilityData>>,
     ) -> Self {
         use datafusion::physical_expr::expressions::lit;
 
@@ -179,8 +245,26 @@ impl SegmentedTopKExec {
             ffhelper,
             k,
             dynamic_filter,
+            visibility_data,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
+        }
+    }
+
+    /// Returns the `(plan_position, heap_oid)` pairs whose ctid columns need
+    /// visibility checking. Empty when no `VisibilityFilterExec` was absorbed.
+    pub fn plan_pos_oids(&self) -> &[(usize, pg_sys::Oid)] {
+        self.visibility_data
+            .as_deref()
+            .map(AbsorbedVisibilityData::plan_pos_oids)
+            .unwrap_or(&[])
+    }
+
+    /// Wire an FFHelper for resolving packed DocAddresses to real ctids for
+    /// the given plan_position. Called by `VisibilityCtidResolverRule`.
+    pub fn set_ctid_resolver(&self, plan_pos: usize, ffhelper: Arc<FFHelper>) {
+        if let Some(vd) = &self.visibility_data {
+            vd.set_ctid_resolver(plan_pos, ffhelper);
         }
     }
 
@@ -264,6 +348,7 @@ impl ExecutionPlan for SegmentedTopKExec {
             self.deferred_columns.clone(),
             Arc::clone(&self.ffhelper),
             self.k,
+            self.visibility_data.clone(),
         );
         // Preserve the existing dynamic filter so that filter pushdown
         // wiring (which already holds a reference) stays connected.
@@ -316,6 +401,61 @@ impl ExecutionPlan for SegmentedTopKExec {
             self.properties.eq_properties.schema(),
         )?;
 
+        // Build per-relation visibility checker entries from the absorbed VFExec data
+        // (if any). These are created eagerly here — before the async stream body —
+        // so that `execute()` can return a clean `Err` on misconfiguration rather
+        // than failing mid-stream.
+        let visibility_entries: Vec<StkVisibilityEntry> = if let Some(vd) = &self.visibility_data {
+            let resolvers = vd
+                .ctid_resolvers
+                .lock()
+                .expect("ctid_resolvers lock poisoned")
+                .clone();
+            // SAFETY: GetActiveSnapshot is safe during query execution.
+            let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+            if snapshot.is_null() {
+                return Err(DataFusionError::Execution(
+                    "SegmentedTopKExec: requires an active Postgres snapshot \
+                         for visibility checking"
+                        .into(),
+                ));
+            }
+            let schema = self.properties.eq_properties.schema();
+            let mut entries = Vec::with_capacity(vd.plan_pos_oids.len());
+            for &(plan_pos, heap_oid) in &vd.plan_pos_oids {
+                let col_name = CtidColumn::new(plan_pos).to_string();
+                let (col_idx, _) = schema.column_with_name(&col_name).ok_or_else(|| {
+                    DataFusionError::Execution(format!(
+                        "SegmentedTopKExec: missing ctid column '{}' \
+                                 for visibility checking",
+                        col_name
+                    ))
+                })?;
+                let heaprel = PgSearchRelation::open(heap_oid);
+                let checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
+                let resolver =
+                    resolvers
+                        .get(plan_pos)
+                        .and_then(|r| r.clone())
+                        .ok_or_else(|| {
+                            DataFusionError::Execution(format!(
+                                "SegmentedTopKExec: no ctid resolver wired for \
+                                 plan_position {plan_pos}. \
+                                 VisibilityCtidResolverRule must run before execute."
+                            ))
+                        })?;
+                entries.push(StkVisibilityEntry {
+                    col_idx,
+                    checker,
+                    resolver,
+                    deferred_ctid_state: DeferredCtidMaterializationState::default(),
+                });
+            }
+            entries
+        } else {
+            Vec::new()
+        };
+
         let mut state = SegmentedTopKState {
             sort_exprs: self.sort_exprs.clone(),
             deferred_columns: self.deferred_columns.clone(),
@@ -331,6 +471,7 @@ impl ExecutionPlan for SegmentedTopKExec {
             last_segment_cutoffs: HashMap::default(),
             mat_row_converter,
             last_published_global: None,
+            visibility_entries,
             rows_input,
             rows_output,
             segments_seen,
@@ -345,7 +486,7 @@ impl ExecutionPlan for SegmentedTopKExec {
                 let batch_idx = state.batches.len();
                 state.collect_batch(&batch, batch_idx)?;
                 state.batches.push(batch);
-                state.maybe_compact();
+                state.maybe_compact()?;
             }
 
             // All input consumed — perform final sort + limit and emit exactly K rows.
@@ -403,6 +544,20 @@ impl ExecutionPlan for SegmentedTopKExec {
     }
 }
 
+/// Per-plan_position runtime state for ctid resolution and visibility checking.
+/// One entry per absorbed `(plan_pos, heap_oid)` pair; empty when no
+/// `VisibilityFilterExec` was absorbed.
+struct StkVisibilityEntry {
+    /// Index of the `ctid_{plan_position}` column in the input batch schema.
+    col_idx: usize,
+    /// MVCC visibility checker for this relation.
+    checker: VisibilityChecker,
+    /// Resolves packed DocAddresses to real ctids before visibility checking.
+    resolver: Arc<FFHelper>,
+    /// Reusable scratch buffers for packed DocAddress materialization.
+    deferred_ctid_state: DeferredCtidMaterializationState,
+}
+
 struct SegmentedTopKState {
     sort_exprs: LexOrdering,
     deferred_columns: Vec<DeferredSortColumn>,
@@ -444,6 +599,9 @@ struct SegmentedTopKState {
     /// Counts segments that had rows participating in ordinal comparison (States 0+1).
     /// Segments with only State 2 (materialized) or only NULLs are not counted.
     segments_seen: Count,
+    /// Runtime visibility checker entries, one per absorbed `(plan_pos, heap_oid)` pair.
+    /// Empty when no `VisibilityFilterExec` was absorbed.
+    visibility_entries: Vec<StkVisibilityEntry>,
 }
 
 impl SegmentedTopKState {
@@ -957,28 +1115,61 @@ impl SegmentedTopKState {
     /// current per-segment cutoffs. This bounds memory at O(K * segments)
     /// instead of O(N) for large inputs — analogous to the batch compaction
     /// step in upstream DataFusion Top K.
-    fn maybe_compact(&mut self) {
+    ///
+    /// When visibility data was absorbed, dead rows are also removed here so
+    /// that the global threshold is never inflated by rows that are invisible
+    /// in the heap. `segment_heaps` is rebuilt from the visible survivors.
+    fn maybe_compact(&mut self) -> Result<()> {
         let num_segments = self.segment_heaps.len().max(1);
         if self.row_ordinals.len() <= self.k * num_segments * 4 {
-            return;
+            return Ok(());
         }
 
-        // Determine which row_ordinals survive the current cutoffs.
-        let mut new_row_ordinals = Vec::new();
-        let mut survivors = crate::api::HashSet::default();
-
+        // Step 1: Cutoff filter — retain only rows within per-segment bounds.
         // Use take() so we own row_ordinals and can move the OwnedRows.
+        let mut new_row_ordinals = Vec::new();
         for (batch_idx, row_idx, seg_ord, heap_val) in std::mem::take(&mut self.row_ordinals) {
             let keep = match self.segment_heaps.get(&seg_ord).and_then(|h| h.peek()) {
                 Some(cutoff_val) => &heap_val <= cutoff_val,
                 None => true,
             };
             if keep {
-                survivors.insert((batch_idx, row_idx));
                 new_row_ordinals.push((batch_idx, row_idx, seg_ord, heap_val));
             }
         }
 
+        // Step 2: Visibility filter — remove dead rows so the global threshold
+        // reflects only live rows. Rebuild segment_heaps from visible survivors.
+        // pass_through_rows are NOT checked here; they are checked in emit_final_topk.
+        if !self.visibility_entries.is_empty() && !new_row_ordinals.is_empty() {
+            let row_keys: Vec<(usize, usize)> = new_row_ordinals
+                .iter()
+                .map(|(bi, ri, _, _)| (*bi, *ri))
+                .collect();
+            let visible_mask = self.check_rows_visible(&row_keys)?;
+            let any_invisible = visible_mask.iter().any(|&v| !v);
+            if any_invisible {
+                new_row_ordinals = new_row_ordinals
+                    .into_iter()
+                    .zip(visible_mask)
+                    .filter(|(_, visible)| *visible)
+                    .map(|(row, _)| row)
+                    .collect();
+                // Rebuild segment_heaps from visible survivors so the global
+                // threshold accurately reflects only live rows.
+                self.segment_heaps.clear();
+                for (_, _, seg_ord, heap_val) in &new_row_ordinals {
+                    let heap = self.segment_heaps.entry(*seg_ord).or_default();
+                    Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
+                }
+            }
+        }
+
+        // Step 3: Populate survivors set for batch compaction.
+        let mut survivors = crate::api::HashSet::default();
+        for (batch_idx, row_idx, _, _) in &new_row_ordinals {
+            survivors.insert((*batch_idx, *row_idx));
+        }
         // Include pass-through rows in the survivor set so they aren't discarded.
         for &(batch_idx, row_idx) in &self.pass_through_rows {
             survivors.insert((batch_idx, row_idx));
@@ -987,7 +1178,7 @@ impl SegmentedTopKState {
         // Don't compact if we wouldn't discard at least half the rows.
         if new_row_ordinals.len() * 2 > self.row_ordinals.capacity() {
             self.row_ordinals = new_row_ordinals;
-            return;
+            return Ok(());
         }
 
         // Filter each stored batch, build old→new row mapping, concatenate.
@@ -1011,7 +1202,8 @@ impl SegmentedTopKState {
                 }
             }
 
-            let filtered = filter_record_batch(batch, &mask).expect("compaction filter failed");
+            let filtered = filter_record_batch(batch, &mask)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
             filtered_batches.push(filtered);
         }
 
@@ -1019,11 +1211,11 @@ impl SegmentedTopKState {
             self.batches.clear();
             self.row_ordinals.clear();
             self.pass_through_rows.clear();
-            return;
+            return Ok(());
         }
 
-        let compacted =
-            concat_batches(&self.schema, &filtered_batches).expect("compaction concat failed");
+        let compacted = concat_batches(&self.schema, &filtered_batches)
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
 
         // Remap row_ordinals into the single compacted batch.
         for entry in &mut new_row_ordinals {
@@ -1041,6 +1233,86 @@ impl SegmentedTopKState {
 
         self.row_ordinals = new_row_ordinals;
         self.batches = vec![compacted];
+        Ok(())
+    }
+
+    /// Check visibility for a set of rows identified by `(batch_idx, row_idx)` pairs.
+    ///
+    /// For each absorbed `(plan_pos, heap_oid)` pair, extracts the packed DocAddress
+    /// from the ctid column of the stored batch, resolves it to a real ctid via
+    /// `FFHelper`, then calls `VisibilityChecker::check_batch`. The overall result
+    /// is the AND of all per-relation visibility masks.
+    ///
+    /// Returns a `Vec<bool>` of length `row_keys.len()` where `false` means invisible.
+    /// Returns all-true immediately when `visibility_entries` is empty.
+    fn check_rows_visible(&mut self, row_keys: &[(usize, usize)]) -> Result<Vec<bool>> {
+        if self.visibility_entries.is_empty() || row_keys.is_empty() {
+            return Ok(vec![true; row_keys.len()]);
+        }
+
+        let n = row_keys.len();
+        let mut overall_visible = vec![true; n];
+
+        for entry in self.visibility_entries.iter_mut() {
+            // Extract packed doc addresses from the stored batches.
+            let mut packed_values: Vec<u64> = Vec::with_capacity(n);
+            for &(batch_idx, row_idx) in row_keys {
+                let col = self.batches[batch_idx].column(entry.col_idx);
+                let arr = col.as_any().downcast_ref::<UInt64Array>().ok_or_else(|| {
+                    DataFusionError::Internal("SegmentedTopKExec: ctid column is not UInt64".into())
+                })?;
+                // Null ctids are treated as invisible.
+                packed_values.push(if arr.is_null(row_idx) {
+                    0
+                } else {
+                    arr.value(row_idx)
+                });
+            }
+
+            // Resolve packed DocAddresses → real ctids via FFHelper.
+            let packed_array = UInt64Array::from(packed_values);
+            let resolved_array = materialize_deferred_ctid(
+                &entry.resolver,
+                &packed_array,
+                &mut entry.deferred_ctid_state,
+            )?;
+            let resolved = resolved_array
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: resolved ctid array is not UInt64".into(),
+                    )
+                })?;
+
+            // Collect valid (non-null) ctids with their original indices.
+            // check_batch panics on None inputs, so we filter to non-null only.
+            let mut valid: Vec<(usize, u64)> = Vec::with_capacity(n);
+            for (i, vis) in overall_visible.iter_mut().enumerate() {
+                if resolved.is_null(i) {
+                    // Cannot resolve → treat as invisible.
+                    *vis = false;
+                } else {
+                    valid.push((i, resolved.value(i)));
+                }
+            }
+
+            if valid.is_empty() {
+                continue;
+            }
+
+            let ctids_for_check: Vec<Option<u64>> = valid.iter().map(|(_, c)| Some(*c)).collect();
+            let mut results: Vec<Option<u64>> = vec![None; valid.len()];
+            entry.checker.check_batch(&ctids_for_check, &mut results);
+
+            for ((orig_idx, _), result) in valid.iter().zip(results.iter()) {
+                if result.is_none() {
+                    overall_visible[*orig_idx] = false;
+                }
+            }
+        }
+
+        Ok(overall_visible)
     }
 
     /// Perform the final sort + limit after all input is consumed.
@@ -1049,6 +1321,7 @@ impl SegmentedTopKState {
     /// Steps:
     /// 1. Build ordinal survivors (rows within per-segment cutoffs).
     /// 2. Merge ordinal survivors with pass-through rows into candidate set.
+    ///    2a. (Visibility) Filter invisible rows from candidates, including pass-through rows.
     /// 3. Materialize sort column values for each candidate.
     /// 4. Sort candidates by materialized values, take top K.
     /// 5. Emit a single sorted batch.
@@ -1056,21 +1329,52 @@ impl SegmentedTopKState {
         use datafusion::common::ScalarValue;
 
         // 1. Build ordinal survivors.
-        let ordinal_survivors = self.build_survivors();
-
-        // 2. Collect all candidates: ordinal survivors + pass-through rows.
-        //    Each candidate is (batch_idx, row_idx, Option<(SegmentOrdinal, OwnedRow)>).
-        //    The OwnedRow is the ordinal-based row for ordinal survivors; None for pass-through.
+        //
+        // When visibility data is present, dead rows in the top-K heap slots would
+        // cause build_survivors to exclude live rows with worse ordinals.  Example:
+        // k=5, rows 1–5 are in the heap (ordinals 0–4), rows 6–15 are pruned out,
+        // but rows 1–3 are dead → only 2 live rows survive.  To avoid this, we skip
+        // the ordinal-based pre-filter and include ALL row_ordinals as candidates;
+        // the visibility pass removes dead rows and the final sort+limit yields the
+        // correct k live rows.  The extra visibility checks (over all row_ordinals
+        // rather than just the top-k survivors) are acceptable for correctness.
         type Candidate = (usize, usize, Option<(SegmentOrdinal, OwnedRow)>);
         let mut candidates: Vec<Candidate> = Vec::new();
 
-        for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
-            if ordinal_survivors.contains(&(*batch_idx, *row_idx)) {
+        if !self.visibility_entries.is_empty() {
+            // Include every row from row_ordinals so that after dead rows are removed
+            // we still have enough live rows to fill k slots.
+            for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
                 candidates.push((*batch_idx, *row_idx, Some((*seg_ord, heap_val.clone()))));
             }
+        } else {
+            // 1. Build ordinal survivors (normal path, no visibility data).
+            let ordinal_survivors = self.build_survivors();
+            // 2. Collect all candidates: ordinal survivors only.
+            for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
+                if ordinal_survivors.contains(&(*batch_idx, *row_idx)) {
+                    candidates.push((*batch_idx, *row_idx, Some((*seg_ord, heap_val.clone()))));
+                }
+            }
         }
+
+        // Always include pass-through rows (State 2 + NULL ordinals).
         for &(batch_idx, row_idx) in &self.pass_through_rows {
             candidates.push((batch_idx, row_idx, None));
+        }
+
+        // 2a. Visibility filter: remove invisible rows from candidates.
+        //     pass_through_rows are checked here (they bypass the prune cycle).
+        if !self.visibility_entries.is_empty() && !candidates.is_empty() {
+            let row_keys: Vec<(usize, usize)> =
+                candidates.iter().map(|(bi, ri, _)| (*bi, *ri)).collect();
+            let visible_mask = self.check_rows_visible(&row_keys)?;
+            candidates = candidates
+                .into_iter()
+                .zip(visible_mask)
+                .filter(|(_, visible)| *visible)
+                .map(|(c, _)| c)
+                .collect();
         }
 
         if candidates.is_empty() {
@@ -1259,8 +1563,37 @@ impl SegmentedTopKState {
             output_columns.push(reordered);
         }
 
-        let result = RecordBatch::try_new(self.schema.clone(), output_columns)
+        let mut result = RecordBatch::try_new(self.schema.clone(), output_columns)
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+
+        // Resolve packed DocAddresses → real ctids in the absorbed ctid columns.
+        // When SegmentedTopKRule absorbs a VisibilityFilterExec, the ctid columns in
+        // the stored batches still hold packed DocAddresses (the batches come directly
+        // from HashJoinExec, not from VFExec which would have resolved them). The
+        // downstream JoinScan needs real ctids to fetch row data from the heap, so
+        // we must resolve before emitting — mirroring what VFExec's filter_batch() does.
+        if !self.visibility_entries.is_empty() {
+            let mut columns: Vec<ArrayRef> = result.columns().to_vec();
+            for entry in self.visibility_entries.iter_mut() {
+                let packed_col = columns[entry.col_idx]
+                    .as_any()
+                    .downcast_ref::<UInt64Array>()
+                    .ok_or_else(|| {
+                        DataFusionError::Internal(
+                            "SegmentedTopKExec: ctid column is not UInt64 during final resolution"
+                                .into(),
+                        )
+                    })?;
+                let resolved = materialize_deferred_ctid(
+                    &entry.resolver,
+                    packed_col,
+                    &mut entry.deferred_ctid_state,
+                )?;
+                columns[entry.col_idx] = resolved;
+            }
+            result = RecordBatch::try_new(self.schema.clone(), columns)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        }
 
         Ok(Some(result))
     }
@@ -1456,6 +1789,7 @@ mod tests {
                 deferred_columns,
                 ffhelper.clone(),
                 10,
+                None,
             );
 
             let task_ctx = Arc::new(TaskContext::default());

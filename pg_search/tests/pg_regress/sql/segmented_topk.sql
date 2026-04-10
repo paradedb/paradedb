@@ -388,6 +388,120 @@ ORDER BY f.title ASC
 LIMIT 5;
 
 -- =============================================================================
+-- TEST 13: Visibility filtering — deleted rows must not appear in STK results
+-- =============================================================================
+-- Verifies that SegmentedTopKExec correctly filters MVCC-invisible (deleted)
+-- rows via its absorbed VisibilityFilterExec data. Both the prune-cycle check
+-- (maybe_compact) and the final-emit check (emit_final_topk) are exercised.
+
+DROP TABLE IF EXISTS stk_vis_files CASCADE;
+DROP TABLE IF EXISTS stk_vis_docs CASCADE;
+
+CREATE TABLE stk_vis_docs (
+    id TEXT PRIMARY KEY,
+    category TEXT
+);
+
+INSERT INTO stk_vis_docs (id, category) VALUES
+('vis-01', 'VISIBILITY_TEST alpha'),
+('vis-02', 'VISIBILITY_TEST beta'),
+('vis-03', 'VISIBILITY_TEST gamma');
+
+CREATE TABLE stk_vis_files (
+    id SERIAL PRIMARY KEY,
+    doc_id TEXT,
+    title TEXT
+);
+
+-- 15 files: titles 'Title 01'..'Title 15', round-robin across 3 docs.
+INSERT INTO stk_vis_files (doc_id, title)
+SELECT
+    'vis-' || LPAD(((i - 1) % 3 + 1)::TEXT, 2, '0'),
+    'Title ' || LPAD(i::TEXT, 2, '0')
+FROM generate_series(1, 15) AS i;
+
+CREATE INDEX stk_vis_docs_bm25_idx ON stk_vis_docs USING bm25 (id, category)
+WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+
+CREATE INDEX stk_vis_files_bm25_idx ON stk_vis_files USING bm25 (id, doc_id, title)
+WITH (key_field = 'id', text_fields = '{"doc_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}}');
+
+-- Ground truth before deletion (STK OFF): all 15 rows, first 5 in ASC order.
+SET paradedb.enable_segmented_topk = off;
+
+SELECT f.id, f.title
+FROM stk_vis_files f
+WHERE f.doc_id IN (
+    SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+)
+ORDER BY f.title ASC
+LIMIT 5;
+
+-- Delete 3 rows: these become dead MVCC tuples still visible to the BM25
+-- index but invisible to the heap. STK must not return them.
+DELETE FROM stk_vis_files WHERE title IN ('Title 01', 'Title 02', 'Title 03');
+
+-- Ground truth after deletion (STK OFF): deleted rows must be absent.
+SET paradedb.enable_segmented_topk = off;
+
+SELECT f.id, f.title
+FROM stk_vis_files f
+WHERE f.doc_id IN (
+    SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+)
+ORDER BY f.title ASC
+LIMIT 5;
+
+-- STK ON ASC: must match ground truth (no deleted rows in result).
+SET paradedb.enable_segmented_topk = on;
+
+SELECT f.id, f.title
+FROM stk_vis_files f
+WHERE f.doc_id IN (
+    SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+)
+ORDER BY f.title ASC
+LIMIT 5;
+
+-- STK ON DESC: deleted rows must also be absent from the top end.
+SELECT f.id, f.title
+FROM stk_vis_files f
+WHERE f.doc_id IN (
+    SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+)
+ORDER BY f.title DESC
+LIMIT 5;
+
+-- STK ON, LIMIT > remaining: must return exactly 12 rows (15 inserted - 3 deleted).
+SELECT count(*) FROM (
+    SELECT f.id, f.title
+    FROM stk_vis_files f
+    WHERE f.doc_id IN (
+        SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+    )
+    ORDER BY f.title ASC
+    LIMIT 100
+) sub;
+
+-- STK OFF: count must match STK ON.
+SET paradedb.enable_segmented_topk = off;
+
+SELECT count(*) FROM (
+    SELECT f.id, f.title
+    FROM stk_vis_files f
+    WHERE f.doc_id IN (
+        SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+    )
+    ORDER BY f.title ASC
+    LIMIT 100
+) sub;
+
+RESET paradedb.enable_segmented_topk;
+
+DROP TABLE stk_vis_files CASCADE;
+DROP TABLE stk_vis_docs CASCADE;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

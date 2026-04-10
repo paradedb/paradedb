@@ -715,6 +715,10 @@ impl VisibilityFilterExec {
     pub fn plan_pos_oids(&self) -> &[(usize, pg_sys::Oid)] {
         &self.plan_pos_oids
     }
+
+    pub fn table_names(&self) -> &[String] {
+        &self.table_names
+    }
 }
 
 impl DisplayAs for VisibilityFilterExec {
@@ -902,7 +906,7 @@ impl ExecutionPlan for VisibilityFilterExec {
 // ---------------------------------------------------------------------------
 
 #[derive(Default)]
-struct DeferredCtidMaterializationState {
+pub(crate) struct DeferredCtidMaterializationState {
     requests: Vec<(u32, usize, u32)>,
     segment_doc_ids: Vec<u32>,
     segment_ctids: Vec<Option<u64>>,
@@ -917,7 +921,7 @@ struct DeferredCtidMaterializationState {
 /// TODO: This request-partitioning pattern is duplicated in `materialize_deferred_column`
 /// in `tantivy_lookup_exec.rs`. Both should be unified and optimized with Arrow
 /// kernels where possible.
-fn materialize_deferred_ctid(
+pub(crate) fn materialize_deferred_ctid(
     ffhelper: &FFHelper,
     doc_addr_array: &UInt64Array,
     state: &mut DeferredCtidMaterializationState,

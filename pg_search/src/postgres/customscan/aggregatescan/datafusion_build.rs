@@ -614,12 +614,16 @@ pub unsafe fn has_non_equi_join_quals(
     analyze_join_path_restrictinfo(input_rel, sources).unhandled > 0
 }
 
-/// Context for translating Postgres expression trees to [`FilterExpr`].
+/// Context for the **build phase** — translating Postgres expression trees
+/// into a serializable [`FilterExpr`] IR.
 ///
 /// HAVING provides `targetlist` for resolving `T_Aggref` → `AggRef` and
 /// `T_Var` → `GroupRef`. FILTER provides `sources` for resolving
 /// `T_Var` → `ColumnRef`.
-pub struct FilterExprContext<'a> {
+///
+/// This is distinct from the exec-phase context in `datafusion_exec.rs`,
+/// which carries a `RelNode` tree instead of raw planner sources.
+pub struct FilterExprBuildContext<'a> {
     pub targetlist: Option<&'a super::join_targetlist::JoinAggregateTargetList>,
     pub sources: Option<&'a [JoinAggSource]>,
 }
@@ -631,7 +635,7 @@ impl FilterExpr {
     /// clauses (pass `sources`). The context determines how leaf nodes are resolved.
     pub unsafe fn from_pg_node(
         node: *mut pg_sys::Node,
-        ctx: &FilterExprContext<'_>,
+        ctx: &FilterExprBuildContext<'_>,
     ) -> Option<Self> {
         if node.is_null() {
             return None;

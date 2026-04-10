@@ -22,7 +22,7 @@
 //! column and aggregate argument belongs to. This is the join-aware counterpart
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
-use super::datafusion_build::{FilterExprContext, JoinAggSource};
+use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
 use super::privdat::FilterExpr;
 use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
@@ -300,7 +300,7 @@ pub unsafe fn extract_aggregate_targetlist(
             } else {
                 FilterExpr::from_pg_node(
                     (*aggref).aggfilter as *mut pg_sys::Node,
-                    &FilterExprContext {
+                    &FilterExprBuildContext {
                         targetlist: None,
                         sources: Some(sources),
                     },

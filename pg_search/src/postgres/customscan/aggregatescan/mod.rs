@@ -993,7 +993,7 @@ impl AggregateScan {
             if !parse.is_null() && !(*parse).havingQual.is_null() {
                 privdat::FilterExpr::from_pg_node(
                     (*parse).havingQual,
-                    &datafusion_build::FilterExprContext {
+                    &datafusion_build::FilterExprBuildContext {
                         targetlist: Some(&targetlist),
                         sources: None,
                     },

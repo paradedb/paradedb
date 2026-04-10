@@ -193,7 +193,7 @@ pub async fn build_join_aggregate_plan(
             };
             // Apply per-aggregate FILTER clause if present.
             let agg_expr = if let Some(ref filter_expr) = agg.filter {
-                let filter_ctx = FilterExprContext {
+                let filter_ctx = FilterExprExecContext {
                     targetlist: None,
                     plan: Some(plan),
                 };
@@ -228,7 +228,7 @@ pub async fn build_join_aggregate_plan(
 
     // Step 4.5: Apply HAVING filter (post-aggregate)
     if let Some(having) = having_filter {
-        let having_ctx = FilterExprContext {
+        let having_ctx = FilterExprExecContext {
             targetlist: Some(targetlist),
             plan: None,
         };
@@ -452,9 +452,15 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
     }
 }
 
-/// Context for resolving leaf nodes in [`FilterExpr::to_datafusion`].
-/// HAVING provides targetlist for `AggRef`/`GroupRef`; FILTER provides plan for `ColumnRef`.
-struct FilterExprContext<'a> {
+/// Context for the **exec phase** — translating a [`FilterExpr`] IR into a
+/// DataFusion [`Expr`].
+///
+/// HAVING provides `targetlist` for resolving `AggRef`/`GroupRef`;
+/// FILTER provides `plan` (a `RelNode` tree) for resolving `ColumnRef`.
+///
+/// This is distinct from the build-phase context in `datafusion_build.rs`,
+/// which carries raw planner `JoinAggSource`s instead of a `RelNode` tree.
+struct FilterExprExecContext<'a> {
     targetlist: Option<&'a JoinAggregateTargetList>,
     plan: Option<&'a RelNode>,
 }
@@ -463,7 +469,7 @@ impl FilterExpr {
     /// Translate this expression to a DataFusion `Expr`.
     ///
     /// Used for both HAVING (pass `targetlist`) and per-aggregate FILTER (pass `plan`).
-    fn to_datafusion(&self, ctx: &FilterExprContext<'_>) -> Option<Expr> {
+    fn to_datafusion(&self, ctx: &FilterExprExecContext<'_>) -> Option<Expr> {
         use datafusion::logical_expr::Operator;
 
         match self {

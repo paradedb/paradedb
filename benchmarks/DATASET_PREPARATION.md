@@ -11,7 +11,7 @@ This document walks through the full process of preparing a new non-synthetic da
 Upload your source data as partitioned parquet files to S3. Each table should be in its own subdirectory under a `source/parquet/` path (filename doesn't matter):
 
 ```text
-s3://paradedb-benchmarks/datasets/{dataset-name}/source/parquet/
+s3://paradedb-ci-benchmark/datasets/{dataset-name}/source/parquet/
 ├── {table_a}/
 │   ├── part-0001.parquet
 │   ├── part-0002.parquet
@@ -25,7 +25,7 @@ s3://paradedb-benchmarks/datasets/{dataset-name}/source/parquet/
 For example, for the Stack Overflow dataset:
 
 ```text
-s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/
+s3://paradedb-ci-benchmark/datasets/stackoverflow/source/parquet/
 ├── stackoverflow_posts/
 ├── comments/
 └── users/
@@ -70,22 +70,22 @@ Run the `sample` command once for each dataset size you need. The `--rows` argum
 ```bash
 # Sample to 10k rows
 cargo run --release -- sample \
-  --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ \
-  --output s3://paradedb-benchmarks/datasets/stackoverflow/sampled/10k/parquet/ \
+  --input s3://paradedb-ci-benchmark/datasets/stackoverflow/source/parquet/ \
+  --output s3://paradedb-ci-benchmark/datasets/stackoverflow/sampled/10k/parquet/ \
   --config ./datasets/stackoverflow/config.toml \
   --rows 10000
 
 # Sample to 100k rows
 cargo run --release -- sample \
-  --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ \
-  --output s3://paradedb-benchmarks/datasets/stackoverflow/sampled/100k/parquet/ \
+  --input s3://paradedb-ci-benchmark/datasets/stackoverflow/source/parquet/ \
+  --output s3://paradedb-ci-benchmark/datasets/stackoverflow/sampled/100k/parquet/ \
   --config ./datasets/stackoverflow/config.toml \
   --rows 100000
 
 # Sample to 1m rows
 cargo run --release -- sample \
-  --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ \
-  --output s3://paradedb-benchmarks/datasets/stackoverflow/sampled/1m/parquet/ \
+  --input s3://paradedb-ci-benchmark/datasets/stackoverflow/source/parquet/ \
+  --output s3://paradedb-ci-benchmark/datasets/stackoverflow/sampled/1m/parquet/ \
   --config ./datasets/stackoverflow/config.toml \
   --rows 1000000
 ```
@@ -103,20 +103,20 @@ Run the `convert` command for each sampled size to produce CSV versions. The `--
 ```bash
 # Convert 10k sampled data
 cargo run --release -- convert \
-  --input s3://paradedb-benchmarks/datasets/stackoverflow/sampled/10k/parquet/ \
-  --output s3://paradedb-benchmarks/datasets/stackoverflow/sampled/10k/csv/ \
+  --input s3://paradedb-ci-benchmark/datasets/stackoverflow/sampled/10k/parquet/ \
+  --output s3://paradedb-ci-benchmark/datasets/stackoverflow/sampled/10k/csv/ \
   --tables stackoverflow_posts,comments,users
 
 # Convert 100k sampled data
 cargo run --release -- convert \
-  --input s3://paradedb-benchmarks/datasets/stackoverflow/sampled/100k/parquet/ \
-  --output s3://paradedb-benchmarks/datasets/stackoverflow/sampled/100k/csv/ \
+  --input s3://paradedb-ci-benchmark/datasets/stackoverflow/sampled/100k/parquet/ \
+  --output s3://paradedb-ci-benchmark/datasets/stackoverflow/sampled/100k/csv/ \
   --tables stackoverflow_posts,comments,users
 
 # Convert 1m sampled data
 cargo run --release -- convert \
-  --input s3://paradedb-benchmarks/datasets/stackoverflow/sampled/1m/parquet/ \
-  --output s3://paradedb-benchmarks/datasets/stackoverflow/sampled/1m/csv/ \
+  --input s3://paradedb-ci-benchmark/datasets/stackoverflow/sampled/1m/parquet/ \
+  --output s3://paradedb-ci-benchmark/datasets/stackoverflow/sampled/1m/csv/ \
   --tables stackoverflow_posts,comments,users
 ```
 
@@ -124,8 +124,8 @@ You can also convert the full source data:
 
 ```bash
 cargo run --release -- convert \
-  --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ \
-  --output s3://paradedb-benchmarks/datasets/stackoverflow/source/csv/ \
+  --input s3://paradedb-ci-benchmark/datasets/stackoverflow/source/parquet/ \
+  --output s3://paradedb-ci-benchmark/datasets/stackoverflow/source/csv/ \
   --tables stackoverflow_posts,comments,users
 ```
 
@@ -141,7 +141,7 @@ Notes:
 After completing all three steps, your dataset will look like this:
 
 ```text
-s3://paradedb-benchmarks/datasets/{dataset-name}/
+s3://paradedb-ci-benchmark/datasets/{dataset-name}/
 ├── source/
 │   ├── parquet/
 │   │   ├── {table_a}/

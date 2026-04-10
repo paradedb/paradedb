@@ -1120,6 +1120,64 @@ DROP TABLE agg_json_orders;
 DROP TABLE agg_json_items;
 
 -- =====================================================================
+-- SECTION 17: Per-aggregate FILTER clause on join
+-- =====================================================================
+
+-- Test 17.1: COUNT with FILTER — EXPLAIN shows DataFusion
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE p.price > 100) AS expensive
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category;
+
+-- Test 17.2: COUNT with FILTER — results
+SELECT p.category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE p.price > 100) AS expensive
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 17.3: FILTER parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE p.price > 100) AS expensive
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 17.4: SUM with FILTER
+SELECT p.category,
+       SUM(p.price) AS total_price,
+       SUM(p.price) FILTER (WHERE p.rating >= 4) AS high_rated_price
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 17.5: SUM FILTER parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category,
+       SUM(p.price) AS total_price,
+       SUM(p.price) FILTER (WHERE p.rating >= 4) AS high_rated_price
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

@@ -22,7 +22,9 @@
 //! column and aggregate argument belongs to. This is the join-aware counterpart
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
-use super::datafusion_build::JoinAggSource;
+use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
+use super::privdat::FilterExpr;
+use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::var::{
     fieldname_from_var, find_one_aggref, find_one_var_and_fieldname, VarContext,
@@ -133,6 +135,10 @@ pub struct JoinAggregateEntry {
     /// Empty for aggregates without internal ordering.
     #[serde(default)]
     pub order_by: Vec<AggOrderByEntry>,
+    /// Per-aggregate FILTER clause (e.g., `COUNT(*) FILTER (WHERE price > 100)`).
+    /// `None` when the aggregate has no FILTER.
+    #[serde(default)]
+    pub filter: Option<FilterExpr>,
 }
 
 /// The complete aggregate target list for a join aggregate query.
@@ -288,14 +294,18 @@ pub unsafe fn extract_aggregate_targetlist(
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let has_distinct = !(*aggref).aggdistinct.is_null();
 
-            // Reject FILTER (WHERE ...) clauses on aggregates — DataFusion
-            // doesn't propagate per-aggregate filter predicates and would
-            // silently produce wrong results if we didn't fall back.
-            if !(*aggref).aggfilter.is_null() {
-                return Err(
-                    "FILTER clauses on aggregates are not supported for aggregate-on-join".into(),
-                );
-            }
+            // Extract per-aggregate FILTER clause if present.
+            let filter = if (*aggref).aggfilter.is_null() {
+                None
+            } else {
+                FilterExpr::from_pg_node(
+                    (*aggref).aggfilter as *mut pg_sys::Node,
+                    &FilterExprBuildContext {
+                        targetlist: None,
+                        sources: Some(sources),
+                    },
+                )
+            };
 
             // Reject pdb.agg()
             let pdb_agg_oid = crate::api::agg_funcoid().to_u32();
@@ -328,6 +338,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 field_refs,
                 output_index: idx,
                 result_type_oid,
+                filter,
                 distinct: has_distinct,
                 order_by,
             });
@@ -498,16 +509,14 @@ unsafe fn extract_aggref_order_by(
             })?
             .into_inner();
 
-        let direction = crate::api::SortDirection::from_sort_op(
-            (*clause_ptr).sortop,
-            (*clause_ptr).nulls_first,
-        )
-        .ok_or_else(|| {
-            format!(
-                "could not determine sort direction for aggregate ORDER BY (sortop={})",
-                (*clause_ptr).sortop.to_u32()
-            )
-        })?;
+        let direction =
+            SortDirection::from_sort_op((*clause_ptr).sortop, (*clause_ptr).nulls_first)
+                .ok_or_else(|| {
+                    format!(
+                        "could not determine sort direction for aggregate ORDER BY (sortop={})",
+                        (*clause_ptr).sortop.to_u32()
+                    )
+                })?;
 
         entries.push(AggOrderByEntry {
             rti,

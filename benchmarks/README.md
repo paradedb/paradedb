@@ -30,22 +30,4 @@ The queries that are benchmarked for a dataset are located at `datasets/$name/qu
 
 ## Non-synthetic Datasets
 
-Datasets live at `s3://paradedb-benchmarks/datasets/{dataset-name}/`. There can be multiple versions of each dataset. They will be located at the following sub-paths:
-
-- Full, unmodified dataset: `source/{format}/`
-- Pruned - only tables we want to keep: `pruned/{format}`
-
-Each table is then located below that directory in a subdirectory named after the table.
-
-So, for instance, the `comments` table in the Stack Overflow dataset, in csv format, would be located at: `s3://paradedb-benchmarks/datasets/stackoverflow/pruned/csv/comments/` and will consist of a number of large csv files.
-
-## Conversion tool
-
-The following command will read a parquet dataset from the input location and write out the specified tables as a csv dataset to the output location. It requires that the output location be empty. It uses a bundled version of duckdb to do the reading, writing, and conversion. It requires aws credentials that can read/write to/from s3 be present somewhere the standard aws credentials chain can find them.
-
-Example:
-
-```bash
-# This will fail (as the output already exists), so use different inputs/outputs for experimentation
-cargo run --release -- convert --input s3://paradedb-benchmarks/datasets/stackoverflow/source/parquet/ --output s3://paradedb-benchmarks/datasets/stackoverflow/pruned/csv/ --tables posts_questions,posts_answers,comments
-```
+For preparing and managing non-synthetic datasets (loading source data, sampling, and conversion), see [DATASET_PREPARATION.md](DATASET_PREPARATION.md).

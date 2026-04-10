@@ -25,7 +25,10 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
 
+mod config;
 mod convert;
+mod sample;
+mod utils;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -37,13 +40,26 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Run benchmarks against a ParadeDB instance.
-    Benchmark(BenchmarkArgs),
+    Benchmark {
+        #[command(subcommand)]
+        mode: BenchmarkMode,
+    },
     /// Convert parquet datasets in S3 to CSV format using DuckDB.
     Convert(convert::ConvertArgs),
+    /// Sample a CSV dataset to a target row count, preserving table relationships.
+    Sample(sample::SampleArgs),
+}
+
+#[derive(Subcommand)]
+enum BenchmarkMode {
+    /// Run benchmarks with synthetically generated data.
+    Generated(GeneratedArgs),
+    /// Run benchmarks with a pre-existing dataset loaded from CSV files.
+    Existing(ExistingArgs),
 }
 
 #[derive(Parser)]
-struct BenchmarkArgs {
+struct CommonBenchmarkArgs {
     #[arg(long, value_parser = ["pg_search"], default_value = "pg_search")]
     r#type: String,
 
@@ -63,13 +79,9 @@ struct BenchmarkArgs {
     #[arg(long, default_value = "true")]
     vacuum: bool,
 
-    /// True to skip creating the dataset, and only run queries.
-    #[arg(long, default_value = "false")]
-    existing: bool,
-
-    /// Number of rows to insert (in the largest generated table for the dataset).
-    #[arg(long, default_value = "10000000")]
-    rows: u32,
+    /// Skip data setup and index creation. Assumes tables and indexes already exist.
+    #[arg(long, default_value_t = false)]
+    skip_setup: bool,
 
     /// Number of runs to execute for each query.
     #[arg(long, default_value = "3")]
@@ -101,43 +113,102 @@ struct BenchmarkArgs {
     clear_caches: bool,
 }
 
+#[derive(Parser)]
+struct GeneratedArgs {
+    #[command(flatten)]
+    common: CommonBenchmarkArgs,
+
+    /// Number of rows to insert (in the largest generated table for the dataset).
+    #[arg(long, default_value = "10000000")]
+    rows: u32,
+}
+
+#[derive(Parser)]
+struct ExistingArgs {
+    #[command(flatten)]
+    common: CommonBenchmarkArgs,
+
+    /// Size label for the pre-sampled dataset (e.g. "10k", "100k", "1m").
+    #[arg(long)]
+    size: String,
+
+    /// Path to external CSV data source (S3 or local). Each table should be a subdirectory
+    /// containing CSV files. Overrides s3_base_path in config.toml.
+    #[arg(long)]
+    data_source: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Benchmark(args) => run_benchmark(args).await,
+        Commands::Benchmark { mode } => run_benchmark(mode).await,
         Commands::Convert(args) => convert::run_convert(args)?,
+        Commands::Sample(args) => sample::run_sample(args)?,
     }
     Ok(())
 }
 
-async fn run_benchmark(args: BenchmarkArgs) {
-    if args.benchmark == "fastfields" {
-        let mut conn = PgConnection::connect(&args.url).await.unwrap();
+async fn run_benchmark(mode: BenchmarkMode) {
+    match mode {
+        BenchmarkMode::Generated(args) => run_benchmark_generated(args).await,
+        BenchmarkMode::Existing(args) => run_benchmark_existing(args).await,
+    }
+}
+
+async fn run_benchmark_generated(args: GeneratedArgs) {
+    let common = &args.common;
+    if common.benchmark == "fastfields" {
+        let mut conn = PgConnection::connect(&common.url).await.unwrap();
         let res = benchmark_columnar(
             &mut conn,
-            args.existing,
-            args.runs,
-            args.warmups,
+            common.skip_setup,
+            common.runs,
+            common.warmups,
             args.rows as usize,
-            args.batch_size,
+            common.batch_size,
         )
         .await;
         println!("Columnar Benchmark Completed: {res:?}");
-    } else if args.benchmark == "sql" {
-        if !args.existing {
-            generate_test_data(&args.url, &args.dataset, args.rows);
+    } else if common.benchmark == "sql" {
+        if !common.skip_setup {
+            generate_test_data(&common.url, &common.dataset, args.rows);
         }
-
-        match args.output.as_str() {
-            "md" => generate_markdown_output(&args).await,
-            "csv" => generate_csv_output(&args).await,
-            "json" => generate_json_output(&args).await,
-            _ => unreachable!("Clap ensures only md, csv, or json are valid"),
-        }
+        let rows_display = args.rows.to_string();
+        run_sql_benchmarks(common, &rows_display).await;
     } else {
         eprintln!("Invalid benchmark type");
         std::process::exit(1);
+    }
+}
+
+async fn run_benchmark_existing(args: ExistingArgs) {
+    let common = &args.common;
+    if common.benchmark == "fastfields" {
+        eprintln!("Fastfields benchmark is not supported with existing datasets");
+        std::process::exit(1);
+    } else if common.benchmark == "sql" {
+        if !common.skip_setup {
+            load_external_data(
+                &common.url,
+                &common.dataset,
+                &args.size,
+                args.data_source.as_deref(),
+            );
+        }
+        run_sql_benchmarks(common, &args.size).await;
+    } else {
+        eprintln!("Invalid benchmark type");
+        std::process::exit(1);
+    }
+}
+
+async fn run_sql_benchmarks(args: &CommonBenchmarkArgs, rows_display: &str) {
+    match args.output.as_str() {
+        "md" => generate_markdown_output(args, rows_display).await,
+        "csv" => generate_csv_output(args, rows_display).await,
+        "json" => generate_json_output(args, rows_display).await,
+        _ => unreachable!("Clap ensures only md, csv, or json are valid"),
     }
 }
 
@@ -181,7 +252,7 @@ impl From<QueryResult> for JSONBenchmarkResult {
     }
 }
 
-async fn process_index_creation(args: &BenchmarkArgs) -> Vec<IndexCreationResult> {
+async fn process_index_creation(args: &CommonBenchmarkArgs) -> Vec<IndexCreationResult> {
     let mut conn = PgConnection::connect(&args.url)
         .await
         .expect("Failed to connect to database");
@@ -227,7 +298,7 @@ async fn process_index_creation(args: &BenchmarkArgs) -> Vec<IndexCreationResult
     results
 }
 
-async fn run_benchmarks(args: &BenchmarkArgs) -> Vec<QueryResult> {
+async fn run_benchmarks(args: &CommonBenchmarkArgs) -> Vec<QueryResult> {
     let mut utility_conn = PgConnection::connect(&args.url)
         .await
         .expect("Failed to connect to database");
@@ -301,41 +372,41 @@ async fn run_benchmarks(args: &BenchmarkArgs) -> Vec<QueryResult> {
     results
 }
 
-async fn generate_markdown_output(args: &BenchmarkArgs) {
+async fn generate_markdown_output(args: &CommonBenchmarkArgs, rows_display: &str) {
     let output_file = format!("results_{}.md", args.r#type);
     let mut file = File::create(&output_file).expect("Failed to create output file");
 
     write_benchmark_header(&mut file);
-    write_test_info(&mut file, args).await;
+    write_test_info(&mut file, args, rows_display).await;
     write_postgres_settings(&mut file, &args.url).await;
-    if !args.existing {
+    if !args.skip_setup {
         process_index_creation_md(&mut file, args).await;
     }
     run_benchmarks_md(&mut file, args).await;
 }
 
-async fn generate_csv_output(args: &BenchmarkArgs) {
-    write_test_info_csv(args).await;
+async fn generate_csv_output(args: &CommonBenchmarkArgs, rows_display: &str) {
+    write_test_info_csv(args, rows_display).await;
     write_postgres_settings_csv(&args.url, &args.r#type).await;
-    if !args.existing {
+    if !args.skip_setup {
         process_index_creation_csv(args).await;
     }
     run_benchmarks_csv(args).await;
 }
 
-async fn generate_json_output(args: &BenchmarkArgs) {
-    if !args.existing {
+async fn generate_json_output(args: &CommonBenchmarkArgs, _rows_display: &str) {
+    if !args.skip_setup {
         process_index_creation_json(args).await;
     }
     run_benchmarks_json(args).await;
 }
 
-async fn write_test_info_csv(args: &BenchmarkArgs) {
+async fn write_test_info_csv(args: &CommonBenchmarkArgs, rows_display: &str) {
     let filename = format!("results_{}_test_info.csv", args.r#type);
     let mut file = File::create(&filename).expect("Failed to create test info CSV");
 
     writeln!(file, "Key,Value").unwrap();
-    writeln!(file, "Number of Rows,{}", args.rows).unwrap();
+    writeln!(file, "Dataset Size,{rows_display}").unwrap();
     writeln!(file, "Test Type,{}", args.r#type).unwrap();
     writeln!(file, "Prewarm,{}", args.prewarm).unwrap();
     writeln!(file, "Vacuum,{}", args.vacuum).unwrap();
@@ -385,7 +456,7 @@ async fn write_postgres_settings_csv(url: &str, test_type: &str) {
     }
 }
 
-async fn process_index_creation_csv(args: &BenchmarkArgs) {
+async fn process_index_creation_csv(args: &CommonBenchmarkArgs) {
     let filename = format!("results_{}_index_creation.csv", args.r#type);
     let mut file = File::create(&filename).expect("Failed to create index creation CSV");
 
@@ -410,7 +481,7 @@ async fn process_index_creation_csv(args: &BenchmarkArgs) {
     }
 }
 
-async fn run_benchmarks_csv(args: &BenchmarkArgs) {
+async fn run_benchmarks_csv(args: &CommonBenchmarkArgs) {
     let filename = format!("results_{}_benchmark_results.csv", args.r#type);
     let mut file = File::create(&filename).expect("Failed to create benchmark results CSV");
 
@@ -447,11 +518,11 @@ fn write_benchmark_header(file: &mut File) {
     writeln!(file, "# Benchmark Results").unwrap();
 }
 
-async fn write_test_info(file: &mut File, args: &BenchmarkArgs) {
+async fn write_test_info(file: &mut File, args: &CommonBenchmarkArgs, rows_display: &str) {
     writeln!(file, "\n## Test Info").unwrap();
     writeln!(file, "| Key         | Value       |").unwrap();
     writeln!(file, "|-------------|-------------|").unwrap();
-    writeln!(file, "| Number of Rows | {} |", args.rows).unwrap();
+    writeln!(file, "| Dataset Size | {rows_display} |").unwrap();
     writeln!(file, "| Test Type   | {} |", args.r#type).unwrap();
     writeln!(file, "| Prewarm     | {} |", args.prewarm).unwrap();
     writeln!(file, "| Vacuum      | {} |", args.vacuum).unwrap();
@@ -515,7 +586,137 @@ fn generate_test_data(url: &str, dataset: &str, rows: u32) {
     }
 }
 
-async fn process_index_creation_md(file: &mut File, args: &BenchmarkArgs) {
+fn load_external_data(url: &str, dataset: &str, size_label: &str, data_source: Option<&str>) {
+    // Read dataset config for table names and S3 path.
+    let config_path = format!("datasets/{dataset}/config.toml");
+    let config = config::load_dataset_config(&config_path).unwrap_or_else(|e| {
+        eprintln!("Failed to load config '{config_path}': {e}");
+        std::process::exit(1);
+    });
+
+    // Determine CSV data source path.
+    let source_path = match data_source {
+        Some(path) => path.trim_end_matches('/').to_string(),
+        None => {
+            let s3_base = config.s3_base_path.as_deref().unwrap_or_else(|| {
+                eprintln!(
+                    "Dataset '{dataset}' has no S3 base path. Provide --data-source or set \
+                     s3_base_path in datasets/{dataset}/config.toml"
+                );
+                std::process::exit(1);
+            });
+            format!(
+                "{}/sampled/{}/csv",
+                s3_base.trim_end_matches('/'),
+                size_label
+            )
+        }
+    };
+    println!("Data source: {source_path}");
+
+    // Create tables via DDL.
+    let create_tables_sql = format!("datasets/{dataset}/create_tables.sql");
+    if !Path::new(&create_tables_sql).exists() {
+        eprintln!(
+            "Dataset '{dataset}' requires create_tables.sql but none found at {create_tables_sql}"
+        );
+        std::process::exit(1);
+    }
+    let status = Command::new("psql")
+        .arg(url)
+        .arg("-f")
+        .arg(&create_tables_sql)
+        .status()
+        .expect("Failed to execute create_tables.sql");
+    if !status.success() {
+        eprintln!("Failed to create tables from {create_tables_sql}");
+        std::process::exit(1);
+    }
+
+    // Download CSV data from source and load into PostgreSQL.
+    let temp_dir = format!("/tmp/benchmark_data/{dataset}");
+    if Path::new(&temp_dir).exists() {
+        std::fs::remove_dir_all(&temp_dir).unwrap_or_else(|e| {
+            eprintln!("Failed to clean temp directory '{temp_dir}': {e}");
+            std::process::exit(1);
+        });
+    }
+    std::fs::create_dir_all(&temp_dir).unwrap_or_else(|e| {
+        eprintln!("Failed to create temp directory '{temp_dir}': {e}");
+        std::process::exit(1);
+    });
+
+    let duckdb_conn = utils::open_duckdb_conn().unwrap_or_else(|e| {
+        eprintln!("Failed to open DuckDB connection: {e}");
+        std::process::exit(1);
+    });
+
+    for table in &config.tables {
+        let table_name = &table.name;
+        let csv_source = format!("{source_path}/{table_name}");
+        let table_temp_dir = format!("{temp_dir}/{table_name}");
+        std::fs::create_dir_all(&table_temp_dir).unwrap_or_else(|e| {
+            eprintln!("Failed to create temp directory '{table_temp_dir}': {e}");
+            std::process::exit(1);
+        });
+
+        // Download CSV files from source to local temp dir.
+        println!("Downloading CSV for '{table_name}' from {csv_source}...");
+        let download_sql = format!(
+            "COPY (SELECT * FROM read_csv('{csv_source}/*.csv', header=true, all_varchar=true)) \
+             TO '{table_temp_dir}' (FORMAT CSV, HEADER true, PER_THREAD_OUTPUT true)"
+        );
+        duckdb_conn
+            .execute_batch(&download_sql)
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to download CSV for table '{table_name}': {e}");
+                std::process::exit(1);
+            });
+
+        // Load each local CSV file into PostgreSQL.
+        println!("Loading '{table_name}' into PostgreSQL...");
+        let local_csvs: Vec<_> = std::fs::read_dir(&table_temp_dir)
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to read temp directory '{table_temp_dir}': {e}");
+                std::process::exit(1);
+            })
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("csv") {
+                    Some(path)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for csv_path in &local_csvs {
+            let csv_str = csv_path.to_string_lossy();
+            let copy_cmd = format!("\\copy \"{table_name}\" FROM '{csv_str}' CSV HEADER");
+            let status = Command::new("psql")
+                .arg(url)
+                .arg("-c")
+                .arg(&copy_cmd)
+                .status()
+                .expect("Failed to execute psql copy");
+            if !status.success() {
+                eprintln!("Failed to load '{csv_str}' into table '{table_name}'");
+                std::process::exit(1);
+            }
+        }
+        println!("  Loaded {} file(s) into '{table_name}'.", local_csvs.len());
+    }
+
+    // Cleanup temp files.
+    println!("Cleaning up temp files...");
+    if let Err(e) = std::fs::remove_dir_all(&temp_dir) {
+        eprintln!("Warning: Failed to clean up temp directory '{temp_dir}': {e}");
+    }
+
+    println!("External data loaded successfully.");
+}
+
+async fn process_index_creation_md(file: &mut File, args: &CommonBenchmarkArgs) {
     writeln!(file, "\n## Index Creation Results").unwrap();
     writeln!(
         file,
@@ -544,7 +745,7 @@ async fn process_index_creation_md(file: &mut File, args: &BenchmarkArgs) {
     }
 }
 
-async fn run_benchmarks_md(file: &mut File, args: &BenchmarkArgs) {
+async fn run_benchmarks_md(file: &mut File, args: &CommonBenchmarkArgs) {
     writeln!(file, "\n## Benchmark Results").unwrap();
 
     write_benchmark_table_header(file, args.runs);
@@ -594,13 +795,13 @@ fn write_benchmark_results_md(
     writeln!(file, "{result_line}").unwrap();
 }
 
-async fn process_index_creation_json(args: &BenchmarkArgs) {
+async fn process_index_creation_json(args: &CommonBenchmarkArgs) {
     for _result in process_index_creation(args).await {
         // TODO: Record index creation results as JSON.
     }
 }
 
-async fn run_benchmarks_json(args: &BenchmarkArgs) {
+async fn run_benchmarks_json(args: &CommonBenchmarkArgs) {
     let mut file = File::create("results.json").expect("Failed to create output file");
     let results = run_benchmarks(args)
         .await

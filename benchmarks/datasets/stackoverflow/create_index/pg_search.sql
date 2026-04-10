@@ -1,0 +1,1 @@
+CREATE INDEX stackoverflow_posts_idx ON stackoverflow_posts USING bm25 (id, title, body, tags, post_type_id, score, creation_date, view_count, answer_count, comment_count, owner_display_name) WITH (key_field = 'id', text_fields = '{"tags": {"fast": true}}');

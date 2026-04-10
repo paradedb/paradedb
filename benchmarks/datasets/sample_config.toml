@@ -1,0 +1,18 @@
+root_table = "orders"
+sampling_seed = 723                                       # sum of the characters in "ParadeDB" as ascii
+s3_base_path = "s3://paradedb-benchmarks/datasets/sample" # does not exist, replace with your own path
+
+[[tables]]
+name = "orders"
+
+[[tables]]
+name = "lineitem"
+parent = "orders"
+parent_join_col = "o_orderkey"
+join_col = "l_orderkey"
+
+[[tables]]
+name = "partsupp"
+parent = "lineitem"
+parent_join_col = "l_partkey"
+join_col = "ps_partkey"

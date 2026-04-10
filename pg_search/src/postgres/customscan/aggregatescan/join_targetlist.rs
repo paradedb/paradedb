@@ -94,6 +94,20 @@ pub struct JoinGroupColumn {
     pub output_index: usize,
 }
 
+/// A single ORDER BY entry within an aggregate (e.g., the `ORDER BY col2` in
+/// `STRING_AGG(col, ',' ORDER BY col2)`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AggOrderByEntry {
+    /// Table RTI for the ORDER BY column.
+    pub rti: pg_sys::Index,
+    /// 1-based attribute number in the source relation's tuple descriptor.
+    pub attno: pg_sys::AttrNumber,
+    /// Resolved field name (from the BM25 index schema).
+    pub field_name: String,
+    /// Sort direction including NULLS FIRST/LAST.
+    pub direction: crate::api::SortDirection,
+}
+
 /// An aggregate function in a join aggregate query.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JoinAggregateEntry {
@@ -113,6 +127,10 @@ pub struct JoinAggregateEntry {
     /// aggregates this flag drives the DataFusion `distinct` parameter.
     #[serde(default)]
     pub distinct: bool,
+    /// ORDER BY within the aggregate (e.g., `STRING_AGG(col, ',' ORDER BY col2)`).
+    /// Empty for aggregates without internal ordering.
+    #[serde(default)]
+    pub order_by: Vec<AggOrderByEntry>,
 }
 
 /// The complete aggregate target list for a join aggregate query.
@@ -269,6 +287,7 @@ pub unsafe fn extract_aggregate_targetlist(
             }
 
             let field_refs = extract_aggref_field_refs(aggref, sources, is_string_agg)?;
+            let order_by = extract_aggref_order_by(aggref, sources)?;
             // Use the actual Postgres result type from the Aggref node,
             // not a guessed type — this avoids segfaults from type mismatches
             let result_type_oid = (*aggref).aggtype;
@@ -280,6 +299,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 output_index: idx,
                 result_type_oid,
                 distinct: has_distinct,
+                order_by,
             });
         } else {
             return Err(format!(
@@ -387,6 +407,87 @@ unsafe fn extract_aggref_field_refs(
     }
 
     Ok(refs)
+}
+
+/// Extract ORDER BY entries from an aggregate's `aggorder` clause.
+///
+/// `aggorder` is a `List` of `SortGroupClause`. Each clause's `tleSortGroupRef`
+/// matches a `TargetEntry.ressortgroupref` in the aggref's `args` list, identifying
+/// which column to sort by.
+///
+/// Returns an empty Vec for aggregates without ORDER BY (the common case).
+unsafe fn extract_aggref_order_by(
+    aggref: *mut pg_sys::Aggref,
+    sources: &[JoinAggSource],
+) -> Result<Vec<AggOrderByEntry>, String> {
+    if (*aggref).aggorder.is_null() {
+        return Ok(Vec::new());
+    }
+
+    let order_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*aggref).aggorder);
+    if order_clauses.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+    let mut entries = Vec::with_capacity(order_clauses.len());
+
+    for clause_ptr in order_clauses.iter_ptr() {
+        let sort_ref = (*clause_ptr).tleSortGroupRef;
+
+        // Find the TargetEntry in aggref.args whose ressortgroupref matches
+        let te = args
+            .iter_ptr()
+            .find(|te| (*(*te)).ressortgroupref == sort_ref)
+            .ok_or_else(|| {
+                format!(
+                    "aggorder references ressortgroupref {} but no matching arg found",
+                    sort_ref
+                )
+            })?;
+
+        let var = unwrap_to_var((*te).expr as *mut pg_sys::Node)
+            .ok_or("ORDER BY within aggregate must reference a direct column")?;
+
+        let rti = (*var).varno as pg_sys::Index;
+        let attno = (*var).varattno;
+
+        let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
+            format!(
+                "aggregate ORDER BY references table at RTI {} which is not in the join",
+                rti
+            )
+        })?;
+
+        let field_name = fieldname_from_var(source.relid, var, attno)
+            .ok_or_else(|| {
+                format!(
+                    "could not resolve field name for aggregate ORDER BY (RTI={}, attno={})",
+                    rti, attno
+                )
+            })?
+            .into_inner();
+
+        let direction = crate::api::SortDirection::from_sort_op(
+            (*clause_ptr).sortop,
+            (*clause_ptr).nulls_first,
+        )
+        .ok_or_else(|| {
+            format!(
+                "could not determine sort direction for aggregate ORDER BY (sortop={})",
+                (*clause_ptr).sortop.to_u32()
+            )
+        })?;
+
+        entries.push(AggOrderByEntry {
+            rti,
+            attno,
+            field_name,
+            direction,
+        });
+    }
+
+    Ok(entries)
 }
 
 /// Unwrap an expression to a bare `Var`, allowing only `RelabelType` wrappers.

@@ -208,6 +208,7 @@ jobs:
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
+        id: rust-cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-benchmarks-rust-cache"
@@ -220,15 +221,8 @@ jobs:
         id: pgrx
         run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
-      - name: Cache pgrx binary
-        id: cache-pgrx
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
-
       - name: Install pgrx
-        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        if: steps.rust-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
 
       - name: Initialize pgrx environment

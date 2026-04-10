@@ -56,6 +56,7 @@ jobs:
       # Only save cache on non-PR events; PRs restore from the default branch.
       # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
+        id: rust-cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
@@ -128,15 +129,7 @@ jobs:
         working-directory: pg_search/
         run: RUST_BACKTRACE=1 cargo pgrx stop pg${{ matrix.pg_version }}
 
-      - name: Cache pgrx binary
-        id: cache-pgrx
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
-
       - name: Install the pgrx version for ParadeDB
-        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --force --debug
 
       - name: Initialize pgrx environment for ParadeDB

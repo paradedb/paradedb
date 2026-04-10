@@ -430,22 +430,26 @@ You're all set! Try [running some queries](/documentation/getting-started/querie
 </Accordion>
 
 <Accordion title="Rails">
-First create a new rails app
+To get started, create a [Rails](https://rubyonrails.org/) app that uses PostgreSQL.
+
 ```bash
 rails new paradedb -d postgresql
+cd paradedb
 ```
 
-Add to your Gemfile:
+Add the [rails-paradedb](https://rubygems.org/gems/rails-paradedb) gem to your `Gemfile`:
 
-```Gemfile
+```ruby Gemfile
 gem "rails-paradedb", require: "parade_db"
 ```
+
+Then install it:
 
 ```bash
 bundle install
 ```
 
-Update your development database config in `config/database.yml`:
+Update `config/database.yml` to point to your ParadeDB database:
 
 ```yml config/database.yml
 development:
@@ -458,18 +462,16 @@ development:
   port: 5432
 ```
 
-Generate a migration to create the `mock_items`:
+ParadeDB comes with a built-in test table that we'll run our queries against. Generate a migration to create it:
 
 ```bash
 rails generate migration CreateMockItemsTable
 ```
 
-Paste in the following commands:
+Update the generated migration to create `mock_items`:
 
 ```ruby db/migrate/*_create_mock_items_table.rb
 def up
-  enable_extension "pg_search"
-
   execute <<~SQL
     CALL paradedb.create_bm25_test_table(
       schema_name => 'public',
@@ -483,42 +485,58 @@ def down
 end
 ```
 
-Now create a model for the `mock_items` table in `app/models/mock_item.rb`:
+Next, create a model for the `mock_items` table in `app/models/mock_item.rb`:
 
 ```ruby app/models/mock_item.rb
 class MockItem < ApplicationRecord
-    include ParadeDB::Model
+  include ParadeDB::Model
 
-    self.table_name = "mock_items"
-    self.primary_key = "id"
+  self.table_name = "mock_items"
+  self.primary_key = "id"
 end
 ```
 
-And a search index for that table
+Then, create a search index for that table in `app/models/mock_item_index.rb`:
 
 ```ruby app/models/mock_item_index.rb
 class MockItemIndex < ParadeDB::Index
-    self.table_name = :mock_items
-    self.key_field = :id
-    self.index_name = :search_idx
-    self.fields = {
-      id: nil,
-      description: nil,
-      category: nil,
-      rating: nil,
-      in_stock: nil,
-      created_at: nil,
-      metadata: nil,
-      weight_range: nil
-    }
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: nil,
+    category: nil,
+    rating: nil,
+    in_stock: nil,
+    metadata: nil,
+    created_at: nil,
+    last_updated_date: nil,
+    latest_available_time: nil,
+    weight_range: nil
+  }
 end
 ```
 
-Create migration
+<Note>
+  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
+  `ORDER BY`, or aggregate as part of a full text query should be added to the
+  index for faster performance.
+</Note>
+
+<Note>
+  Note the mandatory `key_field` option. See [choosing a key
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
+</Note>
+
+Generate a migration for the search index:
 
 ```bash
 rails generate migration CreateMockItemsIndex
 ```
+
+Update the generated migration to create the index:
 
 ```ruby db/migrate/*_create_mock_items_index.rb
 def up
@@ -530,13 +548,13 @@ def down
 end
 ```
 
-Now run the migrations with
+Run the migrations:
 
 ```bash
 rails db:migrate
 ```
 
-And run some queries in your console:
+You're all set! Open the Rails console and [run some queries](/documentation/getting-started/queries).
 
 ```bash
 rails console

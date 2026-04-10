@@ -2,12 +2,19 @@ name: Benchmark - Queries
 description: Run a given benchmark dataset against pg_search and publish metrics
 
 inputs:
+  mode:
+    description: "Benchmark mode: 'generated' for synthetic data, 'existing' for pre-sampled data from S3"
+    required: false
+    default: "generated"
   dataset:
-    description: "The benchmark dataset to run (e.g. logs, docs)"
+    description: "The benchmark dataset to run (e.g. logs, docs, stackoverflow)"
     required: true
   rows:
-    description: "Number of rows to generate (optional, uses dataset defaults if not specified)"
-    required: true
+    description: "Number of rows to generate (required for 'generated' mode)"
+    required: false
+  size:
+    description: "Size label for pre-sampled dataset, e.g. '100k', '1m' (required for 'existing' mode)"
+    required: false
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
@@ -35,34 +42,49 @@ runs:
       working-directory: benchmarks/
       shell: bash
       run: |
-        # Use provided rows if specified, otherwise use dataset defaults
-        if [ -n "${{ inputs.rows }}" ]; then
+        BENCHMARK_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
+
+        if [ "${{ inputs.mode }}" = "existing" ]; then
+          # Pre-sampled dataset loaded from S3.
+          cargo run --release -- benchmark existing \
+            --url "${BENCHMARK_URL}" \
+            --size ${{ inputs.size }} \
+            --type pg_search \
+            --dataset ${{ inputs.dataset }} \
+            --runs 10 \
+            --output json \
+            --fail-on-error ${{ inputs.fail_on_error }}
+
+          ROWS_LABEL="${{ inputs.size }}"
+        else
+          # Synthetically generated dataset.
+          if [ -z "${{ inputs.rows }}" ]; then
+            echo "rows is required for generated mode!"
+            exit 1
+          fi
           NUM_ROWS=${{ inputs.rows }}
-        else
-          echo "Unknown dataset!"
-          exit 1
+
+          cargo run --release -- benchmark generated \
+            --url "${BENCHMARK_URL}" \
+            --rows ${NUM_ROWS} \
+            --type pg_search \
+            --dataset ${{ inputs.dataset }} \
+            --runs 10 \
+            --output json \
+            --fail-on-error ${{ inputs.fail_on_error }}
+
+          # Format row count for display (e.g., 100000 -> 100K, 1000000 -> 1M)
+          if [ ${NUM_ROWS} -ge 1000000000 ]; then
+            ROWS_LABEL="$((NUM_ROWS / 1000000000))B"
+          elif [ ${NUM_ROWS} -ge 1000000 ]; then
+            ROWS_LABEL="$((NUM_ROWS / 1000000))M"
+          elif [ ${NUM_ROWS} -ge 1000 ]; then
+            ROWS_LABEL="$((NUM_ROWS / 1000))K"
+          else
+            ROWS_LABEL="${NUM_ROWS}"
+          fi
         fi
 
-        # Run the benchmark.
-        cargo run --release -- benchmark generated \
-          --url postgresql://localhost:288${{ env.pg_version }}/postgres \
-          --rows ${NUM_ROWS} \
-          --type pg_search \
-          --dataset ${{ inputs.dataset }} \
-          --runs 10 \
-          --output json \
-          --fail-on-error ${{ inputs.fail_on_error }}
-
-        # Format row count for display (e.g., 100000 -> 100K, 1000000 -> 1M)
-        if [ ${NUM_ROWS} -ge 1000000000 ]; then
-          ROWS_LABEL="$((NUM_ROWS / 1000000000))B"
-        elif [ ${NUM_ROWS} -ge 1000000 ]; then
-          ROWS_LABEL="$((NUM_ROWS / 1000000))M"
-        elif [ ${NUM_ROWS} -ge 1000 ]; then
-          ROWS_LABEL="$((NUM_ROWS / 1000))K"
-        else
-          ROWS_LABEL="${NUM_ROWS}"
-        fi
         echo "ROWS_LABEL=${ROWS_LABEL}" >> $GITHUB_ENV
 
     - name: Print the Postgres Logs

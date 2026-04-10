@@ -48,13 +48,17 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Configure AWS Credentials
+      if: inputs.mode == 'existing'
+      uses: aws-actions/configure-aws-credentials@v6
+      with:
+        aws-access-key-id: ${{ inputs.aws_access_key_id }}
+        aws-secret-access-key: ${{ inputs.aws_secret_access_key }}
+        aws-region: ${{ inputs.aws_region }}
+
     - name: Run Benchmarks
       working-directory: benchmarks/
       shell: bash
-      env:
-        AWS_ACCESS_KEY_ID: ${{ inputs.aws_access_key_id }}
-        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws_secret_access_key }}
-        AWS_REGION: ${{ inputs.aws_region }}
       run: |
         BENCHMARK_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
 

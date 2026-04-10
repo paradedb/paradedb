@@ -769,6 +769,7 @@ impl TableProvider for PgSearchTableProvider {
             mvcc_style,
             expr_context.and_then(std::ptr::NonNull::new),
             None,
+            query.needs_tokenizer(),
         )
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 

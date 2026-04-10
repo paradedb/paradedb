@@ -1440,6 +1440,129 @@ ORDER BY p.category;
 (3 rows)
 
 -- =====================================================================
+-- SECTION 16: ORDER BY within aggregates (STRING_AGG, ARRAY_AGG)
+-- =====================================================================
+-- Test 16.1: STRING_AGG with ORDER BY on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: p.category, (string_agg(t.tag_name, ', '::text ORDER BY t.tag_name))
+   Backend: DataFusion
+   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+   Group By: category
+   Aggregates: STRING_AGG(tag_name)
+(6 rows)
+
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+  category   |          string_agg          
+-------------+------------------------------
+ Electronics | computer, gaming, tech, tech
+ Sports      | fitness, running
+ Toys        | kids, tech
+(3 rows)
+
+-- Test 16.2: STRING_AGG ORDER BY parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+  category   |          string_agg          
+-------------+------------------------------
+ Electronics | computer, gaming, tech, tech
+ Sports      | fitness, running
+ Toys        | kids, tech
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test 16.3: STRING_AGG ORDER BY DESC
+SELECT p.category, STRING_AGG(t.tag_name, ', ' ORDER BY t.tag_name DESC)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+  category   |          string_agg          
+-------------+------------------------------
+ Electronics | tech, tech, gaming, computer
+ Sports      | running, fitness
+ Toys        | tech, kids
+(3 rows)
+
+-- Test 16.4: ARRAY_AGG with ORDER BY on join
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category;
+                            QUERY PLAN                             
+-------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+   Output: p.category, (array_agg(t.tag_name ORDER BY t.tag_name))
+   Backend: DataFusion
+   Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
+   Group By: category
+   Aggregates: ARRAY_AGG(tag_name)
+(6 rows)
+
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+  category   |          array_agg          
+-------------+-----------------------------
+ Electronics | {computer,gaming,tech,tech}
+ Sports      | {fitness,running}
+ Toys        | {kids,tech}
+(3 rows)
+
+-- Test 16.5: ARRAY_AGG ORDER BY parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+  category   |          array_agg          
+-------------+-----------------------------
+ Electronics | {computer,gaming,tech,tech}
+ Sports      | {fitness,running}
+ Toys        | {kids,tech}
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Test 16.6: ARRAY_AGG ORDER BY DESC
+SELECT p.category, ARRAY_AGG(t.tag_name ORDER BY t.tag_name DESC)
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes'
+GROUP BY p.category
+ORDER BY p.category;
+  category   |          array_agg          
+-------------+-----------------------------
+ Electronics | {tech,tech,gaming,computer}
+ Sports      | {running,fitness}
+ Toys        | {tech,kids}
+(3 rows)
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev mold
 
       - name: Install Mintlify CLI
         run: npm install -g mintlify
@@ -144,7 +144,7 @@ jobs:
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
+        run: mold -run cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
       - name: Initialize pgrx environment
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"

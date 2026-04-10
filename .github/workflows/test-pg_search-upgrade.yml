@@ -63,7 +63,7 @@ jobs:
           save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install required system tools
-        run: sudo apt-get update && sudo apt-get install -y lsof
+        run: sudo apt-get update && sudo apt-get install -y lsof mold
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -85,7 +85,7 @@ jobs:
 
       # This is the pgrx version compatible with ParadeDB $PRIOR_PG_SEARCH_VERSION
       - name: Install pgrx for ParadeDB $PRIOR_PG_SEARCH_VERSION
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.16.1 --debug
+        run: mold -run cargo install -j $(nproc) --locked cargo-pgrx --version 0.16.1 --debug
 
       - name: Initialize pgrx environment for ParadeDB $PRIOR_PG_SEARCH_VERSION
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
@@ -100,7 +100,8 @@ jobs:
 
       - name: Compile & install pg_search $PRIOR_PG_SEARCH_VERSION
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        # Cannot use --profile ci here: the old checkout does not have [profile.ci] in Cargo.toml
+        run: mold -run cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via pgrx
         working-directory: pg_search/
@@ -135,7 +136,7 @@ jobs:
 
       - name: Install the pgrx version for ParadeDB
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        run: mold -run cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx environment for ParadeDB
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
@@ -156,7 +157,7 @@ jobs:
 
       - name: Compile & install pg_search
         working-directory: pg_search/
-        run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+        run: mold -run cargo pgrx install --profile ci --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       - name: Start Postgres via pgrx
         working-directory: pg_search/
@@ -184,7 +185,7 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          RUST_BACKTRACE=1 cargo test --jobs $(nproc)
+          RUST_BACKTRACE=1 mold -run cargo test --jobs $(nproc)
 
       - name: Print the Postgres Logs
         if: always()

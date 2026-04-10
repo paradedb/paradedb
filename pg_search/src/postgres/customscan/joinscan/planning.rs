@@ -35,7 +35,9 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
+use crate::postgres::customscan::pullup::{
+    field_type_for_pullup, get_attno_by_name, resolve_fast_field,
+};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::customscan::score_funcoids;
@@ -1029,7 +1031,7 @@ pub(super) unsafe fn collect_required_fields(
                     let raw_col_name = col_name.trim_matches('"');
                     for source in &mut plan_sources {
                         if source.scan_info.alias.as_deref() == Some(alias) {
-                            if let Some(attno) = get_attno_by_name(source, raw_col_name) {
+                            if let Some(attno) = get_source_attno_by_name(source, raw_col_name) {
                                 ensure_field(source, attno);
                             }
                             break;
@@ -1045,7 +1047,7 @@ pub(super) unsafe fn collect_required_fields(
                             // exist in the table but only be indexed via an
                             // expression (e.g. upper(name)), in which case
                             // ensure_field (via resolve_fast_field) won't find it.
-                            let added = get_attno_by_name(source, name)
+                            let added = get_source_attno_by_name(source, name)
                                 .and_then(|attno| try_ensure_field(source, attno))
                                 .is_some();
                             if !added {
@@ -1155,16 +1157,11 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     Ok(())
 }
 
-/// Helper function to retrieve an attribute number given a column name from a `JoinSource`'s underlying heap relation.
-unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
+/// Retrieve an attribute number by column name from a `JoinSource`'s heap relation.
+unsafe fn get_source_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
     let rel = PgSearchRelation::open(side.scan_info.heaprelid);
     let tupdesc = rel.tuple_desc();
-    for (i, att) in tupdesc.iter().enumerate() {
-        if att.name() == name {
-            return Some((i + 1) as pg_sys::AttrNumber);
-        }
-    }
-    None
+    get_attno_by_name(name, &tupdesc)
 }
 
 fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {

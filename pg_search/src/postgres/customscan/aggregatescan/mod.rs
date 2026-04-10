@@ -991,7 +991,13 @@ impl AggregateScan {
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
-                privdat::HavingExpr::from_pg_node((*parse).havingQual, &targetlist)
+                privdat::FilterExpr::from_pg_node(
+                    (*parse).havingQual,
+                    &datafusion_build::FilterExprContext {
+                        targetlist: Some(&targetlist),
+                        sources: None,
+                    },
+                )
             } else {
                 None
             }

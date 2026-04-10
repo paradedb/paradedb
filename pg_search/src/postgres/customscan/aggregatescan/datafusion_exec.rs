@@ -31,7 +31,7 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
-use crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK;
+use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
 };
@@ -82,7 +82,7 @@ pub async fn build_join_aggregate_plan(
     join_level_predicates: &[JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
-    having_filter: Option<&crate::postgres::customscan::aggregatescan::privdat::HavingExpr>,
+    having_filter: Option<&FilterExpr>,
     ctx: &SessionContext,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     // Step 1: Build the join DataFrame from the RelNode tree
@@ -117,16 +117,14 @@ pub async fn build_join_aggregate_plan(
                 AggKind::Count => agg_field_col(agg, plan).map(count),
                 AggKind::CountDistinct => {
                     let col_exprs = agg_field_cols(agg, plan)?;
-                    Ok(Expr::AggregateFunction(
-                        datafusion::logical_expr::expr::AggregateFunction::new_udf(
-                            count_udaf(),
-                            col_exprs,
-                            true,   // distinct
-                            None,   // filter
-                            vec![], // order_by
-                            None,   // null_treatment
-                        ),
-                    ))
+                    Ok(Expr::AggregateFunction(AggregateFunction::new_udf(
+                        count_udaf(),
+                        col_exprs,
+                        true,   // distinct
+                        None,   // filter
+                        vec![], // order_by
+                        None,   // null_treatment
+                    )))
                 }
                 AggKind::Sum => agg_field_col(agg, plan).map(sum),
                 AggKind::Avg => agg_field_col(agg, plan).map(avg),
@@ -178,16 +176,43 @@ pub async fn build_join_aggregate_plan(
                 && !matches!(agg.agg_kind, AggKind::CountDistinct | AggKind::CountStar)
             {
                 match agg_expr {
-                    Expr::AggregateFunction(af) => Expr::AggregateFunction(
-                        datafusion::logical_expr::expr::AggregateFunction::new_udf(
+                    Expr::AggregateFunction(af) => {
+                        Expr::AggregateFunction(AggregateFunction::new_udf(
                             af.func,
                             af.params.args,
                             true,
                             af.params.filter,
                             af.params.order_by,
                             af.params.null_treatment,
-                        ),
-                    ),
+                        ))
+                    }
+                    other => other,
+                }
+            } else {
+                agg_expr
+            };
+            // Apply per-aggregate FILTER clause if present.
+            let agg_expr = if let Some(ref filter_expr) = agg.filter {
+                let filter_ctx = FilterExprContext {
+                    targetlist: None,
+                    plan: Some(plan),
+                };
+                let df_filter = filter_expr.to_datafusion(&filter_ctx).ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "Failed to translate aggregate FILTER clause to DataFusion".to_string(),
+                    )
+                })?;
+                match agg_expr {
+                    Expr::AggregateFunction(af) => {
+                        Expr::AggregateFunction(AggregateFunction::new_udf(
+                            af.func,
+                            af.params.args,
+                            af.params.distinct,
+                            Some(Box::new(df_filter)),
+                            af.params.order_by,
+                            af.params.null_treatment,
+                        ))
+                    }
                     other => other,
                 }
             } else {
@@ -203,7 +228,11 @@ pub async fn build_join_aggregate_plan(
 
     // Step 4.5: Apply HAVING filter (post-aggregate)
     if let Some(having) = having_filter {
-        let expr = having.to_datafusion(targetlist).ok_or_else(|| {
+        let having_ctx = FilterExprContext {
+            targetlist: Some(targetlist),
+            plan: None,
+        };
+        let expr = having.to_datafusion(&having_ctx).ok_or_else(|| {
             DataFusionError::Internal(
                 "Failed to translate HAVING clause to DataFusion expression".to_string(),
             )
@@ -423,35 +452,50 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
     }
 }
 
-impl crate::postgres::customscan::aggregatescan::privdat::HavingExpr {
-    /// Translate this `HavingExpr` to a DataFusion `Expr`.
-    /// Aggregate references use the `agg_{idx}` aliases from the aggregate step.
-    fn to_datafusion(&self, targetlist: &JoinAggregateTargetList) -> Option<Expr> {
-        use crate::postgres::customscan::aggregatescan::privdat::HavingOp;
+/// Context for resolving leaf nodes in [`FilterExpr::to_datafusion`].
+/// HAVING provides targetlist for `AggRef`/`GroupRef`; FILTER provides plan for `ColumnRef`.
+struct FilterExprContext<'a> {
+    targetlist: Option<&'a JoinAggregateTargetList>,
+    plan: Option<&'a RelNode>,
+}
+
+impl FilterExpr {
+    /// Translate this expression to a DataFusion `Expr`.
+    ///
+    /// Used for both HAVING (pass `targetlist`) and per-aggregate FILTER (pass `plan`).
+    fn to_datafusion(&self, ctx: &FilterExprContext<'_>) -> Option<Expr> {
         use datafusion::logical_expr::Operator;
 
         match self {
-            Self::AggRef(idx) => {
-                if *idx < targetlist.aggregates.len() {
+            FilterExpr::AggRef(idx) => {
+                let tl = ctx.targetlist?;
+                if *idx < tl.aggregates.len() {
                     Some(datafusion::prelude::col(format!("agg_{}", idx)))
                 } else {
                     None
                 }
             }
-            Self::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
-            Self::LitInt(v) => Some(lit(*v)),
-            Self::LitFloat(v) => Some(lit(*v)),
-            Self::LitBool(v) => Some(lit(*v)),
-            Self::BinOp { left, op, right } => {
-                let l = left.to_datafusion(targetlist)?;
-                let r = right.to_datafusion(targetlist)?;
+            FilterExpr::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
+            FilterExpr::ColumnRef { rti, field_name } => {
+                let plan = ctx.plan?;
+                let source = plan.source_for_rti_in_subtree(*rti);
+                let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
+                Some(make_col(&alias, field_name))
+            }
+            FilterExpr::LitInt(v) => Some(lit(*v)),
+            FilterExpr::LitFloat(v) => Some(lit(*v)),
+            FilterExpr::LitBool(v) => Some(lit(*v)),
+            FilterExpr::LitString(v) => Some(lit(v.clone())),
+            FilterExpr::BinOp { left, op, right } => {
+                let l = left.to_datafusion(ctx)?;
+                let r = right.to_datafusion(ctx)?;
                 let df_op = match op {
-                    HavingOp::Eq => Operator::Eq,
-                    HavingOp::NotEq => Operator::NotEq,
-                    HavingOp::Lt => Operator::Lt,
-                    HavingOp::LtEq => Operator::LtEq,
-                    HavingOp::Gt => Operator::Gt,
-                    HavingOp::GtEq => Operator::GtEq,
+                    CompareOp::Eq => Operator::Eq,
+                    CompareOp::NotEq => Operator::NotEq,
+                    CompareOp::Lt => Operator::Lt,
+                    CompareOp::LtEq => Operator::LtEq,
+                    CompareOp::Gt => Operator::Gt,
+                    CompareOp::GtEq => Operator::GtEq,
                 };
                 Some(Expr::BinaryExpr(datafusion::logical_expr::BinaryExpr::new(
                     Box::new(l),
@@ -459,36 +503,34 @@ impl crate::postgres::customscan::aggregatescan::privdat::HavingExpr {
                     Box::new(r),
                 )))
             }
-            Self::And(children) => {
-                // All children must translate — if any fails, the whole AND is
-                // untranslatable and we must fall back to Postgres (not silently drop it).
+            FilterExpr::And(children) => {
                 let exprs: Vec<Expr> = children
                     .iter()
-                    .map(|c| c.to_datafusion(targetlist))
+                    .map(|c| c.to_datafusion(ctx))
                     .collect::<Option<Vec<Expr>>>()?;
                 let mut result = exprs.into_iter();
                 let first = result.next()?;
                 Some(result.fold(first, |acc, e| acc.and(e)))
             }
-            Self::Or(children) => {
+            FilterExpr::Or(children) => {
                 let exprs: Vec<Expr> = children
                     .iter()
-                    .map(|c| c.to_datafusion(targetlist))
+                    .map(|c| c.to_datafusion(ctx))
                     .collect::<Option<Vec<Expr>>>()?;
                 let mut result = exprs.into_iter();
                 let first = result.next()?;
                 Some(result.fold(first, |acc, e| acc.or(e)))
             }
-            Self::Not(inner) => {
-                let e = inner.to_datafusion(targetlist)?;
+            FilterExpr::Not(inner) => {
+                let e = inner.to_datafusion(ctx)?;
                 Some(Expr::Not(Box::new(e)))
             }
-            Self::IsNull(inner) => {
-                let e = inner.to_datafusion(targetlist)?;
+            FilterExpr::IsNull(inner) => {
+                let e = inner.to_datafusion(ctx)?;
                 Some(e.is_null())
             }
-            Self::IsNotNull(inner) => {
-                let e = inner.to_datafusion(targetlist)?;
+            FilterExpr::IsNotNull(inner) => {
+                let e = inner.to_datafusion(ctx)?;
                 Some(e.is_not_null())
             }
         }

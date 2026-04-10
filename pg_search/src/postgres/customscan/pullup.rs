@@ -150,6 +150,19 @@ pub fn resolve_fast_field_by_name(
     }
 }
 
+/// Look up a 1-based attribute number by column name in a tuple descriptor.
+pub fn get_attno_by_name(
+    name: &str,
+    tupdesc: &pgrx::PgTupleDesc<'_>,
+) -> Option<pg_sys::AttrNumber> {
+    for (i, att) in tupdesc.iter().enumerate() {
+        if att.name() == name {
+            return Some((i + 1) as pg_sys::AttrNumber);
+        }
+    }
+    None
+}
+
 /// Returns the `SearchFieldType` if it's supported for fast field pullup execution.
 ///
 /// Returns `Some(SearchFieldType)` if the type is supported for fast field execution,

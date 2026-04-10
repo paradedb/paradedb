@@ -18,7 +18,7 @@
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
-use crate::postgres::customscan::aggregatescan::privdat::DataFusionTopK;
+use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
 };
@@ -59,7 +59,7 @@ pub struct DataFusionAggState {
     /// pairs during DataFusion expression translation.
     pub custom_scan_tlist: *mut pg_sys::List,
     /// HAVING clause filter applied after aggregation.
-    pub having_filter: Option<crate::postgres::customscan::aggregatescan::privdat::HavingExpr>,
+    pub having_filter: Option<FilterExpr>,
     /// Tokio runtime for async DataFusion execution.
     pub runtime: Option<tokio::runtime::Runtime>,
     /// DataFusion result stream.

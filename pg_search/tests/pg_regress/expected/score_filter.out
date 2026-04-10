@@ -1,0 +1,190 @@
+-- Tests for standalone score filtering (without JoinScan)
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+-- =============================================================================
+-- SETUP
+-- =============================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- setup.sql already creates regress.mock_items, but we'll use a local one for more control
+DROP TABLE IF EXISTS score_items CASCADE;
+CREATE TABLE score_items (
+    id INTEGER PRIMARY KEY,
+    description TEXT
+);
+INSERT INTO score_items (id, description) VALUES
+(1, 'PostgreSQL is amazing'),
+(2, 'Search engines are powerful'),
+(3, 'Tantivy is fast');
+CREATE INDEX score_items_idx ON score_items USING bm25 (id, description) WITH (key_field='id');
+-- =============================================================================
+-- TEST 1: Score filter >= 0 (matches everything)
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, description, paradedb.score(id)
+FROM score_items
+WHERE description @@@ 'PostgreSQL'
+  AND paradedb.score(id) >= 0
+ORDER BY id;
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, description, (paradedb.score(id))
+   Sort Key: score_items.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.score_items
+         Output: id, description, paradedb.score(id)
+         Table: score_items
+         Index: score_items_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"PostgreSQL","lenient":null,"conjunction_mode":null}}}}]}}}}
+(10 rows)
+
+SELECT id, description, paradedb.score(id)
+FROM score_items
+WHERE description @@@ 'PostgreSQL'
+  AND paradedb.score(id) >= 0
+ORDER BY id;
+ id |      description      |   score   
+----+-----------------------+-----------
+  1 | PostgreSQL is amazing | 1.0226655
+(1 row)
+
+-- =============================================================================
+-- TEST 2: Score filter with threshold
+-- =============================================================================
+-- We expect one row to match 'PostgreSQL' with a positive score
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, description, paradedb.score(id)
+FROM score_items
+WHERE description @@@ 'PostgreSQL'
+  AND paradedb.score(id) > 0.1
+ORDER BY id;
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, description, (paradedb.score(id))
+   Sort Key: score_items.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.score_items
+         Output: id, description, paradedb.score(id)
+         Table: score_items
+         Index: score_items_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":0.10000000149011612},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"PostgreSQL","lenient":null,"conjunction_mode":null}}}}]}}}}
+(10 rows)
+
+SELECT id, description, paradedb.score(id)
+FROM score_items
+WHERE description @@@ 'PostgreSQL'
+  AND paradedb.score(id) > 0.1
+ORDER BY id;
+ id |      description      |   score   
+----+-----------------------+-----------
+  1 | PostgreSQL is amazing | 1.0226655
+(1 row)
+
+-- =============================================================================
+-- TEST 3: Score filter that excludes matches
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, description, paradedb.score(id)
+FROM score_items
+WHERE description @@@ 'PostgreSQL'
+  AND paradedb.score(id) > 10.0
+ORDER BY id;
+                                                                                                                          QUERY PLAN                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, description, (paradedb.score(id))
+   Sort Key: score_items.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.score_items
+         Output: id, description, paradedb.score(id)
+         Table: score_items
+         Index: score_items_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":10.0},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"PostgreSQL","lenient":null,"conjunction_mode":null}}}}]}}}}
+(10 rows)
+
+SELECT id, description, paradedb.score(id)
+FROM score_items
+WHERE description @@@ 'PostgreSQL'
+  AND paradedb.score(id) > 10.0
+ORDER BY id;
+ id | description | score 
+----+-------------+-------
+(0 rows)
+
+-- =============================================================================
+-- TEST 4: Multiple score filters
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, description, paradedb.score(id)
+FROM score_items
+WHERE description @@@ 'PostgreSQL'
+  AND paradedb.score(id) >= 0
+  AND paradedb.score(id) < 100
+ORDER BY id;
+                                                                                                                                                             QUERY PLAN                                                                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, description, (paradedb.score(id))
+   Sort Key: score_items.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.score_items
+         Output: id, description, paradedb.score(id)
+         Table: score_items
+         Index: score_items_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":{"score_filter":{"bounds":[["Unbounded",{"Excluded":100.0}]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"PostgreSQL","lenient":null,"conjunction_mode":null}}}}]}}}}}}
+(10 rows)
+
+SELECT id, description, paradedb.score(id)
+FROM score_items
+WHERE description @@@ 'PostgreSQL'
+  AND paradedb.score(id) >= 0
+  AND paradedb.score(id) < 100
+ORDER BY id;
+ id |      description      |   score   
+----+-----------------------+-----------
+  1 | PostgreSQL is amazing | 1.0226655
+(1 row)
+
+-- =============================================================================
+-- TEST 5: Standalone score filter (no other search predicates)
+-- =============================================================================
+-- This test verifies that if there are no other query inputs, the ScoreFilter
+-- correctly defaults to SearchQueryInput::All.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, description, paradedb.score(id)
+FROM score_items
+WHERE paradedb.score(id) >= 0
+ORDER BY id;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, description, (paradedb.score(id))
+   Sort Key: score_items.id
+   ->  Custom Scan (ParadeDB Base Scan) on public.score_items
+         Output: id, description, paradedb.score(id)
+         Table: score_items
+         Index: score_items_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Full Index Scan: true
+         Tantivy Query: {"score_filter":{"bounds":[[{"Included":0.0},"Unbounded"]],"query":"all"}}
+(11 rows)
+
+SELECT id, description, paradedb.score(id)
+FROM score_items
+WHERE paradedb.score(id) >= 0
+ORDER BY id;
+ id |         description         | score 
+----+-----------------------------+-------
+  1 | PostgreSQL is amazing       |     0
+  2 | Search engines are powerful |     0
+  3 | Tantivy is fast             |     0
+(3 rows)
+
+-- CLEANUP
+DROP TABLE score_items CASCADE;

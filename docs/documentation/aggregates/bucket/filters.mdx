@@ -22,7 +22,7 @@ FROM mock_items;
 from django.db.models import Q
 from paradedb import Agg, ParadeDB, Term
 
-result = MockItem.objects.aggregate(
+MockItem.objects.aggregate(
     electronics_count=Agg(
         '{"value_count": {"field": "id"}}',
         filter=Q(category=ParadeDB(Term('electronics'))),
@@ -32,6 +32,24 @@ result = MockItem.objects.aggregate(
         filter=Q(category=ParadeDB(Term('footwear'))),
     ),
 )
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = select(
+    pdb.agg(facets.value_count(field="id"))
+    .filter(search.term(MockItem.category, "electronics"))
+    .label("electronics_count"),
+    pdb.agg(facets.value_count(field="id"))
+    .filter(search.term(MockItem.category, "footwear"))
+    .label("footwear_count"),
+).select_from(MockItem)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails

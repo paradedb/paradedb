@@ -84,7 +84,9 @@ pub extern "C-unwind" fn ambuild(
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
-    build_empty(&PgSearchRelation::from_pg(index_relation));
+    let mut relation = PgSearchRelation::from_pg(index_relation);
+    relation.set_fork_number(pg_sys::ForkNumber::INIT_FORKNUM);
+    build_empty(&relation);
 }
 
 unsafe fn build_empty(index_relation: &PgSearchRelation) {

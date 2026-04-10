@@ -647,7 +647,13 @@ pub fn index_memory_segment(
 
     'next_ctid: for ctid in ctids {
         // Guard against stale ctids referencing heap blocks truncated by VACUUM.
-        if !unsafe { crate::postgres::utils::ctid_satisfies_nblocks(ctid, heaprel.as_ptr()) } {
+        if !unsafe {
+            crate::postgres::utils::ctid_satisfies_nblocks(
+                ctid,
+                heaprel.as_ptr(),
+                heaprel.fork_number(),
+            )
+        } {
             writer.insert(tantivy::TantivyDocument::new(), ctid, || {
                 unreachable!("No limits configured: should not finalize.")
             })?;

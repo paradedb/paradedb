@@ -20,6 +20,21 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"stats": {"field": "rating"}}'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.stats(field="rating")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id)
         .match_all

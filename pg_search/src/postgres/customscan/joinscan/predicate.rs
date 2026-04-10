@@ -51,7 +51,7 @@ use pgrx::{pg_sys, PgList};
 ///
 /// Returns the updated JoinCSClause and a list of heap condition clause pointers
 /// (in the same order as multi_table_predicates in the clause) for adding to custom_exprs.
-pub(super) unsafe fn extract_join_level_conditions(
+pub unsafe fn extract_join_level_conditions(
     root: *mut pg_sys::PlannerInfo,
     extra: *mut pg_sys::JoinPathExtraData,
     sources: &[&JoinSource],
@@ -153,7 +153,7 @@ pub(super) unsafe fn extract_join_level_conditions(
 /// Also collects heap condition clause pointers into `multi_table_predicate_clauses` for adding
 /// to custom_exprs during plan_custom_path.
 #[allow(clippy::too_many_arguments)]
-pub(super) unsafe fn transform_to_search_expr(
+pub unsafe fn transform_to_search_expr(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
     sources: &[&JoinSource],
@@ -213,8 +213,35 @@ pub(super) unsafe fn transform_to_search_expr(
         return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
     }
 
-    // Handle BoolExpr
+    // Handle List nodes: Postgres may wrap quals in a List (common on PG18).
+    // Treat as an implicit AND of the list elements.
     let node_type = (*node).type_;
+    if node_type == pg_sys::NodeTag::T_List {
+        let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
+        let mut children = Vec::new();
+        for item in list.iter_ptr() {
+            if let Some(child_expr) = transform_to_search_expr(
+                root,
+                item,
+                sources,
+                join_clause,
+                multi_table_predicate_clauses,
+            ) {
+                children.push(child_expr);
+            } else {
+                return None;
+            }
+        }
+        return if children.is_empty() {
+            None
+        } else if children.len() == 1 {
+            Some(children.pop().unwrap())
+        } else {
+            Some(JoinLevelExpr::And(children))
+        };
+    }
+
+    // Handle BoolExpr
     if node_type == pg_sys::NodeTag::T_BoolExpr {
         let boolexpr = node as *mut pg_sys::BoolExpr;
         let boolop = (*boolexpr).boolop;
@@ -267,7 +294,7 @@ pub(super) unsafe fn transform_to_search_expr(
     }
 }
 
-pub(super) unsafe fn find_base_info_recursive(
+pub unsafe fn find_base_info_recursive(
     source: &JoinSource,
     rti: pg_sys::Index,
 ) -> Option<ScanInfo> {
@@ -280,7 +307,7 @@ pub(super) unsafe fn find_base_info_recursive(
 
 /// Extract a single-table predicate and add it to the join clause.
 /// Returns the index of the predicate in join_level_predicates, or None if extraction fails.
-pub(super) unsafe fn extract_single_table_predicate(
+pub unsafe fn extract_single_table_predicate(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     side: &ScanInfo,
@@ -327,7 +354,7 @@ pub(super) unsafe fn extract_single_table_predicate(
 }
 
 /// Check if all Var references in an expression are fast fields.
-unsafe fn all_vars_are_fast_fields_recursive(
+pub unsafe fn all_vars_are_fast_fields_recursive(
     node: *mut pg_sys::Node,
     sources: &[&JoinSource],
 ) -> bool {
@@ -338,8 +365,11 @@ unsafe fn all_vars_are_fast_fields_recursive(
         for source in sources {
             if source.contains_rti(var_ref.rti) {
                 if let Some(base_info) = find_base_info_recursive(source, var_ref.rti) {
-                    let (heaprelid, indexrelid) = (base_info.heaprelid, base_info.indexrelid);
-                    if !is_column_fast_field(heaprelid, indexrelid, var_ref.attno) {
+                    let heaprel = PgSearchRelation::open(base_info.heaprelid);
+                    let indexrel = PgSearchRelation::open(base_info.indexrelid);
+                    if resolve_fast_field(var_ref.attno as i32, &heaprel.tuple_desc(), &indexrel)
+                        .is_none()
+                    {
                         return false;
                     }
                 } else {
@@ -355,21 +385,4 @@ unsafe fn all_vars_are_fast_fields_recursive(
     }
 
     true
-}
-
-/// Check if a specific column is available as a fast field in the relation's BM25 index.
-///
-/// Returns true if:
-/// - The column is explicitly marked as a fast field in the index schema, OR
-/// - The column is the key_field (which is implicitly stored as a fast field in Tantivy)
-pub(super) unsafe fn is_column_fast_field(
-    heaprelid: pg_sys::Oid,
-    indexrelid: pg_sys::Oid,
-    attno: pg_sys::AttrNumber,
-) -> bool {
-    let heaprel = PgSearchRelation::open(heaprelid);
-    let indexrel = PgSearchRelation::open(indexrelid);
-    let tupdesc = heaprel.tuple_desc();
-
-    resolve_fast_field(attno as i32, &tupdesc, &indexrel).is_some()
 }

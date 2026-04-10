@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - 0.*.x # Release branches
+      - moe/** # Temporary: trigger CI on stacked PR chain
     paths:
       - ".github/workflows/schemabot-generate-diff.yml"
       - ".github/scripts/check_migration_diff.py"
@@ -25,7 +26,7 @@ concurrency:
 jobs:
   schemabot-generate-diff:
     name: SchemaBot
-    runs-on: ubicloud-standard-8-ubuntu-2404
+    runs-on: ubicloud-standard-8-arm-ubuntu-2404
     defaults:
       run:
         shell: bash -eo pipefail {0}
@@ -43,21 +44,26 @@ jobs:
 
       - name: Extract pgrx Version
         id: pgrx
-        working-directory: pg_search/
-        run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo "version=$version" >> $GITHUB_OUTPUT
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
+      # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+      # See test-pg_search.yml for rationale.
+      # Only save cache on non-PR events; PRs restore from the default branch.
+      # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -69,13 +75,14 @@ jobs:
       - name: Install pg-schema-diff and its Required Dependencies
         run: |
           sudo apt install clang llvm diffutils
-          cargo install --git https://github.com/paradedb/pg-schema-diff.git --debug --force
+          cargo install -j $(nproc) --git https://github.com/paradedb/pg-schema-diff.git --debug --force
 
-      - name: Install cargo-pgrx
+      - name: Install pgrx
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+
+      - name: Initialize pgrx environment
         run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-
           # Save the pgrx version for comparison later
           echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
 
@@ -89,7 +96,7 @@ jobs:
           git checkout ${{ github.event.pull_request.base.ref }}
 
           # See if we need a different cargo-pgrx and install it if so
-          THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          THIS_PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)
           if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
             # Install cargo-pgrx
             cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force --debug

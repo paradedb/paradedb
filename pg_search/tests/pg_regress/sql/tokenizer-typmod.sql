@@ -22,10 +22,16 @@ SELECT 'Running Shoes.  olé'::pdb.lindera('language=japanese')::text[]; -- erro
 SELECT 'Running Shoes.  olé'::pdb.lindera('language=korean')::text[]; -- error, needs a language
 SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'keep_whitespace=true', 'lowercase=false')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'keep_whitespace=false', 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'keep_whitespace=true', 'lowercase=false')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'keep_whitespace=false', 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'keep_whitespace=true', 'lowercase=false')::text[];
+SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'keep_whitespace=false', 'lowercase=false')::text[];
 
 SELECT 'Running Shoes.  olé'::pdb.jieba::text[];
 SELECT 'Running Shoes.  olé'::pdb.jieba('lowercase=false')::text[];
@@ -83,3 +89,32 @@ SELECT 'Running Shoes.  olé'::pdb.simple(ascii_folding)::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('remove_short=0')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('remove_long=0')::text[];
 SELECT 'Running Shoes.  olé'::pdb.ngram(2, 'invalid')::text[];
+
+DROP TABLE IF EXISTS tokenizer_typmod_display;
+
+CREATE TABLE tokenizer_typmod_display (
+    id serial8 NOT NULL PRIMARY KEY,
+    description text
+);
+
+CREATE INDEX idxtokenizer_typmod_display ON tokenizer_typmod_display USING bm25
+    (
+        id,
+        description,
+        (description::pdb.chinese_compatible('alias=chinese_compatible')),
+        (description::pdb.literal('alias=literal')),
+        (description::pdb.jieba('alias=jieba')),
+        (description::pdb.lindera(chinese, 'alias=lindera_chinese')),
+        (description::pdb.lindera(japanese, 'alias=lindera_japanese')),
+        (description::pdb.lindera(korean, 'alias=lindera_korean')),
+        (description::pdb.ngram(3, 5, 'alias=ngram')),
+        (description::pdb.regex_pattern('is|a', 'alias=regex')),
+        (description::pdb.simple('alias=simple')),
+        (description::pdb.whitespace('alias=whitespace')),
+        (description::pdb.source_code('alias=source_code')),
+        (description::pdb.literal_normalized('alias=literal_normalized'))
+    )
+    WITH (key_field = 'id');
+
+SELECT indexdef from pg_indexes where indexname = 'idxtokenizer_typmod_display';
+DROP TABLE tokenizer_typmod_display;

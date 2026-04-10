@@ -34,7 +34,9 @@ use std::ptr::addr_of_mut;
 /// Find the single Aggref node in an expression tree (handles wrapped aggregates like COALESCE(COUNT(*), 0))
 /// Returns the pointer to the Aggref if exactly one is found, None if zero or multiple Aggrefs exist.
 /// Expressions like COUNT(*) + SUM(x) will return None since we can't handle multiple aggregates.
-unsafe fn find_single_aggref_in_expr(expr: *mut pg_sys::Node) -> Option<*mut pg_sys::Aggref> {
+pub(super) unsafe fn find_single_aggref_in_expr(
+    expr: *mut pg_sys::Node,
+) -> Option<*mut pg_sys::Aggref> {
     use pgrx::pg_guard;
 
     struct WalkerContext {
@@ -163,7 +165,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
         unsafe {
             let parse = args.root().parse;
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
-                return Err("Query has DISTINCT clause (see https://github.com/orgs/paradedb/discussions/3678)".into());
+                return Err("Query has DISTINCT clause (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
             }
         }
 
@@ -235,7 +237,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
                     // Found an Aggref (either top-level or wrapped in COALESCE, NULLIF, etc.)
                     // TODO: Support DISTINCT
                     if !(*aggref).aggdistinct.is_null() {
-                        return Err("DISTINCT is not supported (see https://github.com/orgs/paradedb/discussions/3678)".into());
+                        return Err("DISTINCT is not supported (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
                     }
 
                     let mut qual_state = QualExtractState::default();
@@ -253,6 +255,14 @@ impl CustomScanClause<AggregateScan> for TargetList {
                         }
                     };
                     uses_our_operator = uses_our_operator || qual_state.uses_our_operator;
+
+                    // If we identified a pdb.agg() custom aggregate, we MUST handle it
+                    // via AggregateScan regardless of which operator is in the WHERE clause.
+                    // The placeholder pdb.agg() state function will error if PostgreSQL's
+                    // standard aggregate machinery tries to process it.
+                    if matches!(aggregate, AggregateType::Custom { .. }) {
+                        uses_our_operator = true;
+                    }
 
                     if let Some(field_name) = aggregate.field_name() {
                         if let Some(search_field) = schema.search_field(&field_name) {

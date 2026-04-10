@@ -99,7 +99,7 @@ ERROR:  Invalid option: 'language'. Allowed options: alias, alpha_num_only, asci
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.lindera('chinese', 'min=2')))
 WITH (key_field = 'id');
-ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, language, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, keep_whitespace, language, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -------------------------------------------------------------
 -- Cleanup
 -------------------------------------------------------------

@@ -30,6 +30,21 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"min": {"field": "rating"}}'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.min(field="rating")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id)
         .match_all
@@ -66,6 +81,21 @@ MockItem.objects.filter(
 ).aggregate(min_rating=Min('rating'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.min(MockItem.rating))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id).match_all.minimum(:rating)
 ```
@@ -88,6 +118,21 @@ from paradedb import All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(min_rating=Min(Coalesce('rating', Value(0))))
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.min(func.coalesce(MockItem.rating, 0)))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -115,6 +160,21 @@ from paradedb import Agg, All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(agg=Agg('{"max": {"field": "rating"}}'))
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.max(field="rating")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -151,6 +211,21 @@ MockItem.objects.filter(
 ).aggregate(max_rating=Max('rating'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.max(MockItem.rating))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id).match_all.maximum(:rating)
 ```
@@ -173,6 +248,21 @@ from paradedb import All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(max_rating=Max(Coalesce('rating', Value(0))))
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.max(func.coalesce(MockItem.rating, 0)))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails

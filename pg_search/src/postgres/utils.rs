@@ -268,9 +268,13 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
 /// Returns `true` if the block referenced by `ctid` (u64-packed form) exists
 /// in `rel`. A `false` result means VACUUM has truncated the page.
 #[inline(always)]
-pub unsafe fn ctid_satisfies_nblocks(ctid: u64, rel: pg_sys::Relation) -> bool {
+pub unsafe fn ctid_satisfies_nblocks(
+    ctid: u64,
+    rel: pg_sys::Relation,
+    fork: pg_sys::ForkNumber::Type,
+) -> bool {
     let blockno = (ctid >> 16) as pg_sys::BlockNumber;
-    blockno < pg_sys::RelationGetNumberOfBlocksInFork(rel, pg_sys::ForkNumber::MAIN_FORKNUM)
+    blockno < pg_sys::RelationGetNumberOfBlocksInFork(rel, fork)
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -1343,4 +1347,42 @@ macro_rules! debug2 {
             pg_sys::debug2!($($arg)*);
         }
     }};
+}
+
+/// Ensure all Var nodes referenced by `expr` are present in `tlist`.
+///
+/// For each base-relation Var in the expression, if no matching
+/// `(varno, varattno)` entry exists yet, a new resjunk `TargetEntry` is
+/// appended. This is used to populate `custom_scan_tlist` so that
+/// `set_customscan_references` can resolve Var references in
+/// `custom_exprs`.
+pub unsafe fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_sys::TargetEntry>) {
+    if expr.is_null() {
+        return;
+    }
+
+    for var_ptr in crate::postgres::var::find_vars(expr) {
+        let varno = (*var_ptr).varno as pg_sys::Index;
+        let varattno = (*var_ptr).varattno;
+
+        if varno == 0 || varattno <= 0 {
+            continue;
+        }
+
+        let already_present = tlist.iter_ptr().any(|te| {
+            if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
+                let existing = (*te).expr as *mut pg_sys::Var;
+                (*existing).varno as pg_sys::Index == varno && (*existing).varattno == varattno
+            } else {
+                false
+            }
+        });
+
+        if !already_present {
+            let resno = tlist.len() as pg_sys::AttrNumber + 1;
+            let new_var = pg_sys::copyObjectImpl(var_ptr.cast()).cast::<pg_sys::Var>();
+            let te = pg_sys::makeTargetEntry(new_var.cast(), resno, std::ptr::null_mut(), true);
+            tlist.push(te);
+        }
+    }
 }

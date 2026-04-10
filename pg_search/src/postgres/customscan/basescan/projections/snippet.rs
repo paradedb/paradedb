@@ -26,6 +26,7 @@ use pgrx::{
     default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
     FromDatum, IntoDatum, PgList,
 };
+use std::sync::OnceLock;
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
@@ -229,6 +230,7 @@ pub mod pdb {
                     pg_sys::INT4OID, // element type OID (integer)
                     4,               // typlen (int4 is 4 bytes)
                     true,            // typbyval (int4 is passed by value)
+                    #[allow(clippy::useless_conversion)]
                     pg_sys::TYPALIGN_INT.try_into().unwrap(), // typalign (char type, architecture-specific)
                 );
 
@@ -269,7 +271,7 @@ pub mod pdb {
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> String {
-        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 
     #[allow(unused_variables)]
@@ -283,7 +285,7 @@ pub mod pdb {
         offset: default!(Option<i32>, "NULL"),
         sort_by: default!(String, "'score'"),
     ) -> Vec<String> {
-        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 
     #[allow(unused_variables)]
@@ -307,7 +309,7 @@ AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> IntArray2D {
-        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 }
 
@@ -324,7 +326,7 @@ fn paradedb_snippet_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> Option<String> {
-    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 #[warn(deprecated)]
@@ -339,7 +341,7 @@ fn paradedb_snippets_from_relation(
     offset: default!(Option<i32>, "NULL"),
     sort_by: default!(String, "'score'"),
 ) -> Option<Vec<String>> {
-    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 #[warn(deprecated)]
@@ -364,7 +366,7 @@ fn paradedb_snippet_positions_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> pdb::IntArray2D {
-    panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 extension_sql!(
@@ -403,30 +405,36 @@ extension_sql!(
 );
 
 pub fn snippet_funcoids() -> [pg_sys::Oid; 2] {
-    const SIGNATURES: &[&str; 2] = &[
-        "pdb.snippet(anyelement, text, text, int, int, int)",
-        "paradedb.snippet(anyelement, text, text, int, int, int)",
-    ];
-    get_snippet_funcoids(SIGNATURES)
+    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *OID_CACHE.get_or_init(|| {
+        resolve_funcoids(&[
+            "pdb.snippet(anyelement, text, text, int, int, int)",
+            "paradedb.snippet(anyelement, text, text, int, int, int)",
+        ])
+    })
 }
 
 pub fn snippets_funcoids() -> [pg_sys::Oid; 2] {
-    const SIGNATURES: &[&str; 2] = &[
-        "pdb.snippets(anyelement, text, text, int, int, int, text)",
-        "paradedb.snippets(anyelement, text, text, int, int, int, text)",
-    ];
-    get_snippet_funcoids(SIGNATURES)
+    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *OID_CACHE.get_or_init(|| {
+        resolve_funcoids(&[
+            "pdb.snippets(anyelement, text, text, int, int, int, text)",
+            "paradedb.snippets(anyelement, text, text, int, int, int, text)",
+        ])
+    })
 }
 
 pub fn snippet_positions_funcoids() -> [pg_sys::Oid; 2] {
-    const SIGNATURES: &[&str; 2] = &[
-        "pdb.snippet_positions(anyelement, int, int)",
-        "paradedb.snippet_positions(anyelement, int, int)",
-    ];
-    get_snippet_funcoids(SIGNATURES)
+    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *OID_CACHE.get_or_init(|| {
+        resolve_funcoids(&[
+            "pdb.snippet_positions(anyelement, int, int)",
+            "paradedb.snippet_positions(anyelement, int, int)",
+        ])
+    })
 }
 
-fn get_snippet_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
+fn resolve_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
     unsafe {
         signatures
             .iter()

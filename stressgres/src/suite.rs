@@ -15,23 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-// Copyright (c) 2023-2025 ParadeDB, Inc.
-//
-// This file is part of ParadeDB - Postgres for Search and Analytics
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program. If not, see <http://www.gnu.org/licenses/>.
-
 use crate::sqlscanner::{ScannedStatement, SqlStatementScanner, StatementDestination};
 use pgrx_pg_config::{PgConfig, Pgrx};
 use serde::{Deserialize, Serialize};
@@ -70,7 +53,7 @@ impl PgConfigStyle {
                 let pgrx = Pgrx::from_config().expect("is pgrx configured?");
                 let base_pg_config = pgrx
                     .get(&version.to_string())
-                    .expect("is pgrx configured with Postgres v17?");
+                    .expect("is pgrx configured with the requested Postgres version?");
                 PgConfig::new(
                     base_pg_config.path().unwrap(),
                     port.unwrap_or_else(default_port),
@@ -135,8 +118,8 @@ impl PostgresqlConf {
 pub enum PgVersion {
     V15,
     V16,
-    #[default]
     V17,
+    #[default]
     V18,
 }
 
@@ -161,7 +144,7 @@ impl FromStr for PgVersion {
             "pg17" | "17" => Ok(PgVersion::V17),
             "pg18" | "18" => Ok(PgVersion::V18),
             _ => Err(format!(
-                "Invalid PostgreSQL version: {}. Expected 'pg17' or 'pg18'",
+                "Invalid PostgreSQL version: {}. Expected one of 'pg15', 'pg16', 'pg17', or 'pg18'",
                 s
             )),
         }

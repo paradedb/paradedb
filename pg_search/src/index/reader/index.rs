@@ -316,6 +316,7 @@ pub struct SearchIndexReader {
     need_scores: bool,
     total_segment_count: usize,
     total_docs: u64,
+    segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -343,6 +344,7 @@ impl Clone for SearchIndexReader {
             need_scores: self.need_scores,
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
+            segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -362,6 +364,7 @@ impl SearchIndexReader {
     fn open_index_components(
         index_relation: &PgSearchRelation,
         mvcc_style: MvccSatisfies,
+        needs_tokenizer_manager: bool,
     ) -> Result<IndexComponents> {
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
@@ -374,7 +377,9 @@ impl SearchIndexReader {
             .total_docs()
             .load(std::sync::atomic::Ordering::Relaxed) as u64;
         let schema = index_relation.schema()?;
-        setup_tokenizers(index_relation, &mut index)?;
+        if needs_tokenizer_manager {
+            setup_tokenizers(index_relation, &mut index)?;
+        }
 
         let reader = index
             .reader_builder()
@@ -406,6 +411,7 @@ impl SearchIndexReader {
         need_scores: bool,
         mvcc_style: MvccSatisfies,
     ) -> Result<Self> {
+        let needs_tokenizer_manager = search_query_input.needs_tokenizer();
         Self::open_with_context(
             index_relation,
             search_query_input,
@@ -413,6 +419,7 @@ impl SearchIndexReader {
             mvcc_style,
             None,
             None,
+            needs_tokenizer_manager,
         )
     }
 
@@ -424,8 +431,10 @@ impl SearchIndexReader {
         mvcc_style: MvccSatisfies,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
+        needs_tokenizer_manager: bool,
     ) -> Result<Self> {
-        let components = Self::open_index_components(index_relation, mvcc_style)?;
+        let components =
+            Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
         let IndexComponents {
             cleanup_lock,
             index,
@@ -455,6 +464,12 @@ impl SearchIndexReader {
                 )
                 .unwrap_or_else(|e| panic!("{e}"))
         };
+        let segment_ord_by_id = searcher
+            .segment_readers()
+            .iter()
+            .enumerate()
+            .map(|(ord, reader)| (reader.segment_id(), ord as SegmentOrdinal))
+            .collect();
 
         Ok(Self {
             index_rel: index_relation.clone(),
@@ -466,6 +481,7 @@ impl SearchIndexReader {
             need_scores,
             total_segment_count,
             total_docs,
+            segment_ordinal_by_id: segment_ord_by_id,
             _cleanup_lock: cleanup_lock,
         })
     }
@@ -1256,14 +1272,8 @@ impl SearchIndexReader {
             )
             .expect("converting query for estimation should not fail");
 
-        // Use EnableScoring::Enabled because some queries (e.g., MoreLikeThisQuery)
-        // require access to the searcher to build their internal query structure.
-        // We're not using the actual scores, just counting documents.
         let weight = tantivy_query
-            .weight(EnableScoring::Enabled {
-                searcher: &self.searcher,
-                statistics_provider: &self.searcher,
-            })
+            .weight(enable_scoring(node.query.need_scores(), &self.searcher))
             .expect("creating weight for estimation should not fail");
 
         let mut scorer = weight
@@ -1391,25 +1401,22 @@ impl SearchIndexReader {
         (first_orderby_info, erased_features)
     }
 
+    fn segment_ordinal_by_id(&self, segment_id: &SegmentId) -> Option<SegmentOrdinal> {
+        self.segment_ordinal_by_id.get(segment_id).copied()
+    }
+
     /// NOTE: It is very important that this method consumes the input SegmentIds lazily, because
     /// some callers (the Top K exec method in particular) are producing them lazily by checking
     /// them out of shared mutable state as they go.
-    ///
-    /// TODO: See https://github.com/paradedb/paradedb/issues/2758 about removing the O(N) behavior
-    /// here.
     fn segment_readers_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
     ) -> impl Iterator<Item = (SegmentOrdinal, &SegmentReader)> {
         segment_ids.map(|segment_id| {
-            let (segment_ord, segment_reader) = self
-                .searcher
-                .segment_readers()
-                .iter()
-                .enumerate()
-                .find(|(_, reader)| reader.segment_id() == segment_id)
+            let ord = self
+                .segment_ordinal_by_id(&segment_id)
                 .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
-            (segment_ord as SegmentOrdinal, segment_reader)
+            (ord, self.searcher.segment_reader(ord))
         })
     }
 
@@ -1432,7 +1439,8 @@ impl SearchIndexReader {
 impl SearchIndexManifest {
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
-        let components = SearchIndexReader::open_index_components(index_relation, mvcc_style)?;
+        let components =
+            SearchIndexReader::open_index_components(index_relation, mvcc_style, false)?;
         Ok(Self {
             searcher: components.searcher,
             _cleanup_lock: components.cleanup_lock,

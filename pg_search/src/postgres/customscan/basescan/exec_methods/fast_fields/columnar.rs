@@ -28,7 +28,9 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::SortByField;
@@ -434,6 +436,7 @@ impl ColumnarExecState {
                 .as_ref()
                 .map(|r| r.oid().to_u32())
                 .unwrap_or(0),
+            None,
         );
 
         let task_ctx = Arc::new(TaskContext::default());
@@ -594,6 +597,20 @@ impl ExecMethod for ColumnarExecState {
     /// * `state` - The current scan state containing query information
     /// * `cstate` - PostgreSQL's custom scan state pointer
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
+        // Resolve parameterized limit for batch size hint
+        if self.batch_size_hint.is_none() {
+            if let ExecMethodType::Columnar { ref mut limit, .. } = state.exec_method_type {
+                if let Some(param_limit) = limit.as_ref().filter(|l| l.static_value().is_none()) {
+                    unsafe {
+                        let estate = (*cstate).ss.ps.state;
+                        let resolved = param_limit.resolve(estate);
+                        self.batch_size_hint = Some(resolved * 2);
+                        *limit = Some(Limit::Static(resolved));
+                    }
+                }
+            }
+        }
+
         // Initialize the inner FastFieldExecState
         self.inner.init(state, cstate);
 

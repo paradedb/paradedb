@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - 0.*.x # Release branches
+      - moe/** # Temporary: trigger CI on stacked PR chain
     paths:
       - ".github/workflows/test-pg_search-nix.yml"
       - "nix/**"
@@ -40,7 +41,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.head_ref }}
-          token: ${{ secrets.GHA_CREATE_PR_PAT || github.token }}
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
       - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@main
@@ -52,6 +53,9 @@ jobs:
       # Build only cargo deps to surface cargoHash mismatches quickly, without
       # compiling pg_search for every Postgres variant. If the hash is stale,
       # compute the correct one and push a fix commit to the PR branch.
+      # The push uses PARADEDB_BOT_GITHUB_TOKEN (a PAT) so that GitHub fires a
+      # synchronize event, which re-triggers all CI workflows on the new HEAD.
+      # Pushes made with the default GITHUB_TOKEN do not fire events.
       - name: Verify Nix Cargo Hash
         run: |
           if ! nix build --no-link ".#pg_search-pg${{ env.PG_MAJOR_VERSION }}.cargoDeps" 2>/dev/null; then
@@ -69,7 +73,8 @@ jobs:
             git add nix/pg_search.nix
             git commit -m "fix: update nix cargoHash for changed Cargo.lock"
             git push
-            echo "Pushed updated cargoHash"
+            echo "::error::cargoHash was outdated and has been auto-fixed. CI will re-run on the updated commit."
+            exit 1
           else
             echo "cargoHash is correct"
           fi

@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use datafusion::common::{Column, ScalarValue, TableReference};
+use datafusion::error::DataFusionError;
 use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
 use pgrx::{pg_sys, PgList};
 
@@ -27,13 +28,13 @@ use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL
 use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::scan::SearchPredicateUDF;
 
-pub(super) trait ColumnMapper {
+pub trait ColumnMapper {
     /// Map a PostgreSQL variable to a DataFusion Column expression
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr>;
 }
 
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
-pub(super) struct PredicateTranslator<'a> {
+pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
     mapper: Option<Box<dyn ColumnMapper + 'a>>,
 }
@@ -56,11 +57,19 @@ impl<'a> PredicateTranslator<'a> {
     /// This creates `SearchPredicateUDF` expressions for single-table predicates,
     /// which can be pushed down to `PgSearchTableProvider` via DataFusion's
     /// filter pushdown mechanism.
+    /// Translate a `JoinLevelExpr` tree to a DataFusion `Expr`.
+    ///
+    /// `deferred_positions` contains plan_positions whose ctid columns still hold
+    /// packed DocAddresses at this point in the plan. Each `SingleTablePredicate`
+    /// checks whether its `plan_position` is in the set to determine whether its
+    /// `SearchPredicateUDF` should emit packed DocAddresses or real ctids.
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
         ctid_map: &HashMap<pg_sys::Index, Expr>,
         predicates: &[JoinLevelSearchPredicate],
+        deferred_positions: &crate::api::HashSet<usize>,
+        sources: &[&JoinSource],
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
@@ -69,13 +78,14 @@ impl<'a> PredicateTranslator<'a> {
             } => {
                 let predicate = predicates.get(*predicate_idx)?;
                 let col = ctid_map.get(&(*plan_position as pg_sys::Index))?;
-                // Create a SearchPredicateUDF that carries the search query.
-                // This will be pushed down to PgSearchTableProvider via filter pushdown.
-                let udf = SearchPredicateUDF::new(
+                let deferred = deferred_positions.contains(plan_position);
+                let udf = SearchPredicateUDF::with_deferred_visibility(
                     predicate.indexrelid,
                     predicate.heaprelid,
                     predicate.query.clone(),
                     predicate.display_string.clone(),
+                    deferred,
+                    Some(*plan_position),
                 );
                 Some(udf.into_expr(col.clone()))
             }
@@ -91,10 +101,18 @@ impl<'a> PredicateTranslator<'a> {
                     custom_exprs,
                     ctid_map,
                     predicates,
+                    deferred_positions,
+                    sources,
                 )?;
                 for child in &children[1..] {
-                    let right =
-                        Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        ctid_map,
+                        predicates,
+                        deferred_positions,
+                        sources,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::And,
@@ -112,10 +130,18 @@ impl<'a> PredicateTranslator<'a> {
                     custom_exprs,
                     ctid_map,
                     predicates,
+                    deferred_positions,
+                    sources,
                 )?;
                 for child in &children[1..] {
-                    let right =
-                        Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        ctid_map,
+                        predicates,
+                        deferred_positions,
+                        sources,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::Or,
@@ -125,9 +151,34 @@ impl<'a> PredicateTranslator<'a> {
                 Some(result)
             }
             JoinLevelExpr::Not(child) => {
-                let inner =
-                    Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                let inner = Self::translate_join_level_expr(
+                    child,
+                    custom_exprs,
+                    ctid_map,
+                    predicates,
+                    deferred_positions,
+                    sources,
+                )?;
                 Some(Expr::Not(Box::new(inner)))
+            }
+            JoinLevelExpr::MarkOrNull {
+                is_anti,
+                null_test_varno,
+                null_test_attno,
+            } => {
+                // Resolve the outer column name from source metadata.
+                let source = sources.iter().find(|s| s.contains_rti(*null_test_varno));
+                let col_name = source.and_then(|s| s.column_name(*null_test_attno))?;
+
+                // Build: mark = true OR col IS NULL  (for IN)
+                //        mark = false OR col IS NULL  (for NOT IN)
+                let mark_check = if *is_anti {
+                    col("mark").eq(lit(false))
+                } else {
+                    col("mark").eq(lit(true))
+                };
+                let null_check = Expr::IsNull(Box::new(col(col_name)));
+                Some(mark_check.or(null_check))
             }
         }
     }
@@ -300,7 +351,7 @@ impl<'a> PredicateTranslator<'a> {
 
 /// Creates a DataFusion column expression with a bare table reference.
 /// This is preferred over `datafusion::logical_expr::col()` because `col()` parses the input string,
-pub(super) fn make_col(relation: &str, name: &str) -> Expr {
+pub fn make_col(relation: &str, name: &str) -> Expr {
     Expr::Column(Column::new(
         Some(TableReference::Bare {
             table: relation.into(),
@@ -309,23 +360,66 @@ pub(super) fn make_col(relation: &str, name: &str) -> Expr {
     ))
 }
 
-pub(super) struct CombinedMapper<'a> {
+/// Build equi-join filter expressions from a [`JoinNode`]'s key pairs.
+///
+/// Shared between JoinScan and AggregateScan `build_relnode_df` implementations.
+/// Each key pair is resolved against the join's left/right subtrees and converted
+/// to a `left_col = right_col` DataFusion expression.
+pub fn build_equi_join_exprs(
+    join: &super::build::JoinNode,
+) -> datafusion::common::Result<Vec<Expr>> {
+    let mut on = Vec::with_capacity(join.equi_keys.len());
+    for jk in &join.equi_keys {
+        let ((left_source, left_attno), (right_source, right_attno)) =
+            jk.resolve_against(&join.left, &join.right).ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "Failed to resolve join key to current join sides: outer_rti={}, inner_rti={}",
+                    jk.outer_rti, jk.inner_rti
+                ))
+            })?;
+
+        let left_col_name = left_source
+            .column_name(left_attno)
+            .ok_or_else(|| DataFusionError::Internal("Missing left join-key column".into()))?;
+        let right_col_name = right_source
+            .column_name(right_attno)
+            .ok_or_else(|| DataFusionError::Internal("Missing right join-key column".into()))?;
+
+        let left_expr = make_source_col(left_source, &left_col_name);
+        let right_expr = make_source_col(right_source, &right_col_name);
+        on.push(left_expr.eq(right_expr));
+    }
+    Ok(on)
+}
+
+fn make_source_col(source: &JoinSource, field_name: &str) -> Expr {
+    let alias =
+        RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
+    make_col(&alias, field_name)
+}
+
+pub struct CombinedMapper<'a> {
     pub sources: &'a [&'a JoinSource],
     pub output_columns: &'a [OutputColumnInfo],
 }
 
 impl<'a> ColumnMapper for CombinedMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
-        // 1. Resolve to (rti, attno, is_score)
         let (rti, attno, is_score) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
             let idx = (varattno - 1) as usize;
-            let info = self.output_columns.get(idx)?;
-            (info.rti, info.original_attno, info.is_score)
+            match self.output_columns.get(idx)? {
+                OutputColumnInfo::Var {
+                    rti,
+                    original_attno,
+                    ..
+                } => (*rti, *original_attno, false),
+                OutputColumnInfo::Score { rti, .. } => (*rti, 0, true),
+                OutputColumnInfo::Pruned => return None,
+            }
         } else {
             (varno, varattno, false)
         };
 
-        // 2. Find the source
         let (plan_position, source) = self
             .sources
             .iter()
@@ -334,20 +428,15 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
 
         let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
 
-        // 3. Resolve column name
         if is_score {
-            // Try to resolve score via map_var(rti, 0) first (for nested joins)
             if let Some(col_idx) = source.map_var(rti, 0) {
                 if let Some(name) = source.column_name(col_idx) {
                     return Some(make_col(&alias, &name));
                 }
             }
-            // Default to alias-specific score alias
             return Some(make_col(&alias, SCORE_COL_NAME));
         }
 
-        // Normal column
-        // We need to map the rti/attno to the source's output attno
         let mapped_attno = source.map_var(rti, attno)?;
         let col_name = source.column_name(mapped_attno)?;
         Some(make_col(&alias, &col_name))

@@ -184,7 +184,7 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < 2000
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- =============================================================================
 -- SECTION 2: Non-equi joins and problematic conditions
 -- =============================================================================
@@ -278,7 +278,7 @@ FROM authors a
 INNER JOIN books b ON b.price BETWEEN 20.00 AND 30.00 AND a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- =============================================================================
 -- SECTION 3: CROSS-TABLE OR TESTS
 -- =============================================================================
@@ -418,7 +418,7 @@ JOIN reviews r ON b.id = r.book_id
 WHERE (a.bio @@@ 'British' AND b.is_published = true) 
    OR (b.content @@@ 'horror' AND r.score >= 4)
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC, review_score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 4.4: Intelligent partial salvage of AND expressions
 SELECT 
     a.name as author_name,
@@ -460,7 +460,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' AND b.category_id = 1
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 5.3: LEFT JOIN semantics test
 SELECT 
     a.name as author_name,
@@ -566,7 +566,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
   AND (a.is_active = true OR b.is_published = true);
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 6.3: Unsafe conditions that cannot be pushed down
 SELECT 
     a.name as author_name,
@@ -610,7 +610,7 @@ WHERE (
 )
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC
 LIMIT 10;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 7.2: Conservative OR handling demonstration
 SELECT 
     a.name as author_name,

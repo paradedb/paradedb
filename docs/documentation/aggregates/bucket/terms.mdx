@@ -31,6 +31,22 @@ MockItem.objects.filter(
 )[:10]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(MockItem.rating, pdb.agg(facets.value_count(field="id")).label("agg"))
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+    .limit(10)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id)
         .match_all
@@ -73,6 +89,23 @@ MockItem.objects.filter(
 ).values('rating').annotate(
     agg=Agg('{"value_count": {"field": "id"}}')
 ).order_by('rating')[:10]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(MockItem.rating, pdb.agg(facets.value_count(field="id")).label("agg"))
+    .where(search.all(MockItem.id))
+    .group_by(MockItem.rating)
+    .order_by(MockItem.rating)
+    .limit(10)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails

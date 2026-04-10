@@ -5,7 +5,7 @@
 
 ## Overview
 
-`pg_search` is a Postgres extension that enables full text search over heap tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`. Please refer to the [ParadeDB documentation](https://docs.paradedb.com/documentation/getting-started/quickstart) to get started.
+`pg_search` is a Postgres extension that enables full text search over heap tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`. Please refer to the [ParadeDB documentation](https://docs.paradedb.com/documentation/getting-started/install) to get started.
 
 `pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at PostgreSQL 15.
 
@@ -35,7 +35,7 @@ This will spin up a Postgres instance with `pg_search` preinstalled.
 
 If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow the steps below.
 
-It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_search` must be in the list of `shared_preload_libraries` if your Postgres version is less than 17:
+It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_search` must be in the list of `shared_preload_libraries`:
 
 ```c
 shared_preload_libraries = 'pg_search'
@@ -135,10 +135,10 @@ sudo pacman -S extra/clang
 
 #### pgvector
 
-`pgvector` needed for hybrid search unit tests.
+`pgvector` is needed for hybrid search integration tests.
 
 ```bash
-# Note: Replace 17 with your version of Postgres
+# Note: Replace 18 with your version of Postgres
 git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
 cd pgvector/
 

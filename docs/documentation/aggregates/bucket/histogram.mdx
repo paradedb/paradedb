@@ -25,6 +25,21 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"histogram": {"field": "rating", "interval": "1"}}'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.histogram(field="rating", interval=1)))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id)
         .match_all

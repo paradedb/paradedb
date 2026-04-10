@@ -34,6 +34,20 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, "running shoes"))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .phrase("running shoes")
@@ -102,6 +116,20 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, "shoes running", slop=2))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .phrase("shoes running", slop: 2)
@@ -127,6 +155,20 @@ from paradedb import ParadeDB, Phrase
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes', tokenizer='whitespace'))
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, "running shoes", tokenizer="whitespace"))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -157,6 +199,20 @@ MockItem.objects.extra(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, ["running", "shoes"]))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .phrase(%w[running shoes])
@@ -178,6 +234,20 @@ WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
 MockItem.objects.extra(
     where=["description ### ARRAY['shoes', 'running']::pdb.slop(2)"]
 ).values('description', 'rating', 'category')
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase(MockItem.description, ["shoes", "running"], slop=2))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails

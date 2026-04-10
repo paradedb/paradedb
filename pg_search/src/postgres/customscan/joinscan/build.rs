@@ -30,7 +30,7 @@ use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use anyhow::anyhow;
-use pgrx::pg_sys;
+use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ptr::NonNull;
@@ -147,6 +147,14 @@ pub enum JoinType {
     Right,
     Semi,
     Anti,
+    /// LeftMark join: returns all left rows with an additional boolean "mark" column
+    /// indicating whether a right-side match exists. Used to decorrelate
+    /// `EXISTS` / `IN` subqueries inside disjunctive predicates such as
+    /// `col IS NULL OR col IN (SELECT ...)`.
+    LeftMark,
+    /// RightMark join: mirror of LeftMark — returns all right rows with a
+    /// boolean "mark" column indicating whether a left-side match exists.
+    RightMark,
     RightSemi,
     RightAnti,
     UniqueOuter,
@@ -162,6 +170,8 @@ impl fmt::Display for JoinType {
             JoinType::Right => "Right",
             JoinType::Semi => "Semi",
             JoinType::Anti => "Anti",
+            JoinType::LeftMark => "LeftMark",
+            JoinType::RightMark => "RightMark",
             JoinType::RightSemi => "RightSemi",
             JoinType::RightAnti => "RightAnti",
             JoinType::UniqueOuter => "UniqueOuter",
@@ -256,21 +266,40 @@ pub struct JoinLevelSearchPredicate {
     pub display_string: String,
 }
 
+pub use crate::postgres::customscan::expr_eval::InputVarInfo;
+
 /// Projection information for a child join.
 /// Maps an output attribute (by index in the vector) to the source column.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChildProjection {
-    pub rti: pg_sys::Index,
-    pub attno: pg_sys::AttrNumber,
-    #[serde(default)]
-    pub is_score: bool,
+pub enum ChildProjection {
+    /// Simple column reference
+    Column {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Score function
+    Score { rti: pg_sys::Index },
+    /// An indexed expression handled by existing fast field machinery
+    IndexedExpression {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Arbitrary PG expression evaluated via PgExprUdf
+    Expression {
+        rti: pg_sys::Index,
+        pg_expr_string: String,
+        input_vars: Vec<InputVarInfo>,
+        result_type_oid: pg_sys::Oid,
+    },
 }
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::range_table::{get_plain_relation_relid, get_rte};
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::rel_get_bm25_index;
 use crate::scan::info::{FieldInfo, RowEstimate};
 
 /// Source information collected during planning.
@@ -391,6 +420,7 @@ impl JoinSourceCandidate {
         // `expr_context` only lives until the end of this function,
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
+        let needs_tokenizer_manager = query.needs_tokenizer();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query,
@@ -398,6 +428,7 @@ impl JoinSourceCandidate {
             MvccSatisfies::LargestSegment,
             NonNull::new(expr_context.as_ptr()),
             None,
+            needs_tokenizer_manager,
         )
         .expect("Failed to open index reader for estimation");
 
@@ -411,7 +442,20 @@ impl JoinSourceCandidate {
 /// Represents the validated source of data for a join side used during execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinSource {
-    /// Stable plan position in `RelNode::sources()` order.
+    /// Stable zero-based position of this source in `RelNode::sources()` order.
+    ///
+    /// This is the DataFusion-facing identity for a join source. It is assigned
+    /// once when the JoinScan plan is built and then used anywhere a source
+    /// must stay distinguishable inside the plan:
+    /// - synthetic ctid columns are named `ctid_<plan_position>`
+    /// - deferred-visibility state is tracked per source
+    /// - SearchPredicateUDF canonical segment IDs are keyed by it
+    ///
+    /// `indexrelid` is not sufficient here because the same underlying index can
+    /// appear more than once in a single JoinScan plan (for example a self-join,
+    /// or the same source copied into partitioning/non-partitioning roles in
+    /// parallel execution). `plan_position` is the per-source identity that
+    /// keeps those otherwise-identical sources distinct inside the plan.
     pub plan_position: usize,
     /// Identity of the PlannerInfo root this source originated from.
     pub root_id: Option<PlannerRootId>,
@@ -460,7 +504,7 @@ impl JoinSource {
     }
 
     /// Resolve an attribute number to its DataFusion column name.
-    pub(super) fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
+    pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
         self.scan_info
             .fields
             .iter()
@@ -566,6 +610,16 @@ pub enum JoinLevelExpr {
     Or(Vec<JoinLevelExpr>),
     /// Logical NOT of a child expression.
     Not(Box<JoinLevelExpr>),
+    /// Post-LeftMark-join filter: `mark = true OR col IS NULL` (or `mark = false OR col IS NULL`
+    /// for the anti/NOT-IN variant). Used to implement `col IS NULL OR col IN (SELECT ...)`.
+    MarkOrNull {
+        /// True for NOT IN patterns (anti-join semantics).
+        is_anti: bool,
+        /// Varno of the outer column tested for IS NULL.
+        null_test_varno: pgrx::pg_sys::Index,
+        /// Attribute number of the outer column tested for IS NULL.
+        null_test_attno: pgrx::pg_sys::AttrNumber,
+    },
 }
 
 /// A node in the intermediate relational plan tree.
@@ -628,13 +682,89 @@ impl RelNode {
         unsupported
     }
 
+    /// Rewrites equi-join keys that reference columns pruned by child semi/anti
+    /// joins so they instead reference output-visible equivalents.
+    ///
+    /// For example, given the tree `p SEMI (c SEMI d)` where the inner semi-join
+    /// has key `c.id = d.company_id`, if the outer semi-join's key is
+    /// `p.company_id = d.company_id` (derived by PostgreSQL's transitive closure),
+    /// `d.company_id` is pruned by the inner semi-join. This method rewrites
+    /// the outer key to `p.company_id = c.id` using the inner join's equivalence.
+    ///
+    /// Returns `true` if all keys are (or were made) valid. Returns `false` if
+    /// a pruned reference cannot be resolved to an output-visible equivalent.
+    pub unsafe fn rewrite_pruned_join_keys(&mut self, root: *mut pg_sys::PlannerInfo) -> bool {
+        match self {
+            RelNode::Scan(_) => true,
+            RelNode::Join(j) => {
+                if !j.left.rewrite_pruned_join_keys(root) || !j.right.rewrite_pruned_join_keys(root)
+                {
+                    return false;
+                }
+
+                let left_output_rtis = j.left.output_rtis();
+                let right_output_rtis = j.right.output_rtis();
+
+                let all_output_rtis: Vec<pg_sys::Index> = left_output_rtis
+                    .iter()
+                    .chain(right_output_rtis.iter())
+                    .copied()
+                    .collect();
+
+                for jk in &mut j.equi_keys {
+                    let forward_ok = left_output_rtis.contains(&jk.outer_rti)
+                        && right_output_rtis.contains(&jk.inner_rti);
+                    let reversed_ok = left_output_rtis.contains(&jk.inner_rti)
+                        && right_output_rtis.contains(&jk.outer_rti);
+                    if forward_ok || reversed_ok {
+                        continue;
+                    }
+
+                    let outer_ok = left_output_rtis.contains(&jk.outer_rti)
+                        || right_output_rtis.contains(&jk.outer_rti);
+                    let inner_ok = left_output_rtis.contains(&jk.inner_rti)
+                        || right_output_rtis.contains(&jk.inner_rti);
+
+                    if !outer_ok
+                        && !substitute_pruned_key_side(
+                            root,
+                            &all_output_rtis,
+                            jk.outer_rti,
+                            jk.outer_attno,
+                            &mut jk.outer_rti,
+                            &mut jk.outer_attno,
+                        )
+                    {
+                        return false;
+                    }
+                    if !inner_ok
+                        && !substitute_pruned_key_side(
+                            root,
+                            &all_output_rtis,
+                            jk.inner_rti,
+                            jk.inner_attno,
+                            &mut jk.inner_rti,
+                            &mut jk.inner_attno,
+                        )
+                    {
+                        return false;
+                    }
+                }
+                true
+            }
+            RelNode::Filter(f) => f.input.rewrite_pruned_join_keys(root),
+        }
+    }
+
     /// Returns true if the query tree contains a SEMI or ANTI join at any level.
     pub fn has_semi_or_anti(&self) -> bool {
         match self {
             RelNode::Scan(_) => false,
             RelNode::Join(j) => {
-                matches!(j.join_type, JoinType::Semi | JoinType::Anti)
-                    || j.left.has_semi_or_anti()
+                matches!(
+                    j.join_type,
+                    JoinType::Semi | JoinType::Anti | JoinType::LeftMark | JoinType::RightMark
+                ) || j.left.has_semi_or_anti()
                     || j.right.has_semi_or_anti()
             }
             RelNode::Filter(f) => f.input.has_semi_or_anti(),
@@ -647,7 +777,11 @@ impl RelNode {
             RelNode::Join(j) => {
                 if !matches!(
                     j.join_type,
-                    JoinType::Inner | JoinType::Semi | JoinType::Anti
+                    JoinType::Inner
+                        | JoinType::Semi
+                        | JoinType::Anti
+                        | JoinType::LeftMark
+                        | JoinType::RightMark
                 ) {
                     acc.push(j.join_type);
                 }
@@ -726,10 +860,10 @@ impl RelNode {
         match self {
             RelNode::Scan(s) => acc.push(&**s),
             RelNode::Join(j) => match j.join_type {
-                JoinType::Semi | JoinType::Anti => {
+                JoinType::Semi | JoinType::Anti | JoinType::LeftMark => {
                     j.left.collect_output_sources(acc);
                 }
-                JoinType::RightSemi | JoinType::RightAnti => {
+                JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
                     j.right.collect_output_sources(acc);
                 }
                 _ => {
@@ -757,6 +891,122 @@ impl RelNode {
                 j.right.collect_join_keys(acc);
             }
             RelNode::Filter(f) => f.input.collect_join_keys(acc),
+        }
+    }
+
+    /// Resolve every equi-join key in this tree structurally against the
+    /// specific join node that owns it, and return `(plan_position, attno)`
+    /// pairs identifying the exact sources that must project each key column.
+    ///
+    /// A flat lookup keyed on `(rti, attno)` can pick the wrong source when a
+    /// SubPlan's inner relation shares an RTI value with an outer relation
+    /// (inner queries have their own RTI numbering). By resolving each key
+    /// against its owning `JoinNode`'s own `left`/`right` subtrees with the
+    /// same logic used at execution time (`JoinKeyPair::resolve_against`),
+    /// we bind each key to the correct `JoinSource` unambiguously.
+    pub fn join_key_projections(&self) -> Vec<(usize, pg_sys::AttrNumber)> {
+        let mut result = Vec::new();
+        self.collect_join_key_projections(&mut result);
+        result
+    }
+
+    fn collect_join_key_projections(&self, acc: &mut Vec<(usize, pg_sys::AttrNumber)>) {
+        match self {
+            RelNode::Scan(_) => {}
+            RelNode::Join(j) => {
+                for jk in &j.equi_keys {
+                    if let Some(((left_src, left_att), (right_src, right_att))) =
+                        jk.resolve_against(&j.left, &j.right)
+                    {
+                        acc.push((left_src.plan_position, left_att));
+                        acc.push((right_src.plan_position, right_att));
+                    }
+                }
+                j.left.collect_join_key_projections(acc);
+                j.right.collect_join_key_projections(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_join_key_projections(acc),
+        }
+    }
+
+    /// Distribute equi-join keys to the correct join level in the tree.
+    ///
+    /// For 2-table joins all keys land on the single JoinNode. For 3+ table
+    /// joins each key is placed at the deepest JoinNode where one RTI is in the
+    /// left subtree and the other is in the right. This prevents
+    /// `resolve_against` failures caused by both RTIs being in the same subtree.
+    ///
+    /// **Why AggregateScan needs this but JoinScan does not:**
+    /// JoinScan hooks into `join_pathlist`, which PostgreSQL calls bottom-up
+    /// for each join pair — so equi-keys arrive pre-distributed across join
+    /// levels by the planner itself. AggregateScan hooks into
+    /// `UPPERREL_GROUP_AGG` (post-join), where it must reconstruct the join
+    /// tree from the parse tree. For implicit joins (`FROM a, b, c WHERE ...`)
+    /// all equi-keys land in a flat WHERE clause, not distributed across join
+    /// nodes, so this method is needed to place each key at the correct level.
+    pub fn inject_equi_keys(&mut self, keys: Vec<JoinKeyPair>) {
+        for key in keys {
+            self.inject_single_equi_key(key);
+        }
+    }
+
+    /// Place a single equi-key at the correct join level.
+    /// Returns `true` if the key was successfully placed.
+    fn inject_single_equi_key(&mut self, key: JoinKeyPair) -> bool {
+        match self {
+            RelNode::Join(ref mut join_node) => {
+                let outer_in_left = join_node.left.contains_rti(key.outer_rti);
+                let outer_in_right = join_node.right.contains_rti(key.outer_rti);
+                let inner_in_left = join_node.left.contains_rti(key.inner_rti);
+                let inner_in_right = join_node.right.contains_rti(key.inner_rti);
+
+                // Key spans the two sides of this join — place it here
+                if (outer_in_left && inner_in_right) || (outer_in_right && inner_in_left) {
+                    let dup = join_node.equi_keys.iter().any(|k| {
+                        (k.outer_rti == key.outer_rti
+                            && k.outer_attno == key.outer_attno
+                            && k.inner_rti == key.inner_rti
+                            && k.inner_attno == key.inner_attno)
+                            || (k.outer_rti == key.inner_rti
+                                && k.outer_attno == key.inner_attno
+                                && k.inner_rti == key.outer_rti
+                                && k.inner_attno == key.outer_attno)
+                    });
+                    if !dup {
+                        join_node.equi_keys.push(key);
+                    }
+                    return true;
+                }
+
+                // Both RTIs in left subtree — recurse left
+                if outer_in_left && inner_in_left {
+                    return join_node.left.inject_single_equi_key(key);
+                }
+
+                // Both RTIs in right subtree — recurse right
+                if outer_in_right && inner_in_right {
+                    return join_node.right.inject_single_equi_key(key);
+                }
+
+                false
+            }
+            RelNode::Filter(ref mut filter) => filter.input.inject_single_equi_key(key),
+            RelNode::Scan(_) => false,
+        }
+    }
+
+    /// Returns true if any `JoinNode` in the tree has an empty `equi_keys` list.
+    /// Used to reject plans where an intermediate join (e.g., CROSS JOIN inside
+    /// a 3-table query) would cause DataFusion to error or produce empty batches.
+    pub fn has_join_without_keys(&self) -> bool {
+        match self {
+            RelNode::Scan(_) => false,
+            RelNode::Join(j) => {
+                j.equi_keys.is_empty()
+                    || j.left.has_join_without_keys()
+                    || j.right.has_join_without_keys()
+            }
+            RelNode::Filter(f) => f.input.has_join_without_keys(),
         }
     }
 
@@ -802,6 +1052,72 @@ impl RelNode {
             RelNode::Filter(f) => f.input.explain_internal(is_root),
         }
     }
+}
+
+/// Finds an output-visible equivalent for `(pruned_rti, pruned_attno)` by
+/// searching PostgreSQL planner equivalence classes and writes it into
+/// `out_rti` and `out_attno`. Returns `true` on success.
+#[inline]
+unsafe fn substitute_pruned_key_side(
+    root: *mut pg_sys::PlannerInfo,
+    output_rtis: &[pg_sys::Index],
+    pruned_rti: pg_sys::Index,
+    pruned_attno: pg_sys::AttrNumber,
+    out_rti: &mut pg_sys::Index,
+    out_attno: &mut pg_sys::AttrNumber,
+) -> bool {
+    if root.is_null() {
+        return false;
+    }
+
+    let eq_classes = PgList::<pg_sys::EquivalenceClass>::from_pg((*root).eq_classes);
+    for eqc in eq_classes.iter_ptr() {
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eqc).ec_members);
+        let mut contains_pruned = false;
+        let mut replacement: Option<(pg_sys::Index, pg_sys::AttrNumber)> = None;
+
+        for member in members.iter_ptr() {
+            let mut node = (*member).em_expr.cast::<pg_sys::Node>();
+            while !node.is_null() {
+                match (*node).type_ {
+                    pg_sys::NodeTag::T_RelabelType => {
+                        node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+                    }
+                    pg_sys::NodeTag::T_PlaceHolderVar => {
+                        node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+                    }
+                    _ => break,
+                }
+            }
+
+            if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+                continue;
+            }
+
+            let var = node as *mut pg_sys::Var;
+            let rti = (*var).varno as pg_sys::Index;
+            let attno = (*var).varattno;
+
+            if rti == pruned_rti && attno == pruned_attno {
+                contains_pruned = true;
+                continue;
+            }
+
+            if output_rtis.contains(&rti) && replacement.is_none() {
+                replacement = Some((rti, attno));
+            }
+        }
+
+        if contains_pruned {
+            if let Some((rti, attno)) = replacement {
+                *out_rti = rti;
+                *out_attno = attno;
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 impl Default for RelNode {
@@ -978,11 +1294,11 @@ impl JoinCSClause {
             .map(|s| s.plan_position);
 
         let first = matches.next()?;
-        if matches.next().is_none() {
-            Some(first)
-        } else {
-            None
-        }
+        debug_assert!(
+            matches.next().is_none(),
+            "plan_position: multiple output sources matched rti={rti}, attno={attno}"
+        );
+        Some(first)
     }
 
     pub fn source_for_var(
@@ -1013,4 +1329,123 @@ impl JoinCSClause {
             None
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Shared utilities used by both JoinScan and AggregateScan
+// ---------------------------------------------------------------------------
+
+/// Strip expression wrappers (`RelabelType`, `PlaceHolderVar`) to get the
+/// underlying node. Used when extracting `Var` nodes from join conditions
+/// that may have implicit type casts.
+pub unsafe fn strip_node_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    loop {
+        if node.is_null() {
+            return node;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_RelabelType => {
+                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+            }
+            pg_sys::NodeTag::T_PlaceHolderVar => {
+                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+            }
+            _ => break,
+        }
+    }
+    node
+}
+
+/// Try to extract a [`JoinKeyPair`] from an `OpExpr` node.
+///
+/// Returns `Some(JoinKeyPair)` if the expression is `var1 = var2` where both
+/// variables reference different tables within `valid_rtis`. Uses
+/// `op_mergejoinable` as the canonical equality check (more correct than
+/// string-comparing operator names).
+///
+/// Shared between JoinScan (`extract_join_conditions_from_list`) and
+/// AggregateScan (`extract_equi_keys_from_expr`).
+pub unsafe fn try_extract_equi_key(
+    op: *mut pg_sys::OpExpr,
+    valid_rtis: &[pg_sys::Index],
+) -> Option<JoinKeyPair> {
+    if !pg_sys::op_mergejoinable((*op).opno, pg_sys::Oid::INVALID) {
+        return None;
+    }
+
+    let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+    if args.len() != 2 {
+        return None;
+    }
+
+    let left_node = strip_node_wrappers(args.get_ptr(0)?);
+    let right_node = strip_node_wrappers(args.get_ptr(1)?);
+
+    if (*left_node).type_ != pg_sys::NodeTag::T_Var || (*right_node).type_ != pg_sys::NodeTag::T_Var
+    {
+        return None;
+    }
+
+    let left_var = left_node as *mut pg_sys::Var;
+    let right_var = right_node as *mut pg_sys::Var;
+
+    let left_rti = (*left_var).varno as pg_sys::Index;
+    let right_rti = (*right_var).varno as pg_sys::Index;
+
+    // Must reference different tables, both within scope
+    if left_rti == right_rti {
+        return None;
+    }
+    if !valid_rtis.contains(&left_rti) || !valid_rtis.contains(&right_rti) {
+        return None;
+    }
+
+    let mut typlen: i16 = 0;
+    let mut typbyval: bool = false;
+    pg_sys::get_typlenbyval(
+        (*left_var).vartype,
+        &mut typlen as *mut _,
+        &mut typbyval as *mut _,
+    );
+
+    Some(JoinKeyPair {
+        outer_rti: left_rti,
+        outer_attno: (*left_var).varattno,
+        inner_rti: right_rti,
+        inner_attno: (*right_var).varattno,
+        type_oid: (*left_var).vartype,
+        typlen,
+        typbyval,
+    })
+}
+
+/// Look up base-relation metadata for a given RTI: relid, alias, and BM25 index.
+///
+/// Shared between JoinScan's `collect_join_sources_base_rel` and AggregateScan's
+/// `collect_join_agg_sources`. Returns `None` if the RTI doesn't point to a
+/// plain relation (e.g., subquery, CTE).
+pub unsafe fn lookup_base_rel_info(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+) -> Option<(pg_sys::Oid, Option<String>, Option<PgSearchRelation>)> {
+    let rte = get_rte(
+        (*root).simple_rel_array_size as usize,
+        (*root).simple_rte_array,
+        rti,
+    )?;
+
+    let relid = get_plain_relation_relid(rte)?;
+
+    let alias = if !(*rte).eref.is_null() && !(*(*rte).eref).aliasname.is_null() {
+        std::ffi::CStr::from_ptr((*(*rte).eref).aliasname)
+            .to_str()
+            .ok()
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
+
+    let bm25_index = rel_get_bm25_index(relid).map(|(_, idx)| idx);
+
+    Some((relid, alias, bm25_index))
 }

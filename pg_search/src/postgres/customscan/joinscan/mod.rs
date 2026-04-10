@@ -38,8 +38,8 @@
 //!
 //! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: on)
 //!
-//! 2. **Join type**: Only `INNER JOIN` is currently supported
-//!    - LEFT, RIGHT, FULL, SEMI, and ANTI joins are planned for future work
+//! 2. **Join type**: INNER, SEMI, and ANTI joins are supported
+//!    - LEFT, RIGHT, and FULL joins are planned for future work
 //!
 //! 3. **LIMIT clause**: Query must have a LIMIT clause
 //!    - This ensures we only pay the cost of "late materialization" (random heap access)
@@ -138,30 +138,33 @@
 //! - [`privdat`]: Private data serialization between planning and execution.
 //! - [`explain`]: EXPLAIN output formatting.
 
-mod build;
+pub mod build;
 mod explain;
-mod memory;
-mod planner;
+pub mod memory;
+pub mod planner;
 mod planning;
-mod predicate;
+pub mod predicate;
 mod privdat;
-mod scan_state;
-mod translator;
+pub mod scan_state;
+pub mod translator;
+pub mod visibility_filter;
 
-use self::build::{CtidColumn, JoinCSClause, RelNode, RelationAlias};
+pub use self::build::CtidColumn;
+use self::build::{JoinCSClause, RelNode, RelationAlias};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::memory::create_memory_pool;
 use self::planning::{
-    collect_join_sources, collect_required_fields, ensure_score_bubbling,
-    expr_uses_scores_from_source, extract_join_conditions, extract_orderby, get_score_func_rti,
-    order_by_columns_are_fast_fields, pathkey_uses_scores_from_source,
+    collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
+    ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
+    extract_orderby_from_parse_sort_clause, get_score_func_rti, order_by_columns_are_fast_fields,
+    pathkey_uses_scores_from_source,
 };
-use self::predicate::{extract_join_level_conditions, is_column_fast_field};
+use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
+use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{
-    build_joinscan_logical_plan, build_joinscan_physical_plan, create_session_context,
-    JoinScanState,
+    build_joinscan_logical_plan, build_physical_plan, create_session_context, JoinScanState,
 };
 use crate::api::OrderByFeature;
 use crate::index::mvcc::MvccSatisfies;
@@ -180,9 +183,7 @@ use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
-use crate::scan::codec::{
-    deserialize_logical_plan, deserialize_logical_plan_parallel, serialize_logical_plan,
-};
+use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
@@ -195,6 +196,320 @@ use std::sync::Arc;
 
 #[derive(Default)]
 pub struct JoinScan;
+
+/// Try to create JoinScan `CustomPath`s for a single base relation that contains
+/// SubPlan-based join opportunities (e.g. `col IN (SELECT ...) OR col IS NULL`).
+///
+/// Called from `set_rel_pathlist_hook` after BaseScan has been considered.
+/// When PostgreSQL keeps a subquery as a SubPlan instead of flattening it into
+/// a join, `set_join_pathlist_hook` never fires.  This function gives JoinScan
+/// a chance to handle those patterns.
+pub unsafe fn try_create_subplan_join_paths(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+    rti: pg_sys::Index,
+) -> Vec<pg_sys::CustomPath> {
+    use crate::postgres::customscan::range_table::bms_iter;
+
+    if !crate::gucs::enable_join_custom_scan() {
+        return Vec::new();
+    }
+
+    // Only consider base relations (single RTI).
+    let relids = (*rel).relids;
+    if relids.is_null() || pg_sys::bms_num_members(relids) != 1 {
+        return Vec::new();
+    }
+    let base_rti = match bms_iter(relids).next() {
+        Some(r) => r,
+        None => return Vec::new(),
+    };
+    if base_rti != rti {
+        return Vec::new();
+    }
+
+    // Quick pre-check: only proceed if baserestrictinfo contains an OR expression
+    // with a SubPlan inside. This avoids interfering with normal queries where
+    // set_join_pathlist_hook already handles SubPlans.
+    {
+        use crate::postgres::customscan::qual_inspect::is_subplan;
+        let bri = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        let has_or_subplan = bri.iter_ptr().any(|ri| {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            if clause.is_null() {
+                return false;
+            }
+            // Check if the clause itself is an OR BoolExpr containing a SubPlan.
+            // Top-level SubPlans are handled by the normal join_pathlist hook.
+            if (*clause).type_ == pg_sys::NodeTag::T_BoolExpr {
+                let bexpr = clause as *mut pg_sys::BoolExpr;
+                (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR && is_subplan(clause, root)
+            } else {
+                false
+            }
+        });
+        if !has_or_subplan {
+            return Vec::new();
+        }
+    }
+
+    // Try to extract SubPlan-based joins from baserestrictinfo.
+    let (plan, join_keys) = match collect_join_sources_base_rel(root, rel, rti) {
+        Some(res) => res,
+        None => return Vec::new(),
+    };
+
+    // Only proceed if the plan actually contains a join (from SubPlan extraction).
+    if !plan.has_semi_or_anti() {
+        return Vec::new();
+    }
+
+    // Phase 1: validate + build JoinCSClause.
+    let has_distinct = !(*(*root).parse).distinctClause.is_null();
+    let (join_clause, limit_offset) =
+        match JoinScan::validate_and_build_clause(root, plan, &join_keys, has_distinct) {
+            Some(res) => res,
+            None => return Vec::new(),
+        };
+
+    // No join-level predicate extraction needed for SubPlan-based paths.
+
+    // Phase 2: finalize into CustomPath.
+    match JoinScan::finalize_clause_into_path(root, rel, join_clause, &limit_offset, false) {
+        Some(path) => vec![path],
+        None => Vec::new(),
+    }
+}
+
+impl JoinScan {
+    /// Phase 1: Validate a `RelNode` plan against JoinScan activation requirements
+    /// and build a `JoinCSClause` with score bubbling and partitioning applied.
+    ///
+    /// Returns `None` if any activation check fails. The caller can then optionally
+    /// perform join-level predicate extraction on the returned clause before
+    /// passing it to [`finalize_clause_into_path`].
+    unsafe fn validate_and_build_clause(
+        root: *mut pg_sys::PlannerInfo,
+        plan: RelNode,
+        join_keys: &[build::JoinKeyPair],
+        has_distinct: bool,
+    ) -> Option<(JoinCSClause, LimitOffset)> {
+        let all_sources = plan.sources();
+
+        // --- Activation checks ---
+        // NOTE: We do NOT check has_search_predicate here. The caller is
+        // responsible for that check because the join-hook path also considers
+        // join_conditions.has_search_predicate, which is not available to us.
+
+        if all_sources
+            .iter()
+            .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
+        {
+            return None;
+        }
+
+        if (*(*root).parse).hasAggs {
+            return None;
+        }
+
+        // Require LIMIT for top-level queries (without it, JoinScan's TopK
+        // optimization has no bound). Subqueries are exempt because the parent
+        // plan provides the cardinality constraint.
+        let limit_offset = LimitOffset::from_root(root);
+        let is_subquery = !(*root).parent_root.is_null();
+        if limit_offset.limit.is_none() && !is_subquery {
+            return None;
+        }
+
+        if join_keys.is_empty() {
+            return None;
+        }
+
+        if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
+            return None;
+        }
+
+        if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
+            return None;
+        }
+
+        for jk in join_keys {
+            let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
+            let inner_source = all_sources.iter().find(|s| s.contains_rti(jk.inner_rti));
+            match (outer_source, inner_source) {
+                (Some(outer), Some(inner)) => {
+                    let outer_hr = PgSearchRelation::open(outer.scan_info.heaprelid);
+                    let outer_ir = PgSearchRelation::open(outer.scan_info.indexrelid);
+                    let inner_hr = PgSearchRelation::open(inner.scan_info.heaprelid);
+                    let inner_ir = PgSearchRelation::open(inner.scan_info.indexrelid);
+                    if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
+                        .is_none()
+                        || resolve_fast_field(
+                            jk.inner_attno as i32,
+                            &inner_hr.tuple_desc(),
+                            &inner_ir,
+                        )
+                        .is_none()
+                    {
+                        return None;
+                    }
+                }
+                _ => return None,
+            }
+        }
+
+        // --- Build JoinCSClause ---
+
+        let mut join_clause = JoinCSClause::new(plan)
+            .with_limit(limit_offset.limit)
+            .with_offset(limit_offset.offset)
+            .with_distinct(has_distinct);
+
+        for source in join_clause.plan.sources_mut() {
+            let score_in_tlist =
+                expr_uses_scores_from_source((*root).processed_tlist.cast(), source);
+            let score_in_pathkey = pathkey_uses_scores_from_source(root, source);
+            if score_in_tlist || score_in_pathkey {
+                ensure_score_bubbling(source);
+            }
+        }
+
+        if join_clause.plan.has_semi_or_anti() {
+            if join_clause.partitioning_source_index() != 0 {
+                pgrx::warning!(
+                    "For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal \
+                     parallel partitioning strategy for this query. See \
+                     https://github.com/paradedb/paradedb/issues/4152"
+                );
+            }
+            join_clause = join_clause.with_forced_partitioning(0);
+        }
+
+        Some((join_clause, limit_offset))
+    }
+
+    /// Phase 2: Finalize a validated `JoinCSClause` into a `CustomPath` by
+    /// extracting ORDER BY, computing costs/parallel workers, and building the
+    /// `pg_sys::CustomPath` struct.
+    ///
+    /// Returns `None` if ORDER BY extraction fails.
+    unsafe fn finalize_clause_into_path(
+        root: *mut pg_sys::PlannerInfo,
+        rel: *mut pg_sys::RelOptInfo,
+        mut join_clause: JoinCSClause,
+        limit_offset: &LimitOffset,
+        consider_parallel: bool,
+    ) -> Option<pg_sys::CustomPath> {
+        let output_rtis = join_clause.plan.output_rtis();
+        let current_sources = join_clause.plan.sources();
+        let order_by = extract_orderby(
+            root,
+            &current_sources,
+            &output_rtis,
+            join_clause.has_distinct,
+        )?;
+        join_clause = join_clause.with_order_by(order_by);
+
+        // --- Cost estimation ---
+
+        let startup_cost = crate::DEFAULT_STARTUP_COST;
+        let total_cost = startup_cost + 1.0;
+        let mut result_rows = limit_offset.limit.map(|l| l as f64).unwrap_or(1000.0);
+
+        let (segment_count, row_estimate) = {
+            let src = join_clause.partitioning_source();
+            (src.scan_info.segment_count, src.scan_info.estimate)
+        };
+
+        let nworkers = if consider_parallel {
+            let declares_sorted_output = !join_clause.order_by.is_empty();
+            compute_nworkers(
+                declares_sorted_output,
+                limit_offset.limit.map(|l| l as f64),
+                row_estimate,
+                segment_count,
+                false,
+                false,
+                true,
+            )
+        } else {
+            0
+        };
+
+        if nworkers > 0 {
+            let processes = std::cmp::max(
+                1,
+                nworkers
+                    + if pg_sys::parallel_leader_participation {
+                        1
+                    } else {
+                        0
+                    },
+            );
+            result_rows /= processes as f64;
+            let processes = processes as u64;
+            let partitioning_idx = join_clause.partitioning_source_index();
+            for (idx, source) in join_clause.plan.sources_mut().into_iter().enumerate() {
+                if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
+                    source.scan_info.estimated_rows_per_worker = if idx == partitioning_idx {
+                        Some(n / processes)
+                    } else {
+                        Some(n)
+                    };
+                }
+            }
+        } else {
+            for source in join_clause.plan.sources_mut() {
+                if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
+                    source.scan_info.estimated_rows_per_worker = Some(n);
+                }
+            }
+        }
+
+        // --- Build CustomPath ---
+
+        let has_order_by = !join_clause.order_by.is_empty();
+        let order_by_len = join_clause.order_by.len();
+        let relevant_pathkeys =
+            planning::count_relevant_pathkeys(root, &join_clause.plan.sources());
+        let private_data = PrivateData::new(join_clause);
+        let mut custom_path = pg_sys::CustomPath {
+            path: pg_sys::Path {
+                type_: pg_sys::NodeTag::T_CustomPath,
+                pathtype: pg_sys::NodeTag::T_CustomScan,
+                parent: rel,
+                pathtarget: (*rel).reltarget,
+                param_info: pg_sys::get_baserel_parampathinfo(
+                    root,
+                    rel,
+                    pg_sys::bms_copy((*rel).lateral_relids),
+                ),
+                rows: result_rows,
+                startup_cost,
+                total_cost,
+                ..Default::default()
+            },
+            flags: Flags::Force as u32,
+            methods: JoinScan::custom_path_methods(),
+            custom_private: private_data.into(),
+            custom_paths: std::ptr::null_mut(),
+            ..Default::default()
+        };
+
+        if has_order_by && order_by_len == relevant_pathkeys {
+            custom_path.path.pathkeys = (*root).query_pathkeys;
+        }
+
+        if nworkers > 0 {
+            custom_path.path.parallel_aware = true;
+            custom_path.path.parallel_safe = true;
+            custom_path.path.parallel_workers =
+                nworkers.try_into().expect("nworkers should be a valid i32");
+        }
+
+        Some(custom_path)
+    }
+}
 
 impl ParallelQueryCapable for JoinScan {
     fn estimate_dsm_custom_scan(
@@ -248,7 +563,7 @@ impl ParallelQueryCapable for JoinScan {
         }
 
         // Read the canonical non-partitioning segment ID sets from shared memory.
-        // The leader uses these in exec_custom_scan to inject them into the codec.
+        // The leader uses these in exec_custom_scan to populate the execution codec.
         let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
@@ -334,6 +649,70 @@ impl JoinScan {
         state.custom_state_mut().source_manifests = manifests;
     }
 
+    /// Build plan_position → canonical segment IDs map for SearchPredicateUDF.
+    ///
+    /// This is keyed by plan_position rather than indexrelid because it is a
+    /// per-source contract, not just a per-index one. The same index can appear
+    /// more than once in one JoinScan plan; in parallel execution those source
+    /// copies can also carry different canonical segment sets (partitioned vs
+    /// replicated). If this were keyed only by indexrelid, one source could
+    /// inject another source's segment set and make packed DocAddresses resolve
+    /// against the wrong segment ordering.
+    ///
+    /// Workers use frozen segment IDs from DSM to match the leader's segment set.
+    /// Leader/serial uses manifests captured with the same snapshot.
+    fn build_index_segment_ids(
+        state: &mut CustomScanStateWrapper<Self>,
+        join_clause: &JoinCSClause,
+        plan_sources: &[&build::JoinSource],
+    ) -> Vec<crate::api::HashSet<tantivy::index::SegmentId>> {
+        let mut ids_by_pos = vec![None; plan_sources.len()];
+        let partitioning_idx = join_clause.partitioning_source_index();
+        let is_worker = unsafe { pg_sys::ParallelWorkerNumber >= 0 };
+
+        if is_worker {
+            let non_partitioning_segs = &state.custom_state().non_partitioning_segments;
+            let mut np_counter = 0usize;
+            for (i, _source) in plan_sources.iter().enumerate() {
+                if i == partitioning_idx {
+                    if let Some(ps) = state.custom_state().parallel_state {
+                        let ids =
+                            unsafe { crate::postgres::customscan::parallel::list_segment_ids(ps) };
+                        ids_by_pos[i] = Some(ids);
+                    }
+                } else if let Some(ids) = non_partitioning_segs.get(np_counter) {
+                    ids_by_pos[i] = Some(ids.clone());
+                    np_counter += 1;
+                }
+            }
+        } else {
+            Self::ensure_source_manifests(state);
+            for (i, _source) in plan_sources.iter().enumerate() {
+                if let Some(manifest) = state.custom_state().source_manifests.get(i) {
+                    let ids: crate::api::HashSet<_> = manifest
+                        .segment_readers()
+                        .iter()
+                        .map(|r| r.segment_id())
+                        .collect();
+                    ids_by_pos[i] = Some(ids);
+                }
+            }
+        }
+
+        ids_by_pos
+            .into_iter()
+            .enumerate()
+            .map(|(plan_position, ids)| {
+                ids.unwrap_or_else(|| {
+                    panic!(
+                        "missing canonical segment IDs for join source at plan_position {}",
+                        plan_position
+                    )
+                })
+            })
+            .collect()
+    }
+
     fn source_queries_need_executor_state(join_clause: &JoinCSClause) -> bool {
         join_clause.plan.sources().iter().any(|source| {
             let mut query = source.scan_info.query.clone();
@@ -414,11 +793,10 @@ impl CustomScan for JoinScan {
             let join_conditions = extract_join_conditions(extra, &all_sources);
 
             // The minimum requirement for considering the join scan is that a search predicate
-            // is used.
+            // is used — either in a source or in a join-level condition.
             if !all_sources.iter().any(|s| s.scan_info.has_search_predicate)
                 && !join_conditions.has_search_predicate
             {
-                // Join does not use our operator anywhere: do not trigger.
                 return Vec::new();
             }
 
@@ -427,108 +805,12 @@ impl CustomScan for JoinScan {
             // `add_planner_warning` calls to explain themselves.
             //
 
-            // All tables must have bm25 indexes.
-            if all_sources
-                .iter()
-                .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
-            {
-                Self::add_planner_warning(
-                    "JoinScan not used: all join sources must have a BM25 index",
-                    &aliases,
-                );
-                return Vec::new();
-            }
-
-            // TODO: Add support for Aggregate functions
-            // Bail out if the query has aggregates — LIMIT applies to aggregate
-            // output not to the rows feeding the aggregate, so pushing LIMIT into
-            // DataFusion would produce wrong results until we add support for Agg functions
-            if (*(*root).parse).hasAggs {
-                Self::add_planner_warning(
-                    "JoinScan not used: queries with aggregate functions are not supported",
-                    (),
-                );
-                return Vec::new();
-            }
-
-            // TODO(join-types): Currently INNER, SEMI, and ANTI joins are supported.
-            // Future work should add:
-            // - LEFT JOIN: Return NULL for non-matching right rows; track matched left rows
-            // - RIGHT JOIN: Swap left/right sides, then use LEFT logic
-            // - FULL OUTER JOIN: Track unmatched rows on both sides; two-pass or marking approach
-            //
-            // WARNING: If enabling other join types, you MUST review the parallel partitioning
-            // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
-            // The current "Partition Outer / Replicate Inner" strategy is incorrect for Right/Full joins.
-
-            // JoinScan requires a LIMIT clause. This restriction exists because we gain a
-            // significant benefit from using the column store when it enables late-materialization
-            // of heap tuples _after_ the join has run.
-            let limit_offset = LimitOffset::from_root(root);
-            if limit_offset.limit.is_none() {
-                Self::add_planner_warning("JoinScan not used: query must have a LIMIT clause", ());
-                return Vec::new();
-            }
-
-            // Require equi-join keys for JoinScan.
-            // Without equi-join keys, we'd have a cross join requiring O(N*M) comparisons
-            // where join complexity explodes. PostgreSQL's native join
-            // handles cartesian products more efficiently.
             if join_conditions.equi_keys.is_empty() {
                 Self::add_planner_warning(
                     "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
                     &aliases,
                 );
                 return Vec::new();
-            }
-
-            // Detect DISTINCT and validate columns are fast fields
-            let has_distinct = !(*(*root).parse).distinctClause.is_null();
-            if has_distinct && !distinct_columns_are_fast_fields(root, &all_sources) {
-                Self::add_planner_warning(
-                    "JoinScan not used: all DISTINCT columns must be fast fields in the BM25 index",
-                    &aliases,
-                );
-                return Vec::new();
-            }
-
-            // Check if all ORDER BY columns are fast fields
-            // JoinScan requires fast field access for efficient sorting
-            if !order_by_columns_are_fast_fields(root, &all_sources) {
-                Self::add_planner_warning(
-                    "JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index",
-                    &aliases,
-                );
-                return Vec::new();
-            }
-
-            // Validate ONLY the new keys added at this level (the recursive ones were validated during collection)
-            for jk in &join_conditions.equi_keys {
-                // All equi-join key columns must be fast fields in their respective BM25 indexes
-                // We need to find the source for each RTI involved in the join key
-                let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
-                let inner_source = all_sources.iter().find(|s| s.contains_rti(jk.inner_rti));
-
-                match (outer_source, inner_source) {
-                    (Some(outer), Some(inner)) => {
-                        if !is_column_fast_field(
-                            outer.scan_info.heaprelid,
-                            outer.scan_info.indexrelid,
-                            jk.outer_attno,
-                        ) || !is_column_fast_field(
-                            inner.scan_info.heaprelid,
-                            inner.scan_info.indexrelid,
-                            jk.inner_attno,
-                        ) {
-                            Self::add_planner_warning(
-                                "JoinScan not used: join key columns must be fast fields",
-                                &aliases,
-                            );
-                            return Vec::new();
-                        }
-                    }
-                    _ => return Vec::new(), // Should not happen if extraction logic is correct
-                }
             }
 
             // Add current level keys
@@ -542,7 +824,7 @@ impl CustomScan for JoinScan {
                 }
             };
 
-            let plan = RelNode::Join(Box::new(build::JoinNode {
+            let mut plan = RelNode::Join(Box::new(build::JoinNode {
                 join_type: parsed_jointype,
                 left: outer_node,
                 right: inner_node,
@@ -563,53 +845,39 @@ impl CustomScan for JoinScan {
                 return Vec::new();
             }
 
-            let mut join_clause = JoinCSClause::new(plan)
-                .with_limit(limit_offset.limit)
-                .with_offset(limit_offset.offset)
-                .with_distinct(has_distinct);
-
-            for source in join_clause.plan.sources_mut() {
-                // Check if paradedb.score() is used anywhere in the query for each side.
-                // This includes ORDER BY, SELECT list, or any other expression.
-                // We need to check ALL sides because scores come from the pre-materialized search results.
-                let score_in_tlist =
-                    expr_uses_scores_from_source((*root).processed_tlist.cast(), source);
-
-                let score_in_pathkey = pathkey_uses_scores_from_source(root, source);
-
-                if score_in_tlist || score_in_pathkey {
-                    // Record score_needed for each side
-                    ensure_score_bubbling(source);
-                }
+            if !plan.rewrite_pruned_join_keys(root) {
+                Self::add_planner_warning(
+                    "JoinScan not used: a semi/anti join prunes columns required by an outer join key and no equivalent output-visible column was found",
+                    &aliases,
+                );
+                return Vec::new();
             }
 
-            // The current parallel strategy partitions exactly one source and replicates all
-            // others. For SEMI JOIN and ANTI JOIN correctness, the partitioned source MUST be
-            // the left side to avoid duplicate emissions from replicated workers.
-            // TODO: Because we force the left side to be partitioned, we will fully replicate
-            // (broadcast) the right side even if it is significantly larger. This reduces
-            // performance but ensures correctness. We can remove this limitation once we transition
-            // away from a broadcast strategy to true plan partitioning:
-            // https://github.com/paradedb/paradedb/issues/4152
-            if join_clause.plan.has_semi_or_anti() {
-                if join_clause.partitioning_source_index() != 0 {
-                    pgrx::warning!(
-                        "For SEMI/ANTI join correctness, JoinScan needs to use a suboptimal \
-                        parallel partitioning strategy for this query. See \
-                        https://github.com/paradedb/paradedb/issues/4152"
-                    );
+            let has_distinct = !(*(*root).parse).distinctClause.is_null();
+
+            // Phase 1: shared activation checks + JoinCSClause construction.
+            let (mut join_clause, limit_offset) = match Self::validate_and_build_clause(
+                root,
+                plan,
+                &join_keys,
+                has_distinct,
+            ) {
+                Some(res) => res,
+                None => {
+                    Self::add_planner_warning(
+                            "JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates)",
+                            &aliases,
+                        );
+                    return Vec::new();
                 }
-                join_clause = join_clause.with_forced_partitioning(0);
-            }
+            };
 
-            let current_sources = join_clause.plan.sources();
-
-            // Extract join-level predicates (search predicates and heap conditions)
+            // --- Join-level predicate extraction (join-hook specific) ---
             // This builds an expression tree that can reference:
             // - Predicate nodes: Tantivy search queries
             // - MultiTablePredicate nodes: PostgreSQL expressions
-            // Returns the updated join_clause and a list of heap condition clause pointers
-            let (mut join_clause, multi_table_predicate_clauses) =
+            let current_sources = join_clause.plan.sources();
+            let (join_clause_updated, multi_table_predicate_clauses) =
                 match extract_join_level_conditions(
                     root,
                     extra,
@@ -620,154 +888,53 @@ impl CustomScan for JoinScan {
                     Ok(result) => result,
                     Err(_err) => {
                         Self::add_planner_warning(
-                                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
-                                &aliases,
-                            );
+                            "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
+                            &aliases,
+                        );
                         return Vec::new();
                     }
                 };
+            join_clause = join_clause_updated;
 
+            // Post-extraction check: need at least one side predicate OR join-level predicates.
             let current_sources_after_cond = join_clause.plan.sources();
-
-            // Check if this is a valid join for JoinScan
-            // We need at least one side with a BM25 index AND a search predicate,
-            // OR successfully extracted join-level predicates.
             let has_side_predicate = current_sources_after_cond
                 .iter()
                 .any(|s| s.has_search_predicate());
             let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
-
             if !has_side_predicate && !has_join_level_predicates {
                 return Vec::new();
             }
 
-            // Note: Multi-table predicates (conditions like `a.price > b.price`) are allowed
-            // only if all referenced columns are fast fields. The check happens during
-            // predicate extraction in predicate.rs - if any column is not a fast field,
-            // the predicate extraction returns None and JoinScan won't be proposed.
-
-            // Extract ORDER BY info for DataFusion execution
-            let output_rtis = join_clause.plan.output_rtis();
-            let order_by = match extract_orderby(root, &current_sources_after_cond, &output_rtis) {
-                Some(ob) => ob,
+            // Phase 2: shared ORDER BY + cost + CustomPath construction.
+            let consider_parallel = (*outerrel).consider_parallel;
+            let mut custom_path = match Self::finalize_clause_into_path(
+                root,
+                builder.args().joinrel,
+                join_clause,
+                &limit_offset,
+                consider_parallel,
+            ) {
+                Some(path) => path,
                 None => {
                     Self::add_planner_warning(
-                            "JoinScan not used: ORDER BY column is not available in the joined output schema",
-                            &aliases,
-                        );
+                        "JoinScan not used: ORDER BY column is not available in the joined output schema",
+                        &aliases,
+                    );
                     return Vec::new();
                 }
             };
-            join_clause = join_clause.with_order_by(order_by);
 
-            // Use simple fixed costs since we force the path anyway.
-            // Cost estimation is deferred to DataFusion integration.
-            let startup_cost = crate::DEFAULT_STARTUP_COST;
-            let total_cost = startup_cost + 1.0;
-            let mut result_rows = limit_offset.limit.map(|l| l as f64).unwrap_or(1000.0);
-
-            // Calculate parallel workers based on the largest source, which we will partition.
-            let (segment_count, row_estimate) = {
-                let largest_source = join_clause.partitioning_source();
-                let segment_count = largest_source.scan_info.segment_count;
-
-                let row_estimate = largest_source.scan_info.estimate;
-
-                (segment_count, row_estimate)
-            };
-
-            let nworkers = if (*outerrel).consider_parallel {
-                // JoinScan always has a limit (required).
-                // It declares sorted output if there is an ORDER BY clause.
-                let declares_sorted_output = !join_clause.order_by.is_empty();
-                // We pass `contains_external_var = false` because we handle joins internally
-                // and don't want to suppress parallelism based on standard Postgres join logic rules.
-                // We pass `contains_correlated_param = false` for now (TODO: check this).
-                compute_nworkers(
-                    declares_sorted_output,
-                    limit_offset.limit.map(|l| l as f64),
-                    row_estimate,
-                    segment_count,
-                    false,
-                    false,
-                    true,
-                )
-            } else {
-                0
-            };
-
-            // Force the path to be chosen when we have a valid join opportunity.
-            // TODO: Once cost model is well-tuned, consider removing Flags::Force
-            // to let PostgreSQL make cost-based decisions.
-            let mut builder = builder
-                .set_flag(Flags::Force)
-                .set_startup_cost(startup_cost)
-                .set_total_cost(total_cost);
-
-            if nworkers > 0 {
-                builder = builder.set_parallel(nworkers);
-                // Adjust result rows per worker for better costing
-                let processes = std::cmp::max(
-                    1,
-                    nworkers
-                        + if pg_sys::parallel_leader_participation {
-                            1
-                        } else {
-                            0
-                        },
-                );
-                result_rows /= processes as f64;
-
-                let processes = processes as u64;
-                let partitioning_idx = join_clause.partitioning_source_index();
-                for (idx, source) in join_clause.plan.sources_mut().into_iter().enumerate() {
-                    if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
-                        if idx == partitioning_idx {
-                            source.scan_info.estimated_rows_per_worker = Some(n / processes);
-                        } else {
-                            source.scan_info.estimated_rows_per_worker = Some(n);
-                        }
-                    }
-                }
-            } else {
-                for source in join_clause.plan.sources_mut() {
-                    if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
-                        source.scan_info.estimated_rows_per_worker = Some(n);
-                    }
-                }
-            }
-
-            builder = builder.set_rows(result_rows);
-
-            // Because JoinScan requires and handles the LIMIT, it must also satisfy the
-            // full ORDER BY. If we determined during planning that all ORDER BY columns
-            // are fast fields, we declare that this path satisfies the query pathkeys.
-            if !join_clause.order_by.is_empty() {
-                let query_pathkeys_len =
-                    PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys).len();
-                if join_clause.order_by.len() == query_pathkeys_len {
-                    builder = builder.set_pathkeys((*root).query_pathkeys);
-                }
-            }
-
-            // TODO: Fix #4063 and mark this `set_parallel_safe(true)`.
-
-            let private_data = PrivateData::new(join_clause);
-            let mut custom_path = builder.build(private_data);
-
-            // Store the restrictlist and heap condition clauses in custom_private
+            // Append multi-table predicate clauses to custom_private.
             // Structure: [PrivateData JSON, heap_cond_1, heap_cond_2, ...]
-            let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
-
-            // Add heap condition clauses as subsequent elements
-            for clause in multi_table_predicate_clauses {
-                private_list.push(clause.cast());
+            if !multi_table_predicate_clauses.is_empty() {
+                let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
+                for clause in multi_table_predicate_clauses {
+                    private_list.push(clause.cast());
+                }
+                custom_path.custom_private = private_list.into_pg();
             }
-            custom_path.custom_private = private_list.into_pg();
 
-            // We successfully created a JoinScan path for these tables, so we can clear any
-            // "failure" warnings that might have been generated for them (e.g. from failed
-            // attempts with different join orders or conditions).
             Self::mark_contexts_successful(&aliases);
 
             vec![custom_path]
@@ -811,56 +978,195 @@ impl CustomScan for JoinScan {
                     let var = (*te).expr as *mut pg_sys::Var;
                     let rti = (*var).varno as pg_sys::Index;
                     let attno = (*var).varattno;
-                    let plan_position = private_data
-                        .join_clause
-                        .plan_position(root.into(), rti, attno)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "Failed to resolve output Var to plan_position (rti={}, attno={})",
-                                rti, attno
-                            )
+                    if let Some(plan_position) =
+                        private_data
+                            .join_clause
+                            .plan_position(root.into(), rti, attno)
+                    {
+                        output_columns.push(privdat::OutputColumnInfo::Var {
+                            plan_position,
+                            rti,
+                            original_attno: attno,
                         });
-                    output_columns.push(privdat::OutputColumnInfo {
-                        plan_position,
-                        rti,
-                        original_attno: attno,
-                        is_score: false,
-                    });
+                    } else {
+                        // Var references a relation pruned by an internal Semi/Anti
+                        // join (e.g., the inner side of a flattened EXISTS).
+                        // PostgreSQL's reltarget may include these Vars even though
+                        // they are not accessible after the Semi/Anti. Emit NULL;
+                        // the parent plan will not read this position.
+                        output_columns.push(privdat::OutputColumnInfo::Pruned);
+                    }
                 } else {
-                    let mut is_score = false;
-                    let mut rti = 0;
-                    let mut plan_position = 0usize;
+                    let mut found_score = false;
                     for source in private_data.join_clause.plan.sources() {
                         if expr_uses_scores_from_source((*te).expr.cast(), source) {
-                            // This expression contains paradedb.score()
-                            is_score = true;
-                            rti = get_score_func_rti((*te).expr.cast()).unwrap_or(0);
-                            plan_position = source.plan_position;
+                            let rti = get_score_func_rti((*te).expr.cast()).unwrap_or(0);
+                            output_columns.push(privdat::OutputColumnInfo::Score {
+                                plan_position: source.plan_position,
+                                rti,
+                            });
+                            found_score = true;
                             break;
                         }
                     }
-                    // Non-Var, non-score expression - mark as null (attno = 0)
-                    output_columns.push(privdat::OutputColumnInfo {
-                        plan_position,
-                        rti,
-                        original_attno: 0,
-                        is_score,
-                    });
+                    if !found_score {
+                        output_columns.push(privdat::OutputColumnInfo::Pruned);
+                    }
                 }
             }
 
             private_data.output_columns = output_columns;
-            private_data.join_clause.output_projection = Some(
-                private_data
-                    .output_columns
-                    .iter()
-                    .map(|info| build::ChildProjection {
-                        rti: info.rti,
-                        attno: info.original_attno,
-                        is_score: info.is_score,
-                    })
-                    .collect(),
-            );
+
+            let parse = (*root).parse;
+            let distinct_list_len =
+                if private_data.join_clause.has_distinct && !(*parse).distinctClause.is_null() {
+                    PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause)
+                        .iter_ptr()
+                        .count()
+                } else {
+                    0
+                };
+
+            // Custom scan tlist can be shorter than parse DISTINCT (parent evaluates some exprs).
+            // Then DataFusion GROUP BY can't match all pathkeys; defer DISTINCT and sort only by
+            // parse sortClause inside JoinScan.
+            //
+            // Limitation: if distinctClause and scan tlist happen to have equal length but
+            // contain different expressions, this heuristic won't fire and the non-deferred
+            // path runs.  In practice the scan tlist is a strict subset of distinctClause
+            // columns, so a length mismatch is the reliable signal for "extra" expressions.
+            let scan_tlist_len = original_entries.len();
+            let defer_distinct_to_parent =
+                private_data.join_clause.has_distinct && distinct_list_len > scan_tlist_len;
+
+            if defer_distinct_to_parent {
+                private_data.join_clause.has_distinct = false;
+                let output_rtis = private_data.join_clause.plan.output_rtis();
+                let current_sources = private_data.join_clause.plan.sources();
+                private_data.join_clause.order_by =
+                    extract_orderby_from_parse_sort_clause(root, &current_sources, &output_rtis)
+                        .unwrap_or_else(|| {
+                            let sort_count = if (*parse).sortClause.is_null() {
+                                0
+                            } else {
+                                PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause)
+                                    .iter_ptr()
+                                    .count()
+                            };
+                            panic!(
+                                "JoinScan: ORDER BY from sortClause failed after DISTINCT/tlist \
+                             mismatch (sortClause has {} entries, scan_tlist_len={}, \
+                             distinct_list_len={})",
+                                sort_count, scan_tlist_len, distinct_list_len
+                            )
+                        });
+                // Non-Var, non-score expressions have rti=0, attno=0 here.  That is safe:
+                // has_distinct is cleared above, so DataFusion skips GROUP BY and
+                // build_projection_expr yields NULL for these slots.  build_result_tuple
+                // also treats rti=0 as NULL.  Postgres re-evaluates the real expressions
+                // on top of the result slot, so the NULLs are overwritten.
+                private_data.join_clause.output_projection = Some(
+                    private_data
+                        .output_columns
+                        .iter()
+                        .map(build::ChildProjection::from)
+                        .collect(),
+                );
+            } else {
+                // Build output_projection, enriching expression entries with metadata
+                // when DISTINCT is active.
+                //
+                // TODO(#4604): This is the second call to distinct_columns_are_fast_fields
+                // in the same planning phase (first in validate_and_build_clause). Both
+                // calls walk the same parse tree. Consider caching the result in a
+                // planning-phase-scoped structure to avoid redundant work.
+                let distinct_entries = if private_data.join_clause.has_distinct {
+                    let all_sources = private_data.join_clause.plan.sources();
+                    distinct_columns_are_fast_fields(root, &all_sources)
+                } else {
+                    None
+                };
+
+                // Map ResolvedExpr to output columns by walking the parse tree's
+                // target list (which has original expressions and valid ressortgroupref).
+                // For ALL entries (Column, Score, Expression), use the parse-tree
+                // varnos so that distinct_col_map keys are consistent with
+                // extract_orderby's pathkey varnos.
+                let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::ResolvedExpr> =
+                    Default::default();
+                if let Some(ref entries) = distinct_entries {
+                    let parse_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+                    let distinct_list =
+                        PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+
+                    for (clause_ptr, entry) in distinct_list.iter_ptr().zip(entries.iter()) {
+                        let tle_ref = (*clause_ptr).tleSortGroupRef;
+                        if let Some(parse_te) = parse_tlist
+                            .iter_ptr()
+                            .find(|te| (**te).ressortgroupref == tle_ref)
+                        {
+                            let output_idx = ((*parse_te).resno - 1) as usize;
+                            if output_idx < private_data.output_columns.len() {
+                                entry_by_output_idx.insert(output_idx, entry);
+                            }
+                        }
+                    }
+                }
+
+                // Key `entry_by_output_idx` by each scan tlist entry's `resno`, not list position.
+                let scan_target_entries: Vec<*mut pg_sys::TargetEntry> =
+                    original_entries.iter_ptr().collect();
+                private_data.join_clause.output_projection = Some(
+                    private_data
+                        .output_columns
+                        .iter()
+                        .zip(scan_target_entries.iter().copied())
+                        .map(|(info, te)| {
+                            let output_idx = ((*te).resno - 1) as usize;
+                            match entry_by_output_idx.get(&output_idx) {
+                                Some(planning::ResolvedExpr::Expression {
+                                    expr_node,
+                                    input_vars,
+                                    result_type,
+                                }) => {
+                                    let expr_string = {
+                                        let node_str = pg_sys::nodeToString((*expr_node).cast());
+                                        std::ffi::CStr::from_ptr(node_str)
+                                            .to_string_lossy()
+                                            .into_owned()
+                                    };
+                                    let primary_rti = input_vars.first().map_or(0, |v| v.rti);
+                                    build::ChildProjection::Expression {
+                                        rti: primary_rti,
+                                        pg_expr_string: expr_string,
+                                        input_vars: input_vars.clone(),
+                                        result_type_oid: *result_type,
+                                    }
+                                }
+                                Some(planning::ResolvedExpr::Column { rti, attno }) => {
+                                    build::ChildProjection::Column {
+                                        rti: *rti,
+                                        attno: *attno,
+                                    }
+                                }
+                                Some(planning::ResolvedExpr::Score { rti }) => {
+                                    build::ChildProjection::Score { rti: *rti }
+                                }
+                                Some(planning::ResolvedExpr::IndexedExpression { rti }) => {
+                                    let attno = match info {
+                                        privdat::OutputColumnInfo::Var {
+                                            original_attno, ..
+                                        } => *original_attno,
+                                        _ => 0,
+                                    };
+                                    build::ChildProjection::IndexedExpression { rti: *rti, attno }
+                                }
+                                None => info.into(),
+                            }
+                        })
+                        .collect(),
+                );
+            }
 
             // Add heap condition clauses to custom_exprs so they get transformed by set_customscan_references.
             // The Vars in these expressions will be converted to INDEX_VAR references into custom_scan_tlist.
@@ -1073,22 +1379,26 @@ impl CustomScan for JoinScan {
                 );
                 return;
             }
-            // For plain EXPLAIN, reconstruct the plan from the serialized logical plan.
+            // For plain EXPLAIN, reconstruct the plan using the same session
+            // configuration that execution uses so `VisibilityFilterExec`
+            // appears in the displayed plan, matching EXPLAIN ANALYZE.
+            let expr_context = crate::postgres::utils::ExprContextGuard::new();
             let ctx = create_session_context();
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
-            let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let logical_plan = deserialize_logical_plan(
+            let logical_plan = deserialize_logical_plan_with_runtime(
                 logical_plan,
                 &ctx.task_ctx(),
                 None,
                 Some(expr_context.as_ptr()),
                 None,
+                vec![],
+                vec![],
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
-                .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                .block_on(build_physical_plan(&ctx, logical_plan))
                 .expect("Failed to create execution plan");
             let displayable = displayable(physical_plan.as_ref());
             explainer.add_text("DataFusion Physical Plan", "");
@@ -1149,27 +1459,32 @@ impl CustomScan for JoinScan {
 
                 // Deserialize the logical plan and convert to execution plan
                 let planstate = state.planstate();
+                // Clone plan_bytes to release the immutable borrow on `state`
+                // before the mutable borrow in ensure_source_manifests below.
                 let plan_bytes = state
                     .custom_state()
                     .logical_plan
-                    .as_ref()
+                    .clone()
                     .expect("Logical plan is required");
 
-                // Deserialize the logical plan
+                let index_segment_ids =
+                    Self::build_index_segment_ids(state, &join_clause, &plan_sources);
+
                 let ctx = create_session_context();
-                let logical_plan = deserialize_logical_plan_parallel(
-                    plan_bytes,
+                let logical_plan = deserialize_logical_plan_with_runtime(
+                    &plan_bytes,
                     &ctx.task_ctx(),
                     state.custom_state().parallel_state,
                     Some(state.runtime_context),
                     Some(planstate),
                     state.custom_state().non_partitioning_segments.clone(),
+                    index_segment_ids,
                 )
                 .expect("Failed to deserialize logical plan");
 
                 // Convert logical plan to physical plan
                 let plan = runtime
-                    .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                    .block_on(build_physical_plan(&ctx, logical_plan))
                     .expect("Failed to create execution plan");
 
                 let memory_pool = create_memory_pool(
@@ -1286,14 +1601,15 @@ impl JoinScan {
 
         // Fetch tuples for all RTIs referenced in the output columns
         for col_info in &output_columns {
-            if col_info.rti != 0 && !fetched_sources.contains(&col_info.plan_position) {
-                // Get the CTID for this RTI from the DataFusion result batch
+            let plan_position = match col_info {
+                privdat::OutputColumnInfo::Var { plan_position, .. } => *plan_position,
+                privdat::OutputColumnInfo::Score { plan_position, .. } => *plan_position,
+                privdat::OutputColumnInfo::Pruned => continue,
+            };
+            if !fetched_sources.contains(&plan_position) {
                 let ctid = {
                     let batch = state.custom_state().current_batch.as_ref()?;
-                    let rel_state = state
-                        .custom_state()
-                        .relations
-                        .get(&col_info.plan_position)?;
+                    let rel_state = state.custom_state().relations.get(&plan_position)?;
                     let ctid_col = batch.column(rel_state.ctid_col_idx?);
                     ctid_col
                         .as_any()
@@ -1301,20 +1617,15 @@ impl JoinScan {
                         .expect("ctid should be u64")
                         .value(row_idx)
                 };
-                // Fetch the tuple from the heap using the CTID
-                let rel_state = state
-                    .custom_state_mut()
-                    .relations
-                    .get_mut(&col_info.plan_position)?;
+                let rel_state = state.custom_state_mut().relations.get_mut(&plan_position)?;
                 if !rel_state
                     .visibility_checker
                     .fetch_tuple_direct(ctid, rel_state.fetch_slot)
                 {
                     return None;
                 }
-                // Make sure slots have all attributes deformed
                 pg_sys::slot_getallattrs(rel_state.fetch_slot);
-                fetched_sources.insert(col_info.plan_position);
+                fetched_sources.insert(plan_position);
             }
         }
         // Get the result tuple descriptor from the result slot
@@ -1332,50 +1643,47 @@ impl JoinScan {
             if i >= natts {
                 break;
             }
-            // Handle score columns specially
-            if col_info.is_score {
-                let score_col = batch.column(i);
-                let score = if let Some(score_array) = score_col
-                    .as_any()
-                    .downcast_ref::<arrow_array::Float32Array>()
-                {
-                    score_array.value(row_idx)
-                } else {
-                    0.0
-                };
-                use pgrx::IntoDatum;
-                if let Some(datum) = score.into_datum() {
-                    *datums.add(i) = datum;
-                    *nulls.add(i) = false;
-                } else {
+            match col_info {
+                privdat::OutputColumnInfo::Score { .. } => {
+                    let score_col = batch.column(i);
+                    let score = if let Some(score_array) = score_col
+                        .as_any()
+                        .downcast_ref::<arrow_array::Float32Array>(
+                    ) {
+                        score_array.value(row_idx)
+                    } else {
+                        0.0
+                    };
+                    use pgrx::IntoDatum;
+                    if let Some(datum) = score.into_datum() {
+                        *datums.add(i) = datum;
+                        *nulls.add(i) = false;
+                    } else {
+                        *nulls.add(i) = true;
+                    }
+                }
+                privdat::OutputColumnInfo::Pruned => {
                     *nulls.add(i) = true;
                 }
-                continue;
+                privdat::OutputColumnInfo::Var {
+                    plan_position,
+                    original_attno,
+                    ..
+                } => {
+                    let rel_state = state.custom_state().relations.get(plan_position)?;
+                    let source_slot = rel_state.fetch_slot;
+                    if *original_attno <= 0
+                        || *original_attno > (*(*source_slot).tts_tupleDescriptor).natts as i16
+                    {
+                        *nulls.add(i) = true;
+                        continue;
+                    }
+                    let mut is_null = false;
+                    *datums.add(i) =
+                        pg_sys::slot_getattr(source_slot, *original_attno as i32, &mut is_null);
+                    *nulls.add(i) = is_null;
+                }
             }
-
-            if col_info.rti == 0 {
-                // Non-Var, non-score expression - set null
-                *nulls.add(i) = true;
-                continue;
-            }
-            // Determine which slot to read from based on RTI
-            let rel_state = state
-                .custom_state()
-                .relations
-                .get(&col_info.plan_position)?;
-            let source_slot = rel_state.fetch_slot;
-            let original_attno = col_info.original_attno;
-            // Get the attribute value from the source slot using the original attribute number
-            if original_attno <= 0
-                || original_attno > (*(*source_slot).tts_tupleDescriptor).natts as i16
-            {
-                *nulls.add(i) = true;
-                continue;
-            }
-
-            let mut is_null = false;
-            *datums.add(i) = pg_sys::slot_getattr(source_slot, original_attno as i32, &mut is_null);
-            *nulls.add(i) = is_null;
         }
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
         pg_sys::ExecStoreVirtualTuple(result_slot);

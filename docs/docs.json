@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.22.3",
+        "version": "v0.22.6",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -37,9 +37,17 @@
                   {
                     "group": "Getting Started",
                     "pages": [
+                      "welcome/ai-agents",
                       "documentation/getting-started/install",
-                      "documentation/getting-started/quickstart",
+                      "documentation/getting-started/environment",
+                      "documentation/getting-started/queries",
                       "documentation/getting-started/load"
+                    ]
+                  },
+                  {
+                    "group": "Migration",
+                    "pages": [
+                      "documentation/migration/elasticsearch-feature-comparison"
                     ]
                   },
                   {
@@ -180,7 +188,6 @@
                       }
                     ]
                   },
-                  "welcome/ai-agents",
                   "welcome/support"
                 ]
               }
@@ -337,6 +344,9 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.22.6",
+                  "changelog/0.22.5",
+                  "changelog/0.22.4",
                   "changelog/0.22.3",
                   "changelog/0.22.2",
                   "changelog/0.22.1",

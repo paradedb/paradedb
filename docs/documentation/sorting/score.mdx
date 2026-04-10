@@ -29,6 +29,22 @@ MockItem.objects.filter(
 ).values('id', 'score').order_by('-score')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.id, pdb.score(MockItem.id).label("score"))
+    .where(search.match_any(MockItem.description, "shoes"))
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("shoes")
@@ -61,6 +77,22 @@ MockItem.objects.filter(
 ).annotate(
     score=Score()
 ).values('id', 'score').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, or_, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.id, pdb.score(MockItem.id).label("score"))
+    .where(or_(search.match_any(MockItem.description, "keyboard"), MockItem.rating < 2))
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -128,6 +160,32 @@ Order.objects.filter(
 ).values(
     'order_id', 'customer_name', 'product__description', 'score'
 ).order_by('-score', 'order_id')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        Order.order_id,
+        Order.customer_name,
+        MockItem.description,
+        (pdb.score(Order.order_id) + pdb.score(MockItem.id)).label("score"),
+    )
+    .select_from(Order)
+    .join(MockItem, Order.product_id == MockItem.id)
+    .where(
+        search.match_any(Order.customer_name, "Johnson"),
+        search.match_any(MockItem.description, "running shoes"),
+    )
+    .order_by(desc("score"), Order.order_id)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails

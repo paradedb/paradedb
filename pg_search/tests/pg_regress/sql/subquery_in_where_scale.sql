@@ -32,6 +32,9 @@ FROM generate_series(1, 10000) i;
 INSERT INTO test_metadata_scale (name, value) VALUES
     ('pages-row-id-max', 'page-0005000');
 
+ANALYZE test_pages_scale;
+ANALYZE test_metadata_scale;
+
 -- Test 1: Scalar subquery with large dataset (benchmark pattern)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM test_pages_scale 

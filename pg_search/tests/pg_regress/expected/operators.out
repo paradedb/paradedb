@@ -295,15 +295,15 @@ select * from mock_items where description === case when id = 1 then 'keyboard' 
 -- these are types that postgres will coerce to TEXT
 --
 SELECT * FROM mock_items WHERE description::varchar @@@ 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `@@@(field, TEXT)` operator: `keyboard`
+ERROR:  query is incompatible with pg_search's `@@@` operator: the right-hand side could not be converted to a search query
 SELECT * FROM mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `&&&(field, TEXT)` operator: `keyboard`
+ERROR:  query is incompatible with pg_search's `&&&` operator: the right-hand side could not be converted to a search query
 SELECT * FROM mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `|||(field, TEXT)` operator: `keyboard`
+ERROR:  query is incompatible with pg_search's `|||` operator: the right-hand side could not be converted to a search query
 SELECT * FROM mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `###(field, TEXT)` operator: `keyboard`
+ERROR:  query is incompatible with pg_search's `###` operator: the right-hand side could not be converted to a search query
 SELECT * FROM mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
-ERROR:  query is incompatible with pg_search's `===(field, TEXT)` operator: `keyboard`
+ERROR:  query is incompatible with pg_search's `===` operator: the right-hand side could not be converted to a search query
 SELECT * FROM mock_items WHERE category @@@ 'footwear' ORDER BY id;
  id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
 ----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------

@@ -17,7 +17,8 @@
 
 mod fixtures;
 
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use anyhow::Result;
 use fixtures::*;
@@ -27,6 +28,7 @@ use rand::Rng;
 use rstest::*;
 use sqlx::Row;
 use tokio::join;
+use tokio::sync::Barrier;
 
 /// This test targets the locking functionality between Tantivy writers.
 /// With no locking implemented, a high number of concurrent writers will
@@ -136,40 +138,55 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     "#
     .execute(&mut conn);
 
-    // Create two separate connections
+    // Behavioral smoke test: two concurrent transactions should be able to cross-write the
+    // indexes without blocking on statement-scoped writer state from the first INSERT.
     let mut conn_a = database.connection().await;
     let mut conn_b = database.connection().await;
+    let barrier = Arc::new(Barrier::new(2));
+    let barrier_a = barrier.clone();
+    let barrier_b = barrier.clone();
 
-    // Define the tasks for each connection
     let task_a = async move {
-        "INSERT INTO index_a (content) VALUES ('Content A1');
-         SELECT pg_sleep(3);
-         INSERT INTO index_b (content) VALUES ('Content B1 from A');"
-            .execute_async(&mut conn_a)
-            .await;
+        sqlx::query("SET statement_timeout = '30s'")
+            .execute(&mut conn_a)
+            .await?;
+        sqlx::query("SET lock_timeout = '2s'")
+            .execute(&mut conn_a)
+            .await?;
+        sqlx::query("BEGIN").execute(&mut conn_a).await?;
+        sqlx::query("INSERT INTO index_a (content) VALUES ('Content A1')")
+            .execute(&mut conn_a)
+            .await?;
+        barrier_a.wait().await;
+        sqlx::query("INSERT INTO index_b (content) VALUES ('Content B1 from A')")
+            .execute(&mut conn_a)
+            .await?;
+        sqlx::query("COMMIT").execute(&mut conn_a).await?;
+        Ok::<(), anyhow::Error>(())
     };
 
     let task_b = async move {
-        "INSERT INTO index_b (content) VALUES ('Content B2');
-         SELECT pg_sleep(3);
-         INSERT INTO index_a (content) VALUES ('Content A2 from B');"
-            .execute_async(&mut conn_b)
-            .await;
+        sqlx::query("SET statement_timeout = '30s'")
+            .execute(&mut conn_b)
+            .await?;
+        sqlx::query("SET lock_timeout = '2s'")
+            .execute(&mut conn_b)
+            .await?;
+        sqlx::query("BEGIN").execute(&mut conn_b).await?;
+        sqlx::query("INSERT INTO index_b (content) VALUES ('Content B2')")
+            .execute(&mut conn_b)
+            .await?;
+        barrier_b.wait().await;
+        sqlx::query("INSERT INTO index_a (content) VALUES ('Content A2 from B')")
+            .execute(&mut conn_b)
+            .await?;
+        sqlx::query("COMMIT").execute(&mut conn_b).await?;
+        Ok::<(), anyhow::Error>(())
     };
 
-    // We're going to check a timer to ensure both of these queries,
-    // which each sleep at query time, run concurrently.
-    let start_time = Instant::now();
-
-    // Run both tasks concurrently
-    join!(task_a, task_b);
-
-    // Stop the timer and assert that the duration is close to 5 seconds
-    let duration = start_time.elapsed();
-    assert!(
-        duration.as_secs() >= 3 && duration.as_secs() < 5,
-        "Expected duration to be around 3 seconds, but it took {duration:?}"
-    );
+    let (result_a, result_b) = join!(task_a, task_b);
+    result_a?;
+    result_b?;
 
     // Verify the results
     let count_a: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM index_a")
@@ -349,6 +366,92 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
         counts.len(),
         expected
     );
+
+    Ok(())
+}
+
+/// Regression test for https://github.com/paradedb/paradedb/issues/4381
+///
+/// In PG18 amestimateparallelscan sizes the DSM region based on target_segment_count. Concurrent
+/// writes can create segments beyond that target between plan and execute, causing a buffer
+/// overflow in populate() that corrupts adjacent shared memory. This test verifies that parallel
+/// scans return correct results under concurrent writes.
+#[rstest]
+#[tokio::test]
+async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Result<()> {
+    let mut writer = database.connection().await;
+    let mut reader = database.connection().await;
+
+    // Set target segment count to 1 to lower the threshold for triggering the overflow
+    r#"
+    CREATE EXTENSION IF NOT EXISTS pg_search;
+
+    CREATE TABLE test (
+        id SERIAL PRIMARY KEY,
+        column_a TEXT UNIQUE,
+        column_b BOOL
+    );
+
+    CREATE INDEX idx_test ON test
+    USING bm25 (column_a, column_b)
+    WITH (
+        key_field='column_a',
+        target_segment_count = 1
+    );
+    "#
+    .execute(&mut writer);
+
+    // Force reader parallel scan, through AM path
+    r#"
+    SET paradedb.enable_custom_scan = false;
+    SET paradedb.global_mutable_segment_rows TO 1;
+    SET max_parallel_workers_per_gather = 1;
+    SET parallel_tuple_cost = 0;
+    SET parallel_setup_cost = 0;
+    SET min_parallel_table_scan_size = 0;
+    SET min_parallel_index_scan_size = 0;
+    "#
+    .execute(&mut reader);
+    // Try to force parallel mode - use the appropriate GUC for each PG version
+    // PG15-17: force_parallel_mode, PG18+: debug_parallel_query
+    let _ = "SET force_parallel_mode = on".execute_result(&mut reader);
+    let _ = "SET debug_parallel_query = on".execute_result(&mut reader);
+
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let writer_shutdown = shutdown.clone();
+    let writer_handle = async_std::task::spawn(async move {
+        let mut i = 0;
+        while !writer_shutdown.load(Ordering::Relaxed) {
+            let q = format!(
+                "INSERT INTO test (column_a, column_b) VALUES ('{}', true)",
+                i
+            );
+            let _ = sqlx::query(&q).execute(&mut writer).await;
+            i += 1;
+        }
+    });
+
+    // Originally this ran 10,000 times which took quite some time. On my machine and in CI, running 400 times seems
+    // to be enough to reliably reproduce the bug (#4381) and makes the test run much faster.
+    for _ in 0..400 {
+        let result = sqlx::query_as::<_, (i64,)>(
+            "SELECT COUNT(*) FROM test t WHERE t.column_a @@@ paradedb.all() AND t.column_b = TRUE",
+        )
+        .fetch_one(&mut reader)
+        .await;
+        if result.is_err() {
+            // DSM corruption detected
+            shutdown.store(true, Ordering::Relaxed);
+            writer_handle.await;
+            panic!(
+                "Query failed due to DSM corruption: {}",
+                result.unwrap_err()
+            );
+        }
+    }
+
+    shutdown.store(true, Ordering::Relaxed);
+    writer_handle.await;
 
     Ok(())
 }

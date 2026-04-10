@@ -293,15 +293,14 @@ ORDER BY upper(p.name) ASC
                  : ProjectionExec: expr=[NULL as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
                  :   TantivyLookupExec: decode=[name]
                  :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=5
-                 :       ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, name@1 as name]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_1@0, name@2, ctid_0@3]
-                 :           ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, name@2 as name]
+                 :       VisibilityFilterExec: tables=[s, p]
+                 :         ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, name@1 as name]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_1@0, name@2, ctid_0@3]
                  :             CooperativeExec
                  :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-                 :           ProjectionExec: expr=[ctid@0 as ctid_0, product_id@1 as product_id]
                  :             CooperativeExec
                  :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(22 rows)
+(21 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
@@ -342,15 +341,14 @@ ORDER BY s.name ASC
            : ProjectionExec: expr=[NULL as col_1, name@1 as col_2, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   TantivyLookupExec: decode=[name]
            :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=5
-           :       ProjectionExec: expr=[ctid_0@1 as ctid_0, name@2 as name, ctid_1@0 as ctid_1]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_1@0, ctid_0@2, name@4]
-           :           ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
+           :       VisibilityFilterExec: tables=[s, p]
+           :         ProjectionExec: expr=[ctid_0@1 as ctid_0, name@2 as name, ctid_1@0 as ctid_1]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, product_id@1)], projection=[ctid_1@0, ctid_0@2, name@4]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-           :           ProjectionExec: expr=[ctid@0 as ctid_0, product_id@1 as product_id, name@2 as name]
            :             CooperativeExec
            :               PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(20 rows)
+(19 rows)
 
 SELECT p.name, s.name AS supplier_name
 FROM expr_products p
@@ -377,7 +375,7 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index (tables: p, s)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -408,7 +406,7 @@ FROM expr_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY upper(p.category) ASC
     LIMIT 5;
-WARNING:  JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index (tables: p, s)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
        name       | supplier_name 
 ------------------+---------------
  Mouse Pad        | CableCo

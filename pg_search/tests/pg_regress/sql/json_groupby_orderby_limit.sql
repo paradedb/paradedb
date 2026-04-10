@@ -54,7 +54,7 @@ GROUP BY metadata->>'category'
 ORDER BY 1
 LIMIT 5;
 
--- Ordering by count should not be pushed down
+-- Ordering by count is pushed down to DataFusion
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single

@@ -51,6 +51,30 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+# Query against `description_simple`
+stmt_alias = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(pdb.alias(MockItem.description, "description_simple"), "Sleek running shoes"))
+)
+
+# Query against `description`
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "Sleek running shoes"))
+)
+
+with Session(engine) as session:
+    {
+        "rows_alias": session.execute(stmt_alias).all(),
+        "rows": session.execute(stmt).all(),
+    }
+```
+
 ```ruby Rails
 # Query against `description_simple`
 MockItem.search(:description_simple)
@@ -70,7 +94,6 @@ If a text field uses multiple tokenizers and one of them is [literal](/documenta
 the other tokenizers and leaving the literal tokenizer un-aliased. This is so queries that `GROUP BY`, `ORDER BY`, or aggregate the
 text field can reference the field directly:
 
-<CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
@@ -85,23 +108,5 @@ WHERE description @@@ 'shoes'
 ORDER BY description
 LIMIT 5;
 ```
-
-```python Django
-from paradedb import ParadeDB, ParseWithField
-
-MockItem.objects.filter(
-    description=ParadeDB(ParseWithField(query='shoes'))
-).values('description', 'rating', 'category').order_by('description')[:5]
-```
-
-```ruby Rails
-MockItem.search(:description)
-        .parse("shoes")
-        .select(:description, :rating, :category)
-        .order(:description)
-        .limit(5)
-```
-
-</CodeGroup>
 
 </Note>

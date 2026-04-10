@@ -20,6 +20,21 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"sum": {"field": "rating"}}'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, pdb, search
+
+stmt = (
+    select(pdb.agg(facets.sum(field="rating")))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id)
         .match_all
@@ -62,6 +77,21 @@ MockItem.objects.filter(
 ).aggregate(total=Sum('rating'))
 ```
 
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.sum(MockItem.rating))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:id).match_all.sum(:rating)
 ```
@@ -84,6 +114,21 @@ from paradedb import All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(total=Sum(Coalesce('rating', Value(0))))
+```
+
+```python SQLAlchemy
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(func.sum(func.coalesce(MockItem.rating, 0)))
+    .select_from(MockItem)
+    .where(search.all(MockItem.id))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails

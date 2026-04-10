@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - 0.*.x # Release branches
+      - moe/** # Temporary: trigger CI on stacked PR chain
     paths:
       - ".github/workflows/test-pg_search-docker.yml"
       - "docker/**"
@@ -26,7 +27,7 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image
-    runs-on: ubicloud-standard-8-ubuntu-2404
+    runs-on: ubicloud-standard-8-arm-ubuntu-2404
 
     steps:
       - name: Checkout Git Repository
@@ -40,7 +41,7 @@ jobs:
           echo "Checking if ${{ github.actor }} is a member of the org..."
           result=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}" \
-            https://api.github.com/orgs/paradedb/members/${{ github.actor }})
+            "https://api.github.com/orgs/paradedb/members/${{ github.actor }}") || result="000"
           if [ "$result" -eq 204 ]; then
             echo "is_member=true" >> $GITHUB_OUTPUT
             echo "PR author is a member of the org"
@@ -53,7 +54,7 @@ jobs:
       # it if the PR modifies the Dockerfile or its related scripts
       - name: Detect Dockerfile Changes
         id: dockerfilter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             docker:
@@ -65,13 +66,13 @@ jobs:
       # images via Docker Scout when there are changes to the Dockerfile or its related scripts.
       - name: Login to Docker Hub
         if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           platforms: linux/amd64,linux/arm64
 

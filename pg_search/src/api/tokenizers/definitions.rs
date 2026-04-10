@@ -392,6 +392,7 @@ pub(crate) mod pdb {
                 // Convert the text varlena to a string using pgrx utilities
                 let text_len = pgrx::varlena::varsize_any_exhdr(ptr);
                 let text_data = pgrx::varlena::vardata_any(ptr);
+                #[allow(clippy::unnecessary_cast)]
                 let text_slice = std::slice::from_raw_parts(text_data as *const u8, text_len);
                 let text_str = std::str::from_utf8_unchecked(text_slice);
                 std::ffi::CString::new(text_str)
@@ -483,7 +484,11 @@ pub(crate) mod pdb {
 
     define_tokenizer_type!(
         Lindera,
-        SearchTokenizer::Lindera(LinderaLanguage::Chinese, SearchTokenizerFilters::default()),
+        SearchTokenizer::Lindera {
+            language: LinderaLanguage::Chinese,
+            filters: SearchTokenizerFilters::default(),
+            keep_whitespace: false,
+        },
         tokenize_lindera,
         json_to_lindera,
         jsonb_to_lindera,
@@ -868,8 +873,8 @@ fn literal_typmod_in<'a>(typmod_parts: Array<'a, &'a CStr>) -> i32 {
 
 extension_sql!(
     r#"
-        ALTER TYPE pdb.literal SET (TYPMOD_IN = literal_typmod_in);
+        ALTER TYPE pdb.literal SET (TYPMOD_IN = literal_typmod_in, TYPMOD_OUT = generic_typmod_out);
     "#,
     name = "literal_typmod",
-    requires = [literal_typmod_in, "literal_definition"]
+    requires = [literal_typmod_in, generic_typmod_out, "literal_definition"]
 );

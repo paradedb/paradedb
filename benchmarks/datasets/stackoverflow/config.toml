@@ -1,0 +1,18 @@
+root_table = "stackoverflow_posts"
+sampling_seed = 723                                              # sum of the characters in "ParadeDB" as ascii
+s3_base_path = "s3://paradedb-benchmarks/datasets/stackoverflow"
+
+[[tables]]
+name = "stackoverflow_posts"
+
+[[tables]]
+name = "comments"
+parent = "stackoverflow_posts"
+parent_join_col = "id"
+join_col = "post_id"
+
+[[tables]]
+name = "users"
+parent = "stackoverflow_posts"
+parent_join_col = "owner_user_id"
+join_col = "id"

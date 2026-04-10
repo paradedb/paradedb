@@ -244,8 +244,9 @@ async fn generated_joins_small(database: Db) {
 ///
 /// Tests only the smallest JoinType against larger tables, with a target list, and a limit.
 ///
-/// TODO: This test is currently ignored because it occasionally generates nested loop joins which
-/// run in exponential time: https://github.com/paradedb/paradedb/issues/2733
+/// TODO: This test is currently ignored because the generator can still produce nested loop join
+/// plans that blow up combinatorially and make the run take exponential time:
+/// https://github.com/paradedb/paradedb/issues/2733
 ///
 #[ignore]
 #[rstest]
@@ -798,6 +799,497 @@ async fn generated_joinscan(database: Db) {
 }
 
 ///
+/// Property test for aggregate-on-join via DataFusion — ensures equivalence between
+/// PostgreSQL native aggregation and ParadeDB's DataFusion aggregate backend.
+///
+/// This test randomly combines:
+/// - 2 or 3 table INNER joins
+/// - BM25 predicates (@@@ on outer table)
+/// - GROUP BY with 0-2 grouping columns
+/// - Aggregate functions: COUNT(*), SUM, AVG, MIN, MAX
+///
+/// Verifies that the DataFusion aggregate path produces the same results as
+/// PostgreSQL's native hash/sort aggregate on top of nested loop joins.
+#[rstest]
+#[tokio::test]
+async fn generated_aggregate_join(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    // Three tables for 2-way and 3-way join testing
+    let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
+    let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+
+    // Text columns for BM25 WHERE clauses
+    let text_columns = columns_named(vec!["name"]);
+    // Columns for join keys
+    let join_key_columns = vec!["id", "age"];
+    // Columns for GROUP BY (must be fast fields)
+    let grouping_columns: Vec<&str> = COLUMNS
+        .iter()
+        .filter(|col| col.is_groupable && col.is_whereable)
+        .map(|col| col.name)
+        .collect();
+
+    proptest!(|(
+        num_tables in 2..=3usize,
+        // Outer table BM25 predicate
+        outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
+        // GROUP BY + aggregates
+        group_by_expr in arb_group_by(
+            grouping_columns.iter().map(|c| format!("{}.{}", all_tables[0], c)).collect::<Vec<_>>(),
+            vec![
+                "COUNT(*)",
+                "SUM(users.age)",
+                "AVG(users.age)",
+                "MIN(users.rating)",
+                "MAX(users.rating)",
+            ],
+        ),
+    )| {
+        // Build join with selected number of tables
+        let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
+
+        // Generate join expression (include LEFT/FULL to cover outer-join aggregate paths)
+        let join = arb_joins(
+            prop_oneof![Just(JoinType::Inner), Just(JoinType::Left), Just(JoinType::Full)],
+            tables_for_join.clone(),
+            join_key_columns.clone(),
+        );
+
+        let join_expr = {
+            use proptest::strategy::ValueTree;
+            use proptest::test_runner::TestRunner;
+            let mut runner = TestRunner::default();
+            join.new_tree(&mut runner).unwrap().current()
+        };
+
+        let join_clause = join_expr.to_sql();
+
+        let select_list = group_by_expr.to_select_list();
+        let group_by_clause = group_by_expr.to_sql();
+
+        // Build WHERE clauses
+        let bm25_where = outer_bm25.to_sql("@@@");
+        let pg_where = outer_bm25.to_sql(" = ");
+
+        // PostgreSQL native query
+        let pg_query = format!(
+            "SELECT {select_list} {join_clause} WHERE {pg_where} {group_by_clause}"
+        );
+
+        // BM25 query with aggregate custom scan enabled
+        let bm25_query = format!(
+            "SELECT {select_list} {join_clause} WHERE {bm25_where} {group_by_clause}"
+        );
+
+        // GUCs: enable both join and aggregate custom scans
+        let gucs = PgGucs {
+            aggregate_custom_scan: true,
+            join_custom_scan: true,
+            custom_scan: true,
+            ..PgGucs::default()
+        };
+
+        compare(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| {
+                let rows = query.fetch_dynamic(conn);
+                let mut string_rows: Vec<String> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let mut row_string = String::new();
+                        for i in 0..row.len() {
+                            if i > 0 {
+                                row_string.push('|');
+                            }
+                            let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<f64, _>(i) {
+                                format!("{:.6}", val)
+                            } else if let Ok(val) = row.try_get::<String, _>(i) {
+                                val
+                            } else {
+                                "NULL".to_string()
+                            };
+                            row_string.push_str(&value_str);
+                        }
+                        row_string
+                    })
+                    .collect();
+                string_rows.sort();
+                string_rows
+            },
+        )?;
+    });
+}
+
+/// Property test for DISTINCT aggregates on multi-table joins — ensures
+/// SUM(DISTINCT), COUNT(DISTINCT), AVG(DISTINCT) produce the same results
+/// via DataFusion aggregate pushdown as native PostgreSQL.
+#[rstest]
+#[tokio::test]
+async fn generated_aggregate_join_distinct(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let tables_and_sizes = [("users", 50), ("products", 50), ("orders", 50)];
+    let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+
+    let text_columns = columns_named(vec!["name"]);
+    let join_key_columns = vec!["id", "age"];
+    let grouping_columns: Vec<&str> = COLUMNS
+        .iter()
+        .filter(|col| col.is_groupable && col.is_whereable)
+        .map(|col| col.name)
+        .collect();
+
+    proptest!(|(
+        num_tables in 2..=3usize,
+        outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
+        group_by_expr in arb_group_by(
+            grouping_columns.iter().map(|c| format!("{}.{}", all_tables[0], c)).collect::<Vec<_>>(),
+            vec![
+                "COUNT(DISTINCT users.age)",
+                "SUM(DISTINCT users.age)",
+                "AVG(DISTINCT users.age)",
+            ],
+        ),
+    )| {
+        let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
+
+        let join = arb_joins(
+            prop_oneof![Just(JoinType::Inner), Just(JoinType::Left)],
+            tables_for_join.clone(),
+            join_key_columns.clone(),
+        );
+
+        let join_expr = {
+            use proptest::strategy::ValueTree;
+            use proptest::test_runner::TestRunner;
+            let mut runner = TestRunner::default();
+            join.new_tree(&mut runner).unwrap().current()
+        };
+
+        let join_clause = join_expr.to_sql();
+        let select_list = group_by_expr.to_select_list();
+        let group_by_clause = group_by_expr.to_sql();
+
+        let bm25_where = outer_bm25.to_sql("@@@");
+        let pg_where = outer_bm25.to_sql(" = ");
+
+        let pg_query = format!(
+            "SELECT {select_list} {join_clause} WHERE {pg_where} {group_by_clause}"
+        );
+        let bm25_query = format!(
+            "SELECT {select_list} {join_clause} WHERE {bm25_where} {group_by_clause}"
+        );
+
+        let gucs = PgGucs {
+            aggregate_custom_scan: true,
+            join_custom_scan: true,
+            custom_scan: true,
+            ..PgGucs::default()
+        };
+
+        compare(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| {
+                let rows = query.fetch_dynamic(conn);
+                let mut string_rows: Vec<String> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let mut row_string = String::new();
+                        for i in 0..row.len() {
+                            if i > 0 {
+                                row_string.push('|');
+                            }
+                            let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<f64, _>(i) {
+                                format!("{:.6}", val)
+                            } else if let Ok(val) = row.try_get::<String, _>(i) {
+                                val
+                            } else {
+                                "NULL".to_string()
+                            };
+                            row_string.push_str(&value_str);
+                        }
+                        row_string
+                    })
+                    .collect();
+                string_rows.sort();
+                string_rows
+            },
+        )?;
+    });
+}
+
+///
+/// Property test for STDDEV/VARIANCE aggregates — ensures equivalence between
+/// PostgreSQL native and ParadeDB's DataFusion aggregate backend.
+///
+/// STDDEV and VARIANCE return FLOAT8 which cannot be compared exactly due to
+/// floating-point precision differences between DataFusion and PostgreSQL.
+/// Results are rounded to 6 decimal places before comparison.
+///
+#[rstest]
+#[tokio::test]
+async fn generated_group_by_stddev(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    let table_name = "users";
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 50)], COLUMNS);
+
+    // Columns that can be used for grouping (must have fast: true in index)
+    let columns: Vec<_> = COLUMNS
+        .iter()
+        .filter(|col| col.is_groupable && col.is_whereable)
+        .cloned()
+        .collect();
+
+    let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
+
+    proptest!(|(
+        text_where_expr in arb_wheres(
+            vec![table_name],
+            &columns,
+        ),
+        numeric_where_expr in arb_wheres(
+            vec![table_name],
+            &columns_named(vec!["age", "price", "rating"]),
+        ),
+        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["STDDEV(price)", "VARIANCE(price)", "STDDEV(age)", "VARIANCE(age)"]),
+        gucs in any::<PgGucs>(),
+    )| {
+        let select_list = group_by_expr.to_select_list();
+        let group_by_clause = group_by_expr.to_sql();
+
+        // Create combined WHERE clause for PostgreSQL using = operator
+        let pg_where_clause = format!(
+            "({}) AND ({})",
+            text_where_expr.to_sql(" = "),
+            numeric_where_expr.to_sql(" < ")
+        );
+
+        // Create combined WHERE clause for BM25 using appropriate operators
+        let bm25_where_clause = format!(
+            "({}) AND ({})",
+            text_where_expr.to_sql("@@@"),
+            numeric_where_expr.to_sql(" < ")
+        );
+
+        let pg_query = format!(
+            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause}",
+        );
+
+        let bm25_query = format!(
+            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause}",
+        );
+
+        // Custom result comparator that rounds f64 values to 6 decimal places
+        let compare_results = |query: &str, conn: &mut PgConnection| -> Vec<String> {
+            let rows = query.fetch_dynamic(conn);
+            let mut string_rows: Vec<String> = rows
+                .into_iter()
+                .map(|row| {
+                    let mut row_string = String::new();
+                    for i in 0..row.len() {
+                        if i > 0 {
+                            row_string.push('|');
+                        }
+
+                        let value_str = if let Ok(val) = row.try_get::<f64, _>(i) {
+                            // Round to 6 decimal places to absorb floating-point differences
+                            format!("{:.6}", (val * 1_000_000.0).round() / 1_000_000.0)
+                        } else if let Ok(val) = row.try_get::<i64, _>(i) {
+                            val.to_string()
+                        } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                            val.to_string()
+                        } else if let Ok(val) = row.try_get::<String, _>(i) {
+                            val
+                        } else {
+                            "NULL".to_string()
+                        };
+
+                        row_string.push_str(&value_str);
+                    }
+                    row_string
+                })
+                .collect();
+
+            // Sort for consistent comparison
+            string_rows.sort();
+            string_rows
+        };
+
+        compare(&pg_query, &bm25_query, &gucs, &mut pool.pull(), &setup_sql, compare_results)?;
+    });
+}
+
+///
+/// Property test for aggregate-on-join — ensures equivalence between PostgreSQL
+/// native aggregation with joins and ParadeDB's DataFusion aggregate backend.
+///
+/// Combines INNER JOINs with GROUP BY aggregates (COUNT, SUM, AVG, MIN, MAX)
+/// and verifies the DataFusion aggregate path matches PostgreSQL when both
+/// `enable_aggregate_custom_scan` and `enable_join_custom_scan` are enabled.
+///
+/// Uses only 2 tables and INNER JOIN to keep the test focused and fast.
+///
+#[rstest]
+#[tokio::test]
+async fn generated_join_aggregates(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    // Two tables for join testing, small sizes to keep tests fast
+    let tables_and_sizes = [("users", 30), ("products", 30)];
+    let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+
+    // Text columns for BM25 WHERE clauses
+    let text_columns = columns_named(vec!["name"]);
+    // Columns for join keys
+    let join_key_columns = vec!["id", "age"];
+    // Columns for GROUP BY (must be fast fields, qualified with table name)
+    let grouping_columns: Vec<String> = COLUMNS
+        .iter()
+        .filter(|col| col.is_groupable && col.is_whereable)
+        .map(|col| format!("{}.{}", all_tables[0], col.name))
+        .collect();
+
+    proptest!(|(
+        // Outer table BM25 predicate
+        outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
+        // GROUP BY + aggregates
+        group_by_expr in arb_group_by(
+            grouping_columns.clone(),
+            vec!["COUNT(*)", "SUM(users.age)", "AVG(users.age)", "MIN(users.rating)", "MAX(users.rating)"],
+        ),
+    )| {
+        // Generate join expression (INNER JOIN only)
+        let join = arb_joins(
+            Just(JoinType::Inner),
+            all_tables.clone(),
+            join_key_columns.clone(),
+        );
+
+        let join_expr = {
+            use proptest::strategy::ValueTree;
+            use proptest::test_runner::TestRunner;
+            let mut runner = TestRunner::default();
+            join.new_tree(&mut runner).unwrap().current()
+        };
+
+        let join_clause = join_expr.to_sql();
+
+        let select_list = group_by_expr.to_select_list();
+        let group_by_clause = group_by_expr.to_sql();
+
+        // Build WHERE clauses
+        let bm25_where = outer_bm25.to_sql("@@@");
+        let pg_where = outer_bm25.to_sql(" = ");
+
+        // PostgreSQL native query
+        let pg_query = format!(
+            "SELECT {select_list} {join_clause} WHERE {pg_where} {group_by_clause}"
+        );
+
+        // BM25 query with aggregate custom scan enabled
+        let bm25_query = format!(
+            "SELECT {select_list} {join_clause} WHERE {bm25_where} {group_by_clause}"
+        );
+
+        // GUCs: enable both join and aggregate custom scans
+        let gucs = PgGucs {
+            aggregate_custom_scan: true,
+            join_custom_scan: true,
+            custom_scan: true,
+            ..PgGucs::default()
+        };
+
+        compare(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| {
+                let rows = query.fetch_dynamic(conn);
+                let mut string_rows: Vec<String> = rows
+                    .into_iter()
+                    .map(|row| {
+                        let mut row_string = String::new();
+                        for i in 0..row.len() {
+                            if i > 0 {
+                                row_string.push('|');
+                            }
+                            let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                                val.to_string()
+                            } else if let Ok(val) = row.try_get::<f64, _>(i) {
+                                format!("{:.6}", val)
+                            } else if let Ok(val) = row.try_get::<String, _>(i) {
+                                val
+                            } else {
+                                "NULL".to_string()
+                            };
+                            row_string.push_str(&value_str);
+                        }
+                        row_string
+                    })
+                    .collect();
+                string_rows.sort();
+                string_rows
+            },
+        )?;
+    });
+}
+
+///
 /// Property test for numeric pushdown - ensures equivalence between PostgreSQL and BM25 behavior
 /// for numeric comparison operators (=, <, <=, >, >=, BETWEEN).
 ///
@@ -920,22 +1412,63 @@ async fn generated_joinscan_semi_like(database: Db) {
         inner_term in proptest::sample::select(search_terms.clone()),
         is_anti_join in proptest::bool::ANY,
         limit in 1..=50usize,
+        nested_join in proptest::option::of(arb_semi_joins(all_tables.clone(), join_key_columns.clone())),
+        nested_term in proptest::sample::select(search_terms.clone()),
+        nested_is_anti in proptest::bool::ANY,
     )| {
         let outer = semi_join.outer_table();
         let inner = semi_join.inner_table();
         let join_col = semi_join.join_column();
+
+        // Skip nested cases where the nested inner table collides with the outer tables,
+        // since that would create a self-join which changes the semantics.
+        let nested = nested_join.as_ref().and_then(|nj| {
+            let nested_inner = nj.inner_table();
+            if nested_inner != outer && nested_inner != inner
+                && nj.outer_table() != nj.inner_table()
+            {
+                Some((nj, &nested_term, nested_is_anti))
+            } else {
+                None
+            }
+        });
 
         // Build the subquery clause parameterized by operator.
         // SEMI: IN (SELECT ...), ANTI: IS NOT NULL AND NOT EXISTS (SELECT 1 ... WHERE correlated)
         // PostgreSQL only uses an anti join plan with NOT EXISTS (not NOT IN) and
         // requires IS NOT NULL on the join column.
         let subquery_clause = |op: &str| {
+            let nested_clause = if let Some((nj, nterm, nis_anti)) = &nested {
+                let mid = inner;
+                let deep = nj.inner_table();
+                let ncol = nj.join_column();
+                if *nis_anti {
+                    format!(
+                        " AND {mid}.{ncol} IS NOT NULL AND NOT EXISTS (\
+                            SELECT 1 FROM {deep} \
+                            WHERE {deep}.{ncol} = {mid}.{ncol} \
+                            AND {deep}.name {op} '{nterm}'\
+                        )"
+                    )
+                } else {
+                    format!(
+                        " AND {mid}.{ncol} IN (\
+                            SELECT {deep}.{ncol} FROM {deep} \
+                            WHERE {deep}.name {op} '{nterm}'\
+                        )"
+                    )
+                }
+            } else {
+                String::new()
+            };
+
             if is_anti_join {
                 format!(
                     "{outer}.{join_col} IS NOT NULL AND NOT EXISTS (\
                         SELECT 1 FROM {inner} \
                         WHERE {inner}.{join_col} = {outer}.{join_col} \
                         AND {inner}.name {op} '{inner_term}'\
+                        {nested_clause}\
                     )"
                 )
             } else {
@@ -943,6 +1476,7 @@ async fn generated_joinscan_semi_like(database: Db) {
                     "{outer}.{join_col} IN (\
                         SELECT {inner}.{join_col} FROM {inner} \
                         WHERE {inner}.name {op} '{inner_term}'\
+                        {nested_clause}\
                     )"
                 )
             }

@@ -21,7 +21,8 @@ SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
     f.id,
     f.title,
     f."createdAt",
-    d.title as document_title
+    d.title as document_title,
+    d.parents as document_parents
 FROM files f
 JOIN documents d ON f."documentId" = d.id
 WHERE

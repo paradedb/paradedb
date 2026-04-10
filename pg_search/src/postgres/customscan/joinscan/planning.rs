@@ -23,8 +23,10 @@
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
 
-use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode};
-use super::predicate::{find_base_info_recursive, is_column_fast_field};
+use super::build::{
+    InputVarInfo, JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode,
+};
+use super::predicate::find_base_info_recursive;
 use super::privdat::{OutputColumnInfo, PrivateData};
 
 use crate::api::operator::anyelement_query_input_opoid;
@@ -33,9 +35,11 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
+use crate::postgres::customscan::pullup::{
+    field_type_for_pullup, get_attno_by_name, resolve_fast_field,
+};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid};
+use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
@@ -47,6 +51,10 @@ use crate::query::SearchQueryInput;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, PgList};
+
+const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
+    | pg_sys::PVC_RECURSE_WINDOWFUNCS
+    | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;
 
 /// Check if an expression uses paradedb.score() for any relation in the JoinSource.
 pub(super) unsafe fn expr_uses_scores_from_source(
@@ -191,32 +199,22 @@ pub(super) unsafe fn collect_join_sources(
 /// TODO: Currently, we only extract `T_SubPlan`s if they are at the top level of the
 /// `baserestrictinfo` list (i.e. not nested inside AND/OR trees). This is sufficient for many
 /// typical query patterns, but could be extended to dig deeper into the boolean expression tree.
-unsafe fn collect_join_sources_base_rel(
+pub(super) unsafe fn collect_join_sources_base_rel(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
     rti: pg_sys::Index,
 ) -> Option<(RelNode, Vec<JoinKeyPair>)> {
-    let rtable = (*(*root).parse).rtable;
-    if rtable.is_null() {
-        return None;
-    }
-
-    let rte = pg_sys::rt_fetch(rti, rtable);
-    let relid = get_plain_relation_relid(rte)?;
+    let (relid, alias, _bm25_opt) = super::build::lookup_base_rel_info(root, rti)?;
 
     let mut side_info = JoinSourceCandidate::new(root.into(), rti).with_heaprelid(relid);
-
-    if !(*rte).eref.is_null() {
-        let eref = (*rte).eref;
-        if !(*eref).aliasname.is_null() {
-            let alias_cstr = std::ffi::CStr::from_ptr((*eref).aliasname);
-            if let Ok(alias) = alias_cstr.to_str() {
-                side_info = side_info.with_alias(alias.to_string());
-            }
-        }
+    if let Some(alias) = alias {
+        side_info = side_info.with_alias(alias);
     }
 
+    // Top-level SubPlans (e.g. `col IN (SELECT ...)`)
     let mut extracted_subqueries = Vec::new();
+    // SubPlans nested inside OR expressions (e.g. `col IS NULL OR col IN (SELECT ...)`)
+    let mut extracted_or_subqueries: Vec<OrSubPlanExtraction> = Vec::new();
 
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
         side_info = side_info.with_indexrelid(bm25_index.oid());
@@ -243,12 +241,43 @@ unsafe fn collect_join_sources_base_rel(
         if !baserestrictinfo.is_empty() {
             let context = PlannerContext::from_planner(root);
 
+            // Separate subplans (SEMI/ANTI joins) from search-capable predicates.
+            // Subplans are collected and later handled by wrapping the current
+            // scan's RelNode in additional Join nodes (see `RelNode::Join` below).
+            // This separation ensures `extract_quals` only receives clauses it
+            // can fully convert to a Tantivy query.
+            let mut search_ri = PgList::<pg_sys::RestrictInfo>::new();
             for ri in baserestrictinfo.iter_ptr() {
+                if let Some((subplan, is_anti, inner_root)) =
+                    extract_subplan_from_clause(root, (*ri).clause.cast())
+                {
+                    // Top-level SubPlan (e.g. `col IN (SELECT ...)`) → Semi/Anti join.
+                    extracted_subqueries.push((subplan, is_anti, inner_root));
+                } else {
+                    // Try to extract SubPlan from inside an OR expression.
+                    // Handles patterns like `col IS NULL OR col IN (SELECT ...)`.
+                    let clause = if !(*ri).orclause.is_null() {
+                        (*ri).orclause.cast()
+                    } else {
+                        (*ri).clause.cast()
+                    };
+                    if let Some(or_extraction) = extract_subplan_from_or_clause(root, clause) {
+                        extracted_or_subqueries.push(or_extraction);
+                    } else {
+                        // Not a SubPlan — pass to extract_quals for search predicate extraction.
+                        search_ri.push(ri);
+                    }
+                }
+            }
+
+            if !search_ri.is_empty() {
                 let mut state = QualExtractState::default();
+                // Extract search-capable predicates all at once. This is required
+                // for score filters, which must wrap the rest of the search query.
                 if let Some(qual) = extract_quals(
                     &context,
                     rti,
-                    ri.cast(), // extract_quals expects Node, so we cast the RestrictInfo
+                    search_ri.as_ptr().cast(),
                     crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
                     &bm25_index,
                     false,
@@ -256,23 +285,13 @@ unsafe fn collect_join_sources_base_rel(
                     true,
                 ) {
                     let query = SearchQueryInput::from(&qual);
-                    // Merge into existing query using Boolean Must, or set it if not present
-                    let current_query = side_info.query.take();
-                    let new_query = match current_query {
-                        Some(existing) => SearchQueryInput::Boolean {
-                            must: vec![existing, query],
-                            should: vec![],
-                            must_not: vec![],
-                        },
-                        None => query,
-                    };
-
-                    side_info = side_info.with_query(new_query);
+                    side_info = side_info.with_query(query);
                     if state.uses_our_operator {
                         side_info = side_info.with_search_predicate();
                     }
-                } else if let Some((subplan, is_anti, inner_root)) = extract_subplan_from_clause(root, (*ri).clause.cast()) {
-                    extracted_subqueries.push((subplan, is_anti, inner_root));
+                } else {
+                    // Fail the JoinScan if any search predicate cannot be extracted.
+                    return None;
                 }
             }
         }
@@ -284,7 +303,7 @@ unsafe fn collect_join_sources_base_rel(
     let mut current_node = RelNode::Scan(Box::new(source));
     let mut all_keys = Vec::new();
 
-    // Wrap current_node in Join nodes for each extracted subquery
+    // Wrap current_node in Join nodes for each top-level extracted subquery (Semi/Anti)
     for (subplan, is_anti, inner_root) in extracted_subqueries {
         // Find the final rel for the inner subquery
         let inner_rel = find_final_rel(inner_root);
@@ -316,6 +335,68 @@ unsafe fn collect_join_sources_base_rel(
 
         all_keys.extend(equi_keys);
         current_node = RelNode::Join(Box::new(join_node));
+    }
+
+    // Wrap current_node in LeftMark join + Filter for each OR-extracted subquery.
+    // These come from patterns like `col IS NULL OR col IN (SELECT ...)`.
+    // The LeftMark join produces all left rows + a boolean "mark" column.
+    // The Filter keeps rows where `mark = true OR col IS NULL`.
+    for or_ext in extracted_or_subqueries {
+        let inner_rel = find_final_rel(or_ext.inner_root);
+        if inner_rel.is_null() {
+            continue;
+        }
+
+        let Some((inner_node, inner_keys)) = collect_join_sources(or_ext.inner_root, inner_rel)
+        else {
+            continue;
+        };
+
+        all_keys.extend(inner_keys);
+
+        let equi_keys = extract_equi_keys_from_subplan(
+            or_ext.subplan,
+            or_ext.inner_root,
+            &current_node,
+            &inner_node,
+        );
+
+        // Build a LeftMark join: produces all left rows + boolean "mark" column.
+        let join_type = if or_ext.is_anti {
+            // NOT IN (...) OR IS NULL  →  LeftMark with inverted mark check
+            crate::postgres::customscan::joinscan::build::JoinType::LeftMark
+        } else {
+            // IN (...) OR IS NULL  →  LeftMark
+            crate::postgres::customscan::joinscan::build::JoinType::LeftMark
+        };
+
+        let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
+            join_type,
+            left: current_node,
+            right: inner_node,
+            equi_keys: equi_keys.clone(),
+            filter: None,
+        };
+
+        all_keys.extend(equi_keys);
+        let join_rel = RelNode::Join(Box::new(join_node));
+
+        // Wrap the LeftMark join in a Filter node:
+        //   `mark = true OR outer_col IS NULL`  (for IN)
+        //   `mark = false OR outer_col IS NULL`  (for NOT IN)
+        //
+        // The filter is stored as a MarkOrNullFilter which is handled specially
+        // during DataFusion plan building (see scan_state.rs).
+        let filter_node = crate::postgres::customscan::joinscan::build::FilterNode {
+            input: join_rel,
+            predicate: crate::postgres::customscan::joinscan::build::JoinLevelExpr::MarkOrNull {
+                is_anti: or_ext.is_anti,
+                null_test_varno: or_ext.null_test_varno,
+                null_test_attno: or_ext.null_test_attno,
+            },
+        };
+
+        current_node = RelNode::Filter(Box::new(filter_node));
     }
 
     Some((current_node, all_keys))
@@ -410,8 +491,18 @@ unsafe fn collect_join_sources_join_rel(
                     let inner_heaprelid = inner.scan_info.heaprelid;
                     let inner_indexrelid = inner.scan_info.indexrelid;
 
-                    if !is_column_fast_field(outer_heaprelid, outer_indexrelid, jk.outer_attno)
-                        || !is_column_fast_field(inner_heaprelid, inner_indexrelid, jk.inner_attno)
+                    let outer_hr = PgSearchRelation::open(outer_heaprelid);
+                    let outer_ir = PgSearchRelation::open(outer_indexrelid);
+                    let inner_hr = PgSearchRelation::open(inner_heaprelid);
+                    let inner_ir = PgSearchRelation::open(inner_indexrelid);
+                    if resolve_fast_field(jk.outer_attno as i32, &outer_hr.tuple_desc(), &outer_ir)
+                        .is_none()
+                        || resolve_fast_field(
+                            jk.inner_attno as i32,
+                            &inner_hr.tuple_desc(),
+                            &inner_ir,
+                        )
+                        .is_none()
                     {
                         return None;
                     }
@@ -524,6 +615,137 @@ unsafe fn extract_subplan_from_clause(
     }
 
     None
+}
+
+/// Result of extracting a SubPlan from within an OR expression.
+/// Contains the SubPlan info plus the outer column varno/attno
+/// for which the IS NULL condition was found (used to build the
+/// post-LeftMark-join filter: `mark = true OR outer_col IS NULL`).
+struct OrSubPlanExtraction {
+    subplan: *mut pg_sys::SubPlan,
+    is_anti: bool,
+    inner_root: *mut pg_sys::PlannerInfo,
+    /// The outer variable's varno and varattno for the IS NULL branch.
+    null_test_varno: pg_sys::Index,
+    null_test_attno: pg_sys::AttrNumber,
+}
+
+/// Attempts to extract a `T_SubPlan` node from an OR expression that combines
+/// an `IS NULL` test with an `IN (SubPlan)` / `NOT IN (SubPlan)` test on the
+/// same column.
+///
+/// Recognises patterns like:
+///   `col IS NULL OR col IN (SELECT ...)`
+///   `col IS NULL OR NOT col IN (SELECT ...)`
+///
+/// Returns the SubPlan, negation flag, inner PlannerInfo, and the column
+/// targeted by the IS NULL test (needed for the post-LeftMark filter).
+unsafe fn extract_subplan_from_or_clause(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> Option<OrSubPlanExtraction> {
+    if node.is_null() {
+        return None;
+    }
+
+    // Must be an OR BoolExpr
+    if (*node).type_ != pg_sys::NodeTag::T_BoolExpr {
+        return None;
+    }
+    let bool_expr = node as *mut pg_sys::BoolExpr;
+    if (*bool_expr).boolop != pg_sys::BoolExprType::OR_EXPR {
+        return None;
+    }
+
+    let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+    if args.len() != 2 {
+        return None; // Only handle two-branch OR for now
+    }
+
+    let raw_arg0 = unwrap_restrict_info(args.get_ptr(0)?);
+    let raw_arg1 = unwrap_restrict_info(args.get_ptr(1)?);
+
+    // Try both orderings: (NullTest, SubPlan) and (SubPlan, NullTest)
+    try_extract_null_and_subplan(root, raw_arg0, raw_arg1)
+        .or_else(|| try_extract_null_and_subplan(root, raw_arg1, raw_arg0))
+}
+
+/// Unwrap a `RestrictInfo` node to its inner clause. Returns the node unchanged
+/// if it is not a RestrictInfo.
+unsafe fn unwrap_restrict_info(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if !node.is_null() && (*node).type_ == pg_sys::NodeTag::T_RestrictInfo {
+        let ri = node as *mut pg_sys::RestrictInfo;
+        (*ri).clause.cast()
+    } else {
+        node
+    }
+}
+
+/// Helper: given a candidate null_arg (expected IS NULL) and subplan_arg (expected SubPlan),
+/// try to extract the pieces.
+unsafe fn try_extract_null_and_subplan(
+    root: *mut pg_sys::PlannerInfo,
+    null_arg: *mut pg_sys::Node,
+    subplan_arg: *mut pg_sys::Node,
+) -> Option<OrSubPlanExtraction> {
+    // --- Validate the IS NULL side ---
+    if (*null_arg).type_ != pg_sys::NodeTag::T_NullTest {
+        return None;
+    }
+    let null_test = null_arg as *mut pg_sys::NullTest;
+    if (*null_test).nulltesttype != pg_sys::NullTestType::IS_NULL {
+        return None;
+    }
+    // The argument to IS NULL must be a Var
+    let null_test_arg = (*null_test).arg as *mut pg_sys::Node;
+    if null_test_arg.is_null() || (*null_test_arg).type_ != pg_sys::NodeTag::T_Var {
+        return None;
+    }
+    let null_var = null_test_arg as *mut pg_sys::Var;
+    let null_varno = (*null_var).varno as pg_sys::Index;
+    let null_attno = (*null_var).varattno;
+
+    // --- Validate the SubPlan side ---
+    let (subplan, is_anti, inner_root) = extract_subplan_from_clause(root, subplan_arg)?;
+
+    // Verify the SubPlan's testexpr references the same outer column as the IS NULL.
+    // The testexpr is typically: outer_var = PARAM (or PARAM = outer_var).
+    let testexpr = (*subplan).testexpr;
+    if testexpr.is_null() {
+        return None;
+    }
+    if (*testexpr).type_ != pg_sys::NodeTag::T_OpExpr {
+        return None;
+    }
+    let opexpr = testexpr as *mut pg_sys::OpExpr;
+    let te_args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+    if te_args.len() != 2 {
+        return None;
+    }
+    let te_arg0 = strip_wrappers(te_args.get_ptr(0)?);
+    let te_arg1 = strip_wrappers(te_args.get_ptr(1)?);
+
+    // Find the Var in testexpr (the outer column)
+    let outer_var = if (*te_arg0).type_ == pg_sys::NodeTag::T_Var {
+        te_arg0 as *mut pg_sys::Var
+    } else if (*te_arg1).type_ == pg_sys::NodeTag::T_Var {
+        te_arg1 as *mut pg_sys::Var
+    } else {
+        return None;
+    };
+
+    // The outer var in testexpr must match the IS NULL var
+    if (*outer_var).varno as pg_sys::Index != null_varno || (*outer_var).varattno != null_attno {
+        return None;
+    }
+
+    Some(OrSubPlanExtraction {
+        subplan,
+        is_anti,
+        inner_root,
+        null_test_varno: null_varno,
+        null_test_attno: null_attno,
+    })
 }
 
 /// Extracts equi-join keys from a subplan's testexpr for `Semi`/`Anti` joins.
@@ -735,7 +957,12 @@ pub(super) unsafe fn collect_required_fields(
     output_columns: &[OutputColumnInfo],
     custom_exprs: *mut pg_sys::List,
 ) {
-    let join_keys = join_clause.plan.join_keys();
+    // Resolve each equi-join key against the join node that owns it so we
+    // bind to the correct `JoinSource` by `plan_position`. A flat
+    // `(rti, attno)` scan can pick the wrong source when a SubPlan's inner
+    // relation shares an RTI value with an outer relation (inner queries
+    // have their own RTI numbering space), forcing us to over-project.
+    let join_key_projections = join_clause.plan.join_key_projections();
     let mut plan_sources = join_clause.plan.sources_mut();
 
     for source in &mut plan_sources {
@@ -743,22 +970,13 @@ pub(super) unsafe fn collect_required_fields(
     }
 
     if plan_sources.len() >= 2 {
-        let mut ensure_join_key_side = |rti: pg_sys::Index, attno: pg_sys::AttrNumber| {
-            let idx = plan_sources
-                .iter()
-                .position(|s| s.contains_rti(rti) && s.has_attno(attno));
-            if let Some(idx) = idx {
-                ensure_field(plan_sources[idx], attno);
-            } else {
-                for source in &mut plan_sources {
-                    ensure_column(source, rti, attno);
-                }
+        for (plan_position, attno) in &join_key_projections {
+            if let Some(source) = plan_sources
+                .iter_mut()
+                .find(|s| s.plan_position == *plan_position)
+            {
+                ensure_field(source, *attno);
             }
-        };
-
-        for jk in &join_keys {
-            ensure_join_key_side(jk.outer_rti, jk.outer_attno);
-            ensure_join_key_side(jk.inner_rti, jk.inner_attno);
         }
     }
 
@@ -768,10 +986,15 @@ pub(super) unsafe fn collect_required_fields(
         for var in vars {
             if var.rti == pg_sys::INDEX_VAR as pg_sys::Index {
                 let idx = (var.attno - 1) as usize;
-                if let Some(info) = output_columns.get(idx) {
-                    if info.original_attno > 0 {
+                if let Some(OutputColumnInfo::Var {
+                    rti,
+                    original_attno,
+                    ..
+                }) = output_columns.get(idx)
+                {
+                    if *original_attno > 0 {
                         for source in &mut plan_sources {
-                            ensure_column(source, info.rti, info.original_attno);
+                            ensure_column(source, *rti, *original_attno);
                         }
                     }
                 }
@@ -799,7 +1022,7 @@ pub(super) unsafe fn collect_required_fields(
                     let raw_col_name = col_name.trim_matches('"');
                     for source in &mut plan_sources {
                         if source.scan_info.alias.as_deref() == Some(alias) {
-                            if let Some(attno) = get_attno_by_name(source, raw_col_name) {
+                            if let Some(attno) = get_source_attno_by_name(source, raw_col_name) {
                                 ensure_field(source, attno);
                             }
                             break;
@@ -815,7 +1038,7 @@ pub(super) unsafe fn collect_required_fields(
                             // exist in the table but only be indexed via an
                             // expression (e.g. upper(name)), in which case
                             // ensure_field (via resolve_fast_field) won't find it.
-                            let added = get_attno_by_name(source, name)
+                            let added = get_source_attno_by_name(source, name)
                                 .and_then(|attno| try_ensure_field(source, attno))
                                 .is_some();
                             if !added {
@@ -829,6 +1052,20 @@ pub(super) unsafe fn collect_required_fields(
                 }
             }
             _ => {}
+        }
+    }
+
+    // Ensure expression input vars are included so Tantivy emits the columns
+    // that DISTINCT expressions depend on (e.g., `DISTINCT upper(name)` needs `name`).
+    if let Some(projections) = &join_clause.output_projection {
+        for proj in projections {
+            if let super::build::ChildProjection::Expression { input_vars, .. } = proj {
+                for var_info in input_vars {
+                    for source in &mut plan_sources {
+                        ensure_column(source, var_info.rti, var_info.attno);
+                    }
+                }
+            }
         }
     }
 }
@@ -869,9 +1106,7 @@ unsafe fn try_ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) -> 
 
     let heaprel = PgSearchRelation::open(side.scan_info.heaprelid);
     let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
-    let tupdesc = heaprel.tuple_desc();
-
-    let field = resolve_fast_field(attno as i32, &tupdesc, &indexrel)?;
+    let field = resolve_fast_field(attno as i32, &heaprel.tuple_desc(), &indexrel)?;
     side.scan_info.add_field(attno, field);
     Some(())
 }
@@ -913,16 +1148,57 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     Ok(())
 }
 
-/// Helper function to retrieve an attribute number given a column name from a `JoinSource`'s underlying heap relation.
-unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
+/// Retrieve an attribute number by column name from a `JoinSource`'s heap relation.
+unsafe fn get_source_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
     let rel = PgSearchRelation::open(side.scan_info.heaprelid);
     let tupdesc = rel.tuple_desc();
-    for (i, att) in tupdesc.iter().enumerate() {
-        if att.name() == name {
-            return Some((i + 1) as pg_sys::AttrNumber);
+    get_attno_by_name(name, &tupdesc)
+}
+
+fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {
+    sources.iter().map(|s| s.scan_info.heap_rti).collect()
+}
+
+/// Count query_pathkeys that reference at least one source relation (i.e. are
+/// not outer-only). This is the number of pathkeys JoinScan is responsible for.
+pub(super) unsafe fn count_relevant_pathkeys(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[&JoinSource],
+) -> usize {
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    let source_rtis = collect_source_rtis(sources);
+    pathkeys
+        .iter_ptr()
+        .filter(|pk| !pathkey_is_outer_only((**pk).pk_eclass, &source_rtis))
+        .count()
+}
+
+/// Returns true if no equivalence class member for this pathkey references any
+/// relation in `source_rtis`. Such pathkeys are "outer-only" w.r.t. this join
+/// subtree — the parent plan owns sorting on those keys.
+unsafe fn pathkey_is_outer_only(
+    equivclass: *mut pg_sys::EquivalenceClass,
+    source_rtis: &[pg_sys::Index],
+) -> bool {
+    let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+    for member in members.iter_ptr() {
+        let check_expr = strip_wrappers((*member).em_expr.cast());
+
+        if let Some(var) = nodecast!(Var, T_Var, check_expr) {
+            if source_rtis.contains(&((*var).varno as pg_sys::Index)) {
+                return false;
+            }
+        } else {
+            let var_list = pg_sys::pull_var_clause(check_expr, PVC_RECURSE_ALL);
+            let vars = PgList::<pg_sys::Var>::from_pg(var_list);
+            for var_ptr in vars.iter_ptr() {
+                if source_rtis.contains(&((*var_ptr).varno as pg_sys::Index)) {
+                    return false;
+                }
+            }
         }
     }
-    None
+    true
 }
 
 /// Check if all ORDER BY columns are fast fields.
@@ -930,61 +1206,65 @@ unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::Att
 /// For JoinScan to be proposed, all columns used in ORDER BY must be fast fields
 /// in their respective BM25 indexes (or be paradedb.score() which is handled separately).
 ///
+/// Pathkeys that reference only relations outside this join subtree ("outer-only")
+/// are skipped — the parent plan is responsible for sorting on those keys.
+///
 /// Returns true if:
 /// - No ORDER BY clause exists
-/// - All ORDER BY columns are fast fields or score functions
+/// - All relevant ORDER BY columns are fast fields or score functions
 ///
-/// Returns false if any ORDER BY column is not a fast field.
+/// Returns false if any relevant ORDER BY column is not a fast field.
 pub(super) unsafe fn order_by_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
+    has_distinct: bool,
 ) -> bool {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
         return true;
     }
 
-    for pathkey_ptr in pathkeys.iter_ptr() {
+    let source_rtis = collect_source_rtis(sources);
+
+    'pathkey: for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = (*pathkey_ptr).pk_eclass;
+
+        if pathkey_is_outer_only(equivclass, &source_rtis) {
+            continue;
+        }
+
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-
-            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
-                if !phv.is_null() && !(*phv).phexpr.is_null() {
-                    if let Some(_funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
-                        continue;
-                    }
-                }
-            }
-
             let check_expr = strip_wrappers(expr.cast());
+
+            if sources
+                .iter()
+                .any(|s| is_score_func_recursive(check_expr.cast(), s))
+            {
+                continue 'pathkey;
+            }
 
             if let Some(var) = nodecast!(Var, T_Var, check_expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
 
-                let mut found = false;
+                if !source_rtis.contains(&varno) {
+                    continue;
+                }
+
                 for source in sources {
                     if source.contains_rti(varno) {
-                        if !is_column_fast_field(
-                            source.scan_info.heaprelid,
-                            source.scan_info.indexrelid,
-                            varattno,
-                        ) {
-                            return false;
+                        let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+                        let ir = PgSearchRelation::open(source.scan_info.indexrelid);
+                        if resolve_fast_field(varattno as i32, &hr.tuple_desc(), &ir).is_some() {
+                            continue 'pathkey;
                         }
-                        found = true;
                         break;
                     }
                 }
-                if !found {
-                    return false;
-                }
             } else {
-                // Non-Var expression — check if it matches an indexed expression
-                // so we can emit it directly from the index.
                 let mut found = false;
                 for source in sources {
                     let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
@@ -1003,14 +1283,121 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                         break;
                     }
                 }
-                if !found {
-                    return false;
+
+                if !found && has_distinct && expression_vars_all_fast(expr.cast(), sources) {
+                    found = true;
+                }
+
+                if found {
+                    continue 'pathkey;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    true
+}
+
+/// Check if all Var dependencies of an expression are fast fields in any source.
+/// Returns true if ALL Var deps are fast fields, false if any is missing or no vars found.
+/// Also rejects aggregates and window functions which ExecEvalExpr cannot evaluate.
+unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSource]) -> bool {
+    if pg_sys::contain_agg_clause(expr) || pg_sys::contain_window_function(expr) {
+        return false;
+    }
+
+    let var_list = pg_sys::pull_var_clause(expr, PVC_RECURSE_ALL);
+    let vars = PgList::<pg_sys::Var>::from_pg(var_list);
+    if vars.is_empty() {
+        return false;
+    }
+    for var_ptr in vars.iter_ptr() {
+        let vno = (*var_ptr).varno as pg_sys::Index;
+        let vattno = (*var_ptr).varattno;
+        let found = sources.iter().any(|s| {
+            if !s.contains_rti(vno) {
+                return false;
+            }
+            let hr = PgSearchRelation::open(s.scan_info.heaprelid);
+            let ir = PgSearchRelation::open(s.scan_info.indexrelid);
+            let td = hr.tuple_desc();
+            resolve_fast_field(vattno as i32, &td, &ir).is_some()
+        });
+        if !found {
+            return false;
+        }
+    }
+    true
+}
+
+/// Represents a parsed DISTINCT target list entry.
+pub(super) enum ResolvedExpr {
+    /// Simple column reference (existing behavior)
+    Column {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    },
+    /// Score function (existing behavior)
+    Score { rti: pg_sys::Index },
+    /// An indexed expression that matched via find_matching_fast_field.
+    /// Handled by existing machinery — does NOT need the UDF path.
+    IndexedExpression { rti: pg_sys::Index },
+    /// Arbitrary expression with its Var dependencies and resolved type info
+    Expression {
+        expr_node: *mut pg_sys::Expr,
+        input_vars: Vec<InputVarInfo>,
+        result_type: pg_sys::Oid,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic helpers for DISTINCT expression decline messages
+// ---------------------------------------------------------------------------
+
+/// Human-readable PG type name (e.g., "jsonb", "integer").
+unsafe fn format_type_name(type_oid: pg_sys::Oid) -> String {
+    let c_str = pg_sys::format_type_be(type_oid);
+    if c_str.is_null() {
+        return format!("OID {}", type_oid);
+    }
+    std::ffi::CStr::from_ptr(c_str)
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Get table name from a source's heap relation OID.
+unsafe fn source_table_name(source: &JoinSource) -> String {
+    let relname = pg_sys::get_rel_name(source.scan_info.heaprelid);
+    if !relname.is_null() {
+        std::ffi::CStr::from_ptr(relname)
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        format!("rti {}", source.scan_info.heap_rti)
+    }
+}
+
+/// Get a "table.column" name for a Var reference, for diagnostic messages.
+unsafe fn column_name_for_var(
+    sources: &[&JoinSource],
+    varno: pg_sys::Index,
+    varattno: pg_sys::AttrNumber,
+) -> String {
+    for source in sources {
+        if source.contains_rti(varno) {
+            let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+            let td = hr.tuple_desc();
+            if varattno > 0 && (varattno as usize) <= td.len() {
+                if let Some(attr) = td.get((varattno - 1) as usize) {
+                    let tbl = source_table_name(source);
+                    return format!("{}.{}", tbl, attr.name());
                 }
             }
         }
     }
-
-    true
+    format!("rti {}, attno {}", varno, varattno)
 }
 
 /// Check if all DISTINCT columns are fast fields in their respective BM25 indexes.
@@ -1019,55 +1406,29 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 /// deduplication can happen within DataFusion without heap access.
 /// Walks `parse->distinctClause` (a list of SortGroupClause), resolves each to
 /// its TargetEntry, and checks the referenced Var against source fast fields.
+///
+/// Returns `Some(entries)` if all DISTINCT columns are fast fields, `None` otherwise.
+/// When there is no DISTINCT clause, returns `Some(vec![])`.
 pub(super) unsafe fn distinct_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
-) -> bool {
+) -> Option<Vec<ResolvedExpr>> {
     let parse = (*root).parse;
     if (*parse).distinctClause.is_null() {
-        return true;
+        return Some(vec![]);
     }
+
+    // Build table names once for diagnostic messages in Case 4 decline points.
+    let tables_str = sources
+        .iter()
+        .map(|s| source_table_name(s))
+        .collect::<Vec<_>>()
+        .join(", ");
 
     let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
     let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
 
-    // Check whether a single DISTINCT expression is resolvable as a fast field.
-    let expr_is_fast_field = |expr: *mut pg_sys::Node| -> bool {
-        if let Some(var) = nodecast!(Var, T_Var, expr) {
-            // Plain column reference — must be a fast field in its source index.
-            let varno = (*var).varno as pg_sys::Index;
-            sources.iter().any(|source| {
-                source.contains_rti(varno)
-                    && is_column_fast_field(
-                        source.scan_info.heaprelid,
-                        source.scan_info.indexrelid,
-                        (*var).varattno,
-                    )
-            })
-        } else if get_score_func_rti(expr.cast()).is_some() {
-            // Score functions are handled separately — always allowed in DISTINCT.
-            true
-        } else {
-            // Non-Var expression (e.g. lower(name)) — check if it matches an indexed
-            // expression so we can emit it directly from the index.
-            // TODO(#3303): ORDER BY on indexed expressions is not yet supported in
-            // JoinScan, so in practice this path requires the ORDER BY to use a
-            // different column. Full support will come with #3303.
-            sources.iter().any(|source| {
-                let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
-                    return false;
-                };
-                find_matching_fast_field(
-                    expr,
-                    &index_rel.index_expressions(),
-                    schema,
-                    source.scan_info.heap_rti,
-                )
-                .is_some()
-            })
-        }
-    };
+    let mut entries = Vec::new();
 
     for clause_ptr in distinct_list.iter_ptr() {
         let tle_ref = (*clause_ptr).tleSortGroupRef;
@@ -1075,17 +1436,173 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             .iter_ptr()
             .find(|te| (**te).ressortgroupref == tle_ref);
 
-        match te {
-            None => return false, // SortGroupClause references a TargetEntry we can't find
-            Some(te) => {
-                if !expr_is_fast_field((*te).expr as *mut pg_sys::Node) {
+        let te = te?;
+
+        let expr = (*te).expr as *mut pg_sys::Node;
+
+        // Case 1: Plain column reference (Var node)
+        if let Some(var) = nodecast!(Var, T_Var, expr) {
+            let varno = (*var).varno as pg_sys::Index;
+            let is_fast = sources.iter().any(|source| {
+                if !source.contains_rti(varno) {
                     return false;
+                }
+                let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+                let ir = PgSearchRelation::open(source.scan_info.indexrelid);
+                let td = hr.tuple_desc();
+                resolve_fast_field((*var).varattno as i32, &td, &ir).is_some()
+            });
+            if !is_fast {
+                return None;
+            }
+            entries.push(ResolvedExpr::Column {
+                rti: varno,
+                attno: (*var).varattno,
+            });
+            continue;
+        }
+
+        // Case 2: Score function
+        if let Some(rti) = get_score_func_rti(expr.cast()) {
+            entries.push(ResolvedExpr::Score { rti });
+            continue;
+        }
+
+        // Case 3: Check if expression matches an indexed expression (existing behavior)
+        let matched_source = sources.iter().find(|source| {
+            let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+            let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+                return false;
+            };
+            find_matching_fast_field(
+                expr,
+                &index_rel.index_expressions(),
+                schema,
+                source.scan_info.heap_rti,
+            )
+            .is_some()
+        });
+        if let Some(source) = matched_source {
+            // Indexed expressions are handled by existing fast field machinery.
+            // They don't need the UDF path. The attno=0 convention for indexed
+            // expressions is already handled by build_projection_expr.
+            entries.push(ResolvedExpr::IndexedExpression {
+                rti: source.scan_info.heap_rti,
+            });
+            continue;
+        }
+
+        // Case 4: Expression with Var dependencies — walk the expression tree
+        // to find all referenced Var nodes and verify each is a fast field.
+
+        if pg_sys::contain_agg_clause(expr) {
+            pgrx::debug1!(
+                "JoinScan declined: DISTINCT expression contains an aggregate \
+                 function (tables: {})",
+                tables_str
+            );
+            return None;
+        }
+        if pg_sys::contain_window_function(expr) {
+            pgrx::debug1!(
+                "JoinScan declined: DISTINCT expression contains a window \
+                 function (tables: {})",
+                tables_str
+            );
+            return None;
+        }
+
+        let var_list = pg_sys::pull_var_clause(expr, PVC_RECURSE_ALL);
+        let vars = PgList::<pg_sys::Var>::from_pg(var_list);
+
+        if vars.is_empty() {
+            pgrx::debug1!(
+                "JoinScan declined: DISTINCT expression is a constant with \
+                 no column dependencies (tables: {})",
+                tables_str
+            );
+            return None;
+        }
+
+        let mut input_vars = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for var_ptr in vars.iter_ptr() {
+            let varno = (*var_ptr).varno as pg_sys::Index;
+            let varattno = (*var_ptr).varattno;
+
+            if !seen.insert((varno, varattno)) {
+                continue;
+            }
+
+            let source = sources.iter().find(|s| s.contains_rti(varno));
+            match source {
+                Some(source) => {
+                    let hr = PgSearchRelation::open(source.scan_info.heaprelid);
+                    let ir = PgSearchRelation::open(source.scan_info.indexrelid);
+                    let td = hr.tuple_desc();
+                    if resolve_fast_field(varattno as i32, &td, &ir).is_none() {
+                        let col = column_name_for_var(sources, varno, varattno);
+                        pgrx::debug1!(
+                            "JoinScan declined: DISTINCT expression depends on '{}' \
+                             which is not a fast field (rti={}, attno={}, heaprelid={}) \
+                             (tables: {})",
+                            col,
+                            varno,
+                            varattno,
+                            source.scan_info.heaprelid,
+                            tables_str
+                        );
+                        return None;
+                    }
+                    input_vars.push(InputVarInfo {
+                        rti: varno,
+                        attno: varattno,
+                        type_oid: (*var_ptr).vartype,
+                        typmod: (*var_ptr).vartypmod,
+                        collation: (*var_ptr).varcollid,
+                    });
+                }
+                None => {
+                    pgrx::debug1!(
+                        "JoinScan declined: DISTINCT expression depends on column \
+                         (rti={}, attno={}) not found in any source (available: {:?}) \
+                         (tables: {})",
+                        varno,
+                        varattno,
+                        sources
+                            .iter()
+                            .map(|s| s.scan_info.heap_rti)
+                            .collect::<Vec<_>>(),
+                        tables_str
+                    );
+                    return None;
                 }
             }
         }
+
+        let result_type = pg_sys::exprType(expr);
+
+        if !crate::postgres::types_arrow::is_arrow_convertible(result_type) {
+            let type_name = format_type_name(result_type);
+            pgrx::debug1!(
+                "JoinScan declined: DISTINCT expression returns type '{}' \
+                 (OID {}) which is not supported for Arrow conversion \
+                 (tables: {})",
+                type_name,
+                result_type,
+                tables_str
+            );
+            return None;
+        }
+
+        entries.push(ResolvedExpr::Expression {
+            expr_node: expr.cast(),
+            input_vars,
+            result_type,
+        });
     }
 
-    true
+    Some(entries)
 }
 
 /// Check if any pathkey (ORDER BY clause) uses paradedb.score() referencing a specific relation.
@@ -1188,6 +1705,145 @@ unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) 
     false
 }
 
+/// Single-expression classification for join sort keys (score / heap Var / indexed `Field`).
+///
+/// `pathkey_equivalence_member`: when true, a `Var` outside `output_rtis` means "try the next
+/// equivalence member". When false (sortClause-only extraction), that situation fails the whole
+/// extraction.
+enum JoinSortExprKind {
+    Resolved(OrderByInfo),
+    /// Pathkeys only: this EC member is not usable.
+    SkipMember,
+    /// No encoding as Score, Var, or indexed Field.
+    NoMatch,
+}
+
+impl JoinSortExprKind {
+    unsafe fn classify(
+        check_expr: *mut pg_sys::Expr,
+        direction: SortDirection,
+        sources: &[&JoinSource],
+        output_rtis: &[pg_sys::Index],
+        pathkey_equivalence_member: bool,
+    ) -> Self {
+        for source in sources.iter() {
+            if is_score_func_recursive(check_expr.cast(), source) {
+                if !output_rtis.contains(&source.scan_info.heap_rti) {
+                    continue;
+                }
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Score {
+                        rti: source.scan_info.heap_rti,
+                    },
+                    direction,
+                });
+            }
+        }
+
+        if let Some(var) = nodecast!(Var, T_Var, check_expr) {
+            let varno = (*var).varno as pg_sys::Index;
+            let varattno = (*var).varattno;
+
+            if !output_rtis.contains(&varno) {
+                return if pathkey_equivalence_member {
+                    Self::SkipMember
+                } else {
+                    Self::NoMatch
+                };
+            }
+
+            for source in sources {
+                if source.contains_rti(varno) {
+                    let name = find_base_info_recursive(source, varno).and_then(|info| {
+                        fieldname_from_var(info.heaprelid, var, varattno).map(|f| f.to_string())
+                    });
+                    return Self::Resolved(OrderByInfo {
+                        feature: OrderByFeature::Var {
+                            rti: varno,
+                            attno: varattno,
+                            name,
+                        },
+                        direction,
+                    });
+                }
+            }
+
+            // At this point output_rtis.contains(&varno) is guaranteed — we already
+            // returned SkipMember/NoMatch above when !output_rtis.contains(&varno).
+            debug_assert!(output_rtis.contains(&varno));
+            if !sources.iter().any(|s| s.contains_rti(varno)) {
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Var {
+                        rti: varno,
+                        attno: varattno,
+                        name: None,
+                    },
+                    direction,
+                });
+            }
+
+            return Self::NoMatch;
+        }
+
+        for source in sources {
+            if !output_rtis.contains(&source.scan_info.heap_rti) {
+                continue;
+            }
+            let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
+            let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
+                continue;
+            };
+            if let Some(search_field) = find_matching_fast_field(
+                check_expr as *mut pg_sys::Node,
+                &index_rel.index_expressions(),
+                schema,
+                source.scan_info.heap_rti,
+            ) {
+                return Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::Field {
+                        name: search_field.name().into(),
+                        rti: source.scan_info.heap_rti,
+                    },
+                    direction,
+                });
+            }
+        }
+
+        Self::NoMatch
+    }
+}
+
+/// ORDER BY from `parse->sortClause` only. Used when JoinScan defers DISTINCT to a parent node
+/// and `query_pathkeys` still list keys for the full DISTINCT row.
+pub(super) unsafe fn extract_orderby_from_parse_sort_clause(
+    root: *mut pg_sys::PlannerInfo,
+    sources: &[&JoinSource],
+    output_rtis: &[pg_sys::Index],
+) -> Option<Vec<OrderByInfo>> {
+    let parse = (*root).parse;
+    if (*parse).sortClause.is_null() {
+        return Some(Vec::new());
+    }
+
+    let sort_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+    let mut result = Vec::new();
+
+    for sort_clause_ptr in sort_list.iter_ptr() {
+        let direction =
+            SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
+        let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
+        let check_expr = strip_wrappers(sort_expr.cast()).cast::<pg_sys::Expr>();
+
+        match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, false) {
+            JoinSortExprKind::Resolved(info) => result.push(info),
+            JoinSortExprKind::SkipMember => unreachable!("sortClause entry is not an EC member"),
+            JoinSortExprKind::NoMatch => return None,
+        }
+    }
+
+    Some(result)
+}
+
 /// Extract `ORDER BY` information from the Postgres query planner to pass down to the
 /// DataFusion execution plan.
 ///
@@ -1223,6 +1879,7 @@ pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
     output_rtis: &[pg_sys::Index],
+    has_distinct: bool,
 ) -> Option<Vec<OrderByInfo>> {
     let mut result = Vec::new();
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
@@ -1231,9 +1888,15 @@ pub(super) unsafe fn extract_orderby(
         return Some(result);
     }
 
+    let source_rtis = collect_source_rtis(sources);
+
     for pathkey_ptr in pathkeys.iter_ptr() {
         let pathkey = pathkey_ptr;
         let equivclass = (*pathkey).pk_eclass;
+
+        if pathkey_is_outer_only(equivclass, &source_rtis) {
+            continue;
+        }
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
         let nulls_first = (*pathkey).pk_nulls_first;
@@ -1264,101 +1927,22 @@ pub(super) unsafe fn extract_orderby(
 
             let check_expr = strip_wrappers(expr.cast()).cast::<pg_sys::Expr>();
 
-            // Check if ordering by score
-            let mut score_found = false;
-            for source in sources.iter() {
-                if is_score_func_recursive(check_expr.cast(), source) {
-                    if !output_rtis.contains(&source.scan_info.heap_rti) {
-                        continue;
-                    }
-
-                    // Always emit Score regardless of which source owns it.
-                    // The Field("p.score") path was wrong — after GROUP BY renames
-                    // columns to col_N, qualified names no longer exist.
-                    result.push(OrderByInfo {
-                        feature: OrderByFeature::Score {
-                            rti: source.scan_info.heap_rti,
-                        },
-                        direction,
-                    });
-                    score_found = true;
-                    break;
-                }
-            }
-            if score_found {
-                pathkey_resolved = true;
-                break;
-            }
-
-            if let Some(var) = nodecast!(Var, T_Var, check_expr) {
-                let varno = (*var).varno as pg_sys::Index;
-                let varattno = (*var).varattno;
-
-                if !output_rtis.contains(&varno) {
-                    continue;
-                }
-
-                for source in sources {
-                    if source.contains_rti(varno) {
-                        // Try to find a display name (optional)
-                        let name = find_base_info_recursive(source, varno).and_then(|info| {
-                            fieldname_from_var(info.heaprelid, var, varattno).map(|f| f.to_string())
-                        });
-
-                        result.push(OrderByInfo {
-                            feature: OrderByFeature::Var {
-                                rti: varno,
-                                attno: varattno,
-                                name,
-                            },
-                            direction,
-                        });
-                        pathkey_resolved = true;
-                        break;
-                    }
-                }
-                // The Var is in the output but doesn't belong to any BM25 source
-                // (e.g. products.id when products has no BM25 predicate).
-                // Emit it as a plain field — it's a projected output column.
-                if !sources.iter().any(|s| s.contains_rti(varno)) && output_rtis.contains(&varno) {
-                    result.push(OrderByInfo {
-                        feature: OrderByFeature::Var {
-                            rti: varno,
-                            attno: varattno,
-                            name: None,
-                        },
-                        direction,
-                    });
+            match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, true) {
+                JoinSortExprKind::Resolved(info) => {
+                    result.push(info);
                     pathkey_resolved = true;
                 }
-            } else {
-                // Non-Var expression — check if it matches an indexed expression
-                // so we can push the sort into the index.
-                for source in sources {
-                    if !output_rtis.contains(&source.scan_info.heap_rti) {
-                        continue;
-                    }
-                    let index_rel = PgSearchRelation::open(source.scan_info.indexrelid);
-                    let Ok(schema) = SearchIndexSchema::open(&index_rel) else {
-                        continue;
-                    };
-                    if let Some(search_field) = find_matching_fast_field(
-                        check_expr as *mut pg_sys::Node,
-                        &index_rel.index_expressions(),
-                        schema,
-                        source.scan_info.heap_rti,
-                    ) {
-                        result.push(OrderByInfo {
-                            feature: OrderByFeature::Field {
-                                name: search_field.name().into(),
-                                rti: source.scan_info.heap_rti,
-                            },
-                            direction,
-                        });
-                        pathkey_resolved = true;
-                        break;
-                    }
-                }
+                JoinSortExprKind::SkipMember => continue,
+                JoinSortExprKind::NoMatch => {}
+            }
+
+            // DISTINCT adds non-Var expression pathkeys; skip when deps are fast fields.
+            if !pathkey_resolved
+                && has_distinct
+                && nodecast!(Var, T_Var, check_expr).is_none()
+                && expression_vars_all_fast(check_expr.cast(), sources)
+            {
+                pathkey_resolved = true;
             }
             if pathkey_resolved {
                 break;

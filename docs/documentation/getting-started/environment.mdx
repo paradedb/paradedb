@@ -1,0 +1,563 @@
+---
+title: Configure your Environment
+description: Configure your environment for querying ParadeDB
+canonical: https://docs.paradedb.com/documentation/getting-started/environment
+---
+
+This guide will walk you through setting up your environment to run queries against ParadeDB. Choose your preferred tool below:
+
+<Accordion title="SQL">
+
+ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
+you get started. Run the following command to create this table.
+
+```sql
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+```
+
+Then, inspect the first 3 rows:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+LIMIT 3;
+```
+
+```ini Expected Response
+       description        | rating |  category
+--------------------------+--------+-------------
+ Ergonomic metal keyboard |      4 | Electronics
+ Plastic Keyboard         |      4 | Electronics
+ Sleek running shoes      |      5 | Footwear
+(3 rows)
+```
+
+Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+WITH (key_field='id');
+```
+
+<Note>
+  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
+  `ORDER BY`, or aggregate as part of a full text query should be added to the
+  index for faster performance.
+</Note>
+
+<Note>
+  Note the mandatory `key_field` option. See [choosing a key
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
+</Note>
+
+You're all set! Try [running some queries](/documentation/getting-started/queries).
+
+</Accordion>
+
+<Accordion title="Django">
+To start you'll need a [Django](https://www.djangoproject.com/) project with [Psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed. Run the following to create one:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install django psycopg django-paradedb
+python3 -m django startproject myproject .
+python3 manage.py startapp myapp
+```
+
+In `myproject/settings.py`, add `'django.contrib.postgres'` and `'myapp'` to `INSTALLED_APPS`. Then, configure `DATABASES["default"]` to point to Postgres:
+
+```python myproject/settings.py
+INSTALLED_APPS = [
+    ...,
+    'django.contrib.postgres',
+    'myapp',
+]
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "mydatabase",
+        "USER": "myuser",
+        "PASSWORD": "mypassword",
+        "HOST": "localhost",
+        "PORT": "5432",
+    }
+}
+```
+
+We can now add a model for ParadeDB's built-in test table and BM25 index:
+
+```python models.py
+from django.db import models
+
+from django.contrib.postgres.fields import IntegerRangeField
+from paradedb.indexes import BM25Index
+from paradedb.queryset import ParadeDBManager
+
+
+class MockItem(models.Model):
+    description = models.TextField(null=True, blank=True)
+    rating = models.IntegerField(null=True, blank=True)
+    category = models.CharField(max_length=255, null=True, blank=True)
+    in_stock = models.BooleanField(null=True, blank=True)
+    metadata = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+    last_updated_date = models.DateField(null=True, blank=True)
+    latest_available_time = models.TimeField(null=True, blank=True)
+    weight_range = IntegerRangeField(null=True, blank=True)
+
+    objects = ParadeDBManager()
+
+    class Meta:
+        db_table = "mock_items"
+        indexes = [
+            BM25Index(
+                fields={
+                    "id": {},
+                    "description": {"tokenizer": "unicode_words"},
+                    "category": {"tokenizer": "literal"},
+                    "rating": {},
+                    "in_stock": {},
+                    "metadata": {"json_fields": {"fast": True}},
+                    "created_at": {},
+                    "last_updated_date": {},
+                    "latest_available_time": {},
+                    "weight_range": {},
+                },
+                key_field="id",
+                name="search_idx",
+            ),
+        ]
+```
+
+<Note>
+  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
+  `ORDER BY`, or aggregate as part of a full text query should be added to the
+  index for faster performance.
+</Note>
+
+<Note>
+  Note the mandatory `key_field` option. See [choosing a key
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
+</Note>
+
+Run the migrations to create the table and index:
+
+```bash
+python3 manage.py makemigrations
+python3 manage.py migrate
+```
+
+Now, open a Python shell with `python3 manage.py shell` and run the following command to populate `mock_items`.
+
+```python
+from django.db import connection
+
+with connection.cursor() as cursor:
+    cursor.execute("""
+        CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name  => 'mock_items_tmp'
+        );
+        INSERT INTO public.mock_items
+        SELECT * FROM public.mock_items_tmp;
+        DROP TABLE public.mock_items_tmp;
+    """)
+```
+
+You're all set! Try [running some queries](/documentation/getting-started/queries) in your Python shell.
+
+</Accordion>
+
+<Accordion title="SQLAlchemy">
+To get started, install [SQLAlchemy](https://www.sqlalchemy.org/), [Alembic](https://alembic.sqlalchemy.org/en/latest/), [Psycopg](https://www.psycopg.org/), and [sqlalchemy-paradedb](https://pypi.org/project/sqlalchemy-paradedb/).
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install sqlalchemy psycopg alembic sqlalchemy-paradedb
+```
+
+Initialize Alembic:
+
+```bash
+alembic init migrations
+```
+
+Then update the Alembic configuration to point to your database:
+
+```ini alembic.ini
+sqlalchemy.url = postgresql+psycopg://myuser:mypassword@localhost:5432/mydatabase
+```
+
+ParadeDB comes with a built-in test table that we'll run our queries against. Create a `models.py` file with a model and search index for that table:
+
+```python
+from __future__ import annotations
+
+from datetime import date, datetime, time
+from typing import Any
+
+from sqlalchemy import Boolean, Date, DateTime, Index, Integer, String, Text, Time
+from sqlalchemy.dialects.postgresql import INT4RANGE, JSONB, Range
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from paradedb.sqlalchemy import indexing
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class MockItem(Base):
+    __tablename__ = "mock_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    category: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    in_stock: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_updated_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    latest_available_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    weight_range: Mapped[Range[int] | None] = mapped_column(INT4RANGE, nullable=True)
+
+
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(MockItem.description),
+    indexing.BM25Field(MockItem.category),
+    indexing.BM25Field(MockItem.rating),
+    indexing.BM25Field(MockItem.in_stock),
+    indexing.BM25Field(MockItem.metadata_),
+    indexing.BM25Field(MockItem.created_at),
+    indexing.BM25Field(MockItem.last_updated_date),
+    indexing.BM25Field(MockItem.latest_available_time),
+    indexing.BM25Field(MockItem.weight_range),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+<Note>
+  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
+  `ORDER BY`, or aggregate as part of a full text query should be added to the
+  index for faster performance.
+</Note>
+
+<Note>
+  Note the mandatory `key_field` option. See [choosing a key
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
+</Note>
+
+Copy this configuration into your `migrations/env.py`:
+
+```python migrations/env.py
+from logging.config import fileConfig
+
+from sqlalchemy import engine_from_config, text
+from sqlalchemy import pool
+
+from alembic import context
+
+# This import is required for autogenerated ParadeDB migrations
+# to work properly.
+import paradedb.sqlalchemy.alembic  # noqa: F401
+from models import Base
+
+config = context.config
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+target_metadata = Base.metadata
+
+# The ParadeDB Docker image comes pre-bundled with some popular
+# extensions like PostGIS. PostGIS automatically creates a table
+# called `spatial_ref_sys`. This tells Alembic not to drop it even
+# though it isn't tracked in Alembic's metadata.
+IGNORED_TABLES = {"spatial_ref_sys"}
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "table" and reflected and name in IGNORED_TABLES:
+        return False
+    return True
+
+
+def run_migrations_offline() -> None:
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online() -> None:
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    with connectable.connect() as connection:
+        # This prevents Alembic from modifying tables outside
+        # of the `public` schema.
+        connection.execute(text("SET search_path TO public"))
+        connection.commit()
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
+        )
+
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+```
+
+Next, add a migration to create the `mock_items` test table. Create a blank migration in `0001_create_mock_items_table.py` by running the following command:
+
+```bash
+alembic revision --rev-id 0001 -m "Create mock_items table"
+```
+
+Update the generated migration to create the table:
+
+```python
+def upgrade() -> None:
+    """Upgrade schema."""
+    op.execute(
+        """
+        CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name => 'mock_items'
+        )
+        """
+    )
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    op.execute("DROP TABLE IF EXISTS public.mock_items")
+```
+
+Then, run it with:
+
+```bash
+alembic upgrade head
+```
+
+Next, autogenerate a new migration to create the search index.
+
+```bash
+alembic revision --rev-id 0002 --autogenerate -m "Create search index on mock_items"
+```
+
+The generated migration should look like this:
+
+```python 0002_add_mock_items_search_index.py
+"""add mock_items search index
+
+Revision ID: 0002
+Revises: 0001
+Create Date: 2026-04-07 13:56:45.304941
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '0002'
+down_revision: Union[str, Sequence[str], None] = '0001'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.create_bm25_index('search_idx', 'mock_items', ['id', 'description', 'category', 'rating', 'in_stock', 'metadata', 'created_at', 'last_updated_date', 'latest_available_time', 'weight_range'], key_field='id', table_schema='public')
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_bm25_index('search_idx', if_exists=True, schema='public')
+    # ### end Alembic commands ###
+```
+
+Then run it with:
+
+```bash
+alembic upgrade head
+```
+
+Finally, run `python` and execute the following:
+
+```python
+from models import MockItem
+from sqlalchemy import create_engine
+engine = create_engine('postgresql+psycopg://myuser:mypassword@localhost:5432/mydatabase')
+```
+
+You're all set! Try [running some queries](/documentation/getting-started/queries) in your shell.
+
+</Accordion>
+
+<Accordion title="Rails">
+To get started, create a [Rails](https://rubyonrails.org/) app that uses PostgreSQL.
+
+```bash
+rails new paradedb -d postgresql
+cd paradedb
+```
+
+Add the [rails-paradedb](https://rubygems.org/gems/rails-paradedb) gem to your `Gemfile`:
+
+```ruby Gemfile
+gem "rails-paradedb", require: "parade_db"
+```
+
+Then install it:
+
+```bash
+bundle install
+```
+
+Update `config/database.yml` to point to your ParadeDB database:
+
+```yml config/database.yml
+development:
+  adapter: postgresql
+  encoding: unicode
+  database: mydatabase
+  username: myuser
+  password: mypassword
+  host: localhost
+  port: 5432
+```
+
+ParadeDB comes with a built-in test table that we'll run our queries against. Generate a migration to create it:
+
+```bash
+rails generate migration CreateMockItemsTable
+```
+
+Update the generated migration to create `mock_items`:
+
+```ruby db/migrate/*_create_mock_items_table.rb
+def up
+  execute <<~SQL
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+  SQL
+end
+
+def down
+  drop_table :mock_items, if_exists: true
+end
+```
+
+Next, create a model for the `mock_items` table in `app/models/mock_item.rb`:
+
+```ruby app/models/mock_item.rb
+class MockItem < ApplicationRecord
+  include ParadeDB::Model
+
+  self.table_name = "mock_items"
+  self.primary_key = "id"
+end
+```
+
+Then, create a search index for that table in `app/models/mock_item_index.rb`:
+
+```ruby app/models/mock_item_index.rb
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: nil,
+    category: nil,
+    rating: nil,
+    in_stock: nil,
+    metadata: nil,
+    created_at: nil,
+    last_updated_date: nil,
+    latest_available_time: nil,
+    weight_range: nil
+  }
+end
+```
+
+<Note>
+  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
+  `ORDER BY`, or aggregate as part of a full text query should be added to the
+  index for faster performance.
+</Note>
+
+<Note>
+  Note the mandatory `key_field` option. See [choosing a key
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
+</Note>
+
+Generate a migration for the search index:
+
+```bash
+rails generate migration CreateMockItemsIndex
+```
+
+Update the generated migration to create the index:
+
+```ruby db/migrate/*_create_mock_items_index.rb
+def up
+  create_paradedb_index(MockItemIndex, if_not_exists: true)
+end
+
+def down
+  remove_bm25_index :mock_items, name: :search_idx, if_exists: true
+end
+```
+
+Run the migrations:
+
+```bash
+rails db:migrate
+```
+
+You're all set! Open the Rails console and [run some queries](/documentation/getting-started/queries).
+
+```bash
+rails console
+```
+
+</Accordion>

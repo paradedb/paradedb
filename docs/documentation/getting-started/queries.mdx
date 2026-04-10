@@ -1,58 +1,10 @@
 ---
-title: Quickstart
-description: Get started with ParadeDB in five minutes
-canonical: https://docs.paradedb.com/documentation/getting-started/quickstart
+title: Run Queries
+description: Run your first queries on ParadeDB
+canonical: https://docs.paradedb.com/documentation/getting-started/queries
 ---
 
-This guide will walk you through a few queries to give you a feel for ParadeDB.
-
-## Create Example Table
-
-ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
-you get started. Run the following command to create this table.
-
-```sql
-CALL paradedb.create_bm25_test_table(
-  schema_name => 'public',
-  table_name => 'mock_items'
-);
-```
-
-Then inspect the first 3 rows:
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-LIMIT 3;
-```
-
-```ini Expected Response
-       description        | rating |  category
---------------------------+--------+-------------
- Ergonomic metal keyboard |      4 | Electronics
- Plastic Keyboard         |      4 | Electronics
- Sleek running shoes      |      5 | Footwear
-(3 rows)
-```
-
-Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id');
-```
-
-<Note>
-  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
-  `ORDER BY`, or aggregate as part of a full text query should be added to the
-  index for faster performance.
-</Note>
-
-<Note>
-  Note the mandatory `key_field` option. See [choosing a key
-  field](/documentation/indexing/create-index#choosing-a-key-field) for more details.
-</Note>
+Now that your [environment is configured](/documentation/getting-started/environment), select the codetab for your tool and run some queries.
 
 ## Match Query
 
@@ -74,6 +26,22 @@ MockItem.objects.filter(
     description=ParadeDB(Match('running shoes', operator='OR')),
     rating__gt=2
 ).values('description', 'rating', 'category').order_by('rating')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -119,6 +87,22 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_all(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_all("running shoes")
@@ -127,6 +111,7 @@ MockItem.search(:description)
         .order(:rating)
         .limit(5)
 ```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -158,6 +143,22 @@ MockItem.objects.filter(
 ).annotate(
     score=Score()
 ).values('description', 'score').order_by('-score')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.description, pdb.score(MockItem.id).label("score"))
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -207,6 +208,26 @@ MockItem.objects.filter(
 ).values('description', 'snippet', 'score').order_by('-score')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.description,
+        pdb.snippet(MockItem.description).label("snippet"),
+        pdb.score(MockItem.id).label("score"),
+    )
+    .where(search.match_any(MockItem.description, "running shoes"), MockItem.rating > 2)
+    .order_by(desc("score"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("running shoes")
@@ -250,6 +271,22 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("running shoes")
@@ -290,13 +327,32 @@ LIMIT 5;
 ```python Django
 from paradedb import Match, ParadeDB
 
-rows, facets = (
+(
     MockItem.objects
     .filter(description=ParadeDB(Match('running shoes', operator='OR')))
     .order_by('rating')
     .values('description', 'rating', 'category')[:5]
     .facets(agg='{"value_count": {"field": "id"}}')
 )
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import facets, search
+
+base = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.match_any(MockItem.description, "running shoes"))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+stmt = facets.with_rows(base, agg=facets.value_count(field="id"), key_field=MockItem.id)
+
+with Session(engine) as session:
+    rows = session.execute(stmt).all()
+    facets.extract(rows)
 ```
 
 ```ruby Rails

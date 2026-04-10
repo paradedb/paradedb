@@ -44,11 +44,37 @@ MockItem.objects.filter(
 ).order_by('rating')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+standard_topn_stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.rating.is_not(None))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+paradedb_topn_stmt = (
+    select(MockItem.id, MockItem.description, MockItem.rating, MockItem.category)
+    .where(MockItem.rating.is_not(None), search.all(MockItem.id))
+    .order_by(MockItem.rating)
+    .limit(5)
+)
+
+with Session(engine) as session:
+    {
+        "standard_rows": session.execute(standard_topn_stmt).all(),
+        "paradedb_rows": session.execute(paradedb_topn_stmt).all(),
+    }
+```
+
 ```ruby Rails
-# Top N executed by standard Postgres
+# Top K executed by standard Postgres
 MockItem.where.not(rating: nil).order(:rating).limit(5)
 
-# Top N executed by ParadeDB
+# Top K executed by ParadeDB
 MockItem.search(:id)
         .match_all
         .where.not(rating: nil)

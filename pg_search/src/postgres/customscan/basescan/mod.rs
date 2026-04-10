@@ -18,7 +18,7 @@
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
 pub mod exec_methods;
 pub mod parallel;
-mod privdat;
+pub(crate) mod privdat;
 pub mod projections;
 mod scan_state;
 
@@ -36,7 +36,7 @@ use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
-use crate::postgres::customscan::basescan::privdat::PrivateData;
+use crate::postgres::customscan::basescan::privdat::{Limit, PrivateData};
 use crate::postgres::customscan::basescan::projections::score::uses_scores;
 use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
@@ -125,6 +125,8 @@ impl BaseScan {
 
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();
+        let needs_tokenizer_manager =
+            search_query_input.needs_tokenizer() || state.custom_state().need_snippets();
 
         let search_reader = SearchIndexReader::open_with_context(
             indexrel,
@@ -149,6 +151,7 @@ impl BaseScan {
             },
             std::ptr::NonNull::new(expr_context),
             std::ptr::NonNull::new(planstate),
+            needs_tokenizer_manager,
         )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
@@ -263,7 +266,7 @@ impl BaseScan {
                     attempt_pushdown,
                 ) {
                     partial_quals.push(qual);
-                } else if !is_subplan(ri.cast()) {
+                } else if !is_subplan(ri.cast(), root) {
                     all_skipped_are_subplans = false;
                 }
             }
@@ -669,13 +672,22 @@ impl CustomScan for BaseScan {
                 maybe_limit_from_parse(builder.args().root)
             };
 
+            let limit = if let Some(l) = limit {
+                Some(Limit::Static(l.round() as usize))
+            } else if !(*builder.args().root).parse.is_null() {
+                Limit::from_param((*(*builder.args().root).parse).limitCount)
+            } else {
+                None
+            };
+
             // Get all columns referenced by this RTE throughout the entire query
             let referenced_columns = collect_maybe_fast_field_referenced_columns(rti, rel);
 
             // Save the count of referenced columns for decision-making
             custom_private.set_referenced_columns_count(referenced_columns.len());
 
-            let is_maybe_topk = limit.is_some() && topk_pathkey_info.is_usable();
+            let has_any_limit = limit.is_some();
+            let is_maybe_topk = has_any_limit && topk_pathkey_info.is_usable();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
             // not just those in the target list. To avoid execution-time surprises, the "planned"
@@ -716,6 +728,11 @@ impl CustomScan for BaseScan {
                 estimate_selectivity(&bm25_index, query.clone()).unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
+            let float_limit = match &limit {
+                Some(Limit::Static(n)) => Some(*n as f64),
+                _ => None,
+            };
+
             custom_private.set_heaprelid(table.oid());
             custom_private.set_indexrelid(bm25_index.oid());
             custom_private.set_range_table_index(rti);
@@ -729,8 +746,7 @@ impl CustomScan for BaseScan {
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
-            let limit_is_explicit =
-                limit.is_some() && !is_minmax_implicit_limit(builder.args().root);
+            let limit_is_explicit = has_any_limit && !is_minmax_implicit_limit(builder.args().root);
 
             // Check if the index has a sort_by configuration and the query has a matching pathkey.
             // If so, create an additional sorted path that declares the pathkey.
@@ -759,10 +775,12 @@ impl CustomScan for BaseScan {
                 _ => RowEstimate::Unknown,
             };
             let base_result_rows = match row_estimate {
-                RowEstimate::Known(rows) => (rows as f64).min(limit.unwrap_or(f64::MAX)).max(1.0),
+                RowEstimate::Known(rows) => {
+                    (rows as f64).min(float_limit.unwrap_or(f64::MAX)).max(1.0)
+                }
                 RowEstimate::Unknown => {
                     // For unknown row counts, use 1.0 as a conservative estimate for costing
-                    limit.unwrap_or(1.0).max(1.0)
+                    float_limit.unwrap_or(1.0).max(1.0)
                 }
             };
 
@@ -819,7 +837,7 @@ impl CustomScan for BaseScan {
 
                     compute_nworkers(
                         is_sorted,
-                        limit,
+                        float_limit,
                         row_estimate,
                         segment_count,
                         quals.contains_external_var(),
@@ -1013,7 +1031,7 @@ impl CustomScan for BaseScan {
             let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
             let mut subplan_quals = PgList::<pg_sys::Node>::new();
             for clause in clauses.iter_ptr() {
-                if is_subplan(clause) {
+                if is_subplan(clause, builder.args().root) {
                     // strip RestrictInfo wrapper, plan.qual needs bare expressions
                     let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
                         let ri = clause as *mut pg_sys::RestrictInfo;
@@ -1325,6 +1343,7 @@ impl CustomScan for BaseScan {
                             MvccSatisfies::LargestSegment, // Use largest segment for estimation
                             None,                          // No expr_context needed for estimates
                             None,                          // No planstate needed for estimates
+                            base_query.needs_tokenizer(),
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 
@@ -1659,7 +1678,7 @@ fn validate_topk_expectation(
     }
 
     // At this point: should_use_topk is true AND we're not using Top K - emit warning
-    let limit = privdata.limit().unwrap();
+    let limit = privdata.limit().as_ref().unwrap();
     let method_name = match chosen_method {
         ExecMethodType::Normal => "Normal",
         ExecMethodType::Columnar { .. } => "Columnar",
@@ -1749,13 +1768,12 @@ fn choose_exec_method(
     has_sort_by_pathkey: bool,
 ) -> Vec<ExecMethodType> {
     // See if we can use Top K.
-    if let Some(limit) = privdata.limit() {
+    // A known limit value or a parameterized limit (value resolved at execution time) both qualify.
+    if let Some(limit) = privdata.limit().clone() {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
-            // having a valid limit and sort direction means we can do a Top K query
-            // and Top K can do snippets
             let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit,
+                limit: limit.clone(),
                 orderby_info: Some(orderby_info.clone()),
                 window_aggregates: privdata.window_aggregates().clone(),
             };
@@ -1769,9 +1787,6 @@ fn choose_exec_method(
             return vec![method];
         }
         if matches!(topk_pathkey_info, PathKeyInfo::None) {
-            // we have a limit but no pathkeys at all. we can still go through our "top k"
-            // machinery, but getting "limit" (essentially) random docs, which is what the user
-            // asked for
             let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
@@ -1794,10 +1809,12 @@ fn choose_exec_method(
     if is_capable {
         let mut methods = Vec::new();
 
+        let limit = privdata.limit().clone();
+
         // Always create the Unsorted variant
         methods.push(ExecMethodType::Columnar {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            limit: privdata.limit(),
+            limit: limit.clone(),
             sort_order: None,
         });
 
@@ -1815,7 +1832,7 @@ fn choose_exec_method(
             if let Some(sort_order) = sort_order {
                 methods.push(ExecMethodType::Columnar {
                     which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-                    limit: privdata.limit(),
+                    limit,
                     sort_order: Some(sort_order),
                 });
             }
@@ -1863,7 +1880,11 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
             orderby_info,
             window_aggregates: _,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_k::TopKScanExecState::new(heaprelid, limit, orderby_info),
+            exec_methods::top_k::TopKScanExecState::new(
+                heaprelid,
+                limit.static_value(),
+                orderby_info,
+            ),
             None,
         ),
 
@@ -1926,7 +1947,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                     exec_methods::fast_fields::columnar::ColumnarExecState::new(
                         which_fast_fields,
                         extra_fast_fields,
-                        limit,
+                        limit.as_ref().and_then(Limit::static_value),
                         effective_sort_order,
                     ),
                     None,

@@ -38,6 +38,21 @@ MockItem.objects.filter(
 ).values('id', 'snippet')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.id, pdb.snippet(MockItem.description).label("snippet"))
+    .where(search.match_any(MockItem.description, "shoes"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("shoes")
@@ -79,6 +94,28 @@ MockItem.objects.filter(
 ).values('id', 'snippet')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.snippet(
+            MockItem.description,
+            start_tag="<i>",
+            end_tag="</i>",
+        ).label("snippet"),
+    )
+    .where(search.match_any(MockItem.description, "shoes"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("shoes")
@@ -109,6 +146,21 @@ MockItem.objects.filter(
 ).annotate(
     snippets=Snippets('description', max_num_chars=15)
 ).values('id', 'snippets')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.id, pdb.snippets(MockItem.description, max_num_chars=15).label("snippets"))
+    .where(search.match_any(MockItem.description, "artistic vase"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -175,6 +227,21 @@ MockItem.objects.filter(
 ).values('id', 'snippets')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(MockItem.id, pdb.snippets(MockItem.description, max_num_chars=15, limit=1).label("snippets"))
+    .where(search.match_any(MockItem.description, "running"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("running")
@@ -203,6 +270,24 @@ MockItem.objects.filter(
 ).annotate(
     snippets=Snippets('description', max_num_chars=15, limit=1, offset=1)
 ).values('id', 'snippets')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.snippets(MockItem.description, max_num_chars=15, limit=1, offset=1).label("snippets"),
+    )
+    .where(search.match_any(MockItem.description, "running"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -239,6 +324,24 @@ MockItem.objects.filter(
 ).values('id', 'snippets')[:5]
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.snippets(MockItem.description, max_num_chars=15, sort_by="position").label("snippets"),
+    )
+    .where(search.match_any(MockItem.description, "artistic vase"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .matching_any("artistic vase")
@@ -270,6 +373,25 @@ MockItem.objects.filter(
     snippet=Snippet('description'),
     snippet_positions=SnippetPositions('description')
 ).values('id', 'snippet', 'snippet_positions')[:5]
+```
+
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import pdb, search
+
+stmt = (
+    select(
+        MockItem.id,
+        pdb.snippet(MockItem.description).label("snippet"),
+        pdb.snippet_positions(MockItem.description).label("snippet_positions"),
+    )
+    .where(search.match_any(MockItem.description, "shoes"))
+    .limit(5)
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails

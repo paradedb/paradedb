@@ -14,6 +14,7 @@ on:
     branches:
       - main
       - 0.*.x # Release branches
+      - moe/** # Temporary: trigger CI on stacked PR chain
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
@@ -39,11 +40,11 @@ jobs:
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         run: |
-          if [[ ${{ github.event_name }} == "push" || ${{ github.event_name }} == "schedule" ]]; then
+          if [[ ${{ github.event_name }} == "push" ]]; then
             echo "Push event detected; using only PostgreSQL version 18."
             echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
-            echo "Pull request event detected, using all PostgreSQL versions."
+            echo "Pull request or schedule event detected, using all PostgreSQL versions."
             echo "matrix=[15, 16, 17, 18]" >> $GITHUB_OUTPUT
           fi
 
@@ -58,19 +59,24 @@ jobs:
         # Base: system Postgres on regular runner for all versions
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
         pg_impl: [system]
-        runner: [ubicloud-standard-8-ubuntu-2404]
-        arch: [amd64]
+        runner: [ubicloud-standard-8-arm-ubuntu-2404]
+        arch: [arm64]
         include:
-          # Add pgrx-managed Postgres for PG 18 (regular runner)
+          # pgrx compiles Postgres from source with --enable-cassert and --enable-debug,
+          # which enables C-level Assert() checks that catch memory corruption, invalid
+          # internal state, and broken invariants. System Postgres packages from
+          # apt.postgresql.org are release builds where Assert() compiles to a no-op,
+          # and there is no runtime toggle or debug apt package — cassert is compile-time
+          # only. This run is the only way we get Postgres assertion coverage in CI.
           - pg_version: 18
             pg_impl: pgrx
-            runner: ubicloud-standard-8-ubuntu-2404
-            arch: amd64
-          # Add ARM run for PG 18 (system Postgres)
-          - pg_version: 18
-            pg_impl: system
             runner: ubicloud-standard-8-arm-ubuntu-2404
             arch: arm64
+          # Add AMD run for PG 18 (system Postgres)
+          - pg_version: 18
+            pg_impl: system
+            runner: ubicloud-standard-8-ubuntu-2404
+            arch: amd64
 
     steps:
       - name: Checkout Git Repository
@@ -78,33 +84,49 @@ jobs:
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Extract pgrx Version
         id: pgrx
-        working-directory: pg_search/
-        run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo "version=$version" >> $GITHUB_OUTPUT
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
+      # Cache notes:
+      # - Do NOT add hashFiles('**/Cargo.lock') to shared-key — the action
+      #   already hashes it internally. Putting it in shared-key defeats the
+      #   restore-key fallback and causes cold builds on every lockfile change.
+      # - Do NOT add arch to shared-key — the action includes the Rust target
+      #   triple in its envHash. Keeping shared-key arch-free lets all debug-mode
+      #   workflows (lint, test, schemabot, etc.) share the same cache.
+      # PR branches restore from the default branch cache but don't save their own
+      # entries — this prevents cache thrashing that fills the 30 GB limit and causes
+      # every entry to be evicted before reuse. The nightly schedule run warms caches
+      # for all PG versions on the default branch.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install required system tools
-        run: sudo apt-get update && sudo apt-get install -y lsof
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            lsof build-essential clang flex bison pkg-config ca-certificates git \
+            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
+            libcurl4-openssl-dev
 
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 
-      - name: Install cargo-pgrx
+      - name: Install pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
       - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov --locked
+        run: command -v cargo-llvm-cov || cargo install -j $(nproc) cargo-llvm-cov --locked --debug
 
       # ---------- System-managed Postgres setup ----------
       - name: Install & Configure Supported PostgreSQL Version (system)
@@ -115,13 +137,21 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Initialize cargo-pgrx environment (system)
+      - name: Initialize pgrx environment (system)
         if: matrix.pg_impl == 'system'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       # ---------- pgrx-managed Postgres setup ----------
-      - name: Initialize cargo-pgrx environment (pgrx download)
+      - name: Cache pgrx-compiled Postgres
         if: matrix.pg_impl == 'pgrx'
+        id: cache-pgrx-pg
+        uses: actions/cache@v5
+        with:
+          path: ~/.pgrx
+          key: pgrx-pg-${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Initialize pgrx environment (pgrx download)
+        if: matrix.pg_impl == 'pgrx' && steps.cache-pgrx-pg.outputs.cache-hit != 'true'
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
       # Needed for hybrid search unit/integration tests
@@ -150,11 +180,6 @@ jobs:
         run: |
           set -euxo pipefail
 
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential clang flex bison pkg-config ca-certificates git \
-            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev
-
           git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
           cd citus
 
@@ -174,12 +199,6 @@ jobs:
           CITUS_VERSION: v14.0.0
         run: |
           set -euxo pipefail
-
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential clang flex bison pkg-config ca-certificates git \
-            libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
-            libcurl4-openssl-dev
 
           git clone --depth 1 --branch "${CITUS_VERSION}" https://github.com/citusdata/citus.git
           cd citus
@@ -230,6 +249,9 @@ jobs:
         working-directory: tests/
         run: |
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
+          # The cached ~/.pgrx directory includes the data directory, so restore hits
+          # can already contain a pg_search database from a previous run.
+          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/dropdb --if-exists -p 288${{ matrix.pg_version }} -h localhost pg_search
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
       # ---------- Tests ----------
@@ -299,7 +321,7 @@ jobs:
           merge-multiple: true
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           directory: ./coverage-reports
           files: "*.lcov"

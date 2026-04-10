@@ -260,6 +260,7 @@ impl From<&Qual> for SearchQueryInput {
             // We decode the array and convert it to a Boolean query (should/must).
             Qual::OpExpr {
                 val,
+                opno,
                 scalar_array_use_or,
                 ..
             } => unsafe {
@@ -291,8 +292,17 @@ impl From<&Qual> for SearchQueryInput {
                         }
                     }
                 } else {
-                    SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
-                        .expect("rhs of @@@ operator Qual must not be null")
+                    match SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull) {
+                        Some(input) => input,
+                        None => {
+                            let op_name = crate::api::operator::operator_name_from_oid(*opno);
+                            panic!(
+                                "query is incompatible with pg_search's `{}` operator: \
+                                the right-hand side could not be converted to a search query",
+                                op_name
+                            );
+                        }
+                    }
                 }
             },
             // Convert to SearchQueryInput::PostgresExpression, which will be solved by
@@ -384,7 +394,7 @@ impl From<&Qual> for SearchQueryInput {
 
                 SearchQueryInput::ScoreFilter {
                     bounds: vec![(lower, upper)],
-                    query: None,
+                    query: Some(Box::new(SearchQueryInput::All)),
                 }
             },
             Qual::HeapExpr {
@@ -553,7 +563,7 @@ pub struct QualExtractState {
 
 /// Check if a clause contains node types that extract_quals cannot handle
 /// (e.g., SubPlan from RLS policies) and thus needs plan.qual evaluation.
-pub unsafe fn is_subplan(node: *mut pg_sys::Node) -> bool {
+pub unsafe fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo) -> bool {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -577,6 +587,28 @@ pub unsafe fn is_subplan(node: *mut pg_sys::Node) -> bool {
 
     if node.is_null() {
         return false;
+    }
+
+    // Check if the top-level clause (after unwrapping RestrictInfo) is itself
+    // a PARAM_EXEC from an init_plan. This handles `(SELECT true)` style subqueries
+    // which PostgreSQL pulls up as InitPlans, leaving a bare PARAM_EXEC in
+    // baserestrictinfo. We only check at the top level — PARAM_EXEC nodes nested
+    // inside expressions (e.g. created_at <= (SELECT ...)) are handled differently
+    // and should NOT be treated as subplans.
+    let inner = if (*node).type_ == pg_sys::NodeTag::T_RestrictInfo {
+        let ri = node as *mut pg_sys::RestrictInfo;
+        (*ri).clause.cast::<pg_sys::Node>()
+    } else {
+        node
+    };
+
+    if !inner.is_null() && (*inner).type_ == pg_sys::NodeTag::T_Param {
+        let param = inner as *mut pg_sys::Param;
+        if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC && !root.is_null() {
+            return PgList::<pg_sys::SubPlan>::from_pg((*root).init_plans)
+                .iter_ptr()
+                .any(|subplan| pg_sys::list_member_int((*subplan).setParam, (*param).paramid));
+        }
     }
 
     walker(node, std::ptr::null_mut())

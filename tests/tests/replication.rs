@@ -90,7 +90,7 @@ impl EphemeralPostgres {
             "PG_CONFIG variable must be set to enable creating ephemeral Postgres instances",
         );
         if !PathBuf::from(&pg_config_path).exists() {
-            panic!("PG_CONFIG variable must a valid path to enable creating ephemeral Postgres instances, received {pg_config_path}");
+            panic!("PG_CONFIG variable must be a valid path to enable creating ephemeral Postgres instances, received {pg_config_path}");
         }
         match run_fun!($pg_config_path --bindir) {
             Ok(path) => PathBuf::from(path.trim().to_string()),

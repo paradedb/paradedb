@@ -24,6 +24,7 @@ use pgrx::{direct_function_call, pg_sys, IntoDatum, PgMemoryContexts};
 
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 
 pub mod aggregatescan;
 pub mod basescan;
@@ -32,6 +33,7 @@ pub mod dsm;
 pub mod exec;
 pub mod explain;
 mod explainer;
+pub mod expr_eval;
 mod hook;
 pub mod joinscan;
 pub mod limit_offset;
@@ -39,6 +41,7 @@ pub mod opexpr;
 pub mod orderby;
 pub mod parallel;
 mod path;
+pub(crate) mod pg_expr_udf;
 pub mod projections;
 pub mod pullup;
 mod pushdown;
@@ -58,8 +61,8 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::{
-    register_join_pathlist, register_rel_pathlist, register_upper_path,
-    register_window_aggregate_hook,
+    register_join_pathlist, register_rel_pathlist, register_subplan_join_pathlist,
+    register_upper_path, register_window_aggregate_hook,
 };
 
 // TODO: This trait should be expanded to include a `reset` method, which would become the
@@ -380,20 +383,23 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
 }
 
 pub fn score_funcoids() -> [pg_sys::Oid; 2] {
-    [
-        unsafe {
-            direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"pdb.score(anyelement)".into_datum()],
-            )
-            .expect("the `pdb.score(anyelement)` function should exist")
-        },
-        unsafe {
-            direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"paradedb.score(anyelement)".into_datum()],
-            )
-            .expect("the `paradedb.score(anyelement)` function should exist")
-        },
-    ]
+    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *OID_CACHE.get_or_init(|| {
+        [
+            unsafe {
+                direct_function_call::<pg_sys::Oid>(
+                    pg_sys::regprocedurein,
+                    &[c"pdb.score(anyelement)".into_datum()],
+                )
+                .expect("the `pdb.score(anyelement)` function should exist")
+            },
+            unsafe {
+                direct_function_call::<pg_sys::Oid>(
+                    pg_sys::regprocedurein,
+                    &[c"paradedb.score(anyelement)".into_datum()],
+                )
+                .expect("the `paradedb.score(anyelement)` function should exist")
+            },
+        ]
+    })
 }

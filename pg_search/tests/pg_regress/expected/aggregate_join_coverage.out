@@ -1,0 +1,394 @@
+-- =====================================================================
+-- Coverage tests for aggregate-on-join DataFusion projection paths
+-- =====================================================================
+-- Targets uncovered Arrow-to-Postgres type conversion paths in
+-- datafusion_project.rs, join_targetlist.rs, and datafusion_exec.rs.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test Data Setup — uses INTEGER columns (not FLOAT) to exercise
+-- Int32/Decimal128 paths that the main test misses.
+-- =====================================================================
+CREATE TABLE cov_orders (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    customer TEXT,
+    quantity INTEGER,
+    amount BIGINT
+);
+CREATE TABLE cov_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER,
+    item_name TEXT,
+    unit_price INTEGER
+);
+INSERT INTO cov_orders (description, customer, quantity, amount) VALUES
+    ('Laptop order bulk', 'Acme Corp', 10, 9999),
+    ('Laptop order single', 'Acme Corp', 1, 999),
+    ('Running shoes wholesale', 'FitGear', 50, 4499),
+    ('Jacket order', 'OutdoorCo', 5, 649),
+    ('Tablet order large', 'TechShop', 20, 5999);
+INSERT INTO cov_items (order_id, item_name, unit_price) VALUES
+    (1, 'laptop-15inch', 999),
+    (1, 'laptop-charger', 49),
+    (2, 'laptop-13inch', 999),
+    (3, 'shoes-runner', 89),
+    (3, 'shoes-trail', 99),
+    (4, 'jacket-winter', 129),
+    (5, 'tablet-pro', 299),
+    (5, 'tablet-case', 39);
+CREATE INDEX cov_orders_idx ON cov_orders
+USING bm25 (id, description, customer, quantity, amount)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "customer": {"fast": true}}',
+    numeric_fields='{"quantity": {"fast": true}, "amount": {"fast": true}}'
+);
+CREATE INDEX cov_items_idx ON cov_items
+USING bm25 (id, order_id, item_name, unit_price)
+WITH (
+    key_field='id',
+    numeric_fields='{"order_id": {"fast": true}, "unit_price": {"fast": true}}',
+    text_fields='{"item_name": {"fast": true}}'
+);
+-- =====================================================================
+-- Test 1: SUM(integer) — exercises Decimal128→NUMERIC projection
+-- (SUM(int4) returns NUMERIC in Postgres, DataFusion returns Decimal128)
+-- =====================================================================
+SELECT SUM(o.quantity)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop';
+ sum 
+-----
+  21
+(1 row)
+
+-- Test 1b: SUM(bigint) — same Decimal128→NUMERIC path
+SELECT SUM(o.amount)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop';
+  sum  
+-------
+ 20997
+(1 row)
+
+-- =====================================================================
+-- Test 2: COUNT(column) — exercises Count variant (not CountStar)
+-- =====================================================================
+SELECT COUNT(i.unit_price)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop';
+ count 
+-------
+     3
+(1 row)
+
+-- =====================================================================
+-- Test 3: MIN/MAX on INTEGER columns — exercises Int64→INT4OID path
+-- =====================================================================
+SELECT MIN(o.quantity), MAX(o.quantity)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop OR shoes';
+ min | max 
+-----+-----
+     |    
+(1 row)
+
+-- Test 3b: MIN/MAX on integer from the joined table
+SELECT MIN(i.unit_price), MAX(i.unit_price)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop';
+ min | max 
+-----+-----
+  49 | 999
+(1 row)
+
+-- =====================================================================
+-- Test 4: AVG(integer) — returns NUMERIC in Postgres,
+-- exercises Decimal128→NUMERICOID or Float64→NUMERICOID path
+-- =====================================================================
+SELECT AVG(o.quantity)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop OR shoes';
+ avg  
+------
+ 24.2
+(1 row)
+
+-- =====================================================================
+-- Test 5: GROUP BY text column — exercises Utf8/Utf8View projection
+-- for group column values in the output
+-- =====================================================================
+-- Suppress planner warnings that may differ between system/pgrx PG builds
+SET client_min_messages TO error;
+SELECT o.customer, COUNT(*), SUM(o.quantity)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop OR shoes OR jacket OR tablet'
+GROUP BY o.customer
+ORDER BY o.customer;
+ customer  | count | sum 
+-----------+-------+-----
+ Acme Corp |     3 |  21
+ FitGear   |     2 | 100
+ OutdoorCo |     1 |   5
+ TechShop  |     2 |  40
+(4 rows)
+
+SET client_min_messages TO warning;
+-- =====================================================================
+-- Test 6: NULL handling — SUM/AVG/MIN/MAX on empty join result
+-- COUNT returns 0, others return NULL
+-- =====================================================================
+SELECT COUNT(*), SUM(o.quantity), AVG(o.quantity), MIN(o.quantity), MAX(o.quantity)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'nonexistent_product_xyz';
+ count | sum | avg | min | max 
+-------+-----+-----+-----+-----
+     0 |     |     |     |    
+(1 row)
+
+-- =====================================================================
+-- Test 7: Multiple aggregates with mixed types — exercises all
+-- projection arms in a single query
+-- =====================================================================
+SET client_min_messages TO error;
+SELECT COUNT(*), COUNT(i.unit_price), SUM(o.quantity), AVG(o.quantity),
+       MIN(i.unit_price), MAX(i.unit_price), SUM(o.amount)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop OR tablet';
+ count | count | sum | avg  | min | max |  sum  
+-------+-------+-----+------+-----+-----+-------
+     5 |     5 |  61 | 12.2 |  39 | 999 | 32995
+(1 row)
+
+SET client_min_messages TO warning;
+-- =====================================================================
+-- Test 8: Parity — DataFusion vs Postgres native (GROUP BY + aggs)
+-- =====================================================================
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT o.customer, COUNT(*), SUM(o.quantity), MIN(i.unit_price), MAX(i.unit_price)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop OR shoes OR jacket OR tablet'
+GROUP BY o.customer
+ORDER BY o.customer;
+ customer  | count | sum | min | max 
+-----------+-------+-----+-----+-----
+ Acme Corp |     3 |  21 |  49 | 999
+ FitGear   |     2 | 100 |  89 |  99
+ OutdoorCo |     1 |   5 | 129 | 129
+ TechShop  |     2 |  40 |  39 | 299
+(4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET client_min_messages TO error;
+SELECT o.customer, COUNT(*), SUM(o.quantity), MIN(i.unit_price), MAX(i.unit_price)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop OR shoes OR jacket OR tablet'
+GROUP BY o.customer
+ORDER BY o.customer;
+ customer  | count | sum | min | max 
+-----------+-------+-----+-----+-----
+ Acme Corp |     3 |  21 |  49 | 999
+ FitGear   |     2 | 100 |  89 |  99
+ OutdoorCo |     1 |   5 | 129 | 129
+ TechShop  |     2 |  40 |  39 | 299
+(4 rows)
+
+SET client_min_messages TO warning;
+-- =====================================================================
+-- Test 9: Parity — scalar aggregates
+-- =====================================================================
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*), SUM(o.quantity), SUM(o.amount), AVG(o.quantity)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop OR shoes';
+ count | sum |  sum  |         avg         
+-------+-----+-------+---------------------
+     5 | 121 | 29995 | 24.2000000000000000
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT COUNT(*), SUM(o.quantity), SUM(o.amount), AVG(o.quantity)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop OR shoes';
+ count | sum |  sum  | avg  
+-------+-----+-------+------
+     5 | 121 | 29995 | 24.2
+(1 row)
+
+-- =====================================================================
+-- Test 10: Fallback — FILTER clause should gracefully fall back
+-- to Postgres native plan (not crash)
+-- =====================================================================
+SET client_min_messages TO error;
+SELECT COUNT(*) FILTER (WHERE o.quantity > 5)
+FROM cov_orders o
+JOIN cov_items i ON o.id = i.order_id
+WHERE o.description @@@ 'laptop OR shoes';
+ count 
+-------
+     4
+(1 row)
+
+SET client_min_messages TO warning;
+-- =====================================================================
+-- Test 11: REAL (float4) and SMALLINT columns — exercises Float4/Int2
+-- fast field storage and aggregate projection
+-- =====================================================================
+CREATE TABLE cov_sensors (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    reading REAL,
+    priority SMALLINT
+);
+CREATE TABLE cov_logs (
+    id SERIAL PRIMARY KEY,
+    sensor_id INTEGER,
+    log_type TEXT
+);
+INSERT INTO cov_sensors (description, reading, priority) VALUES
+    ('Temperature sensor high', 98.6, 1),
+    ('Temperature sensor low', 32.0, 2),
+    ('Pressure sensor main', 14.7, 1),
+    ('Humidity sensor room', 55.5, 3);
+INSERT INTO cov_logs (sensor_id, log_type) VALUES
+    (1, 'alert'), (1, 'info'),
+    (2, 'info'),
+    (3, 'alert'), (3, 'info'), (3, 'debug'),
+    (4, 'info');
+CREATE INDEX cov_sensors_idx ON cov_sensors
+USING bm25 (id, description, reading, priority)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}}',
+    numeric_fields='{"reading": {"fast": true}, "priority": {"fast": true}}'
+);
+CREATE INDEX cov_logs_idx ON cov_logs
+USING bm25 (id, sensor_id, log_type)
+WITH (
+    key_field='id',
+    numeric_fields='{"sensor_id": {"fast": true}}',
+    text_fields='{"log_type": {"fast": true}}'
+);
+-- Test 11a: SUM/AVG/MIN/MAX on REAL column
+SELECT COUNT(*), SUM(s.reading), AVG(s.reading), MIN(s.reading), MAX(s.reading)
+FROM cov_sensors s
+JOIN cov_logs l ON s.id = l.sensor_id
+WHERE s.description @@@ 'sensor';
+ count |  sum  |        avg         | min  | max  
+-------+-------+--------------------+------+------
+     7 | 328.8 | 46.971428571428575 | 14.7 | 98.6
+(1 row)
+
+-- Test 11b: SUM/MIN/MAX on SMALLINT column
+SELECT SUM(s.priority), MIN(s.priority), MAX(s.priority)
+FROM cov_sensors s
+JOIN cov_logs l ON s.id = l.sensor_id
+WHERE s.description @@@ 'sensor';
+ sum | min | max 
+-----+-----+-----
+  10 |   1 |   3
+(1 row)
+
+-- Test 11c: Parity — REAL aggregates
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*), SUM(s.reading), MIN(s.reading), MAX(s.reading)
+FROM cov_sensors s
+JOIN cov_logs l ON s.id = l.sensor_id
+WHERE s.description @@@ 'temperature';
+ count |  sum  | min | max  
+-------+-------+-----+------
+     3 | 229.2 |  32 | 98.6
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT COUNT(*), SUM(s.reading), MIN(s.reading), MAX(s.reading)
+FROM cov_sensors s
+JOIN cov_logs l ON s.id = l.sensor_id
+WHERE s.description @@@ 'temperature';
+ count |  sum  | min | max  
+-------+-------+-----+------
+     3 | 229.2 |  32 | 98.6
+(1 row)
+
+DROP TABLE cov_logs;
+DROP TABLE cov_sensors;
+-- =====================================================================
+-- Test 12: Large BIGINT precision — verifies int64_to_datum NUMERICOID
+-- path converts via string (not f64 cast which loses precision > 2^53).
+-- Note: Tantivy fast fields store BIGINT as f64, so storage-level
+-- rounding still occurs. This test verifies the projection layer
+-- does not add a SECOND round of precision loss.
+-- =====================================================================
+CREATE TABLE cov_big (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    qty BIGINT
+);
+CREATE TABLE cov_big_tags (
+    id SERIAL PRIMARY KEY,
+    big_id INTEGER,
+    tag TEXT
+);
+INSERT INTO cov_big (description, qty) VALUES
+    ('laptop order', 100),
+    ('phone order', 200);
+INSERT INTO cov_big_tags (big_id, tag) VALUES
+    (1, 'a'), (2, 'b');
+CREATE INDEX cov_big_idx ON cov_big
+USING bm25 (id, description, qty)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}}',
+    numeric_fields='{"qty": {"fast": true}}'
+);
+CREATE INDEX cov_big_tags_idx ON cov_big_tags
+USING bm25 (id, big_id, tag)
+WITH (
+    key_field='id',
+    numeric_fields='{"big_id": {"fast": true}}',
+    text_fields='{"tag": {"fast": true}}'
+);
+-- SUM(bigint) returns NUMERIC in Postgres — exercises the NUMERICOID
+-- arm of int64_to_datum (the path that previously caused SIGSEGV)
+SELECT SUM(b.qty)
+FROM cov_big b
+JOIN cov_big_tags t ON b.id = t.big_id
+WHERE b.description @@@ 'laptop OR phone';
+ sum 
+-----
+ 300
+(1 row)
+
+-- Parity check
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT SUM(b.qty)
+FROM cov_big b
+JOIN cov_big_tags t ON b.id = t.big_id
+WHERE b.description @@@ 'laptop OR phone';
+ sum 
+-----
+ 300
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE cov_big_tags;
+DROP TABLE cov_big;
+-- =====================================================================
+-- Clean up
+-- =====================================================================
+DROP TABLE cov_items;
+DROP TABLE cov_orders;

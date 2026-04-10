@@ -21,6 +21,20 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```python SQLAlchemy
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from paradedb.sqlalchemy import search
+
+stmt = (
+    select(MockItem.description, MockItem.rating, MockItem.category)
+    .where(search.phrase_prefix(MockItem.description, ["running", "sh"]))
+)
+
+with Session(engine) as session:
+    session.execute(stmt).all()
+```
+
 ```ruby Rails
 MockItem.search(:description)
         .phrase_prefix("running", "sh")

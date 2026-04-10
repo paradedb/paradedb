@@ -31,9 +31,7 @@ use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
 use crate::api::tokenizers::type_can_be_tokenized;
-use crate::api::tokenizers::{
-    try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
-};
+use crate::api::tokenizers::{try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -64,6 +62,7 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
 };
 use pgrx::*;
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 
 enum RHSValue {
     Text(String),
@@ -121,31 +120,103 @@ pub fn anyelement_query_input_procoid() -> pg_sys::Oid {
 }
 
 pub fn anyelement_query_input_opoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regoperatorin,
-            &[c"@@@(anyelement, paradedb.searchqueryinput)".into_datum()],
-        )
-        .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist")
-    }
-}
-
-pub fn anyelement_pdb_query_opoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regoperatorin,
-            &[c"@@@(anyelement, pdb.query)".into_datum()],
-        )
-        .expect("the `@@@(anyelement, pdb.query)` operator should exist")
-    }
+    anyelement_search_opoids()[0]
 }
 
 pub fn anyelement_search_opoids() -> [pg_sys::Oid; 2] {
-    [anyelement_query_input_opoid(), anyelement_pdb_query_opoid()]
+    static CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *CACHE.get_or_init(|| unsafe {
+        [
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regoperatorin,
+                &[c"@@@(anyelement, paradedb.searchqueryinput)".into_datum()],
+            )
+            .expect("the `@@@(anyelement, paradedb.searchqueryinput)` operator should exist"),
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regoperatorin,
+                &[c"@@@(anyelement, pdb.query)".into_datum()],
+            )
+            .expect("the `@@@(anyelement, pdb.query)` operator should exist"),
+        ]
+    })
 }
 
 pub fn is_anyelement_search_opoid(opno: pg_sys::Oid) -> bool {
-    anyelement_search_opoids().contains(&opno)
+    // Fast path: check for common @@@(anyelement, searchqueryinput/pdb.query) first
+    if anyelement_search_opoids().contains(&opno) {
+        return true;
+    }
+
+    // Slow path: check operator name for all ParadeDB search operators (|||, &&&, ===, ###, ##, ##>)
+    // These operators have many type overloads, so checking by name is more practical than
+    // enumerating all OIDs.
+    is_paradedb_search_operator(opno)
+}
+
+/// Check if an operator OID belongs to a ParadeDB search operator by looking up its name
+/// and left argument type in the system catalog.
+///
+/// Recognizes: @@@, |||, &&&, ===, ### (left type = anyelement)
+///             ##, ##> (left type = proximityclause, a ParadeDB type)
+///
+/// Checks operator name regardless of right-hand argument types (text, text[], pdb.query,
+/// pdb.boost, pdb.fuzzy, etc.), covering all overload variants with a single name match.
+/// The left-type check prevents false positives against built-in operators with the same
+/// name (e.g., PostgreSQL's geometric ## or tsvector @@@).
+pub fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
+    unsafe {
+        let opertup = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::OPEROID as _,
+            opno.into_datum().unwrap(),
+        );
+
+        if opertup.is_null() {
+            return false;
+        }
+
+        let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
+        let opername = pgrx::name_data_to_str(&(*operform).oprname);
+        let oprleft = (*operform).oprleft;
+
+        let is_ours = match opername {
+            // These have anyelement as the left type.
+            // The left-type check excludes built-in @@ @/tsvector and geometric collisions.
+            "@@@" | "|||" | "&&&" | "===" | "###" => oprleft == pg_sys::ANYELEMENTOID,
+
+            // Proximity operators use proximityclause (a ParadeDB type) on the left.
+            // No built-in collision risk, but we still verify it's not a geometric ##
+            // by confirming the left type is NOT a built-in geometric type.
+            "##" | "##>" => {
+                oprleft != pg_sys::POINTOID
+                    && oprleft != pg_sys::LINEOID
+                    && oprleft != pg_sys::LSEGOID
+                    && oprleft != pg_sys::BOXOID
+            }
+
+            _ => false,
+        };
+
+        pg_sys::ReleaseSysCache(opertup);
+        is_ours
+    }
+}
+
+/// Look up the name of a PostgreSQL operator by its OID. Returns "unknown" if the OID
+/// is not found in the system catalog.
+pub fn operator_name_from_oid(opno: pg_sys::Oid) -> String {
+    unsafe {
+        let opertup = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::OPEROID as _,
+            opno.into_datum().unwrap(),
+        );
+        if opertup.is_null() {
+            return "unknown".to_string();
+        }
+        let operform = pg_sys::GETSTRUCT(opertup) as *mut pg_sys::FormData_pg_operator;
+        let name = pgrx::name_data_to_str(&(*operform).oprname).to_string();
+        pg_sys::ReleaseSysCache(opertup);
+        name
+    }
 }
 
 pub fn searchqueryinput_typoid() -> pg_sys::Oid {
@@ -346,15 +417,7 @@ unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys:
     if !vars_equal_ignoring_varno(expr_var, var) {
         return false;
     }
-    // the Var is the expression that matches the Var we're looking for
-    // but lets make sure the whole expression is one without an alias
-    // we pick the first un-aliased custom tokenizer expression that uses the
-    // Var as the matching indexed expression
-    let typmod = pg_sys::exprTypmod(expr.cast());
-    let alias = UncheckedTypmod::try_from(typmod)
-        .unwrap_or_else(|e| panic!("{e}"))
-        .alias();
-    alias.is_none()
+    true
 }
 
 pub unsafe fn field_name_from_node(
@@ -391,6 +454,11 @@ pub unsafe fn field_name_from_node(
         // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
 
         let expressions = indexrel.index_expressions();
+
+        // We collect all candidate field names so that if there are multiple valid ones
+        // that can't be disambiguated we can return an error.
+        let mut candidate_field_names: Vec<FieldName> = vec![];
+
         let mut expr_no = 0;
         for i in 0..index_info.ii_NumIndexAttrs {
             let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
@@ -436,7 +504,8 @@ pub unsafe fn field_name_from_node(
                             }
 
                             if var_matches_tokenizer_expr(var, arg.cast()) {
-                                return Some(FieldName::from(fields[position].field_name.clone()));
+                                candidate_field_names
+                                    .push(FieldName::from(fields[position].field_name.clone()));
                             }
                         }
                     }
@@ -445,14 +514,59 @@ pub unsafe fn field_name_from_node(
                     if type_can_be_tokenized((*var).vartype)
                         && var_matches_tokenizer_expr(var, expression.cast())
                     {
-                        return attname_from_var(heaprel, var);
+                        let oid = pg_sys::exprType(expression.cast());
+                        let typmod = pg_sys::exprTypmod(expression.cast());
+                        if let Some(field_name) = try_get_alias(oid, typmod)
+                            .map(FieldName::from)
+                            .or_else(|| attname_from_var(heaprel, var))
+                        {
+                            candidate_field_names.push(field_name);
+                        }
                     }
                     expr_no += 1;
                 }
             }
         }
 
-        return None;
+        match &candidate_field_names[..] {
+            [] => {
+                return None;
+            }
+            [field_name] => {
+                return Some(field_name.clone());
+            }
+            _ => {
+                // If there are multiple candidate index fields and one of them matches the name
+                // of the column, choose that one.
+                let column_field_name = attname_from_var(heaprel, var);
+                if let Some(field_name) = column_field_name.as_ref().and_then(|column_field_name| {
+                    candidate_field_names
+                        .iter()
+                        .find(|field_name| *field_name == column_field_name)
+                        .cloned()
+                }) {
+                    return Some(field_name);
+                }
+
+                // Otherwise, the query is ambiguous and we need to error.
+                let mut names: Vec<String> = candidate_field_names
+                    .into_iter()
+                    .map(|f| format!("`{}`", f))
+                    .collect();
+                names.sort();
+
+                let column_name = column_field_name
+                    .map(|f| f.to_string())
+                    .unwrap_or_else(|| "<unknown>".to_string());
+
+                panic!(
+                    "Query is ambiguous: column `{}` matches multiple indexed fields: {}. Use `{}::pdb.alias(...)` to choose one",
+                    column_name,
+                    names.join(", "),
+                    column_name
+                );
+            }
+        }
     }
 
     //
@@ -798,6 +912,59 @@ where
         exec_rewrite(field, lhs, rhs).palloc().cast()
     };
     rhs
+}
+
+/// Returns `true` if the given OID is a text-like scalar type (text, varchar, or citext).
+fn is_text_like(oid: pg_sys::Oid) -> bool {
+    oid == pg_sys::TEXTOID || oid == pg_sys::VARCHAROID || is_citext_oid(oid)
+}
+
+/// Returns `true` if the given OID is a text-like array type (text[] or varchar[]).
+fn is_text_array_like(oid: pg_sys::Oid) -> bool {
+    oid == pg_sys::TEXTARRAYOID || oid == pg_sys::VARCHARARRAYOID
+}
+
+/// Build a [`pg_sys::FuncExpr`] for a text-or-text-array RHS in an `exec_rewrite` callback.
+///
+/// Checks the RHS expression type and dispatches to the appropriate builder function.
+/// `text_fn` and `array_fn` are `regprocedure` strings for the scalar and array variants.
+unsafe fn build_text_funcexpr(
+    field: FieldName,
+    rhs: *mut pg_sys::Node,
+    operator_name: &str,
+    text_fn: &std::ffi::CStr,
+    array_fn: &std::ffi::CStr,
+) -> pg_sys::FuncExpr {
+    let expr_type = get_expr_result_type(rhs);
+    let is_array = is_text_array_like(expr_type);
+    if !(is_text_like(expr_type) || is_array) {
+        panic!(
+            "The right-hand side of the `{operator_name}` operator must be a text or text array value"
+        );
+    }
+
+    let sig = if is_array { array_fn } else { text_fn };
+    let funcid = direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[sig.into_datum()])
+        .unwrap_or_else(|| panic!("`{}` should exist", sig.to_str().unwrap()));
+
+    let mut args = PgList::<pg_sys::Node>::new();
+    args.push(field.into_const().cast());
+    args.push(rhs.cast());
+
+    pg_sys::FuncExpr {
+        xpr: pg_sys::Expr {
+            type_: pg_sys::NodeTag::T_FuncExpr,
+        },
+        funcid,
+        funcresulttype: searchqueryinput_typoid(),
+        funcretset: false,
+        funcvariadic: false,
+        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        funccollid: pg_sys::Oid::INVALID,
+        inputcollid: pg_sys::Oid::INVALID,
+        args: args.into_pg(),
+        location: -1,
+    }
 }
 
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that

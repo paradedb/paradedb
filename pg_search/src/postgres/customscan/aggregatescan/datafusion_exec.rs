@@ -26,6 +26,7 @@
 
 use std::sync::Arc;
 
+use super::join_targetlist::AggOrderByEntry;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
@@ -41,8 +42,14 @@ use crate::postgres::customscan::joinscan::translator::{
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
 use datafusion::common::{DataFusionError, JoinType, Result};
+use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
-use datafusion::functions_aggregate::expr_fn::{avg, count, max, min, sum};
+use datafusion::functions_aggregate::expr_fn::{
+    array_agg, avg, bool_and, bool_or, count, max, min, stddev, stddev_pop, sum, var_pop,
+    var_sample,
+};
+use datafusion::functions_aggregate::string_agg::string_agg_udaf;
+use datafusion::logical_expr::expr::{AggregateFunction, Sort};
 use datafusion::logical_expr::{lit, Expr};
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
@@ -67,6 +74,7 @@ pub fn create_aggregate_session_context() -> SessionContext {
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
 /// scan(s) → join → aggregate [→ sort → limit].
+#[allow(clippy::too_many_arguments)]
 pub async fn build_join_aggregate_plan(
     plan: &RelNode,
     targetlist: &JoinAggregateTargetList,
@@ -74,6 +82,7 @@ pub async fn build_join_aggregate_plan(
     join_level_predicates: &[JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
+    having_filter: Option<&crate::postgres::customscan::aggregatescan::privdat::HavingExpr>,
     ctx: &SessionContext,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     // Step 1: Build the join DataFrame from the RelNode tree
@@ -123,18 +132,92 @@ pub async fn build_join_aggregate_plan(
                 AggKind::Avg => agg_field_col(agg, plan).map(avg),
                 AggKind::Min => agg_field_col(agg, plan).map(min),
                 AggKind::Max => agg_field_col(agg, plan).map(max),
+                AggKind::StddevSamp => agg_field_col(agg, plan).map(stddev),
+                AggKind::StddevPop => agg_field_col(agg, plan).map(stddev_pop),
+                AggKind::VarSamp => agg_field_col(agg, plan).map(var_sample),
+                AggKind::VarPop => agg_field_col(agg, plan).map(var_pop),
+                AggKind::BoolAnd => agg_field_col(agg, plan).map(bool_and),
+                AggKind::BoolOr => agg_field_col(agg, plan).map(bool_or),
+                AggKind::ArrayAgg => {
+                    let col_expr = agg_field_col(agg, plan)?;
+                    if agg.order_by.is_empty() {
+                        Ok(array_agg(col_expr))
+                    } else {
+                        Ok(Expr::AggregateFunction(AggregateFunction::new_udf(
+                            array_agg_udaf(),
+                            vec![col_expr],
+                            false,
+                            None,
+                            agg_order_by_exprs(&agg.order_by, plan),
+                            None,
+                        )))
+                    }
+                }
+                AggKind::StringAgg(ref sep) => {
+                    let col_expr = agg_field_col(agg, plan)?;
+                    let sep_lit = lit(sep.clone());
+                    if agg.order_by.is_empty() {
+                        Ok(datafusion::functions_aggregate::string_agg::string_agg(
+                            col_expr, sep_lit,
+                        ))
+                    } else {
+                        Ok(Expr::AggregateFunction(AggregateFunction::new_udf(
+                            string_agg_udaf(),
+                            vec![col_expr, sep_lit],
+                            false,
+                            None,
+                            agg_order_by_exprs(&agg.order_by, plan),
+                            None,
+                        )))
+                    }
+                }
             }?;
+            // Apply DISTINCT flag for non-CountDistinct aggregates.
+            // CountDistinct already sets distinct=true via new_udf above.
+            let agg_expr = if agg.distinct
+                && !matches!(agg.agg_kind, AggKind::CountDistinct | AggKind::CountStar)
+            {
+                match agg_expr {
+                    Expr::AggregateFunction(af) => Expr::AggregateFunction(
+                        datafusion::logical_expr::expr::AggregateFunction::new_udf(
+                            af.func,
+                            af.params.args,
+                            true,
+                            af.params.filter,
+                            af.params.order_by,
+                            af.params.null_treatment,
+                        ),
+                    ),
+                    other => other,
+                }
+            } else {
+                agg_expr
+            };
             // Alias for stable reference
             Ok(agg_expr.alias(format!("agg_{}", i)))
         })
         .collect::<Result<Vec<Expr>>>()?;
 
     // Step 4: Apply aggregate
-    let df = df.aggregate(group_exprs, agg_exprs)?;
+    let mut df = df.aggregate(group_exprs, agg_exprs)?;
 
-    // Step 5: If TopK is requested, add sort + limit so DataFusion handles it internally
+    // Step 4.5: Apply HAVING filter (post-aggregate)
+    if let Some(having) = having_filter {
+        let expr = having.to_datafusion(targetlist).ok_or_else(|| {
+            DataFusionError::Internal(
+                "Failed to translate HAVING clause to DataFusion expression".to_string(),
+            )
+        })?;
+        df = df.filter(expr)?;
+    }
+
+    // Step 5: If TopK is requested, add sort + limit so DataFusion handles
+    // it internally. DataFusion's built-in TopKAggregation optimizer rule
+    // can then push the limit into AggregateExec for group-key and MIN/MAX
+    // ordering. For COUNT/SUM/AVG ordering, SortExec(fetch=K) uses a
+    // bounded TopK heap.
     if let Some(topk) = topk {
-        let sort_col_name = format!("agg_{}", topk.sort_agg_idx);
+        let sort_col_name = topk.sort_target.resolve_sort_col_name(targetlist, plan);
         let sort_expr = datafusion::prelude::col(&sort_col_name)
             .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         let df = df.sort(vec![sort_expr])?;
@@ -196,6 +279,7 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::Right => {
                         JoinType::Right
                     }
+                    crate::postgres::customscan::joinscan::build::JoinType::Full => JoinType::Full,
                     unsupported => {
                         return Err(DataFusionError::NotImplemented(format!(
                             "Aggregate-on-join does not support {} JOIN",
@@ -339,6 +423,78 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
     }
 }
 
+impl crate::postgres::customscan::aggregatescan::privdat::HavingExpr {
+    /// Translate this `HavingExpr` to a DataFusion `Expr`.
+    /// Aggregate references use the `agg_{idx}` aliases from the aggregate step.
+    fn to_datafusion(&self, targetlist: &JoinAggregateTargetList) -> Option<Expr> {
+        use crate::postgres::customscan::aggregatescan::privdat::HavingOp;
+        use datafusion::logical_expr::Operator;
+
+        match self {
+            Self::AggRef(idx) => {
+                if *idx < targetlist.aggregates.len() {
+                    Some(datafusion::prelude::col(format!("agg_{}", idx)))
+                } else {
+                    None
+                }
+            }
+            Self::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
+            Self::LitInt(v) => Some(lit(*v)),
+            Self::LitFloat(v) => Some(lit(*v)),
+            Self::LitBool(v) => Some(lit(*v)),
+            Self::BinOp { left, op, right } => {
+                let l = left.to_datafusion(targetlist)?;
+                let r = right.to_datafusion(targetlist)?;
+                let df_op = match op {
+                    HavingOp::Eq => Operator::Eq,
+                    HavingOp::NotEq => Operator::NotEq,
+                    HavingOp::Lt => Operator::Lt,
+                    HavingOp::LtEq => Operator::LtEq,
+                    HavingOp::Gt => Operator::Gt,
+                    HavingOp::GtEq => Operator::GtEq,
+                };
+                Some(Expr::BinaryExpr(datafusion::logical_expr::BinaryExpr::new(
+                    Box::new(l),
+                    df_op,
+                    Box::new(r),
+                )))
+            }
+            Self::And(children) => {
+                // All children must translate — if any fails, the whole AND is
+                // untranslatable and we must fall back to Postgres (not silently drop it).
+                let exprs: Vec<Expr> = children
+                    .iter()
+                    .map(|c| c.to_datafusion(targetlist))
+                    .collect::<Option<Vec<Expr>>>()?;
+                let mut result = exprs.into_iter();
+                let first = result.next()?;
+                Some(result.fold(first, |acc, e| acc.and(e)))
+            }
+            Self::Or(children) => {
+                let exprs: Vec<Expr> = children
+                    .iter()
+                    .map(|c| c.to_datafusion(targetlist))
+                    .collect::<Option<Vec<Expr>>>()?;
+                let mut result = exprs.into_iter();
+                let first = result.next()?;
+                Some(result.fold(first, |acc, e| acc.or(e)))
+            }
+            Self::Not(inner) => {
+                let e = inner.to_datafusion(targetlist)?;
+                Some(Expr::Not(Box::new(e)))
+            }
+            Self::IsNull(inner) => {
+                let e = inner.to_datafusion(targetlist)?;
+                Some(e.is_null())
+            }
+            Self::IsNotNull(inner) => {
+                let e = inner.to_datafusion(targetlist)?;
+                Some(e.is_not_null())
+            }
+        }
+    }
+}
+
 /// Build a DataFusion [`DataFrame`] for a single scan source.
 ///
 /// Unlike JoinScan's `build_source_df`, this version:
@@ -447,6 +603,22 @@ fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
     let source = plan.source_for_rti_in_subtree(*rti);
     let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
     Ok(make_col(&alias, field_name))
+}
+
+/// Convert aggregate ORDER BY entries to DataFusion `Sort` expressions.
+fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort> {
+    order_by
+        .iter()
+        .map(|entry| {
+            let source = plan.source_for_rti_in_subtree(entry.rti);
+            let (alias, _) = resolve_source_column(source, entry.rti, &entry.field_name, plan);
+            Sort::new(
+                make_col(&alias, &entry.field_name),
+                entry.direction.is_asc(),
+                entry.direction.is_nulls_first(),
+            )
+        })
+        .collect()
 }
 
 /// Build DataFusion column expressions for all of an aggregate's field references.

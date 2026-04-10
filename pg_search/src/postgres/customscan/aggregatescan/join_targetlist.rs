@@ -48,6 +48,15 @@ pub enum AggKind {
     Avg,
     Min,
     Max,
+    StddevSamp,
+    StddevPop,
+    VarSamp,
+    VarPop,
+    BoolAnd,
+    BoolOr,
+    ArrayAgg,
+    /// STRING_AGG(col, separator) — stores the separator string.
+    StringAgg(String),
 }
 
 impl std::fmt::Display for AggKind {
@@ -60,6 +69,14 @@ impl std::fmt::Display for AggKind {
             AggKind::Avg => write!(f, "AVG"),
             AggKind::Min => write!(f, "MIN"),
             AggKind::Max => write!(f, "MAX"),
+            AggKind::StddevSamp => write!(f, "STDDEV_SAMP"),
+            AggKind::StddevPop => write!(f, "STDDEV_POP"),
+            AggKind::VarSamp => write!(f, "VAR_SAMP"),
+            AggKind::VarPop => write!(f, "VAR_POP"),
+            AggKind::BoolAnd => write!(f, "BOOL_AND"),
+            AggKind::BoolOr => write!(f, "BOOL_OR"),
+            AggKind::ArrayAgg => write!(f, "ARRAY_AGG"),
+            AggKind::StringAgg(_) => write!(f, "STRING_AGG"),
         }
     }
 }
@@ -77,6 +94,20 @@ pub struct JoinGroupColumn {
     pub output_index: usize,
 }
 
+/// A single ORDER BY entry within an aggregate (e.g., the `ORDER BY col2` in
+/// `STRING_AGG(col, ',' ORDER BY col2)`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AggOrderByEntry {
+    /// Table RTI for the ORDER BY column.
+    pub rti: pg_sys::Index,
+    /// 1-based attribute number in the source relation's tuple descriptor.
+    pub attno: pg_sys::AttrNumber,
+    /// Resolved field name (from the BM25 index schema).
+    pub field_name: String,
+    /// Sort direction including NULLS FIRST/LAST.
+    pub direction: crate::api::SortDirection,
+}
+
 /// An aggregate function in a join aggregate query.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JoinAggregateEntry {
@@ -91,6 +122,15 @@ pub struct JoinAggregateEntry {
     pub output_index: usize,
     /// Postgres result type OID (INT8OID for COUNT, FLOAT8OID for others).
     pub result_type_oid: pg_sys::Oid,
+    /// Whether this aggregate uses DISTINCT (e.g., SUM(DISTINCT col)).
+    /// For CountDistinct this is implicitly true via AggKind; for other
+    /// aggregates this flag drives the DataFusion `distinct` parameter.
+    #[serde(default)]
+    pub distinct: bool,
+    /// ORDER BY within the aggregate (e.g., `STRING_AGG(col, ',' ORDER BY col2)`).
+    /// Empty for aggregates without internal ordering.
+    #[serde(default)]
+    pub order_by: Vec<AggOrderByEntry>,
 }
 
 /// The complete aggregate target list for a join aggregate query.
@@ -111,7 +151,6 @@ fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> O
     match aggfnoid {
         F_COUNT_ANY if has_distinct => Some(AggKind::CountDistinct),
         F_COUNT_ANY => Some(AggKind::Count),
-        _ if has_distinct => None,
         F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
             Some(AggKind::Avg)
         }
@@ -125,6 +164,31 @@ fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> O
         F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
         | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
         | F_MIN_NUMERIC => Some(AggKind::Min),
+        _ => classify_aggregate_by_name(aggfnoid),
+    }
+}
+
+/// Fallback classification by looking up the function name from the catalog.
+/// Handles aggregate functions whose OIDs aren't exposed as constants in pg_sys
+/// (e.g., STDDEV, VARIANCE and their variants).
+fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
+    let name = unsafe {
+        let name_ptr = pg_sys::get_func_name(pg_sys::Oid::from(aggfnoid));
+        if name_ptr.is_null() {
+            return None;
+        }
+        std::ffi::CStr::from_ptr(name_ptr).to_str().ok()?.to_owned()
+    };
+    match name.as_str() {
+        "stddev" | "stddev_samp" => Some(AggKind::StddevSamp),
+        "stddev_pop" => Some(AggKind::StddevPop),
+        "variance" | "var_samp" => Some(AggKind::VarSamp),
+        "var_pop" => Some(AggKind::VarPop),
+        "bool_and" | "every" => Some(AggKind::BoolAnd),
+        "bool_or" => Some(AggKind::BoolOr),
+        "array_agg" => Some(AggKind::ArrayAgg),
+        // STRING_AGG separator is extracted later in extract_aggregate_targetlist
+        "string_agg" => Some(AggKind::StringAgg(",".into())),
         _ => None,
     }
 }
@@ -153,12 +217,6 @@ pub unsafe fn extract_aggregate_targetlist(
     let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
-    }
-
-    // Check for HAVING — not supported
-    let parse = args.root().parse;
-    if !parse.is_null() && !(*parse).havingQual.is_null() {
-        return Err("HAVING clause is not supported for aggregate-on-join".into());
     }
 
     let mut group_columns = Vec::new();
@@ -200,8 +258,9 @@ pub unsafe fn extract_aggregate_targetlist(
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let has_distinct = !(*aggref).aggdistinct.is_null();
 
-            // Reject FILTER (WHERE ...) clauses on aggregates — DataFusion's
-            // aggregate plan doesn't propagate per-aggregate filter predicates.
+            // Reject FILTER (WHERE ...) clauses on aggregates — DataFusion
+            // doesn't propagate per-aggregate filter predicates and would
+            // silently produce wrong results if we didn't fall back.
             if !(*aggref).aggfilter.is_null() {
                 return Err(
                     "FILTER clauses on aggregates are not supported for aggregate-on-join".into(),
@@ -217,10 +276,18 @@ pub unsafe fn extract_aggregate_targetlist(
                 );
             }
 
-            let agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
+            let mut agg_kind = classify_aggregate_oid(aggfnoid, (*aggref).aggstar, has_distinct)
                 .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
 
-            let field_refs = extract_aggref_field_refs(aggref, sources)?;
+            // For STRING_AGG, extract the separator from the second argument
+            let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
+            if is_string_agg {
+                let separator = extract_string_agg_separator(aggref).unwrap_or_else(|| ",".into());
+                agg_kind = AggKind::StringAgg(separator);
+            }
+
+            let field_refs = extract_aggref_field_refs(aggref, sources, is_string_agg)?;
+            let order_by = extract_aggref_order_by(aggref, sources)?;
             // Use the actual Postgres result type from the Aggref node,
             // not a guessed type — this avoids segfaults from type mismatches
             let result_type_oid = (*aggref).aggtype;
@@ -231,6 +298,8 @@ pub unsafe fn extract_aggregate_targetlist(
                 field_refs,
                 output_index: idx,
                 result_type_oid,
+                distinct: has_distinct,
+                order_by,
             });
         } else {
             return Err(format!(
@@ -246,13 +315,44 @@ pub unsafe fn extract_aggregate_targetlist(
     })
 }
 
+/// Extract the separator string from a STRING_AGG's second argument.
+///
+/// STRING_AGG(col, separator) stores the separator as the second TargetEntry.
+/// Returns `None` if the separator cannot be extracted (non-const, missing).
+unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Option<String> {
+    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+    if args.len() < 2 {
+        return None;
+    }
+    let second_arg = args.get_ptr(1)?;
+    let expr = (*second_arg).expr as *mut pg_sys::Node;
+    if expr.is_null() || (*expr).type_ != pg_sys::NodeTag::T_Const {
+        return None;
+    }
+    let konst = expr as *mut pg_sys::Const;
+    if (*konst).constisnull {
+        return None;
+    }
+    let datum = (*konst).constvalue;
+    let text_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
+    let cstr = pg_sys::text_to_cstring(text_ptr);
+    if cstr.is_null() {
+        return None;
+    }
+    let s = std::ffi::CStr::from_ptr(cstr).to_str().ok()?.to_owned();
+    Some(s)
+}
+
 /// Extract the field reference from an `Aggref`'s arguments.
 ///
-/// For `COUNT(*)`: returns `None` (no field).
-/// For `COUNT(col)`, `SUM(col)`, etc.: returns `Some((rti, attno, field_name))`.
+/// For `COUNT(*)`: returns empty (no field).
+/// For `COUNT(col)`, `SUM(col)`, etc.: returns the column reference.
+/// For `STRING_AGG(col, sep)`: only processes the first arg (column),
+/// skipping the separator which is handled by `extract_string_agg_separator`.
 unsafe fn extract_aggref_field_refs(
     aggref: *mut pg_sys::Aggref,
     sources: &[JoinAggSource],
+    is_string_agg: bool,
 ) -> Result<Vec<(pg_sys::Index, pg_sys::AttrNumber, String)>, String> {
     // COUNT(*) has no arguments
     if (*aggref).aggstar {
@@ -264,8 +364,15 @@ unsafe fn extract_aggref_field_refs(
         return Err("aggregate function has no arguments".into());
     }
 
-    let mut refs = Vec::with_capacity(args.len());
-    for arg_ptr in args.iter_ptr() {
+    // For STRING_AGG, only the first arg is the column reference;
+    // the second arg is the separator constant.
+    let num_field_args = if is_string_agg { 1 } else { args.len() };
+
+    let mut refs = Vec::with_capacity(num_field_args);
+    for (arg_idx, arg_ptr) in args.iter_ptr().enumerate() {
+        if arg_idx >= num_field_args {
+            break;
+        }
         let expr = (*arg_ptr).expr;
 
         // The argument must be a bare Var (possibly wrapped in RelabelType).
@@ -300,6 +407,87 @@ unsafe fn extract_aggref_field_refs(
     }
 
     Ok(refs)
+}
+
+/// Extract ORDER BY entries from an aggregate's `aggorder` clause.
+///
+/// `aggorder` is a `List` of `SortGroupClause`. Each clause's `tleSortGroupRef`
+/// matches a `TargetEntry.ressortgroupref` in the aggref's `args` list, identifying
+/// which column to sort by.
+///
+/// Returns an empty Vec for aggregates without ORDER BY (the common case).
+unsafe fn extract_aggref_order_by(
+    aggref: *mut pg_sys::Aggref,
+    sources: &[JoinAggSource],
+) -> Result<Vec<AggOrderByEntry>, String> {
+    if (*aggref).aggorder.is_null() {
+        return Ok(Vec::new());
+    }
+
+    let order_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*aggref).aggorder);
+    if order_clauses.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+    let mut entries = Vec::with_capacity(order_clauses.len());
+
+    for clause_ptr in order_clauses.iter_ptr() {
+        let sort_ref = (*clause_ptr).tleSortGroupRef;
+
+        // Find the TargetEntry in aggref.args whose ressortgroupref matches
+        let te = args
+            .iter_ptr()
+            .find(|te| (*(*te)).ressortgroupref == sort_ref)
+            .ok_or_else(|| {
+                format!(
+                    "aggorder references ressortgroupref {} but no matching arg found",
+                    sort_ref
+                )
+            })?;
+
+        let var = unwrap_to_var((*te).expr as *mut pg_sys::Node)
+            .ok_or("ORDER BY within aggregate must reference a direct column")?;
+
+        let rti = (*var).varno as pg_sys::Index;
+        let attno = (*var).varattno;
+
+        let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
+            format!(
+                "aggregate ORDER BY references table at RTI {} which is not in the join",
+                rti
+            )
+        })?;
+
+        let field_name = fieldname_from_var(source.relid, var, attno)
+            .ok_or_else(|| {
+                format!(
+                    "could not resolve field name for aggregate ORDER BY (RTI={}, attno={})",
+                    rti, attno
+                )
+            })?
+            .into_inner();
+
+        let direction = crate::api::SortDirection::from_sort_op(
+            (*clause_ptr).sortop,
+            (*clause_ptr).nulls_first,
+        )
+        .ok_or_else(|| {
+            format!(
+                "could not determine sort direction for aggregate ORDER BY (sortop={})",
+                (*clause_ptr).sortop.to_u32()
+            )
+        })?;
+
+        entries.push(AggOrderByEntry {
+            rti,
+            attno,
+            field_name,
+            direction,
+        });
+    }
+
+    Ok(entries)
 }
 
 /// Unwrap an expression to a bare `Var`, allowing only `RelabelType` wrappers.

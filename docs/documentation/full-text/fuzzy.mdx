@@ -85,9 +85,11 @@ fuzzy_term_stmt = (
 )
 
 with Session(engine) as session:
-    or_rows = session.execute(fuzzy_or_stmt).all()
-    and_rows = session.execute(fuzzy_and_stmt).all()
-    term_rows = session.execute(fuzzy_term_stmt).all()
+    {
+        "or_rows": session.execute(fuzzy_or_stmt).all(),
+        "and_rows": session.execute(fuzzy_and_stmt).all(),
+        "term_rows": session.execute(fuzzy_term_stmt).all(),
+    }
 ```
 
 ```ruby Rails
@@ -162,7 +164,7 @@ stmt = (
 )
 
 with Session(engine) as session:
-    rows = session.execute(stmt).all()
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -209,7 +211,7 @@ stmt = (
 )
 
 with Session(engine) as session:
-    rows = session.execute(stmt).all()
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails
@@ -254,7 +256,7 @@ stmt = (
 )
 
 with Session(engine) as session:
-    rows = session.execute(stmt).all()
+    session.execute(stmt).all()
 ```
 
 ```ruby Rails

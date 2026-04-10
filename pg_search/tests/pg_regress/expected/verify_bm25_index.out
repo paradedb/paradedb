@@ -411,8 +411,10 @@ DROP TABLE verify_healthy_table, verify_corrupted_table CASCADE;
 -- ADDITIONAL COVERAGE TESTS
 -- =============================================================================
 -- Test 19: Test report_progress parameter
--- Progress messages are emitted via WARNING, we just verify it doesn't error
+-- Progress messages are emitted via NOTICE, we just verify it doesn't error
+SET client_min_messages TO notice;
 DROP TABLE IF EXISTS progress_test CASCADE;
+NOTICE:  table "progress_test" does not exist, skipping
 CREATE TABLE progress_test (id serial PRIMARY KEY, content text);
 CREATE INDEX progress_idx ON progress_test USING bm25 (id, content) 
     WITH (key_field = 'id', mutable_segment_rows = 20);
@@ -422,12 +424,12 @@ INSERT INTO progress_test (content) SELECT 'more content ' || i FROM generate_se
 SELECT check_name, passed
 FROM pdb.verify_index('progress_idx', heapallindexed := true, report_progress := true)
 ORDER BY check_name;
-WARNING:  verify_index: Starting verification of progress_idx
-WARNING:  verify_index: Validating checksums for progress_idx
-WARNING:  verify_index: Verifying 3 segments
-WARNING:  verify_index: Starting heap reference check for progress_idx (sample_rate: 100%)
-WARNING:  verify_index: Heap check complete. Checked 100 of 100 docs, 0 missing
-WARNING:  verify_index: Completed verification of progress_idx
+NOTICE:  verify_index: Starting verification of progress_idx
+NOTICE:  verify_index: Validating checksums for progress_idx
+NOTICE:  verify_index: Verifying 3 segments
+NOTICE:  verify_index: Starting heap reference check for progress_idx (sample_rate: 100%)
+NOTICE:  verify_index: Heap check complete. Checked 100 of 100 docs, 0 missing
+NOTICE:  verify_index: Completed verification of progress_idx
               check_name              | passed 
 --------------------------------------+--------
  progress_idx: checksums_valid        | t
@@ -443,6 +445,7 @@ DROP TABLE progress_test CASCADE;
 -- Verbose mode emits detailed segment-by-segment logging
 -- We suppress WARNINGs in the test output since segment IDs are random
 DROP TABLE IF EXISTS verbose_test CASCADE;
+NOTICE:  table "verbose_test" does not exist, skipping
 CREATE TABLE verbose_test (id serial PRIMARY KEY, content text);
 CREATE INDEX verbose_idx ON verbose_test USING bm25 (id, content) 
     WITH (key_field = 'id', mutable_segment_rows = 10);
@@ -693,10 +696,11 @@ WHERE check_name LIKE '%segment_metadata%';
 (1 row)
 
 -- Restore default message level
-SET client_min_messages TO warning;
+SET client_min_messages TO notice;
 DROP TABLE verbose_resume_test CASCADE;
 -- Test 29: Test combined report_progress without verbose (should show basic progress)
 DROP TABLE IF EXISTS basic_progress_test CASCADE;
+NOTICE:  table "basic_progress_test" does not exist, skipping
 CREATE TABLE basic_progress_test (id serial PRIMARY KEY, content text);
 CREATE INDEX basic_progress_idx ON basic_progress_test 
     USING bm25 (id, content) 
@@ -709,12 +713,12 @@ FROM pdb.verify_index('basic_progress_idx',
     report_progress := true,
     verbose := false)
 ORDER BY check_name;
-WARNING:  verify_index: Starting verification of basic_progress_idx
-WARNING:  verify_index: Validating checksums for basic_progress_idx
-WARNING:  verify_index: Verifying 2 segments
-WARNING:  verify_index: Starting heap reference check for basic_progress_idx (sample_rate: 100%)
-WARNING:  verify_index: Heap check complete. Checked 100 of 100 docs, 0 missing
-WARNING:  verify_index: Completed verification of basic_progress_idx
+NOTICE:  verify_index: Starting verification of basic_progress_idx
+NOTICE:  verify_index: Validating checksums for basic_progress_idx
+NOTICE:  verify_index: Verifying 2 segments
+NOTICE:  verify_index: Starting heap reference check for basic_progress_idx (sample_rate: 100%)
+NOTICE:  verify_index: Heap check complete. Checked 100 of 100 docs, 0 missing
+NOTICE:  verify_index: Completed verification of basic_progress_idx
                  check_name                 | passed 
 --------------------------------------------+--------
  basic_progress_idx: checksums_valid        | t
@@ -726,6 +730,7 @@ WARNING:  verify_index: Completed verification of basic_progress_idx
 (6 rows)
 
 DROP TABLE basic_progress_test CASCADE;
+SET client_min_messages TO warning;
 -- Test 30: Test on_error_stop with schema failure (use invalid relation)
 -- This tests early exit when schema can't be loaded
 -- Note: We can't easily test schema failure, so we test that on_error_stop 

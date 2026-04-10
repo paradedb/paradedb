@@ -25,6 +25,8 @@ SELECT
 FROM generate_series(1, 10000) i;
 INSERT INTO test_metadata_scale (name, value) VALUES
     ('pages-row-id-max', 'page-0005000');
+ANALYZE test_pages_scale;
+ANALYZE test_metadata_scale;
 -- Test 1: Scalar subquery with large dataset (benchmark pattern)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM test_pages_scale 
@@ -37,9 +39,9 @@ LIMIT 100;
  Limit
    Output: test_pages_scale.id, test_pages_scale.content
    InitPlan 1
-     ->  Index Scan using test_metadata_scale_pkey on public.test_metadata_scale
+     ->  Seq Scan on public.test_metadata_scale
            Output: test_metadata_scale.value
-           Index Cond: (test_metadata_scale.name = 'pages-row-id-max'::text)
+           Filter: (test_metadata_scale.name = 'pages-row-id-max'::text)
    ->  Gather Merge
          Output: test_pages_scale.id, test_pages_scale.content
          Workers Planned: 1
@@ -184,9 +186,9 @@ LIMIT 100;
  Limit
    Output: test_pages_scale.id, test_pages_scale.content
    InitPlan 1
-     ->  Index Scan using test_metadata_scale_pkey on public.test_metadata_scale
+     ->  Seq Scan on public.test_metadata_scale
            Output: test_metadata_scale.value
-           Index Cond: (test_metadata_scale.name = 'pages-row-id-max'::text)
+           Filter: (test_metadata_scale.name = 'pages-row-id-max'::text)
    ->  Gather Merge
          Output: test_pages_scale.id, test_pages_scale.content
          Workers Planned: 1

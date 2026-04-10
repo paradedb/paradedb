@@ -69,8 +69,10 @@ stmt = (
 )
 
 with Session(engine) as session:
-    rows_alias = session.execute(stmt_alias).all()
-    rows = session.execute(stmt).all()
+    {
+        "rows_alias": session.execute(stmt_alias).all(),
+        "rows": session.execute(stmt).all(),
+    }
 ```
 
 ```ruby Rails

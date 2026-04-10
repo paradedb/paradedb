@@ -7,7 +7,7 @@ CALL paradedb.create_bm25_test_table(
   table_name => 'mock_items'
 );
 
-CREATE INDEX mock_items_bm25_idx ON mock_items
+CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,
   description,

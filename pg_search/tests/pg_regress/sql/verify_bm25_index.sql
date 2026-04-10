@@ -272,7 +272,8 @@ DROP TABLE verify_healthy_table, verify_corrupted_table CASCADE;
 -- =============================================================================
 
 -- Test 19: Test report_progress parameter
--- Progress messages are emitted via WARNING, we just verify it doesn't error
+-- Progress messages are emitted via NOTICE, we just verify it doesn't error
+SET client_min_messages TO notice;
 DROP TABLE IF EXISTS progress_test CASCADE;
 CREATE TABLE progress_test (id serial PRIMARY KEY, content text);
 CREATE INDEX progress_idx ON progress_test USING bm25 (id, content) 
@@ -490,7 +491,7 @@ FROM pdb.verify_index('verbose_resume_idx',
 WHERE check_name LIKE '%segment_metadata%';
 
 -- Restore default message level
-SET client_min_messages TO warning;
+SET client_min_messages TO notice;
 
 DROP TABLE verbose_resume_test CASCADE;
 
@@ -511,6 +512,8 @@ FROM pdb.verify_index('basic_progress_idx',
 ORDER BY check_name;
 
 DROP TABLE basic_progress_test CASCADE;
+
+SET client_min_messages TO warning;
 
 -- Test 30: Test on_error_stop with schema failure (use invalid relation)
 -- This tests early exit when schema can't be loaded

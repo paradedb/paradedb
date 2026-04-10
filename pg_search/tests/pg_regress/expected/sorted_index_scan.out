@@ -49,6 +49,7 @@ FROM generate_series(1, 8) AS i;
 INSERT INTO sorted_scan_test (content, category, priority, score)
 SELECT 'searchable batch3 item ' || i, 'batch3', 30 + i, 4.0 + (i * 0.1)
 FROM generate_series(1, 8) AS i;
+ANALYZE sorted_scan_test;
 -- =============================================================================
 -- SECTION 1: SORTED PATH ACTIVATION VIA PATHKEYS
 -- Tests that sorted path is only used when ORDER BY exactly matches index's sort_by
@@ -1260,6 +1261,7 @@ FROM generate_series(1, 200) AS i;
 INSERT INTO parallel_sorted_test (content, priority)
 SELECT 'searchable document batch4 ' || i, 600 + (i % 100)
 FROM generate_series(1, 200) AS i;
+ANALYZE parallel_sorted_test;
 \echo 'Test 14.1: Verify segment count for parallel test'
 Test 14.1: Verify segment count for parallel test
 SELECT

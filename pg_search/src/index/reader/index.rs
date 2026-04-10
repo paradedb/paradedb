@@ -364,7 +364,7 @@ impl SearchIndexReader {
     fn open_index_components(
         index_relation: &PgSearchRelation,
         mvcc_style: MvccSatisfies,
-        needs_tokenizers: bool,
+        needs_tokenizer_manager: bool,
     ) -> Result<IndexComponents> {
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
@@ -377,7 +377,7 @@ impl SearchIndexReader {
             .total_docs()
             .load(std::sync::atomic::Ordering::Relaxed) as u64;
         let schema = index_relation.schema()?;
-        if needs_tokenizers {
+        if needs_tokenizer_manager {
             setup_tokenizers(index_relation, &mut index)?;
         }
 
@@ -411,6 +411,7 @@ impl SearchIndexReader {
         need_scores: bool,
         mvcc_style: MvccSatisfies,
     ) -> Result<Self> {
+        let needs_tokenizer_manager = search_query_input.needs_tokenizer();
         Self::open_with_context(
             index_relation,
             search_query_input,
@@ -418,6 +419,7 @@ impl SearchIndexReader {
             mvcc_style,
             None,
             None,
+            needs_tokenizer_manager,
         )
     }
 
@@ -429,9 +431,10 @@ impl SearchIndexReader {
         mvcc_style: MvccSatisfies,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
+        needs_tokenizer_manager: bool,
     ) -> Result<Self> {
-        let needs_tokenizers = search_query_input.needs_tokenizer();
-        let components = Self::open_index_components(index_relation, mvcc_style, needs_tokenizers)?;
+        let components =
+            Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
         let IndexComponents {
             cleanup_lock,
             index,

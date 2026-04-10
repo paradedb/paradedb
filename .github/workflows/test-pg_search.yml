@@ -86,6 +86,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Extract pgrx Version
         id: pgrx

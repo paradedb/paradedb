@@ -35,6 +35,7 @@ jobs:
         with:
           components: rustfmt, clippy
           cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Check Cargo.lock
         run: cargo metadata --format-version 1 --locked > /dev/null

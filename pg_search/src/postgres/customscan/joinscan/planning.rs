@@ -951,7 +951,12 @@ pub(super) unsafe fn collect_required_fields(
     output_columns: &[OutputColumnInfo],
     custom_exprs: *mut pg_sys::List,
 ) {
-    let join_keys = join_clause.plan.join_keys();
+    // Resolve each equi-join key against the join node that owns it so we
+    // bind to the correct `JoinSource` by `plan_position`. A flat
+    // `(rti, attno)` scan can pick the wrong source when a SubPlan's inner
+    // relation shares an RTI value with an outer relation (inner queries
+    // have their own RTI numbering space), forcing us to over-project.
+    let join_key_projections = join_clause.plan.join_key_projections();
     let mut plan_sources = join_clause.plan.sources_mut();
 
     for source in &mut plan_sources {
@@ -959,27 +964,13 @@ pub(super) unsafe fn collect_required_fields(
     }
 
     if plan_sources.len() >= 2 {
-        let mut ensure_join_key_side = |rti: pg_sys::Index, attno: pg_sys::AttrNumber| {
-            // Ensure the field on ALL sources that match this RTI+attno.
-            // Multiple sources can share the same RTI when they originate
-            // from different planner roots (e.g., main query vs SubPlan).
-            let mut found = false;
-            for source in plan_sources.iter_mut() {
-                if source.contains_rti(rti) && source.has_attno(attno) {
-                    ensure_field(source, attno);
-                    found = true;
-                }
+        for (plan_position, attno) in &join_key_projections {
+            if let Some(source) = plan_sources
+                .iter_mut()
+                .find(|s| s.plan_position == *plan_position)
+            {
+                ensure_field(source, *attno);
             }
-            if !found {
-                for source in &mut plan_sources {
-                    ensure_column(source, rti, attno);
-                }
-            }
-        };
-
-        for jk in &join_keys {
-            ensure_join_key_side(jk.outer_rti, jk.outer_attno);
-            ensure_join_key_side(jk.inner_rti, jk.inner_attno);
         }
     }
 

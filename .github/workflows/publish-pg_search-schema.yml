@@ -49,7 +49,6 @@ jobs:
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
-        id: rust-cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
@@ -65,7 +64,6 @@ jobs:
           echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx
-        if: steps.rust-cache.outputs.cache-hit != 'true'
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx environment

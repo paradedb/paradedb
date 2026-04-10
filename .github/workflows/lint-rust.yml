@@ -47,7 +47,6 @@ jobs:
       # See test-pg_search.yml for rationale.
       # Only save cache on non-PR events; PRs restore from the default branch.
       - name: Install Rust Cache
-        id: rust-cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
@@ -64,7 +63,6 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx
-        if: steps.rust-cache.outputs.cache-hit != 'true'
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx environment

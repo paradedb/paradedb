@@ -56,7 +56,6 @@ jobs:
       # Only save cache on non-PR events; PRs restore from the default branch.
       # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
-        id: rust-cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"

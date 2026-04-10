@@ -127,7 +127,7 @@ jobs:
       # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
       - name: Fetch latest benchmark code, suites
         if: >-
-          !contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow", "benchmark-queries-docs"]'), github.event.label.name)
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow", "benchmark-queries-docs"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

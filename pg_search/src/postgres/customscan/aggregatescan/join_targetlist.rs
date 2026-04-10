@@ -266,12 +266,16 @@ pub unsafe fn extract_aggregate_targetlist(
             let attno = (*var).varattno;
             let field_name = field_name.into_inner();
 
-            let _source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
-                format!(
+            // Validate that the RTI is in our known sources. Unlike the T_Var
+            // branch above, we don't need the source itself — `find_one_var_and_fieldname`
+            // already resolved the Tantivy field name — but we want a clear error
+            // if the expression references a table that isn't part of the join.
+            if !sources.iter().any(|s| s.rti == rti) {
+                return Err(format!(
                     "GROUP BY expression references table at RTI {} which is not in the join",
                     rti
-                )
-            })?;
+                ));
+            }
 
             group_columns.push(JoinGroupColumn {
                 rti,

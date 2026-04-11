@@ -95,7 +95,7 @@ pub async fn build_join_aggregate_plan(
         .iter()
         .map(|gc| {
             let source = plan.source_for_rti_in_subtree(gc.rti);
-            let (alias, _col_name) = resolve_source_column(source, gc.rti, &gc.field_name, plan);
+            let (alias, _col_name) = resolve_source_column(source, gc.rti, &gc.field_name);
             make_col(&alias, &gc.field_name)
         })
         .collect();
@@ -456,7 +456,7 @@ impl FilterExpr {
             FilterExpr::ColumnRef { rti, field_name } => {
                 let plan = ctx.plan?;
                 let source = plan.source_for_rti_in_subtree(*rti);
-                let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
+                let (alias, _) = resolve_source_column(source, *rti, field_name);
                 Some(make_col(&alias, field_name))
             }
             FilterExpr::LitInt(v) => Some(lit(*v)),
@@ -583,31 +583,22 @@ async fn build_source_df(
 }
 
 /// Resolve a source column to its DataFusion alias and column name.
+///
+/// Every caller obtains `source` via `plan.source_for_rti_in_subtree(rti)`,
+/// which already walks the plan tree looking for a source whose
+/// `contains_rti(rti)` is true. The previous fallback walk here was the
+/// same search and could only fire when the planner had failed to validate
+/// the RTI — i.e. never in production. Treat the missing case as a hard
+/// invariant violation.
 fn resolve_source_column(
     source: Option<&JoinSource>,
     rti: pgrx::pg_sys::Index,
     field_name: &str,
-    plan: &RelNode,
 ) -> (String, String) {
-    if let Some(src) = source {
-        let alias = RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position);
-        (alias, field_name.to_string())
-    } else {
-        // Fallback: find the source by walking sources list
-        for src in plan.sources() {
-            if src.contains_rti(rti) {
-                let alias =
-                    RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position);
-                return (alias, field_name.to_string());
-            }
-        }
-        // Should not happen — the planner validated all RTIs
-        pgrx::warning!(
-            "resolve_source_column: RTI {} not found in plan sources",
-            rti
-        );
-        (format!("unknown_rti_{}", rti), field_name.to_string())
-    }
+    let src = source
+        .unwrap_or_else(|| panic!("resolve_source_column: RTI {rti} not found in plan sources"));
+    let alias = RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position);
+    (alias, field_name.to_string())
 }
 
 /// Build a DataFusion column expression for an aggregate's first field reference.
@@ -617,7 +608,7 @@ fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
     })?;
 
     let source = plan.source_for_rti_in_subtree(*rti);
-    let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
+    let (alias, _) = resolve_source_column(source, *rti, field_name);
     Ok(make_col(&alias, field_name))
 }
 
@@ -627,7 +618,7 @@ fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort>
         .iter()
         .map(|entry| {
             let source = plan.source_for_rti_in_subtree(entry.rti);
-            let (alias, _) = resolve_source_column(source, entry.rti, &entry.field_name, plan);
+            let (alias, _) = resolve_source_column(source, entry.rti, &entry.field_name);
             Sort::new(
                 make_col(&alias, &entry.field_name),
                 entry.direction.is_asc(),
@@ -644,7 +635,7 @@ fn agg_field_cols(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Vec<Expr>>
         .iter()
         .map(|(rti, _attno, field_name)| {
             let source = plan.source_for_rti_in_subtree(*rti);
-            let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
+            let (alias, _) = resolve_source_column(source, *rti, field_name);
             Ok(make_col(&alias, field_name))
         })
         .collect()

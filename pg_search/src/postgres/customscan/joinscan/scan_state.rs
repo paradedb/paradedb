@@ -110,6 +110,28 @@ fn make_source_score_col(source: &JoinSource, plan_position: usize) -> Expr {
     make_col(&alias, SCORE_COL_NAME)
 }
 
+/// Resolve a Postgres `(rti, attno)` reference to a DataFusion column expression
+/// by walking the join's plan sources and finding the first one that claims it.
+///
+/// Returns `None` if no source maps the var — the caller decides whether to
+/// fall back to a literal or propagate the absence.
+fn resolve_var_to_df_col(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<Expr> {
+    join_clause
+        .plan
+        .sources()
+        .iter()
+        .enumerate()
+        .find_map(|(idx, source)| {
+            let mapped = source.map_var(rti, attno)?;
+            let field = source.column_name(mapped)?;
+            Some(make_source_col(source, idx, &field))
+        })
+}
+
 /// Query planner that lowers JoinScan's custom logical nodes
 /// (`LateMaterializeNode`, `VisibilityFilterNode`) into executable plans.
 ///
@@ -661,24 +683,10 @@ fn build_clause_df<'a>(
                                 i
                             );
 
-                            let plan_sources = join_clause.plan.sources();
                             let input_exprs: Vec<Expr> = input_vars
                                 .iter()
                                 .filter_map(|var_info| {
-                                    for (idx, source) in plan_sources.iter().enumerate() {
-                                        if let Some(attno) =
-                                            source.map_var(var_info.rti, var_info.attno)
-                                        {
-                                            if let Some(field_name) = source.column_name(attno) {
-                                                return Some(make_source_col(
-                                                    source,
-                                                    idx,
-                                                    &field_name,
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    None
+                                    resolve_var_to_df_col(join_clause, var_info.rti, var_info.attno)
                                 })
                                 .collect();
 
@@ -806,16 +814,7 @@ fn build_clause_df<'a>(
                         if !distinct_col_map.is_empty() {
                             resolve_distinct_col(false, *rti, *attno, "")
                         } else {
-                            join_clause
-                                .plan
-                                .sources()
-                                .iter()
-                                .enumerate()
-                                .find_map(|(i, source)| {
-                                    let mapped = source.map_var(*rti, *attno)?;
-                                    let field = source.column_name(mapped)?;
-                                    Some(make_source_col(source, i, &field))
-                                })
+                            resolve_var_to_df_col(join_clause, *rti, *attno)
                                 .unwrap_or_else(|| col("unknown_col"))
                         }
                     }
@@ -909,12 +908,8 @@ fn build_projection_expr(
         }
         ChildProjection::Column { rti, attno }
         | ChildProjection::IndexedExpression { rti, attno } => {
-            for (i, source) in plan_sources.iter().enumerate() {
-                if let Some(mapped) = source.map_var(*rti, *attno) {
-                    if let Some(field_name) = source.column_name(mapped) {
-                        return make_source_col(source, i, &field_name);
-                    }
-                }
+            if let Some(expr) = resolve_var_to_df_col(join_clause, *rti, *attno) {
+                return expr;
             }
         }
         ChildProjection::Expression { .. } => {

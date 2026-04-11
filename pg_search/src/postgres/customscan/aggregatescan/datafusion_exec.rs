@@ -31,8 +31,8 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
 };
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::datafusion::translator::{
-    apply_join_level_filter, build_join_df, make_col, ColumnMapper, JoinTypeAllowList,
-    PredicateTranslator,
+    apply_join_level_filter, build_join_df, make_col, make_source_col, ColumnMapper,
+    JoinTypeAllowList, PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
@@ -292,12 +292,7 @@ fn build_relnode_df<'a>(
                 let sources = filter.input.sources();
                 let ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = sources
                     .iter()
-                    .map(|s| {
-                        let alias = RelationAlias::new(s.scan_info.alias.as_deref())
-                            .execution(s.plan_position);
-                        let ctid_col = make_col(&alias, "ctid");
-                        (s.plan_position as pg_sys::Index, ctid_col)
-                    })
+                    .map(|s| (s.plan_position as pg_sys::Index, make_source_col(s, "ctid")))
                     .collect();
 
                 // No deferred positions in aggregate path (no VisibilityFilterExec)
@@ -375,16 +370,9 @@ impl<'a> ColumnMapper for AggregateIndexVarMapper<'a> {
             (varno, varattno)
         };
 
-        let (plan_position, source) = self
-            .sources
-            .iter()
-            .enumerate()
-            .find(|(_, s)| s.contains_rti(rti))?;
-
-        let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
-
+        let source = self.sources.iter().find(|s| s.contains_rti(rti))?;
         let field_name = source.column_name(attno)?;
-        Some(make_col(&alias, &field_name))
+        Some(make_source_col(source, &field_name))
     }
 }
 
@@ -545,35 +533,17 @@ async fn build_source_df(
     }
 }
 
-/// Resolve a source column to its DataFusion alias and column name.
-///
-/// Every caller obtains `source` via `plan.source_for_rti_in_subtree(rti)`,
-/// which already walks the plan tree looking for a source whose
-/// `contains_rti(rti)` is true. The missing case is treated as a hard
-/// invariant violation.
-fn resolve_source_column(
-    source: Option<&JoinSource>,
-    rti: pgrx::pg_sys::Index,
-    field_name: &str,
-) -> (String, String) {
-    let src = source
-        .unwrap_or_else(|| panic!("resolve_source_column: RTI {rti} not found in plan sources"));
-    let alias = RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position);
-    (alias, field_name.to_string())
-}
-
 /// Build a DataFusion column expression for a `(rti, field_name)` reference
 /// against the given plan tree.
 ///
-/// This is the standard pattern: walk the plan to find the source that
-/// claims `rti`, build the execution alias from the source's alias and
-/// plan position, and wrap it in a `make_col`. Use this instead of inlining
-/// `source_for_rti_in_subtree + resolve_source_column + make_col` at every
-/// site that needs a column reference.
+/// Thin wrapper around the shared [`make_source_col`] that walks the plan to
+/// find the source claiming `rti` first. Use this instead of resolving the
+/// source manually at every aggregate-on-join call site.
 fn make_rti_col(plan: &RelNode, rti: pgrx::pg_sys::Index, field_name: &str) -> Expr {
-    let source = plan.source_for_rti_in_subtree(rti);
-    let (alias, _) = resolve_source_column(source, rti, field_name);
-    make_col(&alias, field_name)
+    let source = plan
+        .source_for_rti_in_subtree(rti)
+        .unwrap_or_else(|| panic!("make_rti_col: RTI {rti} not found in plan sources"));
+    make_source_col(source, field_name)
 }
 
 /// Replace an `Expr::AggregateFunction` with the same call but `distinct=true`.

@@ -73,20 +73,20 @@ use tantivy::index::SegmentId;
 
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::datafusion::memory::create_memory_pool;
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
-use crate::postgres::customscan::joinscan::memory::create_memory_pool;
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
+use crate::postgres::customscan::datafusion::translator::{make_col, CombinedMapper};
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
-use crate::postgres::customscan::joinscan::translator::{make_col, CombinedMapper};
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -490,11 +490,11 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
-                let df = super::translator::build_join_df(
+                let df = crate::postgres::customscan::datafusion::translator::build_join_df(
                     left_df,
                     right_df,
                     join,
-                    super::translator::JoinTypeAllowList::All,
+                    crate::postgres::customscan::datafusion::translator::JoinTypeAllowList::All,
                 )?;
 
                 if join.filter.is_some() {
@@ -526,7 +526,7 @@ fn build_relnode_df<'a>(
                     super::visibility_filter::deferred_plan_positions(&filter.input);
                 let sources = filter.input.sources();
                 let filter_expr = unsafe {
-                    crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
+                    crate::postgres::customscan::datafusion::translator::PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
                         translated_exprs,
                         ctid_map,
@@ -602,7 +602,7 @@ fn build_clause_df<'a>(
         };
 
         let translator =
-            crate::postgres::customscan::joinscan::translator::PredicateTranslator::new(
+            crate::postgres::customscan::datafusion::translator::PredicateTranslator::new(
                 &plan_sources,
             )
             .with_mapper(Box::new(mapper));

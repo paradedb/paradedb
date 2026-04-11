@@ -30,14 +30,14 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
+use crate::postgres::customscan::datafusion::translator::{
+    build_join_df, make_col, ColumnMapper, JoinTypeAllowList, PredicateTranslator,
+};
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::scan_state::{
     create_datafusion_session_context, register_source_table, SessionContextProfile,
-};
-use crate::postgres::customscan::joinscan::translator::{
-    build_join_df, make_col, ColumnMapper, JoinTypeAllowList, PredicateTranslator,
 };
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;

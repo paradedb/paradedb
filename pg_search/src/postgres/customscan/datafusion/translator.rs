@@ -387,10 +387,10 @@ pub enum JoinTypeAllowList {
 pub fn build_join_df(
     left: DataFrame,
     right: DataFrame,
-    join: &super::build::JoinNode,
+    join: &crate::postgres::customscan::joinscan::build::JoinNode,
     allowed_join_types: JoinTypeAllowList,
 ) -> Result<DataFrame> {
-    use super::build::JoinType as PgJoinType;
+    use crate::postgres::customscan::joinscan::build::JoinType as PgJoinType;
 
     let on = build_equi_join_exprs(join)?;
 
@@ -431,7 +431,9 @@ pub fn build_join_df(
 /// Shared between JoinScan and AggregateScan `build_relnode_df` implementations.
 /// Each key pair is resolved against the join's left/right subtrees and converted
 /// to a `left_col = right_col` DataFusion expression.
-pub fn build_equi_join_exprs(join: &super::build::JoinNode) -> Result<Vec<Expr>> {
+pub fn build_equi_join_exprs(
+    join: &crate::postgres::customscan::joinscan::build::JoinNode,
+) -> Result<Vec<Expr>> {
     let mut on = Vec::with_capacity(join.equi_keys.len());
     for jk in &join.equi_keys {
         let ((left_source, left_attno), (right_source, right_attno)) =

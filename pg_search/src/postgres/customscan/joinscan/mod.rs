@@ -139,19 +139,15 @@
 //! - [`explain`]: EXPLAIN output formatting.
 
 pub mod build;
-mod explain;
-pub mod memory;
 pub mod planner;
 mod planning;
 pub mod predicate;
-mod privdat;
+pub mod privdat;
 pub mod scan_state;
-pub mod translator;
 pub mod visibility_filter;
 
 pub use self::build::CtidColumn;
 use self::build::{JoinCSClause, RelNode, RelationAlias};
-use self::explain::{format_join_level_expr, get_attname_safe};
 use self::planning::{
     collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
     ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
@@ -160,6 +156,7 @@ use self::planning::{
 };
 use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
+use crate::postgres::customscan::datafusion::explain::{format_join_level_expr, get_attname_safe};
 use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{

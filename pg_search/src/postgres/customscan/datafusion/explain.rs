@@ -15,21 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! EXPLAIN output helpers used by JoinScan today; intended to be shared with
-//! AggregateScan once aggregate-on-join EXPLAIN gains predicate-tree output.
+//! EXPLAIN output helpers shared by the DataFusion-backed custom scans.
 //!
-//! Despite living under `joinscan/`, the helpers in this module are not
-//! join-specific — `format_expr_for_explain` and `get_attname_safe` operate
-//! on raw PostgreSQL nodes/oids and `format_join_level_expr` formats a
-//! `JoinLevelExpr` whose own definition is shared. They are therefore
-//! exposed as `pub` so any sibling consumer can call them. The Phase 5
-//! reorganization will move this file into `customscan/datafusion/explain.rs`
-//! at which point its location will match its scope.
+//! `format_expr_for_explain` and `get_attname_safe` operate on raw PostgreSQL
+//! nodes/oids; `format_join_level_expr` formats a `JoinLevelExpr` whose
+//! definition currently lives in `joinscan::build` (and which AggregateScan
+//! consumes by absolute path). None of these helpers are join-specific in
+//! shape — they live here so JoinScan and any future aggregate-on-join
+//! predicate-tree EXPLAIN can both reach them.
 
-use super::build::{JoinCSClause, JoinLevelExpr};
-
-use crate::customscan::joinscan::RelationAlias;
 use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinLevelExpr, RelationAlias};
 use crate::postgres::deparse::node_to_string_fallback;
 use pgrx::pg_sys;
 

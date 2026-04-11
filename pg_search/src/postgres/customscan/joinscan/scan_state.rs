@@ -337,6 +337,25 @@ pub async fn build_joinscan_logical_plan(
 /// nodes injected at planning time). Physical planning reuses the shared
 /// `SessionContext` configuration and lowers the stored plan after execution
 /// has injected whatever runtime-only bindings are required during decode.
+/// Register a [`PgSearchTableProvider`] under `alias` and return the resulting
+/// [`DataFrame`].
+///
+/// Wraps the provider in an `Arc`, registers it on `ctx`, and awaits
+/// `ctx.table(alias)`. Callers must finish configuring the provider
+/// (deferred outputs, non-partitioning index, etc.) before handing it in;
+/// this helper does not select or alias any columns.
+///
+/// Shared by JoinScan and AggregateScan `build_source_df` implementations.
+pub async fn register_source_table(
+    ctx: &SessionContext,
+    alias: &str,
+    provider: crate::scan::PgSearchTableProvider,
+) -> Result<DataFrame> {
+    let provider = Arc::new(provider);
+    ctx.register_table(alias, provider)?;
+    ctx.table(alias).await
+}
+
 /// Build a DataFusion physical plan from a logical plan.
 ///
 /// Uses the session context's query planner and wraps multi-partition
@@ -995,10 +1014,7 @@ fn build_source_df<'a>(
             VisibilityMode::Deferred { plan_position },
         );
 
-        let provider = Arc::new(provider);
-        ctx.register_table(alias.as_str(), provider)?;
-
-        let mut df = ctx.table(alias.as_str()).await?;
+        let mut df = register_source_table(ctx, alias.as_str(), provider).await?;
 
         // Select fields AND ensure CTID is aliased uniquely
         let mut exprs = Vec::new();

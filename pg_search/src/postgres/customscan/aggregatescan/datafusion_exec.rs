@@ -24,8 +24,6 @@
 //! materialization, no SegmentedTopK — aggregates run entirely on fast fields
 //! and the result is aggregate rows, not individual tuples.
 
-use std::sync::Arc;
-
 use super::join_targetlist::AggOrderByEntry;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
@@ -36,7 +34,7 @@ use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::scan_state::{
-    create_datafusion_session_context, SessionContextProfile,
+    create_datafusion_session_context, register_source_table, SessionContextProfile,
 };
 use crate::postgres::customscan::joinscan::translator::{
     build_join_df, make_col, ColumnMapper, JoinTypeAllowList, PredicateTranslator,
@@ -563,10 +561,7 @@ async fn build_source_df(
     }
 
     let provider = PgSearchTableProvider::new(scan_info, fields, false);
-    let provider = Arc::new(provider);
-    ctx.register_table(alias.as_str(), provider)?;
-
-    let df = ctx.table(alias.as_str()).await?;
+    let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
     // Select all fields from the provider schema using their qualified names.
     // This mirrors JoinScan's pattern and ensures column names are accessible

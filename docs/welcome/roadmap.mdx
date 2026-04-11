@@ -26,7 +26,7 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 ### Deeper Analytics Improvements
 
 - **Push Postgres visibility rules into the index**. This is currently a filter applied post index scan that adds overhead to large scans.
-- **DataFusion-powered aggregates**. Migrate aggregate query execution from Tantivy to Apache DataFusion to broaden SQL aggregate coverage and improve performance.
+- **Parallel aggregate execution**. Aggregate-on-join currently runs single-threaded on the DataFusion path. Two-phase parallel aggregation (partial + final) will unlock multi-core execution for high-cardinality GROUP BY on joined tables.
 
 ### Vector Search Improvements
 
@@ -40,8 +40,8 @@ We're a lean team that likes to ship at [incredibly high velocity](https://githu
 
 ### Analytics
 
-- **A custom scan node for aggregates**. This will allow "plain SQL" aggregates to go through the same fast execution path as
-  our [aggregate UDFs](/documentation/aggregates/tantivy), further accelerating aggregates like `COUNT`, and SQL clauses like `GROUP BY`.
+- **A custom scan node for aggregates**. Plain SQL aggregates like `COUNT`, and clauses like `GROUP BY`, go through the same fast execution path as our [aggregate UDFs](/documentation/aggregates/tantivy).
+- **Aggregate pushdown across joins**. Aggregates over multi-table joins are executed via Apache DataFusion when every joined table has a BM25 index.
 
 ### Write Throughput
 

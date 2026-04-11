@@ -854,6 +854,33 @@ pub fn all_have_bm25_index(sources: &[JoinAggSource]) -> bool {
     sources.iter().all(|s| s.bm25_index.is_some())
 }
 
+/// Resolve `attno` as a fast field on `(heaprel, indexrel)` and add it to
+/// `source`'s scan info. Returns `Err` with a contextual error message if
+/// the column isn't a fast field.
+///
+/// `describe` is invoked lazily to build the column-identifier portion of
+/// the error message — typically `"GROUP BY column 'foo' (attno=3)"` — so
+/// each caller can carry whatever context the user will recognise.
+unsafe fn require_fast_field(
+    source: &mut JoinSource,
+    tupdesc: &pgrx::PgTupleDesc<'_>,
+    indexrel: &PgSearchRelation,
+    attno: pg_sys::AttrNumber,
+    describe: impl FnOnce() -> String,
+) -> Result<(), String> {
+    match resolve_fast_field(attno as i32, tupdesc, indexrel) {
+        Some(field) => {
+            source.scan_info.add_field(attno, field);
+            Ok(())
+        }
+        None => Err(format!(
+            "{} is not a fast field on table {}",
+            describe(),
+            source.scan_info.heaprelid.to_u32()
+        )),
+    }
+}
+
 /// Populate the `fields` on each `JoinSource` in the `RelNode` tree based on
 /// columns referenced in the target list (GROUP BY + aggregate arguments) and
 /// join keys. Without this, `PgSearchTableProvider` exposes an empty schema.
@@ -892,127 +919,91 @@ pub unsafe fn populate_required_fields(
             WhichFastField::Ctid,
         );
 
-        // Add fields referenced in GROUP BY — must be fast fields so
-        // PgSearchTableProvider can expose them as Arrow columns.
+        // GROUP BY columns. The JSON sub-field fallback is a special case:
+        // `metadata->>'category'` resolves to the parent JSON column's attno
+        // but Tantivy stores the sub-field with a dotted name, so we look it
+        // up by name as a backup before declaring failure.
         for gc in &targetlist.group_columns {
-            if source.contains_rti(gc.rti) {
-                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
-                    source.scan_info.add_field(gc.attno, field);
-                } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
-                    // JSON sub-field (e.g., metadata.category from metadata->>'category').
-                    // The attno maps to the parent JSON column, but Tantivy stores
-                    // sub-fields as separate fast fields with dotted names.
-                    source.scan_info.add_field_by_name(gc.attno, field);
-                } else {
-                    return Err(format!(
-                        "GROUP BY column '{}' (attno={}) is not a fast field on table {}",
-                        gc.field_name,
-                        gc.attno,
-                        source.scan_info.heaprelid.to_u32()
-                    ));
-                }
+            if !source.contains_rti(gc.rti) {
+                continue;
+            }
+            if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
+                source.scan_info.add_field(gc.attno, field);
+            } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
+                source.scan_info.add_field_by_name(gc.attno, field);
+            } else {
+                return Err(format!(
+                    "GROUP BY column '{}' (attno={}) is not a fast field on table {}",
+                    gc.field_name,
+                    gc.attno,
+                    source.scan_info.heaprelid.to_u32()
+                ));
             }
         }
 
-        // Add fields referenced in aggregate arguments — same requirement:
-        // DataFusion reads these from BM25 fast fields.
+        // Aggregate arguments.
         for agg in &targetlist.aggregates {
             for (rti, attno, _) in &agg.field_refs {
                 if source.contains_rti(*rti) {
-                    match resolve_fast_field(*attno as i32, &tupdesc, indexrel) {
-                        Some(field) => source.scan_info.add_field(*attno, field),
-                        None => {
-                            return Err(format!(
-                                "aggregate argument (attno={}) is not a fast field on table {}",
-                                attno,
-                                source.scan_info.heaprelid.to_u32()
-                            ));
-                        }
-                    }
+                    require_fast_field(source, &tupdesc, indexrel, *attno, || {
+                        format!("aggregate argument (attno={attno})")
+                    })?;
                 }
             }
         }
 
-        // Add fields referenced in aggregate ORDER BY clauses (e.g.,
-        // STRING_AGG(col, ',' ORDER BY col2) needs col2 as a fast field).
+        // Aggregate ORDER BY clauses (e.g. STRING_AGG(col, ',' ORDER BY col2)
+        // needs col2 as a fast field).
         for agg in &targetlist.aggregates {
             for ob in &agg.order_by {
                 if source.contains_rti(ob.rti) {
-                    match resolve_fast_field(ob.attno as i32, &tupdesc, indexrel) {
-                        Some(field) => source.scan_info.add_field(ob.attno, field),
-                        None => {
-                            return Err(format!(
-                                "aggregate ORDER BY column '{}' is not a fast field on table {}",
-                                ob.field_name,
-                                source.scan_info.heaprelid.to_u32()
-                            ));
-                        }
-                    }
+                    require_fast_field(source, &tupdesc, indexrel, ob.attno, || {
+                        format!("aggregate ORDER BY column '{}'", ob.field_name)
+                    })?;
                 }
             }
         }
 
-        // Add fields referenced in aggregate FILTER clauses.
+        // Aggregate FILTER clauses — referenced by name, so resolve attno
+        // first via the tuple desc.
         for agg in &targetlist.aggregates {
-            if let Some(ref filter) = agg.filter {
-                for (rti, field_name) in collect_filter_column_refs(filter) {
-                    if source.contains_rti(rti) {
-                        if let Some(attno) = get_attno_by_name(field_name, &tupdesc) {
-                            match resolve_fast_field(attno as i32, &tupdesc, indexrel) {
-                                Some(field) => source.scan_info.add_field(attno, field),
-                                None => {
-                                    return Err(format!(
-                                        "FILTER column '{}' is not a fast field on table {}",
-                                        field_name,
-                                        source.scan_info.heaprelid.to_u32()
-                                    ));
-                                }
-                            }
-                        }
-                    }
+            let Some(ref filter) = agg.filter else {
+                continue;
+            };
+            for (rti, field_name) in collect_filter_column_refs(filter) {
+                if !source.contains_rti(rti) {
+                    continue;
+                }
+                if let Some(attno) = get_attno_by_name(field_name, &tupdesc) {
+                    require_fast_field(source, &tupdesc, indexrel, attno, || {
+                        format!("FILTER column '{field_name}'")
+                    })?;
                 }
             }
         }
 
-        // Add join key fields — these MUST be resolvable as fast fields because
-        // DataFusion reads them from the BM25 index. If a join key can't be
-        // resolved, the PgSearchTableProvider would have no data columns, producing
-        // empty RecordBatches that crash execution.
+        // Join keys — MUST be resolvable; otherwise PgSearchTableProvider
+        // would have no data columns and produce empty RecordBatches.
         for jk in &join_keys {
             for &(rti, attno) in &[
                 (jk.outer_rti, jk.outer_attno),
                 (jk.inner_rti, jk.inner_attno),
             ] {
                 if source.contains_rti(rti) {
-                    match resolve_fast_field(attno as i32, &tupdesc, indexrel) {
-                        Some(field) => source.scan_info.add_field(attno, field),
-                        None => {
-                            return Err(format!(
-                                "join key (attno={}) is not a fast field on table {}",
-                                attno,
-                                source.scan_info.heaprelid.to_u32()
-                            ));
-                        }
-                    }
+                    require_fast_field(source, &tupdesc, indexrel, attno, || {
+                        format!("join key (attno={attno})")
+                    })?;
                 }
             }
         }
 
-        // Add fields referenced in multi-table predicate clauses — these
-        // are cross-table expressions like `b.id > 5` that DataFusion
-        // evaluates at join time. Their columns must be in the schema.
+        // Multi-table predicate columns — cross-table expressions like
+        // `b.id > 5` that DataFusion evaluates at join time.
         for var_ref in &multi_table_vars {
             if source.contains_rti(var_ref.rti) {
-                match resolve_fast_field(var_ref.attno as i32, &tupdesc, indexrel) {
-                    Some(field) => source.scan_info.add_field(var_ref.attno, field),
-                    None => {
-                        return Err(format!(
-                            "multi-table predicate column (attno={}) is not a fast field on table {}",
-                            var_ref.attno,
-                            source.scan_info.heaprelid.to_u32()
-                        ));
-                    }
-                }
+                require_fast_field(source, &tupdesc, indexrel, var_ref.attno, || {
+                    format!("multi-table predicate column (attno={})", var_ref.attno)
+                })?;
             }
         }
     }

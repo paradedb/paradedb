@@ -110,6 +110,28 @@ fn make_source_score_col(source: &JoinSource, plan_position: usize) -> Expr {
     make_col(&alias, SCORE_COL_NAME)
 }
 
+/// Resolve a Postgres `(rti, attno)` reference to a DataFusion column expression
+/// by walking the join's plan sources and finding the first one that claims it.
+///
+/// Returns `None` if no source maps the var — the caller decides whether to
+/// fall back to a literal or propagate the absence.
+fn resolve_var_to_df_col(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<Expr> {
+    join_clause
+        .plan
+        .sources()
+        .iter()
+        .enumerate()
+        .find_map(|(idx, source)| {
+            let mapped = source.map_var(rti, attno)?;
+            let field = source.column_name(mapped)?;
+            Some(make_source_col(source, idx, &field))
+        })
+}
+
 /// Query planner that lowers JoinScan's custom logical nodes
 /// (`LateMaterializeNode`, `VisibilityFilterNode`) into executable plans.
 ///
@@ -408,6 +430,19 @@ pub fn build_task_context(
     )
 }
 
+/// Context borrowed for the duration of a [`build_relnode_df`] traversal.
+///
+/// Bundles the references that don't change between recursive calls so the
+/// recursion sites stay readable. Construct one at the entry point in
+/// `build_clause_df` and pass it down by reference.
+struct RelNodeBuildCtx<'a> {
+    ctx: &'a SessionContext,
+    partitioning_plan_position: usize,
+    join_clause: &'a JoinCSClause,
+    translated_exprs: &'a [Expr],
+    ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
+}
+
 /// Recursively lowers a `RelNode` tree into a DataFusion `DataFrame`.
 ///
 /// This traversal maps the abstract relation operators (Scan, Join, Filter) onto DataFusion's
@@ -419,13 +454,12 @@ pub fn build_task_context(
 ///   of the equality expression to avoid `SchemaError`s in DataFusion.
 /// - **Filter**: Maps complex, cross-table PostgreSQL scalar expressions down to the DataFusion
 ///   engine using a pre-constructed `ctid_map` for row-level execution.
+///
+/// All references that don't change between recursive calls are bundled into
+/// [`RelNodeBuildCtx`] so the recursive sites can stay terse.
 fn build_relnode_df<'a>(
-    ctx: &'a SessionContext,
+    rctx: &'a RelNodeBuildCtx<'a>,
     node: &'a RelNode,
-    partitioning_plan_position: usize,
-    join_clause: &'a JoinCSClause,
-    translated_exprs: &'a [Expr],
-    ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     let f = async move {
         match node {
@@ -444,14 +478,15 @@ fn build_relnode_df<'a>(
                 // maintain left-first DFS order via collect_sources /
                 // collect_sources_mut, so plan_position == partitioning_plan_position
                 // iff this source is the chosen partitioning source.
-                let is_parallel = plan_position == partitioning_plan_position;
+                let is_parallel = plan_position == rctx.partitioning_plan_position;
 
                 // Compute the position of this source among non-partitioning sources so execution
                 // can retrieve the correct canonical segment IDs during decode.
                 let np_idx = if !is_parallel {
-                    let partitioning_plan_idx = join_clause.partitioning_source_index();
+                    let partitioning_plan_idx = rctx.join_clause.partitioning_source_index();
                     // Count non-partitioning sources that appear before this one in plan order.
-                    let np_pos = join_clause
+                    let np_pos = rctx
+                        .join_clause
                         .plan
                         .sources()
                         .iter()
@@ -464,33 +499,23 @@ fn build_relnode_df<'a>(
                     None
                 };
 
-                let mut df =
-                    build_source_df(ctx, source, plan_position, join_clause, is_parallel, np_idx)
-                        .await?;
+                let mut df = build_source_df(
+                    rctx.ctx,
+                    source,
+                    plan_position,
+                    rctx.join_clause,
+                    is_parallel,
+                    np_idx,
+                )
+                .await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 df = df.alias(&alias)?;
                 Ok(df)
             }
             RelNode::Join(join) => {
-                let left_df = build_relnode_df(
-                    ctx,
-                    &join.left,
-                    partitioning_plan_position,
-                    join_clause,
-                    translated_exprs,
-                    ctid_map,
-                )
-                .await?;
-                let right_df = build_relnode_df(
-                    ctx,
-                    &join.right,
-                    partitioning_plan_position,
-                    join_clause,
-                    translated_exprs,
-                    ctid_map,
-                )
-                .await?;
+                let left_df = build_relnode_df(rctx, &join.left).await?;
+                let right_df = build_relnode_df(rctx, &join.right).await?;
 
                 let df = build_join_df(left_df, right_df, join, JoinTypeAllowList::All)?;
 
@@ -503,15 +528,7 @@ fn build_relnode_df<'a>(
                 Ok(df)
             }
             RelNode::Filter(filter) => {
-                let mut df = build_relnode_df(
-                    ctx,
-                    &filter.input,
-                    partitioning_plan_position,
-                    join_clause,
-                    translated_exprs,
-                    ctid_map,
-                )
-                .await?;
+                let mut df = build_relnode_df(rctx, &filter.input).await?;
 
                 // Compute per-plan_position deferred visibility. A plan_position's
                 // ctid is "deferred" (packed DocAddress) if it flows only through
@@ -525,9 +542,9 @@ fn build_relnode_df<'a>(
                 let filter_expr = unsafe {
                     PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
-                        translated_exprs,
-                        ctid_map,
-                        &join_clause.join_level_predicates,
+                        rctx.translated_exprs,
+                        rctx.ctid_map,
+                        &rctx.join_clause.join_level_predicates,
                         &deferred_positions,
                         &sources,
                     )
@@ -623,15 +640,14 @@ fn build_clause_df<'a>(
             ctid_map.insert(i as pg_sys::Index, expr);
         }
 
-        let mut df = build_relnode_df(
+        let rctx = RelNodeBuildCtx {
             ctx,
-            plan,
             partitioning_plan_position,
             join_clause,
-            &translated_exprs,
-            &ctid_map,
-        )
-        .await?;
+            translated_exprs: &translated_exprs,
+            ctid_map: &ctid_map,
+        };
+        let mut df = build_relnode_df(&rctx, plan).await?;
 
         // Maps (rti, attno) → col_N alias, populated only when has_distinct is true.
         // For regular columns: (rti, attno) → col_N
@@ -661,24 +677,10 @@ fn build_clause_df<'a>(
                                 i
                             );
 
-                            let plan_sources = join_clause.plan.sources();
                             let input_exprs: Vec<Expr> = input_vars
                                 .iter()
                                 .filter_map(|var_info| {
-                                    for (idx, source) in plan_sources.iter().enumerate() {
-                                        if let Some(attno) =
-                                            source.map_var(var_info.rti, var_info.attno)
-                                        {
-                                            if let Some(field_name) = source.column_name(attno) {
-                                                return Some(make_source_col(
-                                                    source,
-                                                    idx,
-                                                    &field_name,
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    None
+                                    resolve_var_to_df_col(join_clause, var_info.rti, var_info.attno)
                                 })
                                 .collect();
 
@@ -806,16 +808,7 @@ fn build_clause_df<'a>(
                         if !distinct_col_map.is_empty() {
                             resolve_distinct_col(false, *rti, *attno, "")
                         } else {
-                            join_clause
-                                .plan
-                                .sources()
-                                .iter()
-                                .enumerate()
-                                .find_map(|(i, source)| {
-                                    let mapped = source.map_var(*rti, *attno)?;
-                                    let field = source.column_name(mapped)?;
-                                    Some(make_source_col(source, i, &field))
-                                })
+                            resolve_var_to_df_col(join_clause, *rti, *attno)
                                 .unwrap_or_else(|| col("unknown_col"))
                         }
                     }
@@ -909,12 +902,8 @@ fn build_projection_expr(
         }
         ChildProjection::Column { rti, attno }
         | ChildProjection::IndexedExpression { rti, attno } => {
-            for (i, source) in plan_sources.iter().enumerate() {
-                if let Some(mapped) = source.map_var(*rti, *attno) {
-                    if let Some(field_name) = source.column_name(mapped) {
-                        return make_source_col(source, i, &field_name);
-                    }
-                }
+            if let Some(expr) = resolve_var_to_df_col(join_clause, *rti, *attno) {
+                return expr;
             }
         }
         ChildProjection::Expression { .. } => {

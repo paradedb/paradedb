@@ -70,6 +70,27 @@ pub struct DataFusionAggState {
     pub batch_row_idx: usize,
 }
 
+/// State for projecting wrapped aggregate expressions through Postgres' own
+/// `ExecBuildProjectionInfo`.
+///
+/// When the targetlist contains aggregates wrapped in `FuncExpr` calls, we
+/// build a copy of the targetlist with each `FuncExpr`'s aggregate replaced by
+/// a `Const` placeholder. Before each per-row projection we mutate those
+/// `Const`s in place with the live aggregate values, so the compiled projection
+/// bakes in the current row's values. This follows the basescan pattern.
+///
+/// The `const_nodes` pointers alias into `targetlist`'s memory context — if
+/// the targetlist is freed or replaced, the const pointers become dangling.
+/// Bundling both into one struct keeps the lifetime invariant type-level so
+/// neither half can be cleared without the other.
+pub struct WrappedAggregateProjection {
+    /// Targetlist copy with `Const` placeholders for each wrapped aggregate.
+    pub targetlist: *mut pg_sys::List,
+    /// Pointers to the `Const` nodes inside `targetlist`, indexed by target
+    /// entry position (0-based). `None` for entries without a Const node.
+    pub const_nodes: Vec<Option<*mut pg_sys::Const>>,
+}
+
 #[derive(Default)]
 pub struct AggregateScanState {
     pub state: ExecutionState,
@@ -82,17 +103,9 @@ pub struct AggregateScanState {
     /// and the Tantivy-specific fields above are unused.
     pub datafusion_state: Option<DataFusionAggState>,
 
-    /// Target list with FuncExpr placeholders replaced by Const nodes.
-    /// Used for expression projection when aggregates are wrapped in functions.
-    /// The Const nodes are mutated with actual aggregate values before each
-    /// ExecBuildProjectionInfo call, which bakes the current values into the
-    /// compiled projection. This follows the basescan pattern.
-    pub placeholder_targetlist: Option<*mut pg_sys::List>,
-
-    /// Pointers to Const nodes in placeholder_targetlist, indexed by target entry position.
-    /// These are mutated with aggregate values before each projection build.
-    /// Indexed by target entry position (0-based), None for entries without Const nodes.
-    pub const_agg_nodes: Vec<Option<*mut pg_sys::Const>>,
+    /// Wrapped-aggregate projection state. `Some` only when the targetlist
+    /// has aggregates inside `FuncExpr` wrappers that need per-row projection.
+    pub wrapped_projection: Option<WrappedAggregateProjection>,
 
     /// Reusable tuple slot for aggregate result rows
     /// Created once during begin_custom_scan and cleared/reused for each row

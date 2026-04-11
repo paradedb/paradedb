@@ -93,11 +93,7 @@ pub async fn build_join_aggregate_plan(
     let group_exprs: Vec<Expr> = targetlist
         .group_columns
         .iter()
-        .map(|gc| {
-            let source = plan.source_for_rti_in_subtree(gc.rti);
-            let (alias, _col_name) = resolve_source_column(source, gc.rti, &gc.field_name, plan);
-            make_col(&alias, &gc.field_name)
-        })
+        .map(|gc| make_rti_col(plan, gc.rti, &gc.field_name))
         .collect();
 
     // Step 3: Build aggregate expressions
@@ -169,19 +165,7 @@ pub async fn build_join_aggregate_plan(
             let agg_expr = if agg.distinct
                 && !matches!(agg.agg_kind, AggKind::CountDistinct | AggKind::CountStar)
             {
-                match agg_expr {
-                    Expr::AggregateFunction(af) => {
-                        Expr::AggregateFunction(AggregateFunction::new_udf(
-                            af.func,
-                            af.params.args,
-                            true,
-                            af.params.filter,
-                            af.params.order_by,
-                            af.params.null_treatment,
-                        ))
-                    }
-                    other => other,
-                }
+                with_distinct(agg_expr)
             } else {
                 agg_expr
             };
@@ -196,19 +180,7 @@ pub async fn build_join_aggregate_plan(
                         "Failed to translate aggregate FILTER clause to DataFusion".to_string(),
                     )
                 })?;
-                match agg_expr {
-                    Expr::AggregateFunction(af) => {
-                        Expr::AggregateFunction(AggregateFunction::new_udf(
-                            af.func,
-                            af.params.args,
-                            af.params.distinct,
-                            Some(Box::new(df_filter)),
-                            af.params.order_by,
-                            af.params.null_treatment,
-                        ))
-                    }
-                    other => other,
-                }
+                with_filter(agg_expr, df_filter)
             } else {
                 agg_expr
             };
@@ -455,9 +427,7 @@ impl FilterExpr {
             FilterExpr::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
             FilterExpr::ColumnRef { rti, field_name } => {
                 let plan = ctx.plan?;
-                let source = plan.source_for_rti_in_subtree(*rti);
-                let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
-                Some(make_col(&alias, field_name))
+                Some(make_rti_col(plan, *rti, field_name))
             }
             FilterExpr::LitInt(v) => Some(lit(*v)),
             FilterExpr::LitFloat(v) => Some(lit(*v)),
@@ -583,30 +553,65 @@ async fn build_source_df(
 }
 
 /// Resolve a source column to its DataFusion alias and column name.
+///
+/// Every caller obtains `source` via `plan.source_for_rti_in_subtree(rti)`,
+/// which already walks the plan tree looking for a source whose
+/// `contains_rti(rti)` is true. The missing case is treated as a hard
+/// invariant violation.
 fn resolve_source_column(
     source: Option<&JoinSource>,
     rti: pgrx::pg_sys::Index,
     field_name: &str,
-    plan: &RelNode,
 ) -> (String, String) {
-    if let Some(src) = source {
-        let alias = RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position);
-        (alias, field_name.to_string())
-    } else {
-        // Fallback: find the source by walking sources list
-        for src in plan.sources() {
-            if src.contains_rti(rti) {
-                let alias =
-                    RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position);
-                return (alias, field_name.to_string());
-            }
-        }
-        // Should not happen — the planner validated all RTIs
-        pgrx::warning!(
-            "resolve_source_column: RTI {} not found in plan sources",
-            rti
-        );
-        (format!("unknown_rti_{}", rti), field_name.to_string())
+    let src = source
+        .unwrap_or_else(|| panic!("resolve_source_column: RTI {rti} not found in plan sources"));
+    let alias = RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position);
+    (alias, field_name.to_string())
+}
+
+/// Build a DataFusion column expression for a `(rti, field_name)` reference
+/// against the given plan tree.
+///
+/// This is the standard pattern: walk the plan to find the source that
+/// claims `rti`, build the execution alias from the source's alias and
+/// plan position, and wrap it in a `make_col`. Use this instead of inlining
+/// `source_for_rti_in_subtree + resolve_source_column + make_col` at every
+/// site that needs a column reference.
+fn make_rti_col(plan: &RelNode, rti: pgrx::pg_sys::Index, field_name: &str) -> Expr {
+    let source = plan.source_for_rti_in_subtree(rti);
+    let (alias, _) = resolve_source_column(source, rti, field_name);
+    make_col(&alias, field_name)
+}
+
+/// Replace an `Expr::AggregateFunction` with the same call but `distinct=true`.
+/// Non-aggregate-function expressions are returned unchanged.
+fn with_distinct(expr: Expr) -> Expr {
+    match expr {
+        Expr::AggregateFunction(af) => Expr::AggregateFunction(AggregateFunction::new_udf(
+            af.func,
+            af.params.args,
+            true,
+            af.params.filter,
+            af.params.order_by,
+            af.params.null_treatment,
+        )),
+        other => other,
+    }
+}
+
+/// Replace an `Expr::AggregateFunction` with the same call but `filter=Some(...)`.
+/// Non-aggregate-function expressions are returned unchanged.
+fn with_filter(expr: Expr, filter: Expr) -> Expr {
+    match expr {
+        Expr::AggregateFunction(af) => Expr::AggregateFunction(AggregateFunction::new_udf(
+            af.func,
+            af.params.args,
+            af.params.distinct,
+            Some(Box::new(filter)),
+            af.params.order_by,
+            af.params.null_treatment,
+        )),
+        other => other,
     }
 }
 
@@ -615,10 +620,7 @@ fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
     let (rti, _attno, ref field_name) = agg.field_refs.first().ok_or_else(|| {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;
-
-    let source = plan.source_for_rti_in_subtree(*rti);
-    let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
-    Ok(make_col(&alias, field_name))
+    Ok(make_rti_col(plan, *rti, field_name))
 }
 
 /// Convert aggregate ORDER BY entries to DataFusion `Sort` expressions.
@@ -626,10 +628,8 @@ fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort>
     order_by
         .iter()
         .map(|entry| {
-            let source = plan.source_for_rti_in_subtree(entry.rti);
-            let (alias, _) = resolve_source_column(source, entry.rti, &entry.field_name, plan);
             Sort::new(
-                make_col(&alias, &entry.field_name),
+                make_rti_col(plan, entry.rti, &entry.field_name),
                 entry.direction.is_asc(),
                 entry.direction.is_nulls_first(),
             )
@@ -642,10 +642,6 @@ fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort>
 fn agg_field_cols(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Vec<Expr>> {
     agg.field_refs
         .iter()
-        .map(|(rti, _attno, field_name)| {
-            let source = plan.source_for_rti_in_subtree(*rti);
-            let (alias, _) = resolve_source_column(source, *rti, field_name, plan);
-            Ok(make_col(&alias, field_name))
-        })
+        .map(|(rti, _attno, field_name)| Ok(make_rti_col(plan, *rti, field_name)))
         .collect()
 }

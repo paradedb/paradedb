@@ -210,15 +210,40 @@ fn try_inject_below_lookup(
                     None => return Ok(None),
                 };
 
-                // The sort_exprs were extracted from SortExec, which is evaluated against
-                // a schema further up the plan (often after a ProjectionExec or AggregateExec).
-                // We must rewrite the Column expressions to match the input_schema of this node.
+                // Each sort expression carries a physical column index set when SortExec was built
+                // against TantivyLookupExec's output schema. TantivyLookupExec preserves field
+                // positions exactly — it only changes Union types to their materialized string types —
+                // so col.index() maps directly into lookup_child's schema without name-based translation.
                 let mut rewritten_sort_exprs = Vec::with_capacity(sort_exprs.len());
                 for sort_expr in &sort_exprs {
                     use datafusion::common::tree_node::{Transformed, TreeNode};
                     let rewritten_expr = sort_expr.expr.clone().transform(|node| {
                         if let Some(col) = node.as_any().downcast_ref::<Column>() {
-                            if let Ok(new_idx) = input_schema.index_of(col.name()) {
+                            let new_idx = col.index();
+                            if new_idx < input_schema.fields().len() {
+                                // Ensure index is valid (this is the real invariant)
+                                debug_assert!(
+                                    new_idx < input_schema.fields().len(),
+                                    "SegmentedTopK sort-expr rewrite: column index {} out of bounds (schema has {} fields)",
+                                    new_idx,
+                                    input_schema.fields().len()
+                                );
+
+                                // Names may differ due to aliases (e.g., col_2 vs name), so don't assert equality.
+                                // But log in debug builds for visibility.
+                                if cfg!(debug_assertions) {
+                                    let expected = input_schema.field(new_idx).name();
+                                    let actual = col.name();
+                                    if expected != actual {
+                                        eprintln!(
+                                            "SegmentedTopK debug: column name mismatch at index {} (expected '{}', got '{}')",
+                                            new_idx,
+                                            expected,
+                                            actual
+                                        );
+                                    }
+                                }
+
                                 let new_col = Column::new(col.name(), new_idx);
                                 return Ok(Transformed::yes(
                                     Arc::new(new_col) as Arc<dyn PhysicalExpr>

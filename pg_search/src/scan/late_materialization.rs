@@ -249,13 +249,16 @@ fn get_union_info(
             ));
             new_fields.push((qualifier.cloned(), materialized_field));
 
-            // Find matching deferred field by tracing the column lineage.
+            // Find the matching deferred field by tracing the column lineage back to its
+            // base TableScan name. Name-matching is safe here because we consume entries from
+            // all_deferred one-by-one: for a self-join both sides produce an identical
+            // DeferredField (same name, is_bytes, canonical), so each Union field in the schema
+            // claims its own entry without duplication.
             let col =
                 datafusion::common::Column::from((qualifier.cloned().as_ref(), field.as_ref()));
             if let Some(base_col) = trace_column(plan, &col) {
                 if let Some(pos) = all_deferred.iter().position(|d| d.name == base_col.name) {
                     let d = all_deferred.remove(pos);
-                    // Since d.name is already the base name, we just need to keep it in the active set
                     active_deferred.push(d);
                 }
             }
@@ -263,8 +266,6 @@ fn get_union_info(
             new_fields.push((qualifier.cloned(), field.clone()));
         }
     }
-
-    active_deferred.dedup_by(|a, b| a.name == b.name);
 
     let new_schema = Arc::new(
         datafusion::common::DFSchema::new_with_metadata(new_fields, schema.metadata().clone())
@@ -606,7 +607,10 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
                     )),
                 ));
 
-                // Find the corresponding deferred field.
+                // Find the corresponding deferred field by tracing column lineage.
+                // Name-matching is safe: for a self-join both sides produce identical
+                // DeferredField structs; we consume entries one-by-one so each Union
+                // column in the child schema claims its own distinct slot.
                 let target_col = datafusion::common::Column::from((qualifier, field.as_ref()));
                 if let Some(base_col) = trace_column(&input, &target_col) {
                     if let Some(pos) = deferred_pool.iter().position(|d| d.name == base_col.name) {
@@ -683,21 +687,47 @@ impl ExtensionPlanner for LateMaterializePlanner {
             let mut physical_deferred_fields = Vec::with_capacity(mat_node.deferred_fields.len());
 
             for deferred in &mat_node.deferred_fields {
-                let mut found_idx = None;
+                // Scan the child schema for the Union-typed field whose base column name
+                // matches this deferred field. We iterate by physical index so that duplicate
+                // column names (e.g. both sides of a self-join both called "ord") each resolve
+                // to their own distinct physical slot, not the first match by name.
+                let mut found_col_idx: Option<usize> = None;
                 for (i, field) in child_logical_schema.fields().iter().enumerate() {
-                    let col = datafusion::common::Column::from_name(field.name());
+                    if !matches!(field.data_type(), arrow_schema::DataType::Union(_, _)) {
+                        continue;
+                    }
+                    // Only consider Union columns that haven't been claimed yet.
+                    if physical_deferred_fields.iter().any(
+                        |p: &crate::scan::tantivy_lookup_exec::PhysicalDeferredField| {
+                            p.col_idx == i
+                        },
+                    ) {
+                        continue;
+                    }
+                    let (q, _) = child_logical_schema.qualified_field(i);
+                    let col =
+                        datafusion::common::Column::from((q.cloned().as_ref(), field.as_ref()));
                     if let Some(base_col) = trace_column(&mat_node.input, &col) {
                         if base_col.name == deferred.name {
-                            found_idx = Some(i);
+                            found_col_idx = Some(i);
                             break;
                         }
                     }
                 }
 
-                let col_idx = found_idx.ok_or_else(|| {
+                let col_idx = found_col_idx.ok_or_else(|| {
                     DataFusionError::Internal(format!(
-                        "Could not find physical index for deferred column {}",
-                        deferred.name
+                        "LateMaterializePlanner: could not locate physical Union column \
+                         for deferred field '{}' in child schema. \
+                         Child schema fields: [{}]",
+                        deferred.name,
+                        child_logical_schema
+                            .fields()
+                            .iter()
+                            .enumerate()
+                            .map(|(i, f)| format!("{}:{}", i, f.name()))
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ))
                 })?;
 

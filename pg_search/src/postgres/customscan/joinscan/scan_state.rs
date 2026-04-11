@@ -84,7 +84,8 @@ use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::translator::{
-    build_join_df, make_col, CombinedMapper, JoinTypeAllowList, PredicateTranslator,
+    apply_join_level_filter, build_join_df, make_col, CombinedMapper, JoinTypeAllowList,
+    PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -528,7 +529,7 @@ fn build_relnode_df<'a>(
                 Ok(df)
             }
             RelNode::Filter(filter) => {
-                let mut df = build_relnode_df(rctx, &filter.input).await?;
+                let df = build_relnode_df(rctx, &filter.input).await?;
 
                 // Compute per-plan_position deferred visibility. A plan_position's
                 // ctid is "deferred" (packed DocAddress) if it flows only through
@@ -539,45 +540,16 @@ fn build_relnode_df<'a>(
                 let deferred_positions =
                     super::visibility_filter::deferred_plan_positions(&filter.input);
                 let sources = filter.input.sources();
-                let filter_expr = unsafe {
-                    PredicateTranslator::translate_join_level_expr(
-                        &filter.predicate,
-                        rctx.translated_exprs,
-                        rctx.ctid_map,
-                        &rctx.join_clause.join_level_predicates,
-                        &deferred_positions,
-                        &sources,
-                    )
-                }
-                .ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "Failed to translate join level expression tree: {:?}",
-                        filter.predicate
-                    ))
-                })?;
-
-                // For MarkOrNull filters, drop the synthetic "mark" column after filtering.
-                let is_mark_filter = matches!(
-                    filter.predicate,
-                    crate::postgres::customscan::joinscan::build::JoinLevelExpr::MarkOrNull { .. }
-                );
-
-                df = df.filter(filter_expr)?;
-
-                if is_mark_filter {
-                    use datafusion::logical_expr::col;
-                    let schema = df.schema().clone();
-                    let proj_cols: Vec<datafusion::logical_expr::Expr> = schema
-                        .columns()
-                        .into_iter()
-                        .filter(|c| c.name != "mark")
-                        .map(col)
-                        .collect();
-                    if !proj_cols.is_empty() {
-                        df = df.select(proj_cols)?;
-                    }
-                }
-                Ok(df)
+                apply_join_level_filter(
+                    df,
+                    &filter.predicate,
+                    rctx.translated_exprs,
+                    rctx.ctid_map,
+                    &rctx.join_clause.join_level_predicates,
+                    &deferred_positions,
+                    &sources,
+                    /* handle_mark = */ true,
+                )
             }
         }
     };

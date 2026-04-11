@@ -79,6 +79,52 @@ use tantivy::schema::OwnedValue;
 #[derive(Default)]
 pub struct AggregateScan;
 
+/// Why the DataFusion aggregate path declined to produce a custom path.
+///
+/// Mirrors `JoinScan`'s `JoinPathDecline` shape: `Quiet` is for early gates
+/// that filter out non-candidate inputs, `Warn` is for validation failures
+/// past the "candidate" boundary that owe the planner a NOTICE.
+enum AggregatePathDecline {
+    Quiet,
+    Warn(AggregateDeclineReason),
+}
+
+/// Specific reason a `Warn` decline was raised. Each variant maps 1:1 to a
+/// planner-warning string the inline code used to emit.
+enum AggregateDeclineReason {
+    NotAllBm25,
+    NonEquiJoinQuals,
+    CrossJoin,
+    /// Errors carrying a free-form message (parse-tree extraction, target-list
+    /// extraction, fast-field population) — the underlying helper already
+    /// produces a contextual string.
+    Other(String),
+}
+
+impl AggregateDeclineReason {
+    fn emit(&self) {
+        let alias = "join".to_string();
+        match self {
+            AggregateDeclineReason::NotAllBm25 => AggregateScan::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes",
+                alias,
+            ),
+            AggregateDeclineReason::NonEquiJoinQuals => AggregateScan::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
+                alias,
+            ),
+            AggregateDeclineReason::CrossJoin => AggregateScan::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
+                alias,
+            ),
+            AggregateDeclineReason::Other(msg) => AggregateScan::add_planner_warning(
+                format!("Aggregate Scan (DataFusion) not used: {}", msg),
+                alias,
+            ),
+        }
+    }
+}
+
 impl CustomScan for AggregateScan {
     const NAME: &'static CStr = c"ParadeDB Aggregate Scan";
     type Args = CreateUpperPathsHookArgs;
@@ -890,28 +936,42 @@ impl AggregateScan {
     fn build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
     ) -> Vec<pg_sys::CustomPath> {
+        match Self::try_build_datafusion_aggregate_path(builder) {
+            Ok(path) => vec![path],
+            Err(AggregatePathDecline::Quiet) => Vec::new(),
+            Err(AggregatePathDecline::Warn(reason)) => {
+                reason.emit();
+                Vec::new()
+            }
+        }
+    }
+
+    /// Body of [`Self::build_datafusion_aggregate_path`] in `?`-style.
+    /// Mirrors the JoinScan `try_build_join_custom_path` shape: `Quiet` for
+    /// silent gates that don't qualify as a join we'd accelerate, and
+    /// `Warn(reason)` for validation failures past the "candidate" boundary
+    /// that owe the planner a NOTICE.
+    fn try_build_datafusion_aggregate_path(
+        builder: CustomPathBuilder<Self>,
+    ) -> Result<pg_sys::CustomPath, AggregatePathDecline> {
         let root = builder.args().root;
         let input_rel = builder.args().input_rel();
 
-        // Collect all tables in the join and their BM25 indexes
+        // Silent gates: no sources, or no BM25 index at all → not a candidate.
         let sources = unsafe { collect_join_agg_sources(root, input_rel) };
-
         if sources.is_empty() {
-            return Vec::new();
+            return Err(AggregatePathDecline::Quiet);
+        }
+        if !has_any_bm25_index(&sources) {
+            return Err(AggregatePathDecline::Quiet);
         }
 
-        // At least one table must have a BM25 index
-        if !has_any_bm25_index(&sources) {
-            return Vec::new();
-        }
+        // Below this line every Err carries a planner warning.
+        let warn = |reason| AggregatePathDecline::Warn(reason);
 
         // For M1, all tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider)
         if !all_have_bm25_index(&sources) {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes",
-                "join".to_string(),
-            );
-            return Vec::new();
+            return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
         // Reject joins with non-equi quals (OR across tables, cross-table
@@ -919,38 +979,17 @@ impl AggregateScan {
         // joinrestrictinfo AND the parse tree's WHERE quals for cross-table
         // references that our DataFusion backend can't apply.
         if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
-                "join".to_string(),
-            );
-            return Vec::new();
+            return Err(warn(AggregateDeclineReason::NonEquiJoinQuals));
         }
 
         // Extract the join tree from the parse tree
-        let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) = match unsafe {
-            extract_join_tree_from_parse(root, &sources, builder.args().input_rel())
-        } {
-            Ok(result) => result,
-            Err(e) => {
-                Self::add_planner_warning(
-                    format!("Aggregate Scan (DataFusion) not used: {}", e),
-                    "join".to_string(),
-                );
-                return Vec::new();
-            }
-        };
+        let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) =
+            unsafe { extract_join_tree_from_parse(root, &sources, builder.args().input_rel()) }
+                .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let targetlist = match unsafe { extract_aggregate_targetlist(builder.args(), &sources) } {
-            Ok(tl) => tl,
-            Err(e) => {
-                Self::add_planner_warning(
-                    format!("Aggregate Scan (DataFusion) not used: {}", e),
-                    "join".to_string(),
-                );
-                return Vec::new();
-            }
-        };
+        let targetlist = unsafe { extract_aggregate_targetlist(builder.args(), &sources) }
+            .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Reject plans with any join node that has no equi-keys (CROSS JOIN).
         // Without join keys, PgSearchTableProvider has no Named fields,
@@ -960,24 +999,15 @@ impl AggregateScan {
         // when routed from RELOPT_BASEREL (e.g., max_buckets overflow or
         // ORDER BY aggregate + LIMIT).
         if sources.len() > 1 && plan.has_join_without_keys() {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
-                "join".to_string(),
-            );
-            return Vec::new();
+            return Err(warn(AggregateDeclineReason::CrossJoin));
         }
 
         // Populate the fast fields on each source so PgSearchTableProvider exposes them.
         // This fails if join key fields aren't indexed as fast fields.
-        if let Err(e) = unsafe {
+        unsafe {
             datafusion_build::populate_required_fields(&mut plan, &targetlist, &multi_table_clauses)
-        } {
-            Self::add_planner_warning(
-                format!("Aggregate Scan (DataFusion) not used: {}", e),
-                "join".to_string(),
-            );
-            return Vec::new();
         }
+        .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
         // DataFusion's SortExec(fetch=K) uses a bounded TopK heap internally.
@@ -1028,7 +1058,7 @@ impl AggregateScan {
             }
         }
 
-        vec![custom_path]
+        Ok(custom_path)
     }
 
     /// Execute the DataFusion aggregate path: build plan, consume Arrow batches,

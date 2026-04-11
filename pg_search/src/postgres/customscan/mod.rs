@@ -24,10 +24,12 @@ use pgrx::{direct_function_call, pg_sys, IntoDatum, PgMemoryContexts};
 
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 
 pub mod aggregatescan;
 pub mod basescan;
 mod builders;
+pub mod datafusion;
 pub mod dsm;
 pub mod exec;
 pub mod explain;
@@ -382,20 +384,23 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
 }
 
 pub fn score_funcoids() -> [pg_sys::Oid; 2] {
-    [
-        unsafe {
-            direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"pdb.score(anyelement)".into_datum()],
-            )
-            .expect("the `pdb.score(anyelement)` function should exist")
-        },
-        unsafe {
-            direct_function_call::<pg_sys::Oid>(
-                pg_sys::regprocedurein,
-                &[c"paradedb.score(anyelement)".into_datum()],
-            )
-            .expect("the `paradedb.score(anyelement)` function should exist")
-        },
-    ]
+    static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
+    *OID_CACHE.get_or_init(|| {
+        [
+            unsafe {
+                direct_function_call::<pg_sys::Oid>(
+                    pg_sys::regprocedurein,
+                    &[c"pdb.score(anyelement)".into_datum()],
+                )
+                .expect("the `pdb.score(anyelement)` function should exist")
+            },
+            unsafe {
+                direct_function_call::<pg_sys::Oid>(
+                    pg_sys::regprocedurein,
+                    &[c"paradedb.score(anyelement)".into_datum()],
+                )
+                .expect("the `paradedb.score(anyelement)` function should exist")
+            },
+        ]
+    })
 }

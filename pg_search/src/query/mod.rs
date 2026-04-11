@@ -326,6 +326,43 @@ impl SearchQueryInput {
         }
     }
 
+    pub fn needs_tokenizer(&self) -> bool {
+        match self {
+            SearchQueryInput::Uninitialized
+            | SearchQueryInput::All
+            | SearchQueryInput::Empty
+            | SearchQueryInput::TermSet { .. }
+            | SearchQueryInput::PostgresExpression { .. } => false,
+
+            SearchQueryInput::Parse { .. } | SearchQueryInput::MoreLikeThis { .. } => true,
+
+            SearchQueryInput::FieldedQuery { query, .. } => query.needs_tokenizer(),
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => must
+                .iter()
+                .chain(should.iter())
+                .chain(must_not.iter())
+                .any(Self::needs_tokenizer),
+            SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. }
+            | SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::HeapFilter {
+                indexed_query: query,
+                ..
+            } => query.needs_tokenizer(),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(Self::needs_tokenizer)
+            }
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => query.needs_tokenizer(),
+            SearchQueryInput::ScoreFilter { query: None, .. } => false,
+        }
+    }
+
     /// Returns `true` if constructing a Tantivy Scorer for this query would be expensive.
     /// Used by `estimate_selectivity` to short-circuit and return a heuristic instead.
     pub fn is_expensive_to_estimate(&self) -> bool {

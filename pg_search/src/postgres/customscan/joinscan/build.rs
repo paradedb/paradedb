@@ -296,8 +296,10 @@ pub enum ChildProjection {
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::range_table::{get_plain_relation_relid, get_rte};
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::rel_get_bm25_index;
 use crate::scan::info::{FieldInfo, RowEstimate};
 
 /// Source information collected during planning.
@@ -418,6 +420,7 @@ impl JoinSourceCandidate {
         // `expr_context` only lives until the end of this function,
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
+        let needs_tokenizer_manager = query.needs_tokenizer();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query,
@@ -425,6 +428,7 @@ impl JoinSourceCandidate {
             MvccSatisfies::LargestSegment,
             NonNull::new(expr_context.as_ptr()),
             None,
+            needs_tokenizer_manager,
         )
         .expect("Failed to open index reader for estimation");
 
@@ -890,6 +894,122 @@ impl RelNode {
         }
     }
 
+    /// Resolve every equi-join key in this tree structurally against the
+    /// specific join node that owns it, and return `(plan_position, attno)`
+    /// pairs identifying the exact sources that must project each key column.
+    ///
+    /// A flat lookup keyed on `(rti, attno)` can pick the wrong source when a
+    /// SubPlan's inner relation shares an RTI value with an outer relation
+    /// (inner queries have their own RTI numbering). By resolving each key
+    /// against its owning `JoinNode`'s own `left`/`right` subtrees with the
+    /// same logic used at execution time (`JoinKeyPair::resolve_against`),
+    /// we bind each key to the correct `JoinSource` unambiguously.
+    pub fn join_key_projections(&self) -> Vec<(usize, pg_sys::AttrNumber)> {
+        let mut result = Vec::new();
+        self.collect_join_key_projections(&mut result);
+        result
+    }
+
+    fn collect_join_key_projections(&self, acc: &mut Vec<(usize, pg_sys::AttrNumber)>) {
+        match self {
+            RelNode::Scan(_) => {}
+            RelNode::Join(j) => {
+                for jk in &j.equi_keys {
+                    if let Some(((left_src, left_att), (right_src, right_att))) =
+                        jk.resolve_against(&j.left, &j.right)
+                    {
+                        acc.push((left_src.plan_position, left_att));
+                        acc.push((right_src.plan_position, right_att));
+                    }
+                }
+                j.left.collect_join_key_projections(acc);
+                j.right.collect_join_key_projections(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_join_key_projections(acc),
+        }
+    }
+
+    /// Distribute equi-join keys to the correct join level in the tree.
+    ///
+    /// For 2-table joins all keys land on the single JoinNode. For 3+ table
+    /// joins each key is placed at the deepest JoinNode where one RTI is in the
+    /// left subtree and the other is in the right. This prevents
+    /// `resolve_against` failures caused by both RTIs being in the same subtree.
+    ///
+    /// **Why AggregateScan needs this but JoinScan does not:**
+    /// JoinScan hooks into `join_pathlist`, which PostgreSQL calls bottom-up
+    /// for each join pair — so equi-keys arrive pre-distributed across join
+    /// levels by the planner itself. AggregateScan hooks into
+    /// `UPPERREL_GROUP_AGG` (post-join), where it must reconstruct the join
+    /// tree from the parse tree. For implicit joins (`FROM a, b, c WHERE ...`)
+    /// all equi-keys land in a flat WHERE clause, not distributed across join
+    /// nodes, so this method is needed to place each key at the correct level.
+    pub fn inject_equi_keys(&mut self, keys: Vec<JoinKeyPair>) {
+        for key in keys {
+            self.inject_single_equi_key(key);
+        }
+    }
+
+    /// Place a single equi-key at the correct join level.
+    /// Returns `true` if the key was successfully placed.
+    fn inject_single_equi_key(&mut self, key: JoinKeyPair) -> bool {
+        match self {
+            RelNode::Join(ref mut join_node) => {
+                let outer_in_left = join_node.left.contains_rti(key.outer_rti);
+                let outer_in_right = join_node.right.contains_rti(key.outer_rti);
+                let inner_in_left = join_node.left.contains_rti(key.inner_rti);
+                let inner_in_right = join_node.right.contains_rti(key.inner_rti);
+
+                // Key spans the two sides of this join — place it here
+                if (outer_in_left && inner_in_right) || (outer_in_right && inner_in_left) {
+                    let dup = join_node.equi_keys.iter().any(|k| {
+                        (k.outer_rti == key.outer_rti
+                            && k.outer_attno == key.outer_attno
+                            && k.inner_rti == key.inner_rti
+                            && k.inner_attno == key.inner_attno)
+                            || (k.outer_rti == key.inner_rti
+                                && k.outer_attno == key.inner_attno
+                                && k.inner_rti == key.outer_rti
+                                && k.inner_attno == key.outer_attno)
+                    });
+                    if !dup {
+                        join_node.equi_keys.push(key);
+                    }
+                    return true;
+                }
+
+                // Both RTIs in left subtree — recurse left
+                if outer_in_left && inner_in_left {
+                    return join_node.left.inject_single_equi_key(key);
+                }
+
+                // Both RTIs in right subtree — recurse right
+                if outer_in_right && inner_in_right {
+                    return join_node.right.inject_single_equi_key(key);
+                }
+
+                false
+            }
+            RelNode::Filter(ref mut filter) => filter.input.inject_single_equi_key(key),
+            RelNode::Scan(_) => false,
+        }
+    }
+
+    /// Returns true if any `JoinNode` in the tree has an empty `equi_keys` list.
+    /// Used to reject plans where an intermediate join (e.g., CROSS JOIN inside
+    /// a 3-table query) would cause DataFusion to error or produce empty batches.
+    pub fn has_join_without_keys(&self) -> bool {
+        match self {
+            RelNode::Scan(_) => false,
+            RelNode::Join(j) => {
+                j.equi_keys.is_empty()
+                    || j.left.has_join_without_keys()
+                    || j.right.has_join_without_keys()
+            }
+            RelNode::Filter(f) => f.input.has_join_without_keys(),
+        }
+    }
+
     /// Extract the top-level join_level_expr if present.
     pub fn join_level_expr(&self) -> Option<&JoinLevelExpr> {
         match self {
@@ -1209,4 +1329,123 @@ impl JoinCSClause {
             None
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Shared utilities used by both JoinScan and AggregateScan
+// ---------------------------------------------------------------------------
+
+/// Strip expression wrappers (`RelabelType`, `PlaceHolderVar`) to get the
+/// underlying node. Used when extracting `Var` nodes from join conditions
+/// that may have implicit type casts.
+pub unsafe fn strip_node_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    loop {
+        if node.is_null() {
+            return node;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_RelabelType => {
+                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+            }
+            pg_sys::NodeTag::T_PlaceHolderVar => {
+                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+            }
+            _ => break,
+        }
+    }
+    node
+}
+
+/// Try to extract a [`JoinKeyPair`] from an `OpExpr` node.
+///
+/// Returns `Some(JoinKeyPair)` if the expression is `var1 = var2` where both
+/// variables reference different tables within `valid_rtis`. Uses
+/// `op_mergejoinable` as the canonical equality check (more correct than
+/// string-comparing operator names).
+///
+/// Shared between JoinScan (`extract_join_conditions_from_list`) and
+/// AggregateScan (`extract_equi_keys_from_expr`).
+pub unsafe fn try_extract_equi_key(
+    op: *mut pg_sys::OpExpr,
+    valid_rtis: &[pg_sys::Index],
+) -> Option<JoinKeyPair> {
+    if !pg_sys::op_mergejoinable((*op).opno, pg_sys::Oid::INVALID) {
+        return None;
+    }
+
+    let args = PgList::<pg_sys::Node>::from_pg((*op).args);
+    if args.len() != 2 {
+        return None;
+    }
+
+    let left_node = strip_node_wrappers(args.get_ptr(0)?);
+    let right_node = strip_node_wrappers(args.get_ptr(1)?);
+
+    if (*left_node).type_ != pg_sys::NodeTag::T_Var || (*right_node).type_ != pg_sys::NodeTag::T_Var
+    {
+        return None;
+    }
+
+    let left_var = left_node as *mut pg_sys::Var;
+    let right_var = right_node as *mut pg_sys::Var;
+
+    let left_rti = (*left_var).varno as pg_sys::Index;
+    let right_rti = (*right_var).varno as pg_sys::Index;
+
+    // Must reference different tables, both within scope
+    if left_rti == right_rti {
+        return None;
+    }
+    if !valid_rtis.contains(&left_rti) || !valid_rtis.contains(&right_rti) {
+        return None;
+    }
+
+    let mut typlen: i16 = 0;
+    let mut typbyval: bool = false;
+    pg_sys::get_typlenbyval(
+        (*left_var).vartype,
+        &mut typlen as *mut _,
+        &mut typbyval as *mut _,
+    );
+
+    Some(JoinKeyPair {
+        outer_rti: left_rti,
+        outer_attno: (*left_var).varattno,
+        inner_rti: right_rti,
+        inner_attno: (*right_var).varattno,
+        type_oid: (*left_var).vartype,
+        typlen,
+        typbyval,
+    })
+}
+
+/// Look up base-relation metadata for a given RTI: relid, alias, and BM25 index.
+///
+/// Shared between JoinScan's `collect_join_sources_base_rel` and AggregateScan's
+/// `collect_join_agg_sources`. Returns `None` if the RTI doesn't point to a
+/// plain relation (e.g., subquery, CTE).
+pub unsafe fn lookup_base_rel_info(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+) -> Option<(pg_sys::Oid, Option<String>, Option<PgSearchRelation>)> {
+    let rte = get_rte(
+        (*root).simple_rel_array_size as usize,
+        (*root).simple_rte_array,
+        rti,
+    )?;
+
+    let relid = get_plain_relation_relid(rte)?;
+
+    let alias = if !(*rte).eref.is_null() && !(*(*rte).eref).aliasname.is_null() {
+        std::ffi::CStr::from_ptr((*(*rte).eref).aliasname)
+            .to_str()
+            .ok()
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
+
+    let bm25_index = rel_get_bm25_index(relid).map(|(_, idx)| idx);
+
+    Some((relid, alias, bm25_index))
 }

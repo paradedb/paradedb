@@ -44,15 +44,17 @@ jobs:
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Extract pgrx Version
         id: pgrx
-        working-directory: pg_search/
-        run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo "version=$version" >> $GITHUB_OUTPUT
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
+      # See test-pg_search.yml for rationale.
+      # Only save cache on non-PR events; PRs restore from the default branch.
       # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
@@ -61,6 +63,7 @@ jobs:
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof
@@ -85,7 +88,7 @@ jobs:
 
       # This is the pgrx version compatible with ParadeDB $PRIOR_PG_SEARCH_VERSION
       - name: Install pgrx for ParadeDB $PRIOR_PG_SEARCH_VERSION
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.16.1 --debug
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.16.1 --force --debug
 
       - name: Initialize pgrx environment for ParadeDB $PRIOR_PG_SEARCH_VERSION
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
@@ -126,16 +129,8 @@ jobs:
         working-directory: pg_search/
         run: RUST_BACKTRACE=1 cargo pgrx stop pg${{ matrix.pg_version }}
 
-      - name: Cache pgrx binary
-        id: cache-pgrx
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
-
       - name: Install the pgrx version for ParadeDB
-        if: steps.cache-pgrx.outputs.cache-hit != 'true'
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --force --debug
 
       - name: Initialize pgrx environment for ParadeDB
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
@@ -176,7 +171,7 @@ jobs:
         working-directory: pg_search/
         run: |
           psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS \$\$ BEGIN IF a <> b THEN RAISE EXCEPTION 'Assertion failed: % <> %', a, b; END IF; RETURN true; END; \$\$;"
-          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "SELECT assert(count(*), 0) FROM paradedb.validate_checksum('search_idx');"
+          psql -h localhost -p 288${{ matrix.pg_version }} postgres -c "SELECT assert(count(*), 0) FROM (SELECT * FROM pdb.verify_index('search_idx') WHERE NOT passed) failed;"
 
       # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
       - name: Run pg_search Integration Tests

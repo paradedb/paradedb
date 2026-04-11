@@ -62,7 +62,7 @@
 
 use std::sync::Arc;
 
-use datafusion::common::{DataFusionError, JoinType, Result};
+use datafusion::common::{DataFusionError, Result};
 use datafusion::logical_expr::{col, Expr};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
@@ -73,17 +73,22 @@ use tantivy::index::SegmentId;
 
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::datafusion::memory::create_memory_pool;
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
+use crate::postgres::customscan::datafusion::translator::{
+    build_join_df, make_col, CombinedMapper, JoinTypeAllowList, PredicateTranslator,
+};
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
-use crate::postgres::customscan::joinscan::translator::{make_col, CombinedMapper};
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -103,6 +108,28 @@ fn make_source_col(source: &JoinSource, plan_position: usize, field_name: &str) 
 fn make_source_score_col(source: &JoinSource, plan_position: usize) -> Expr {
     let alias = RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
     make_col(&alias, SCORE_COL_NAME)
+}
+
+/// Resolve a Postgres `(rti, attno)` reference to a DataFusion column expression
+/// by walking the join's plan sources and finding the first one that claims it.
+///
+/// Returns `None` if no source maps the var — the caller decides whether to
+/// fall back to a literal or propagate the absence.
+fn resolve_var_to_df_col(
+    join_clause: &JoinCSClause,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<Expr> {
+    join_clause
+        .plan
+        .sources()
+        .iter()
+        .enumerate()
+        .find_map(|(idx, source)| {
+            let mapped = source.map_var(rti, attno)?;
+            let field = source.column_name(mapped)?;
+            Some(make_source_col(source, idx, &field))
+        })
 }
 
 /// Query planner that lowers JoinScan's custom logical nodes
@@ -221,27 +248,22 @@ impl CustomScanState for JoinScanState {
     }
 }
 
-/// Base session config shared by all contexts.
-fn base_session_config() -> SessionConfig {
-    let mut config = SessionConfig::new().with_target_partitions(1);
-    config
-        .options_mut()
-        .optimizer
-        .enable_topk_dynamic_filter_pushdown = true;
-    config
-}
-
-/// Adds SegmentedTopK plus the final post-optimization FilterPushdown pass.
+/// Selects which physical optimizer rules to install on top of the shared
+/// base session for a given consumer.
 ///
-/// This second `FilterPushdown(Post)` run is intentional: `SegmentedTopKRule`
-/// can inject new `DynamicFilterPhysicalExpr`s that did not exist during the
-/// earlier post-optimization pass.
-fn add_tail_physical_rules(builder: SessionStateBuilder) -> SessionStateBuilder {
-    builder
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::segmented_topk_rule::SegmentedTopKRule,
-        ))
-        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()))
+/// JoinScan needs `SegmentedTopKRule` and the trailing `FilterPushdown` passes
+/// that follow it; AggregateScan needs only a single `FilterPushdown` post-pass.
+/// Exposing the difference as an explicit profile keeps the choice grep-able
+/// from the call site.
+#[derive(Copy, Clone, Debug)]
+pub enum SessionContextProfile {
+    /// JoinScan execution: enables `topk_dynamic_filter_pushdown`, includes
+    /// `SegmentedTopKRule`, and adds the trailing `FilterPushdown` passes that
+    /// `SegmentedTopKRule` requires.
+    Join,
+    /// AggregateScan execution: single `FilterPushdown` post-pass, no
+    /// SegmentedTopK, no topk dynamic filter pushdown.
+    Aggregate,
 }
 
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
@@ -274,26 +296,49 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 
-/// Creates the shared DataFusion SessionContext used for both JoinScan logical
-/// planning and execution.
+/// Creates a DataFusion [`SessionContext`] for either JoinScan or AggregateScan.
 ///
-/// The same context configuration is used to:
-/// 1. run logical optimization and produce the canonical serialized plan
-/// 2. lower that deserialized logical plan into a physical plan at execution
-pub fn create_session_context() -> SessionContext {
-    let mut builder = build_base_session(base_session_config());
-
-    // VisibilityExtensionPlanner already places visibility below any immediate
-    // TantivyLookupExec chain, so only resolver wiring remains here before the
-    // first post-optimization FilterPushdown pass. That pass reconnects dynamic
-    // filters after SortMergeJoin rewrites; the final pass in
-    // `add_tail_physical_rules` handles any new filters introduced by
-    // SegmentedTopKRule later in the pipeline.
-    if crate::gucs::is_columnar_sort_enabled() {
-        builder =
-            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+/// The base session (visibility filtering, late materialization, SortMergeJoin
+/// enforcement, the `PgSearchQueryPlanner`, and the visibility-ctid resolver)
+/// is shared via [`build_base_session`]. The supplied [`SessionContextProfile`]
+/// then layers on the physical optimizer rules each consumer needs:
+///
+/// - [`SessionContextProfile::Join`]: enables `topk_dynamic_filter_pushdown`,
+///   conditionally injects an early `FilterPushdown` post-pass when columnar
+///   sort is on (so dynamic filters reconnect after SortMergeJoin rewrites),
+///   then appends `SegmentedTopKRule` followed by a trailing `FilterPushdown`
+///   pass to pick up any filters `SegmentedTopKRule` injects.
+/// - [`SessionContextProfile::Aggregate`]: appends a single `FilterPushdown`
+///   post-pass; SegmentedTopK does not apply to aggregate-on-join queries.
+pub fn create_datafusion_session_context(profile: SessionContextProfile) -> SessionContext {
+    let mut config = SessionConfig::new().with_target_partitions(1);
+    if matches!(profile, SessionContextProfile::Join) {
+        config
+            .options_mut()
+            .optimizer
+            .enable_topk_dynamic_filter_pushdown = true;
     }
-    builder = add_tail_physical_rules(builder);
+
+    let mut builder = build_base_session(config);
+
+    match profile {
+        SessionContextProfile::Join => {
+            if crate::gucs::is_columnar_sort_enabled() {
+                builder = builder.with_physical_optimizer_rule(Arc::new(
+                    FilterPushdown::new_post_optimization(),
+                ));
+            }
+            builder = builder
+                .with_physical_optimizer_rule(Arc::new(
+                    crate::scan::segmented_topk_rule::SegmentedTopKRule,
+                ))
+                .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+        }
+        SessionContextProfile::Aggregate => {
+            builder = builder
+                .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+        }
+    }
 
     SessionContext::new_with_state(builder.build())
 }
@@ -305,7 +350,7 @@ pub async fn build_joinscan_logical_plan(
     private_data: &PrivateData,
     custom_exprs: *mut pg_sys::List,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
-    let ctx = create_session_context();
+    let ctx = create_datafusion_session_context(SessionContextProfile::Join);
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs).await?;
     df.into_optimized_plan()
 }
@@ -316,6 +361,25 @@ pub async fn build_joinscan_logical_plan(
 /// nodes injected at planning time). Physical planning reuses the shared
 /// `SessionContext` configuration and lowers the stored plan after execution
 /// has injected whatever runtime-only bindings are required during decode.
+/// Register a [`PgSearchTableProvider`] under `alias` and return the resulting
+/// [`DataFrame`].
+///
+/// Wraps the provider in an `Arc`, registers it on `ctx`, and awaits
+/// `ctx.table(alias)`. Callers must finish configuring the provider
+/// (deferred outputs, non-partitioning index, etc.) before handing it in;
+/// this helper does not select or alias any columns.
+///
+/// Shared by JoinScan and AggregateScan `build_source_df` implementations.
+pub async fn register_source_table(
+    ctx: &SessionContext,
+    alias: &str,
+    provider: crate::scan::PgSearchTableProvider,
+) -> Result<DataFrame> {
+    let provider = Arc::new(provider);
+    ctx.register_table(alias, provider)?;
+    ctx.table(alias).await
+}
+
 /// Build a DataFusion physical plan from a logical plan.
 ///
 /// Uses the session context's query planner and wraps multi-partition
@@ -338,6 +402,47 @@ pub async fn build_physical_plan(
     }
 }
 
+/// Build the `TaskContext` used to execute a DataFusion physical plan.
+///
+/// Sizes a `PanicOnOOMMemoryPool` against the supplied `work_mem_bytes` and
+/// `hash_mem_multiplier` (typically PostgreSQL's `work_mem * 1024` and
+/// `hash_mem_multiplier` GUCs), bundles it into a fresh `RuntimeEnv`, and
+/// pairs that with the session config from `ctx`.
+///
+/// Shared by JoinScan and AggregateScan; both call this immediately before
+/// `physical_plan.execute(0, task_ctx)`.
+pub fn build_task_context(
+    ctx: &SessionContext,
+    plan: &Arc<dyn ExecutionPlan>,
+    work_mem_bytes: usize,
+    hash_mem_multiplier: f64,
+) -> Arc<TaskContext> {
+    let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
+    Arc::new(
+        TaskContext::default()
+            .with_session_config(ctx.state().config().clone())
+            .with_runtime(Arc::new(
+                RuntimeEnvBuilder::new()
+                    .with_memory_pool(memory_pool)
+                    .build()
+                    .expect("Failed to create RuntimeEnv"),
+            )),
+    )
+}
+
+/// Context borrowed for the duration of a [`build_relnode_df`] traversal.
+///
+/// Bundles the references that don't change between recursive calls so the
+/// recursion sites stay readable. Construct one at the entry point in
+/// `build_clause_df` and pass it down by reference.
+struct RelNodeBuildCtx<'a> {
+    ctx: &'a SessionContext,
+    partitioning_plan_position: usize,
+    join_clause: &'a JoinCSClause,
+    translated_exprs: &'a [Expr],
+    ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
+}
+
 /// Recursively lowers a `RelNode` tree into a DataFusion `DataFrame`.
 ///
 /// This traversal maps the abstract relation operators (Scan, Join, Filter) onto DataFusion's
@@ -349,26 +454,39 @@ pub async fn build_physical_plan(
 ///   of the equality expression to avoid `SchemaError`s in DataFusion.
 /// - **Filter**: Maps complex, cross-table PostgreSQL scalar expressions down to the DataFusion
 ///   engine using a pre-constructed `ctid_map` for row-level execution.
+///
+/// All references that don't change between recursive calls are bundled into
+/// [`RelNodeBuildCtx`] so the recursive sites can stay terse.
 fn build_relnode_df<'a>(
-    ctx: &'a SessionContext,
+    rctx: &'a RelNodeBuildCtx<'a>,
     node: &'a RelNode,
-    partitioning_rti: pg_sys::Index,
-    join_clause: &'a JoinCSClause,
-    translated_exprs: &'a [Expr],
-    ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     let f = async move {
         match node {
             RelNode::Scan(source) => {
-                let is_parallel = source.scan_info.heap_rti == partitioning_rti;
                 let plan_position = source.plan_position;
+                // Use plan_position (globally unique) instead of heap_rti to identify
+                // the partitioning source. heap_rti values are local to each
+                // PlannerInfo and can collide when SubPlan-extracted sources (e.g.
+                // from NOT IN subqueries) share the same range-table index as the
+                // outer table.
+                //
+                // Invariant: plan_position is assigned as the DFS enumeration
+                // index in JoinCSClause::new (build.rs), and
+                // partitioning_source_index() returns the index into the same
+                // DFS-ordered sources() array. Both sources() and sources_mut()
+                // maintain left-first DFS order via collect_sources /
+                // collect_sources_mut, so plan_position == partitioning_plan_position
+                // iff this source is the chosen partitioning source.
+                let is_parallel = plan_position == rctx.partitioning_plan_position;
 
                 // Compute the position of this source among non-partitioning sources so execution
                 // can retrieve the correct canonical segment IDs during decode.
                 let np_idx = if !is_parallel {
-                    let partitioning_plan_idx = join_clause.partitioning_source_index();
+                    let partitioning_plan_idx = rctx.join_clause.partitioning_source_index();
                     // Count non-partitioning sources that appear before this one in plan order.
-                    let np_pos = join_clause
+                    let np_pos = rctx
+                        .join_clause
                         .plan
                         .sources()
                         .iter()
@@ -381,73 +499,25 @@ fn build_relnode_df<'a>(
                     None
                 };
 
-                let mut df =
-                    build_source_df(ctx, source, plan_position, join_clause, is_parallel, np_idx)
-                        .await?;
+                let mut df = build_source_df(
+                    rctx.ctx,
+                    source,
+                    plan_position,
+                    rctx.join_clause,
+                    is_parallel,
+                    np_idx,
+                )
+                .await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 df = df.alias(&alias)?;
                 Ok(df)
             }
             RelNode::Join(join) => {
-                let left_df = build_relnode_df(
-                    ctx,
-                    &join.left,
-                    partitioning_rti,
-                    join_clause,
-                    translated_exprs,
-                    ctid_map,
-                )
-                .await?;
-                let right_df = build_relnode_df(
-                    ctx,
-                    &join.right,
-                    partitioning_rti,
-                    join_clause,
-                    translated_exprs,
-                    ctid_map,
-                )
-                .await?;
+                let left_df = build_relnode_df(rctx, &join.left).await?;
+                let right_df = build_relnode_df(rctx, &join.right).await?;
 
-                let on = super::translator::build_equi_join_exprs(join)?;
-
-                let df_join_type = match join.join_type {
-                    crate::postgres::customscan::joinscan::build::JoinType::Inner => {
-                        JoinType::Inner
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::Left => JoinType::Left,
-                    crate::postgres::customscan::joinscan::build::JoinType::Full => JoinType::Full,
-                    crate::postgres::customscan::joinscan::build::JoinType::Right => {
-                        JoinType::Right
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::Semi => {
-                        JoinType::LeftSemi
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::Anti => {
-                        JoinType::LeftAnti
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::LeftMark => {
-                        JoinType::LeftMark
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::RightMark => {
-                        JoinType::RightMark
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::RightSemi => {
-                        JoinType::RightSemi
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::RightAnti => {
-                        JoinType::RightAnti
-                    }
-                    unsupported => {
-                        panic!("Join type {} is unsupported during execution", unsupported)
-                    }
-                };
-
-                let df = if on.is_empty() {
-                    left_df.join(right_df, df_join_type, &[], &[], None)?
-                } else {
-                    left_df.join_on(right_df, df_join_type, on)?
-                };
+                let df = build_join_df(left_df, right_df, join, JoinTypeAllowList::All)?;
 
                 if join.filter.is_some() {
                     return Err(DataFusionError::NotImplemented(
@@ -458,15 +528,7 @@ fn build_relnode_df<'a>(
                 Ok(df)
             }
             RelNode::Filter(filter) => {
-                let mut df = build_relnode_df(
-                    ctx,
-                    &filter.input,
-                    partitioning_rti,
-                    join_clause,
-                    translated_exprs,
-                    ctid_map,
-                )
-                .await?;
+                let mut df = build_relnode_df(rctx, &filter.input).await?;
 
                 // Compute per-plan_position deferred visibility. A plan_position's
                 // ctid is "deferred" (packed DocAddress) if it flows only through
@@ -478,11 +540,11 @@ fn build_relnode_df<'a>(
                     super::visibility_filter::deferred_plan_positions(&filter.input);
                 let sources = filter.input.sources();
                 let filter_expr = unsafe {
-                    crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
+                    PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
-                        translated_exprs,
-                        ctid_map,
-                        &join_clause.join_level_predicates,
+                        rctx.translated_exprs,
+                        rctx.ctid_map,
+                        &rctx.join_clause.join_level_predicates,
                         &deferred_positions,
                         &sources,
                     )
@@ -546,18 +608,14 @@ fn build_clause_df<'a>(
 
         let plan = &join_clause.plan;
 
-        let partitioning_rti = join_clause.partitioning_source().scan_info.heap_rti;
+        let partitioning_plan_position = join_clause.partitioning_source_index();
 
         let mapper = CombinedMapper {
             sources: &plan_sources,
             output_columns: &private_data.output_columns,
         };
 
-        let translator =
-            crate::postgres::customscan::joinscan::translator::PredicateTranslator::new(
-                &plan_sources,
-            )
-            .with_mapper(Box::new(mapper));
+        let translator = PredicateTranslator::new(&plan_sources).with_mapper(Box::new(mapper));
 
         // Translate all custom_exprs first
         let mut translated_exprs = Vec::new();
@@ -582,15 +640,14 @@ fn build_clause_df<'a>(
             ctid_map.insert(i as pg_sys::Index, expr);
         }
 
-        let mut df = build_relnode_df(
+        let rctx = RelNodeBuildCtx {
             ctx,
-            plan,
-            partitioning_rti,
+            partitioning_plan_position,
             join_clause,
-            &translated_exprs,
-            &ctid_map,
-        )
-        .await?;
+            translated_exprs: &translated_exprs,
+            ctid_map: &ctid_map,
+        };
+        let mut df = build_relnode_df(&rctx, plan).await?;
 
         // Maps (rti, attno) → col_N alias, populated only when has_distinct is true.
         // For regular columns: (rti, attno) → col_N
@@ -620,24 +677,10 @@ fn build_clause_df<'a>(
                                 i
                             );
 
-                            let plan_sources = join_clause.plan.sources();
                             let input_exprs: Vec<Expr> = input_vars
                                 .iter()
                                 .filter_map(|var_info| {
-                                    for (idx, source) in plan_sources.iter().enumerate() {
-                                        if let Some(attno) =
-                                            source.map_var(var_info.rti, var_info.attno)
-                                        {
-                                            if let Some(field_name) = source.column_name(attno) {
-                                                return Some(make_source_col(
-                                                    source,
-                                                    idx,
-                                                    &field_name,
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    None
+                                    resolve_var_to_df_col(join_clause, var_info.rti, var_info.attno)
                                 })
                                 .collect();
 
@@ -733,6 +776,13 @@ fn build_clause_df<'a>(
                         if !distinct_col_map.is_empty() {
                             resolve_distinct_col(true, 0, 0, "")
                         } else {
+                            // TODO: this heap_rti lookup has the same collision
+                            // risk as the partitioning check fixed above — if a
+                            // NOT IN subquery source shares the same RTI as the
+                            // outer table, the wrong score column could be
+                            // selected. Low risk since ORDER BY scores typically
+                            // reference outer-query tables. Fix by switching
+                            // OrderByFeature::Score to carry plan_position.
                             join_clause
                                 .plan
                                 .sources()
@@ -758,16 +808,7 @@ fn build_clause_df<'a>(
                         if !distinct_col_map.is_empty() {
                             resolve_distinct_col(false, *rti, *attno, "")
                         } else {
-                            join_clause
-                                .plan
-                                .sources()
-                                .iter()
-                                .enumerate()
-                                .find_map(|(i, source)| {
-                                    let mapped = source.map_var(*rti, *attno)?;
-                                    let field = source.column_name(mapped)?;
-                                    Some(make_source_col(source, i, &field))
-                                })
+                            resolve_var_to_df_col(join_clause, *rti, *attno)
                                 .unwrap_or_else(|| col("unknown_col"))
                         }
                     }
@@ -861,12 +902,8 @@ fn build_projection_expr(
         }
         ChildProjection::Column { rti, attno }
         | ChildProjection::IndexedExpression { rti, attno } => {
-            for (i, source) in plan_sources.iter().enumerate() {
-                if let Some(mapped) = source.map_var(*rti, *attno) {
-                    if let Some(field_name) = source.column_name(mapped) {
-                        return make_source_col(source, i, &field_name);
-                    }
-                }
+            if let Some(expr) = resolve_var_to_df_col(join_clause, *rti, *attno) {
+                return expr;
             }
         }
         ChildProjection::Expression { .. } => {
@@ -959,10 +996,7 @@ fn build_source_df<'a>(
             VisibilityMode::Deferred { plan_position },
         );
 
-        let provider = Arc::new(provider);
-        ctx.register_table(alias.as_str(), provider)?;
-
-        let mut df = ctx.table(alias.as_str()).await?;
+        let mut df = register_source_table(ctx, alias.as_str(), provider).await?;
 
         // Select fields AND ensure CTID is aliased uniquely
         let mut exprs = Vec::new();

@@ -53,15 +53,16 @@ use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
-use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
+use crate::postgres::customscan::aggregatescan::scan_state::{
+    AggregateScanState, ExecutionState, WrappedAggregateProjection,
+};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::joinscan::memory::create_memory_pool;
-use crate::postgres::customscan::joinscan::scan_state::build_physical_plan;
+use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -71,11 +72,8 @@ use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use chrono::{DateTime as ChronoDateTime, Utc};
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::execution::TaskContext;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
-use std::sync::Arc;
 use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
@@ -368,7 +366,9 @@ impl CustomScan for AggregateScan {
                     .iter()
                     .map(|a| {
                         if a.field_refs.is_empty() {
-                            format!("{}(*)", a.agg_kind)
+                            // CountStar displays as "COUNT(*)" — no extra wrapping needed.
+                            // Other no-arg aggregates (none currently) also use Display directly.
+                            a.agg_kind.to_string()
                         } else {
                             let fields: Vec<&str> =
                                 a.field_refs.iter().map(|(_, _, n)| n.as_str()).collect();
@@ -445,8 +445,10 @@ impl CustomScan for AggregateScan {
             let (placeholder_tlist, const_nodes, needs_projection) =
                 create_placeholder_targetlist(plan_targetlist);
             if needs_projection && !placeholder_tlist.is_null() {
-                state.custom_state_mut().placeholder_targetlist = Some(placeholder_tlist);
-                state.custom_state_mut().const_agg_nodes = const_nodes;
+                state.custom_state_mut().wrapped_projection = Some(WrappedAggregateProjection {
+                    targetlist: placeholder_tlist,
+                    const_nodes,
+                });
                 // Note: projection is built per-row in exec_custom_scan, not here
             }
         }
@@ -624,7 +626,17 @@ impl CustomScan for AggregateScan {
             // 1. Mutate Const nodes with actual aggregate values (directly, not from slot)
             // 2. Build projection in per-tuple memory context (bakes Const values in)
             // 3. ExecProject
-            if let Some(placeholder_tlist) = state.custom_state().placeholder_targetlist {
+            // Snapshot the projection state into locals so the immutable borrow
+            // on `state.custom_state()` ends before the mutable `state.planstate()`
+            // call below. The targetlist is a raw pointer (Copy) and the const-node
+            // vec is small (one entry per output column).
+            let projection_snapshot: Option<(*mut pg_sys::List, Vec<Option<*mut pg_sys::Const>>)> =
+                state
+                    .custom_state()
+                    .wrapped_projection
+                    .as_ref()
+                    .map(|w| (w.targetlist, w.const_nodes.clone()));
+            if let Some((placeholder_tlist, const_nodes)) = projection_snapshot {
                 let planstate = state.planstate();
                 let expr_context = (*planstate).ps_ExprContext;
 
@@ -641,13 +653,7 @@ impl CustomScan for AggregateScan {
                 // This matches basescan's approach of setting Const values directly.
                 let mut agg_iter = row.aggregates.iter();
                 for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
-                    let Some(const_node) = state
-                        .custom_state()
-                        .const_agg_nodes
-                        .get(i)
-                        .copied()
-                        .flatten()
-                    else {
+                    let Some(const_node) = const_nodes.get(i).copied().flatten() else {
                         // No Const node for this entry, skip the aggregate iterator if it's an aggregate
                         if matches!(entry, TargetListEntry::Aggregate(_)) {
                             agg_iter.next();
@@ -769,6 +775,19 @@ impl From<&str> for CustomScanBuildError {
     }
 }
 
+/// Return the alias name of a Postgres `RangeTblEntry`, or `"unknown"` if the
+/// entry has no alias attached. Used by planner-warning messages where we want
+/// a stable user-visible label for the rejected relation.
+unsafe fn rte_alias_or_unknown(rte: *mut pg_sys::RangeTblEntry) -> String {
+    if !(*rte).eref.is_null() && !(*(*rte).eref).aliasname.is_null() {
+        std::ffi::CStr::from_ptr((*(*rte).eref).aliasname)
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        "unknown".to_string()
+    }
+}
+
 pub trait CustomScanClause<CS: CustomScan> {
     type Args;
 
@@ -828,18 +847,9 @@ impl AggregateScan {
         };
         let Some((_table, index)) = rel_get_bm25_index(unsafe { (*heap_rte).relid }) else {
             if has_paradedb_agg {
-                let alias = unsafe {
-                    if !(*heap_rte).eref.is_null() && !(*(*heap_rte).eref).aliasname.is_null() {
-                        std::ffi::CStr::from_ptr((*(*heap_rte).eref).aliasname)
-                            .to_string_lossy()
-                            .into_owned()
-                    } else {
-                        "unknown".to_string()
-                    }
-                };
                 Self::add_planner_warning(
                     "Aggregate Scan not used: table must have a BM25 index",
-                    alias,
+                    unsafe { rte_alias_or_unknown(heap_rte) },
                 );
             }
             return Vec::new();
@@ -847,16 +857,7 @@ impl AggregateScan {
 
         match AggregateCSClause::build(builder, heap_rti, &index) {
             Ok((builder, aggregate_clause)) => {
-                let alias = unsafe {
-                    if !(*heap_rte).eref.is_null() && !(*(*heap_rte).eref).aliasname.is_null() {
-                        std::ffi::CStr::from_ptr((*(*heap_rte).eref).aliasname)
-                            .to_string_lossy()
-                            .into_owned()
-                    } else {
-                        "unknown".to_string()
-                    }
-                };
-                Self::mark_contexts_successful(alias);
+                Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
 
                 vec![builder.build(PrivateData::Tantivy {
                     heap_rti,
@@ -896,16 +897,6 @@ impl AggregateScan {
         let sources = unsafe { collect_join_agg_sources(root, input_rel) };
 
         if sources.is_empty() {
-            return Vec::new();
-        }
-
-        // Only 2-table joins are supported; 3+ table joins produce
-        // unreliable plans in DataFusion (empty batches, join errors).
-        if sources.len() > 2 {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: only 2-table joins are currently supported",
-                "join".to_string(),
-            );
             return Vec::new();
         }
 
@@ -961,13 +952,14 @@ impl AggregateScan {
             }
         };
 
-        // Reject CROSS JOINs (no equi-join keys). Without join keys the
-        // second table's PgSearchTableProvider has no Named fields, producing
-        // empty RecordBatches. Single-table scans (sources.len() == 1) have
+        // Reject plans with any join node that has no equi-keys (CROSS JOIN).
+        // Without join keys, PgSearchTableProvider has no Named fields,
+        // producing empty RecordBatches or DataFusion "join condition should
+        // not be empty" errors. Single-table scans (sources.len() == 1) have
         // no join keys by definition and are allowed — they reach this path
         // when routed from RELOPT_BASEREL (e.g., max_buckets overflow or
         // ORDER BY aggregate + LIMIT).
-        if sources.len() > 1 && plan.join_keys().is_empty() {
+        if sources.len() > 1 && plan.has_join_without_keys() {
             Self::add_planner_warning(
                 "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
                 "join".to_string(),
@@ -998,7 +990,13 @@ impl AggregateScan {
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
-                privdat::HavingExpr::from_pg_node((*parse).havingQual, &targetlist)
+                privdat::FilterExpr::from_pg_node(
+                    (*parse).havingQual,
+                    &datafusion_build::FilterExprBuildContext {
+                        targetlist: Some(&targetlist),
+                        sources: None,
+                    },
+                )
             } else {
                 None
             }
@@ -1081,21 +1079,11 @@ impl AggregateScan {
                 Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
             };
 
-            let memory_pool = create_memory_pool(
+            let task_ctx = build_task_context(
+                &ctx,
                 &physical_plan,
                 unsafe { pg_sys::work_mem as usize * 1024 },
                 unsafe { pg_sys::hash_mem_multiplier },
-            );
-
-            let task_ctx = Arc::new(
-                TaskContext::default()
-                    .with_session_config(ctx.state().config().clone())
-                    .with_runtime(Arc::new(
-                        RuntimeEnvBuilder::new()
-                            .with_memory_pool(memory_pool)
-                            .build()
-                            .expect("Failed to create RuntimeEnv"),
-                    )),
             );
             let stream = {
                 let _guard = runtime.enter();
@@ -1155,14 +1143,19 @@ impl AggregateScan {
     }
 }
 
-/// Detects ORDER BY on aggregate + LIMIT for join aggregate queries.
-/// Returns `Some(DataFusionTopK)` when the sort clause targets a single aggregate
-/// that can be pushed down into the DataFusion plan as sort + limit.
+/// Detects ORDER BY + LIMIT for join aggregate queries and returns a
+/// [`DataFusionTopK`] describing the sort target, direction, and K.
 ///
-/// NOTE: shares structural pattern with `build::detect_aggregate_orderby` (single-table
-/// variant). Both parse sort clause → aggref identity → direction → reltarget match →
-/// LIMIT. They diverge in target list type (`TargetList` vs `JoinAggregateTargetList`)
-/// which makes a generic extraction non-trivial without trait machinery.
+/// Supports two patterns:
+/// - **ORDER BY aggregate LIMIT K** (e.g., `ORDER BY COUNT(*) DESC LIMIT 5`)
+/// - **ORDER BY group_column LIMIT K** (e.g., `ORDER BY category LIMIT 5`)
+///
+/// Pushing sort+limit into the DataFusion plan enables three optimizations
+/// depending on the sort target (handled by DataFusion's built-in
+/// `TopKAggregation` optimizer rule and `SortExec(fetch=K)`):
+/// - GROUP BY key ordering → early termination after K groups
+/// - MIN/MAX ordering → PriorityMap-based group pruning during aggregation
+/// - COUNT/SUM/AVG ordering → `SortExec(fetch=K)` bounded heap
 unsafe fn detect_join_aggregate_topk(
     args: &CreateUpperPathsHookArgs,
     targetlist: &join_targetlist::JoinAggregateTargetList,
@@ -1172,6 +1165,12 @@ unsafe fn detect_join_aggregate_topk(
         return None;
     }
 
+    // Must have a LIMIT for TopK to matter
+    let limit_offset = LimitOffset::from_parse(parse);
+    let limit = limit_offset.limit()? as usize;
+    let offset = limit_offset.offset().unwrap_or(0) as usize;
+    let k = limit + offset;
+
     // Only single sort clause for TopK
     let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
     if sort_clauses.len() != 1 {
@@ -1180,14 +1179,6 @@ unsafe fn detect_join_aggregate_topk(
 
     let sort_clause_ptr = sort_clauses.get_ptr(0)?;
     let sort_expr = pg_sys::get_sortgroupclause_expr(sort_clause_ptr, (*parse).targetList);
-
-    // The sort expression must BE an aggregate, not merely contain one.
-    // e.g. ORDER BY ABS(SUM(score)) wraps the aggregate — ABS breaks
-    // monotonicity so Tantivy's ordering wouldn't match Postgres.
-    let aggref = targetlist::find_single_aggref_in_expr(sort_expr)?;
-    if aggref as *mut pg_sys::Node != sort_expr {
-        return None;
-    }
 
     let direction =
         SortDirection::from_sort_op((*sort_clause_ptr).sortop, (*sort_clause_ptr).nulls_first)?;
@@ -1211,23 +1202,45 @@ unsafe fn detect_join_aggregate_topk(
     }
     let pos = match_pos?;
 
-    // Check if this output position corresponds to an aggregate in the join targetlist
-    let agg_idx = targetlist
+    // Try aggregate target: ORDER BY COUNT(*), SUM(x), MIN(x), etc.
+    if let Some(agg_idx) = targetlist
         .aggregates
         .iter()
-        .position(|a| a.output_index == pos)?;
+        .position(|a| a.output_index == pos)
+    {
+        // The sort expression must BE an aggregate, not merely contain one.
+        // e.g. ORDER BY ABS(SUM(score)) wraps the aggregate — ABS breaks
+        // monotonicity so DataFusion's ordering wouldn't match Postgres.
+        if targetlist::find_single_aggref_in_expr(sort_expr)
+            .is_none_or(|a| a as *mut pg_sys::Node != sort_expr)
+        {
+            return None;
+        }
+        return Some(privdat::DataFusionTopK {
+            sort_target: privdat::TopKSortTarget::Aggregate(agg_idx),
+            direction,
+            k,
+        });
+    }
 
-    // Extract LIMIT
-    let limit_offset = LimitOffset::from_parse(parse);
-    let limit = limit_offset.limit()? as usize;
-    let offset = limit_offset.offset().unwrap_or(0) as usize;
-    let k = limit + offset;
+    // Try group column: ORDER BY category, ORDER BY name, etc.
+    if let Some(gc_idx) = targetlist
+        .group_columns
+        .iter()
+        .position(|gc| gc.output_index == pos)
+    {
+        // The sort expression must be a simple Var (group column reference).
+        if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
+            return None;
+        }
+        return Some(privdat::DataFusionTopK {
+            sort_target: privdat::TopKSortTarget::GroupColumn(gc_idx),
+            direction,
+            k,
+        });
+    }
 
-    Some(privdat::DataFusionTopK {
-        sort_agg_idx: agg_idx,
-        direction,
-        k,
-    })
+    None
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders

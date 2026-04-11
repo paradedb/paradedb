@@ -26,6 +26,9 @@ jobs:
   test-docs:
     name: Test Docs for Broken Links, SEO Issues, and Code Snippets
     runs-on: ubicloud-standard-8-arm-ubuntu-2404
+    strategy:
+      matrix:
+        pg_version: [18]
 
     steps:
       - name: Checkout Git Repository
@@ -113,53 +116,48 @@ jobs:
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Extract pgrx Version
         id: pgrx
-        working-directory: pg_search/
-        run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo "version=$version" >> $GITHUB_OUTPUT
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
       # Cache notes:
       # - Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       #   See test-pg_search.yml for rationale.
+      # Only save cache on non-PR events; PRs restore from the default branch.
+      # See test-pg_search.yml for rationale.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          shared-key: pg18
+          shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
-
-      - name: Cache pgrx binary
-        id: cache-pgrx
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install pgrx
-        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install -j $(nproc) --locked cargo-pgrx --version "${{ steps.pgrx.outputs.version }}" --debug
 
       - name: Initialize pgrx environment
-        run: cargo pgrx init "--pg18=download" --configure-flag="--without-readline"
+        run: cargo pgrx init "--pg${{ matrix.pg_version }}=download" --configure-flag="--without-readline"
 
       - name: Add pgrx PostgreSQL binaries to PATH
-        run: echo "$(ls -d ~/.pgrx/18.*/pgrx-install/bin | head -n 1)" >> $GITHUB_PATH
+        run: echo "$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n 1)" >> $GITHUB_PATH
 
       - name: Compile & install pg_search extension (pgrx)
         working-directory: pg_search/
-        run: cargo pgrx install --pg-config ~/.pgrx/18.*/pgrx-install/bin/pg_config --features="pg18,block_tracker"
+        run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},block_tracker"
 
       - name: Add extension to shared_preload_libraries
-        working-directory: /home/runner/.pgrx/data-18/
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
       - name: Start Postgres (pgrx)
         working-directory: tests/
-        run: RUST_BACKTRACE=1 cargo pgrx start pg18
+        run: RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
 
       - name: Smoke Test Code Snippets
         run: ./.github/scripts/smoke_test_code_snippets.sh

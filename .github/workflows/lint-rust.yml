@@ -35,19 +35,18 @@ jobs:
         with:
           components: rustfmt, clippy
           cache: false
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Check Cargo.lock
         run: cargo metadata --format-version 1 --locked > /dev/null
 
       - name: Extract pgrx Version
         id: pgrx
-        working-directory: pg_search/
-        run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo "version=$version" >> $GITHUB_OUTPUT
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
+      # Only save cache on non-PR events; PRs restore from the default branch.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -55,6 +54,7 @@ jobs:
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -63,15 +63,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y libfontconfig1-dev postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Cache pgrx binary
-        id: cache-pgrx
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
-
       - name: Install pgrx
-        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx environment

@@ -22,9 +22,13 @@
 //! column and aggregate argument belongs to. This is the join-aware counterpart
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
-use super::datafusion_build::JoinAggSource;
+use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
+use super::privdat::FilterExpr;
+use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
-use crate::postgres::var::{fieldname_from_var, find_one_aggref};
+use crate::postgres::var::{
+    fieldname_from_var, find_one_aggref, find_one_var_and_fieldname, VarContext,
+};
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -35,6 +39,22 @@ use pgrx::pg_sys::{
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 use pgrx::PgList;
+
+/// Look up a join source by RTI, returning a uniform error message that
+/// names the calling context (e.g. "GROUP BY column", "aggregate argument").
+///
+/// The three sites that called `sources.iter().find(|s| s.rti == rti)` with
+/// nearly-identical `ok_or_else(...)` formatters now share this helper so the
+/// error wording stays consistent across the file.
+fn find_source_by_rti<'a>(
+    sources: &'a [JoinAggSource],
+    rti: pg_sys::Index,
+    context_label: &str,
+) -> Result<&'a JoinAggSource, String> {
+    sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
+        format!("{context_label} references table at RTI {rti} which is not in the join")
+    })
+}
 
 /// Simplified aggregate classification for the DataFusion backend.
 /// Unlike [`AggregateType`] (Tantivy-oriented), this enum is lightweight and maps
@@ -94,6 +114,20 @@ pub struct JoinGroupColumn {
     pub output_index: usize,
 }
 
+/// A single ORDER BY entry within an aggregate (e.g., the `ORDER BY col2` in
+/// `STRING_AGG(col, ',' ORDER BY col2)`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AggOrderByEntry {
+    /// Table RTI for the ORDER BY column.
+    pub rti: pg_sys::Index,
+    /// 1-based attribute number in the source relation's tuple descriptor.
+    pub attno: pg_sys::AttrNumber,
+    /// Resolved field name (from the BM25 index schema).
+    pub field_name: String,
+    /// Sort direction including NULLS FIRST/LAST.
+    pub direction: crate::api::SortDirection,
+}
+
 /// An aggregate function in a join aggregate query.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JoinAggregateEntry {
@@ -108,6 +142,19 @@ pub struct JoinAggregateEntry {
     pub output_index: usize,
     /// Postgres result type OID (INT8OID for COUNT, FLOAT8OID for others).
     pub result_type_oid: pg_sys::Oid,
+    /// Whether this aggregate uses DISTINCT (e.g., SUM(DISTINCT col)).
+    /// For CountDistinct this is implicitly true via AggKind; for other
+    /// aggregates this flag drives the DataFusion `distinct` parameter.
+    #[serde(default)]
+    pub distinct: bool,
+    /// ORDER BY within the aggregate (e.g., `STRING_AGG(col, ',' ORDER BY col2)`).
+    /// Empty for aggregates without internal ordering.
+    #[serde(default)]
+    pub order_by: Vec<AggOrderByEntry>,
+    /// Per-aggregate FILTER clause (e.g., `COUNT(*) FILTER (WHERE price > 100)`).
+    /// `None` when the aggregate has no FILTER.
+    #[serde(default)]
+    pub filter: Option<FilterExpr>,
 }
 
 /// The complete aggregate target list for a join aggregate query.
@@ -128,7 +175,6 @@ fn classify_aggregate_oid(aggfnoid: u32, aggstar: bool, has_distinct: bool) -> O
     match aggfnoid {
         F_COUNT_ANY if has_distinct => Some(AggKind::CountDistinct),
         F_COUNT_ANY => Some(AggKind::Count),
-        _ if has_distinct => None,
         F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
             Some(AggKind::Avg)
         }
@@ -209,12 +255,7 @@ pub unsafe fn extract_aggregate_targetlist(
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
 
-            let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
-                format!(
-                    "GROUP BY column references table at RTI {} which is not in the join",
-                    rti
-                )
-            })?;
+            let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
 
             let field_name = fieldname_from_var(source.relid, var, attno)
                 .ok_or_else(|| {
@@ -231,18 +272,51 @@ pub unsafe fn extract_aggregate_targetlist(
                 field_name,
                 output_index: idx,
             });
+        } else if let Some((var, field_name)) = find_one_var_and_fieldname(
+            VarContext::from_planner(args.root),
+            expr as *mut pg_sys::Node,
+        ) {
+            // GROUP BY on a complex expression (e.g., metadata->>'category').
+            // The resolver extracts the underlying Var and resolves the Tantivy
+            // field name (e.g., "metadata.category") from JSON operators.
+            let rti = (*var).varno as pg_sys::Index;
+            let attno = (*var).varattno;
+            let field_name = field_name.into_inner();
+
+            // Validate that the RTI is in our known sources. Unlike the T_Var
+            // branch above, we don't need the source itself — `find_one_var_and_fieldname`
+            // already resolved the Tantivy field name — but we want a clear error
+            // if the expression references a table that isn't part of the join.
+            if !sources.iter().any(|s| s.rti == rti) {
+                return Err(format!(
+                    "GROUP BY expression references table at RTI {} which is not in the join",
+                    rti
+                ));
+            }
+
+            group_columns.push(JoinGroupColumn {
+                rti,
+                attno,
+                field_name,
+                output_index: idx,
+            });
         } else if let Some(aggref) = find_one_aggref(expr as *mut pg_sys::Node) {
             // Aggregate function (possibly wrapped in COALESCE, etc.)
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let has_distinct = !(*aggref).aggdistinct.is_null();
 
-            // Reject FILTER (WHERE ...) clauses on aggregates — DataFusion's
-            // aggregate plan doesn't propagate per-aggregate filter predicates.
-            if !(*aggref).aggfilter.is_null() {
-                return Err(
-                    "FILTER clauses on aggregates are not supported for aggregate-on-join".into(),
-                );
-            }
+            // Extract per-aggregate FILTER clause if present.
+            let filter = if (*aggref).aggfilter.is_null() {
+                None
+            } else {
+                FilterExpr::from_pg_node(
+                    (*aggref).aggfilter as *mut pg_sys::Node,
+                    &FilterExprBuildContext {
+                        targetlist: None,
+                        sources: Some(sources),
+                    },
+                )
+            };
 
             // Reject pdb.agg()
             let pdb_agg_oid = crate::api::agg_funcoid().to_u32();
@@ -257,12 +331,14 @@ pub unsafe fn extract_aggregate_targetlist(
                 .ok_or_else(|| format!("unsupported aggregate function OID: {}", aggfnoid))?;
 
             // For STRING_AGG, extract the separator from the second argument
-            if matches!(agg_kind, AggKind::StringAgg(_)) {
+            let is_string_agg = matches!(agg_kind, AggKind::StringAgg(_));
+            if is_string_agg {
                 let separator = extract_string_agg_separator(aggref).unwrap_or_else(|| ",".into());
                 agg_kind = AggKind::StringAgg(separator);
             }
 
-            let field_refs = extract_aggref_field_refs(aggref, sources)?;
+            let field_refs = extract_aggref_field_refs(aggref, sources, is_string_agg)?;
+            let order_by = extract_aggref_order_by(aggref, sources)?;
             // Use the actual Postgres result type from the Aggref node,
             // not a guessed type — this avoids segfaults from type mismatches
             let result_type_oid = (*aggref).aggtype;
@@ -273,6 +349,9 @@ pub unsafe fn extract_aggregate_targetlist(
                 field_refs,
                 output_index: idx,
                 result_type_oid,
+                filter,
+                distinct: has_distinct,
+                order_by,
             });
         } else {
             return Err(format!(
@@ -318,11 +397,14 @@ unsafe fn extract_string_agg_separator(aggref: *mut pg_sys::Aggref) -> Option<St
 
 /// Extract the field reference from an `Aggref`'s arguments.
 ///
-/// For `COUNT(*)`: returns `None` (no field).
-/// For `COUNT(col)`, `SUM(col)`, etc.: returns `Some((rti, attno, field_name))`.
+/// For `COUNT(*)`: returns empty (no field).
+/// For `COUNT(col)`, `SUM(col)`, etc.: returns the column reference.
+/// For `STRING_AGG(col, sep)`: only processes the first arg (column),
+/// skipping the separator which is handled by `extract_string_agg_separator`.
 unsafe fn extract_aggref_field_refs(
     aggref: *mut pg_sys::Aggref,
     sources: &[JoinAggSource],
+    is_string_agg: bool,
 ) -> Result<Vec<(pg_sys::Index, pg_sys::AttrNumber, String)>, String> {
     // COUNT(*) has no arguments
     if (*aggref).aggstar {
@@ -334,8 +416,15 @@ unsafe fn extract_aggref_field_refs(
         return Err("aggregate function has no arguments".into());
     }
 
-    let mut refs = Vec::with_capacity(args.len());
-    for arg_ptr in args.iter_ptr() {
+    // For STRING_AGG, only the first arg is the column reference;
+    // the second arg is the separator constant.
+    let num_field_args = if is_string_agg { 1 } else { args.len() };
+
+    let mut refs = Vec::with_capacity(num_field_args);
+    for (arg_idx, arg_ptr) in args.iter_ptr().enumerate() {
+        if arg_idx >= num_field_args {
+            break;
+        }
         let expr = (*arg_ptr).expr;
 
         // The argument must be a bare Var (possibly wrapped in RelabelType).
@@ -350,12 +439,7 @@ unsafe fn extract_aggref_field_refs(
         let rti = (*var).varno as pg_sys::Index;
         let attno = (*var).varattno;
 
-        let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
-            format!(
-                "aggregate argument references table at RTI {} which is not in the join",
-                rti
-            )
-        })?;
+        let source = find_source_by_rti(sources, rti, "aggregate argument")?;
 
         let field_name = fieldname_from_var(source.relid, var, attno)
             .ok_or_else(|| {
@@ -370,6 +454,80 @@ unsafe fn extract_aggref_field_refs(
     }
 
     Ok(refs)
+}
+
+/// Extract ORDER BY entries from an aggregate's `aggorder` clause.
+///
+/// `aggorder` is a `List` of `SortGroupClause`. Each clause's `tleSortGroupRef`
+/// matches a `TargetEntry.ressortgroupref` in the aggref's `args` list, identifying
+/// which column to sort by.
+///
+/// Returns an empty Vec for aggregates without ORDER BY (the common case).
+unsafe fn extract_aggref_order_by(
+    aggref: *mut pg_sys::Aggref,
+    sources: &[JoinAggSource],
+) -> Result<Vec<AggOrderByEntry>, String> {
+    if (*aggref).aggorder.is_null() {
+        return Ok(Vec::new());
+    }
+
+    let order_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*aggref).aggorder);
+    if order_clauses.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+    let mut entries = Vec::with_capacity(order_clauses.len());
+
+    for clause_ptr in order_clauses.iter_ptr() {
+        let sort_ref = (*clause_ptr).tleSortGroupRef;
+
+        // Find the TargetEntry in aggref.args whose ressortgroupref matches
+        let te = args
+            .iter_ptr()
+            .find(|te| (*(*te)).ressortgroupref == sort_ref)
+            .ok_or_else(|| {
+                format!(
+                    "aggorder references ressortgroupref {} but no matching arg found",
+                    sort_ref
+                )
+            })?;
+
+        let var = unwrap_to_var((*te).expr as *mut pg_sys::Node)
+            .ok_or("ORDER BY within aggregate must reference a direct column")?;
+
+        let rti = (*var).varno as pg_sys::Index;
+        let attno = (*var).varattno;
+
+        let source = find_source_by_rti(sources, rti, "aggregate ORDER BY")?;
+
+        let field_name = fieldname_from_var(source.relid, var, attno)
+            .ok_or_else(|| {
+                format!(
+                    "could not resolve field name for aggregate ORDER BY (RTI={}, attno={})",
+                    rti, attno
+                )
+            })?
+            .into_inner();
+
+        let direction =
+            SortDirection::from_sort_op((*clause_ptr).sortop, (*clause_ptr).nulls_first)
+                .ok_or_else(|| {
+                    format!(
+                        "could not determine sort direction for aggregate ORDER BY (sortop={})",
+                        (*clause_ptr).sortop.to_u32()
+                    )
+                })?;
+
+        entries.push(AggOrderByEntry {
+            rti,
+            attno,
+            field_name,
+            direction,
+        });
+    }
+
+    Ok(entries)
 }
 
 /// Unwrap an expression to a bare `Var`, allowing only `RelabelType` wrappers.

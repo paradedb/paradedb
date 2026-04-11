@@ -165,19 +165,7 @@ pub async fn build_join_aggregate_plan(
             let agg_expr = if agg.distinct
                 && !matches!(agg.agg_kind, AggKind::CountDistinct | AggKind::CountStar)
             {
-                match agg_expr {
-                    Expr::AggregateFunction(af) => {
-                        Expr::AggregateFunction(AggregateFunction::new_udf(
-                            af.func,
-                            af.params.args,
-                            true,
-                            af.params.filter,
-                            af.params.order_by,
-                            af.params.null_treatment,
-                        ))
-                    }
-                    other => other,
-                }
+                with_distinct(agg_expr)
             } else {
                 agg_expr
             };
@@ -192,19 +180,7 @@ pub async fn build_join_aggregate_plan(
                         "Failed to translate aggregate FILTER clause to DataFusion".to_string(),
                     )
                 })?;
-                match agg_expr {
-                    Expr::AggregateFunction(af) => {
-                        Expr::AggregateFunction(AggregateFunction::new_udf(
-                            af.func,
-                            af.params.args,
-                            af.params.distinct,
-                            Some(Box::new(df_filter)),
-                            af.params.order_by,
-                            af.params.null_treatment,
-                        ))
-                    }
-                    other => other,
-                }
+                with_filter(agg_expr, df_filter)
             } else {
                 agg_expr
             };
@@ -605,6 +581,38 @@ fn make_rti_col(plan: &RelNode, rti: pgrx::pg_sys::Index, field_name: &str) -> E
     let source = plan.source_for_rti_in_subtree(rti);
     let (alias, _) = resolve_source_column(source, rti, field_name);
     make_col(&alias, field_name)
+}
+
+/// Replace an `Expr::AggregateFunction` with the same call but `distinct=true`.
+/// Non-aggregate-function expressions are returned unchanged.
+fn with_distinct(expr: Expr) -> Expr {
+    match expr {
+        Expr::AggregateFunction(af) => Expr::AggregateFunction(AggregateFunction::new_udf(
+            af.func,
+            af.params.args,
+            true,
+            af.params.filter,
+            af.params.order_by,
+            af.params.null_treatment,
+        )),
+        other => other,
+    }
+}
+
+/// Replace an `Expr::AggregateFunction` with the same call but `filter=Some(...)`.
+/// Non-aggregate-function expressions are returned unchanged.
+fn with_filter(expr: Expr, filter: Expr) -> Expr {
+    match expr {
+        Expr::AggregateFunction(af) => Expr::AggregateFunction(AggregateFunction::new_udf(
+            af.func,
+            af.params.args,
+            af.params.distinct,
+            Some(Box::new(filter)),
+            af.params.order_by,
+            af.params.null_treatment,
+        )),
+        other => other,
+    }
 }
 
 /// Build a DataFusion column expression for an aggregate's first field reference.

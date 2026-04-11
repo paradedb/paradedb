@@ -362,13 +362,10 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         );
 
         // Build a LeftMark join: produces all left rows + boolean "mark" column.
-        let join_type = if or_ext.is_anti {
-            // NOT IN (...) OR IS NULL  →  LeftMark with inverted mark check
-            crate::postgres::customscan::joinscan::build::JoinType::LeftMark
-        } else {
-            // IN (...) OR IS NULL  →  LeftMark
-            crate::postgres::customscan::joinscan::build::JoinType::LeftMark
-        };
+        // Both `IN (...) OR IS NULL` and `NOT IN (...) OR IS NULL` use LeftMark;
+        // the anti vs non-anti distinction is carried through `or_ext.is_anti`
+        // and applied at filter-evaluation time as a mark-check inversion.
+        let join_type = crate::postgres::customscan::joinscan::build::JoinType::LeftMark;
 
         let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
             join_type,

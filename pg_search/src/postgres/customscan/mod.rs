@@ -29,6 +29,7 @@ use std::sync::OnceLock;
 pub mod aggregatescan;
 pub mod basescan;
 mod builders;
+pub mod datafusion;
 pub mod dsm;
 pub mod exec;
 pub mod explain;

@@ -15,14 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion::common::{Column, ScalarValue, TableReference};
+use datafusion::common::{Column, JoinType, Result, ScalarValue, TableReference};
 use datafusion::error::DataFusionError;
 use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
+use datafusion::prelude::DataFrame;
 use pgrx::{pg_sys, PgList};
 
 use crate::api::HashMap;
 use crate::postgres::customscan::joinscan::build::{
-    JoinLevelExpr, JoinLevelSearchPredicate, JoinSource, RelationAlias,
+    JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource, JoinType as PgJoinType,
+    RelationAlias,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
 use crate::postgres::customscan::opexpr::lookup_operator;
@@ -360,14 +362,75 @@ pub fn make_col(relation: &str, name: &str) -> Expr {
     ))
 }
 
+/// Allow-list of `JoinNode::join_type` variants accepted by [`build_join_df`].
+///
+/// JoinScan supports the full set; AggregateScan only the four equi-join
+/// variants. The variant choice is exposed at the call site so the policy
+/// difference is grep-able.
+#[derive(Copy, Clone, Debug)]
+pub enum JoinTypeAllowList {
+    /// JoinScan: Inner, Left, Right, Full, Semi, Anti, LeftMark, RightMark,
+    /// RightSemi, RightAnti.
+    All,
+    /// AggregateScan: Inner, Left, Right, Full only.
+    EquiOnly,
+}
+
+/// Lower a `JoinNode` over already-built left/right `DataFrame`s.
+///
+/// Builds equi-join keys with [`build_equi_join_exprs`], maps the
+/// [`super::build::JoinType`] into DataFusion's `JoinType` (subject to
+/// `allowed_join_types`), and dispatches to `join_on` (when there are
+/// equi keys) or `join` (cross join). Caller is responsible for any
+/// post-join filter handling — `JoinNode::filter` is not consulted here.
+///
+/// Returns `Err(NotImplemented)` if the join type is outside the allow-list.
+pub fn build_join_df(
+    left: DataFrame,
+    right: DataFrame,
+    join: &JoinNode,
+    allowed_join_types: JoinTypeAllowList,
+) -> Result<DataFrame> {
+    let on = build_equi_join_exprs(join)?;
+
+    let df_join_type = match (join.join_type, allowed_join_types) {
+        (PgJoinType::Inner, _) => JoinType::Inner,
+        (PgJoinType::Left, _) => JoinType::Left,
+        (PgJoinType::Right, _) => JoinType::Right,
+        (PgJoinType::Full, _) => JoinType::Full,
+        (PgJoinType::Semi, JoinTypeAllowList::All) => JoinType::LeftSemi,
+        (PgJoinType::Anti, JoinTypeAllowList::All) => JoinType::LeftAnti,
+        (PgJoinType::LeftMark, JoinTypeAllowList::All) => JoinType::LeftMark,
+        (PgJoinType::RightMark, JoinTypeAllowList::All) => JoinType::RightMark,
+        (PgJoinType::RightSemi, JoinTypeAllowList::All) => JoinType::RightSemi,
+        (PgJoinType::RightAnti, JoinTypeAllowList::All) => JoinType::RightAnti,
+        (jt, JoinTypeAllowList::EquiOnly) => {
+            return Err(DataFusionError::NotImplemented(format!(
+                "Aggregate-on-join does not support {} JOIN",
+                jt
+            )));
+        }
+        (jt, JoinTypeAllowList::All) => {
+            return Err(DataFusionError::NotImplemented(format!(
+                "{} JOIN is not supported in JoinScan execution",
+                jt
+            )));
+        }
+    };
+
+    if on.is_empty() {
+        left.join(right, df_join_type, &[], &[], None)
+    } else {
+        left.join_on(right, df_join_type, on)
+    }
+}
+
 /// Build equi-join filter expressions from a [`JoinNode`]'s key pairs.
 ///
 /// Shared between JoinScan and AggregateScan `build_relnode_df` implementations.
 /// Each key pair is resolved against the join's left/right subtrees and converted
 /// to a `left_col = right_col` DataFusion expression.
-pub fn build_equi_join_exprs(
-    join: &super::build::JoinNode,
-) -> datafusion::common::Result<Vec<Expr>> {
+pub fn build_equi_join_exprs(join: &JoinNode) -> Result<Vec<Expr>> {
     let mut on = Vec::with_capacity(join.equi_keys.len());
     for jk in &join.equi_keys {
         let ((left_source, left_attno), (right_source, right_attno)) =

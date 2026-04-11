@@ -53,7 +53,9 @@ use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
-use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
+use crate::postgres::customscan::aggregatescan::scan_state::{
+    AggregateScanState, ExecutionState, WrappedAggregateProjection,
+};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -443,8 +445,10 @@ impl CustomScan for AggregateScan {
             let (placeholder_tlist, const_nodes, needs_projection) =
                 create_placeholder_targetlist(plan_targetlist);
             if needs_projection && !placeholder_tlist.is_null() {
-                state.custom_state_mut().placeholder_targetlist = Some(placeholder_tlist);
-                state.custom_state_mut().const_agg_nodes = const_nodes;
+                state.custom_state_mut().wrapped_projection = Some(WrappedAggregateProjection {
+                    targetlist: placeholder_tlist,
+                    const_nodes,
+                });
                 // Note: projection is built per-row in exec_custom_scan, not here
             }
         }
@@ -622,7 +626,17 @@ impl CustomScan for AggregateScan {
             // 1. Mutate Const nodes with actual aggregate values (directly, not from slot)
             // 2. Build projection in per-tuple memory context (bakes Const values in)
             // 3. ExecProject
-            if let Some(placeholder_tlist) = state.custom_state().placeholder_targetlist {
+            // Snapshot the projection state into locals so the immutable borrow
+            // on `state.custom_state()` ends before the mutable `state.planstate()`
+            // call below. The targetlist is a raw pointer (Copy) and the const-node
+            // vec is small (one entry per output column).
+            let projection_snapshot: Option<(*mut pg_sys::List, Vec<Option<*mut pg_sys::Const>>)> =
+                state
+                    .custom_state()
+                    .wrapped_projection
+                    .as_ref()
+                    .map(|w| (w.targetlist, w.const_nodes.clone()));
+            if let Some((placeholder_tlist, const_nodes)) = projection_snapshot {
                 let planstate = state.planstate();
                 let expr_context = (*planstate).ps_ExprContext;
 
@@ -639,13 +653,7 @@ impl CustomScan for AggregateScan {
                 // This matches basescan's approach of setting Const values directly.
                 let mut agg_iter = row.aggregates.iter();
                 for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
-                    let Some(const_node) = state
-                        .custom_state()
-                        .const_agg_nodes
-                        .get(i)
-                        .copied()
-                        .flatten()
-                    else {
+                    let Some(const_node) = const_nodes.get(i).copied().flatten() else {
                         // No Const node for this entry, skip the aggregate iterator if it's an aggregate
                         if matches!(entry, TargetListEntry::Aggregate(_)) {
                             agg_iter.next();

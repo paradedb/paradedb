@@ -148,8 +148,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name
     LIMIT 20;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit  (cost=10.00..11.00 rows=20 width=32)
    ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=20 width=32)
          Relation Tree: s INNER p
@@ -160,13 +160,12 @@ ORDER BY s.name
            : ProjectionExec: expr=[name@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
            :   TantivyLookupExec: decode=[name]
            :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=20
-           :       VisibilityFilterExec: tables=[s, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 SELECT s.name AS supplier_name
 FROM dist_products p
@@ -464,8 +463,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -478,13 +477,12 @@ ORDER BY p.name
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[name]
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
-           :       VisibilityFilterExec: tables=[s, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all"
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 -- =============================================================================
 -- TEST 9b: WHERE clause anchoring for LateMaterializeNode
@@ -499,8 +497,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless' AND s.name = 'TechCorp'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -513,13 +511,12 @@ ORDER BY p.name
            : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
            :   TantivyLookupExec: decode=[name]
            :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
-           :       VisibilityFilterExec: tables=[s, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 -- =============================================================================
 -- TEST 10: Fallback — DISTINCT with non-fast-field column

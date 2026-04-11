@@ -65,8 +65,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -82,13 +82,12 @@ ORDER BY p.name
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT DISTINCT upper(s.name) AS upper_supplier, p.name
 FROM dex_products p
@@ -140,8 +139,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -157,13 +156,12 @@ ORDER BY p.name
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT DISTINCT s.name IS NULL AS supplier_null, p.name
 FROM dex_products p
@@ -291,8 +289,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -308,13 +306,12 @@ ORDER BY p.name
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT DISTINCT COALESCE(s.name, 'N/A') AS safe_supplier, p.name
 FROM dex_products p
@@ -366,8 +363,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -383,13 +380,12 @@ ORDER BY p.name
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, supplier_id@4, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, supplier_id@4, name@5]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT DISTINCT s.name || '-' || p.supplier_id::text AS name_id, p.name
 FROM dex_products p
@@ -441,8 +437,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -458,13 +454,12 @@ ORDER BY p.name
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
@@ -517,8 +512,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 1;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -534,13 +529,12 @@ ORDER BY p.name
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=1
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT DISTINCT upper(s.name) IS NULL, p.name
 FROM dex_products p
@@ -566,8 +560,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -583,13 +577,12 @@ ORDER BY p.name
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT DISTINCT (s.name IS NOT NULL) AS has_name, p.name
 FROM dex_products p
@@ -639,8 +632,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -656,13 +649,12 @@ ORDER BY p.name
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT DISTINCT length(s.name) AS name_len, p.name
 FROM dex_products p
@@ -856,8 +848,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -873,13 +865,12 @@ ORDER BY p.name
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT DISTINCT upper(s.name) AS upper_name, p.name
 FROM dex_products p
@@ -929,8 +920,8 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -946,13 +937,12 @@ ORDER BY p.name
                              : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
-                             :       VisibilityFilterExec: tables=[s, p]
-                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-                             :           CooperativeExec
-                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :         CooperativeExec
+                             :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT DISTINCT s.name::varchar(5) AS short_name, p.name
 FROM dex_products p

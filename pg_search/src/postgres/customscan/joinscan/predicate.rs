@@ -28,10 +28,10 @@
 //! - Boolean expression trees (AND/OR/NOT)
 
 use super::build::{JoinCSClause, JoinLevelExpr, JoinSource, ScanInfo};
-use super::explain::format_expr_for_explain;
-use super::translator::PredicateTranslator;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
+use crate::postgres::customscan::datafusion::explain::format_expr_for_explain;
+use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::deparse::deparse_expr;

@@ -67,7 +67,7 @@
 //! initial `FilterPushdown` pass, it causes `with_new_children` on ancestors —
 //! which in `SortExec`'s case creates a *new* `DynamicFilterPhysicalExpr` that
 //! hasn't been connected yet. A second `FilterPushdown::new_post_optimization()`
-//! pass (registered in `joinscan::scan_state::create_session_context`) wires the
+//! pass (registered in `joinscan::scan_state::create_datafusion_session_context`) wires the
 //! new filter to the scan.
 //!
 //! # Native DataFusion Evaluation

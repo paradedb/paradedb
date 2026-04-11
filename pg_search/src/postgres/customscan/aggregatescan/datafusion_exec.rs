@@ -24,24 +24,24 @@
 //! materialization, no SegmentedTopK — aggregates run entirely on fast fields
 //! and the result is aggregate rows, not individual tuples.
 
-use std::sync::Arc;
-
 use super::join_targetlist::AggOrderByEntry;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::aggregatescan::join_targetlist::{
     AggKind, JoinAggregateEntry, JoinAggregateTargetList,
 };
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
+use crate::postgres::customscan::datafusion::translator::{
+    build_join_df, make_col, ColumnMapper, JoinTypeAllowList, PredicateTranslator,
+};
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
 };
-use crate::postgres::customscan::joinscan::scan_state::build_base_session;
-use crate::postgres::customscan::joinscan::translator::{
-    build_equi_join_exprs, make_col, ColumnMapper, PredicateTranslator,
+use crate::postgres::customscan::joinscan::scan_state::{
+    create_datafusion_session_context, register_source_table, SessionContextProfile,
 };
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
-use datafusion::common::{DataFusionError, JoinType, Result};
+use datafusion::common::{DataFusionError, Result};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
@@ -51,25 +51,19 @@ use datafusion::functions_aggregate::expr_fn::{
 use datafusion::functions_aggregate::string_agg::string_agg_udaf;
 use datafusion::logical_expr::expr::{AggregateFunction, Sort};
 use datafusion::logical_expr::{lit, Expr};
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
-use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
+use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
-/// Creates a DataFusion [`SessionContext`] for aggregate workloads.
+/// Creates a DataFusion [`SessionContext`] for aggregate-on-join workloads.
 ///
-/// Shares the base session setup with JoinScan (visibility, late
-/// materialization, sort-merge join) via [`build_base_session`].
-/// Unlike JoinScan, this does not include `SegmentedTopKRule` (row-level
-/// TopK doesn't apply to aggregates). DataFusion's built-in
-/// `SortExec(fetch=K)` already uses a bounded TopK heap internally.
+/// Thin wrapper around the shared
+/// [`create_datafusion_session_context`] with the
+/// [`SessionContextProfile::Aggregate`] profile. Kept as a named function so
+/// the call sites in `aggregatescan/mod.rs` remain stable; if more aggregate-
+/// specific session setup ever appears, this is the place to put it.
 pub fn create_aggregate_session_context() -> SessionContext {
-    let config = SessionConfig::new().with_target_partitions(1);
-    let builder = build_base_session(config)
-        // FilterPushdown: push filters to PgSearchTableProvider
-        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-
-    SessionContext::new_with_state(builder.build())
+    create_datafusion_session_context(SessionContextProfile::Aggregate)
 }
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
@@ -298,30 +292,7 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
-                let on = build_equi_join_exprs(join)?;
-
-                let df_join_type = match join.join_type {
-                    crate::postgres::customscan::joinscan::build::JoinType::Inner => {
-                        JoinType::Inner
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::Left => JoinType::Left,
-                    crate::postgres::customscan::joinscan::build::JoinType::Right => {
-                        JoinType::Right
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::Full => JoinType::Full,
-                    unsupported => {
-                        return Err(DataFusionError::NotImplemented(format!(
-                            "Aggregate-on-join does not support {} JOIN",
-                            unsupported
-                        )));
-                    }
-                };
-
-                if on.is_empty() {
-                    left_df.join(right_df, df_join_type, &[], &[], None)
-                } else {
-                    left_df.join_on(right_df, df_join_type, on)
-                }
+                build_join_df(left_df, right_df, join, JoinTypeAllowList::EquiOnly)
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(
@@ -590,10 +561,7 @@ async fn build_source_df(
     }
 
     let provider = PgSearchTableProvider::new(scan_info, fields, false);
-    let provider = Arc::new(provider);
-    ctx.register_table(alias.as_str(), provider)?;
-
-    let df = ctx.table(alias.as_str()).await?;
+    let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
     // Select all fields from the provider schema using their qualified names.
     // This mirrors JoinScan's pattern and ensures column names are accessible

@@ -83,7 +83,9 @@ use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
-use crate::postgres::customscan::datafusion::translator::{make_col, CombinedMapper};
+use crate::postgres::customscan::datafusion::translator::{
+    build_join_df, make_col, CombinedMapper, JoinTypeAllowList, PredicateTranslator,
+};
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
@@ -490,12 +492,7 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
-                let df = crate::postgres::customscan::datafusion::translator::build_join_df(
-                    left_df,
-                    right_df,
-                    join,
-                    crate::postgres::customscan::datafusion::translator::JoinTypeAllowList::All,
-                )?;
+                let df = build_join_df(left_df, right_df, join, JoinTypeAllowList::All)?;
 
                 if join.filter.is_some() {
                     return Err(DataFusionError::NotImplemented(
@@ -526,7 +523,7 @@ fn build_relnode_df<'a>(
                     super::visibility_filter::deferred_plan_positions(&filter.input);
                 let sources = filter.input.sources();
                 let filter_expr = unsafe {
-                    crate::postgres::customscan::datafusion::translator::PredicateTranslator::translate_join_level_expr(
+                    PredicateTranslator::translate_join_level_expr(
                         &filter.predicate,
                         translated_exprs,
                         ctid_map,
@@ -601,11 +598,7 @@ fn build_clause_df<'a>(
             output_columns: &private_data.output_columns,
         };
 
-        let translator =
-            crate::postgres::customscan::datafusion::translator::PredicateTranslator::new(
-                &plan_sources,
-            )
-            .with_mapper(Box::new(mapper));
+        let translator = PredicateTranslator::new(&plan_sources).with_mapper(Box::new(mapper));
 
         // Translate all custom_exprs first
         let mut translated_exprs = Vec::new();

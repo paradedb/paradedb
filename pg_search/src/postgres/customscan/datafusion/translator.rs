@@ -23,7 +23,8 @@ use pgrx::{pg_sys, PgList};
 
 use crate::api::HashMap;
 use crate::postgres::customscan::joinscan::build::{
-    JoinLevelExpr, JoinLevelSearchPredicate, JoinSource, RelationAlias,
+    JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource, JoinType as PgJoinType,
+    RelationAlias,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
 use crate::postgres::customscan::opexpr::lookup_operator;
@@ -387,11 +388,9 @@ pub enum JoinTypeAllowList {
 pub fn build_join_df(
     left: DataFrame,
     right: DataFrame,
-    join: &crate::postgres::customscan::joinscan::build::JoinNode,
+    join: &JoinNode,
     allowed_join_types: JoinTypeAllowList,
 ) -> Result<DataFrame> {
-    use crate::postgres::customscan::joinscan::build::JoinType as PgJoinType;
-
     let on = build_equi_join_exprs(join)?;
 
     let df_join_type = match (join.join_type, allowed_join_types) {
@@ -431,9 +430,7 @@ pub fn build_join_df(
 /// Shared between JoinScan and AggregateScan `build_relnode_df` implementations.
 /// Each key pair is resolved against the join's left/right subtrees and converted
 /// to a `left_col = right_col` DataFusion expression.
-pub fn build_equi_join_exprs(
-    join: &crate::postgres::customscan::joinscan::build::JoinNode,
-) -> Result<Vec<Expr>> {
+pub fn build_equi_join_exprs(join: &JoinNode) -> Result<Vec<Expr>> {
     let mut on = Vec::with_capacity(join.equi_keys.len());
     for jk in &join.equi_keys {
         let ((left_source, left_attno), (right_source, right_attno)) =

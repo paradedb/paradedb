@@ -60,8 +60,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::joinscan::memory::create_memory_pool;
-use crate::postgres::customscan::joinscan::scan_state::build_physical_plan;
+use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -71,11 +70,8 @@ use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use chrono::{DateTime as ChronoDateTime, Utc};
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::execution::TaskContext;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
-use std::sync::Arc;
 use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
@@ -1080,21 +1076,11 @@ impl AggregateScan {
                 Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
             };
 
-            let memory_pool = create_memory_pool(
+            let task_ctx = build_task_context(
+                &ctx,
                 &physical_plan,
                 unsafe { pg_sys::work_mem as usize * 1024 },
                 unsafe { pg_sys::hash_mem_multiplier },
-            );
-
-            let task_ctx = Arc::new(
-                TaskContext::default()
-                    .with_session_config(ctx.state().config().clone())
-                    .with_runtime(Arc::new(
-                        RuntimeEnvBuilder::new()
-                            .with_memory_pool(memory_pool)
-                            .build()
-                            .expect("Failed to create RuntimeEnv"),
-                    )),
             );
             let stream = {
                 let _guard = runtime.enter();

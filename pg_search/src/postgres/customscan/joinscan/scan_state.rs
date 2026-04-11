@@ -76,7 +76,10 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
 };
+use crate::postgres::customscan::joinscan::memory::create_memory_pool;
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
@@ -336,6 +339,34 @@ pub async fn build_physical_plan(
     } else {
         Ok(plan)
     }
+}
+
+/// Build the `TaskContext` used to execute a DataFusion physical plan.
+///
+/// Sizes a `PanicOnOOMMemoryPool` against the supplied `work_mem_bytes` and
+/// `hash_mem_multiplier` (typically PostgreSQL's `work_mem * 1024` and
+/// `hash_mem_multiplier` GUCs), bundles it into a fresh `RuntimeEnv`, and
+/// pairs that with the session config from `ctx`.
+///
+/// Shared by JoinScan and AggregateScan; both call this immediately before
+/// `physical_plan.execute(0, task_ctx)`.
+pub fn build_task_context(
+    ctx: &SessionContext,
+    plan: &Arc<dyn ExecutionPlan>,
+    work_mem_bytes: usize,
+    hash_mem_multiplier: f64,
+) -> Arc<TaskContext> {
+    let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
+    Arc::new(
+        TaskContext::default()
+            .with_session_config(ctx.state().config().clone())
+            .with_runtime(Arc::new(
+                RuntimeEnvBuilder::new()
+                    .with_memory_pool(memory_pool)
+                    .build()
+                    .expect("Failed to create RuntimeEnv"),
+            )),
+    )
 }
 
 /// Recursively lowers a `RelNode` tree into a DataFusion `DataFrame`.

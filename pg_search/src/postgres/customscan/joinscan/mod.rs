@@ -152,7 +152,6 @@ pub mod visibility_filter;
 pub use self::build::CtidColumn;
 use self::build::{JoinCSClause, RelNode, RelationAlias};
 use self::explain::{format_join_level_expr, get_attname_safe};
-use self::memory::create_memory_pool;
 use self::planning::{
     collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
     ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
@@ -164,7 +163,8 @@ use self::privdat::PrivateData;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{
-    build_joinscan_logical_plan, build_physical_plan, create_session_context, JoinScanState,
+    build_joinscan_logical_plan, build_physical_plan, build_task_context, create_session_context,
+    JoinScanState,
 };
 use crate::api::OrderByFeature;
 use crate::index::mvcc::MvccSatisfies;
@@ -184,15 +184,12 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
 use std::ffi::{c_void, CStr};
-use std::sync::Arc;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -1487,21 +1484,11 @@ impl CustomScan for JoinScan {
                     .block_on(build_physical_plan(&ctx, logical_plan))
                     .expect("Failed to create execution plan");
 
-                let memory_pool = create_memory_pool(
+                let task_ctx = build_task_context(
+                    &ctx,
                     &plan,
                     pg_sys::work_mem as usize * 1024,
                     pg_sys::hash_mem_multiplier,
-                );
-
-                let task_ctx = Arc::new(
-                    TaskContext::default()
-                        .with_session_config(ctx.state().config().clone())
-                        .with_runtime(Arc::new(
-                            RuntimeEnvBuilder::new()
-                                .with_memory_pool(memory_pool)
-                                .build()
-                                .expect("Failed to create RuntimeEnv"),
-                        )),
                 );
                 let stream = {
                     let _guard = runtime.enter();

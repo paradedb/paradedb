@@ -35,7 +35,9 @@ use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionT
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
 };
-use crate::postgres::customscan::joinscan::scan_state::build_base_session;
+use crate::postgres::customscan::joinscan::scan_state::{
+    create_datafusion_session_context, SessionContextProfile,
+};
 use crate::postgres::customscan::joinscan::translator::{
     build_join_df, make_col, ColumnMapper, JoinTypeAllowList, PredicateTranslator,
 };
@@ -51,25 +53,19 @@ use datafusion::functions_aggregate::expr_fn::{
 use datafusion::functions_aggregate::string_agg::string_agg_udaf;
 use datafusion::logical_expr::expr::{AggregateFunction, Sort};
 use datafusion::logical_expr::{lit, Expr};
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
-use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
+use datafusion::prelude::{DataFrame, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
-/// Creates a DataFusion [`SessionContext`] for aggregate workloads.
+/// Creates a DataFusion [`SessionContext`] for aggregate-on-join workloads.
 ///
-/// Shares the base session setup with JoinScan (visibility, late
-/// materialization, sort-merge join) via [`build_base_session`].
-/// Unlike JoinScan, this does not include `SegmentedTopKRule` (row-level
-/// TopK doesn't apply to aggregates). DataFusion's built-in
-/// `SortExec(fetch=K)` already uses a bounded TopK heap internally.
+/// Thin wrapper around the shared
+/// [`create_datafusion_session_context`] with the
+/// [`SessionContextProfile::Aggregate`] profile. Kept as a named function so
+/// the call sites in `aggregatescan/mod.rs` remain stable; if more aggregate-
+/// specific session setup ever appears, this is the place to put it.
 pub fn create_aggregate_session_context() -> SessionContext {
-    let config = SessionConfig::new().with_target_partitions(1);
-    let builder = build_base_session(config)
-        // FilterPushdown: push filters to PgSearchTableProvider
-        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-
-    SessionContext::new_with_state(builder.build())
+    create_datafusion_session_context(SessionContextProfile::Aggregate)
 }
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:

@@ -224,27 +224,22 @@ impl CustomScanState for JoinScanState {
     }
 }
 
-/// Base session config shared by all contexts.
-fn base_session_config() -> SessionConfig {
-    let mut config = SessionConfig::new().with_target_partitions(1);
-    config
-        .options_mut()
-        .optimizer
-        .enable_topk_dynamic_filter_pushdown = true;
-    config
-}
-
-/// Adds SegmentedTopK plus the final post-optimization FilterPushdown pass.
+/// Selects which physical optimizer rules to install on top of the shared
+/// base session for a given consumer.
 ///
-/// This second `FilterPushdown(Post)` run is intentional: `SegmentedTopKRule`
-/// can inject new `DynamicFilterPhysicalExpr`s that did not exist during the
-/// earlier post-optimization pass.
-fn add_tail_physical_rules(builder: SessionStateBuilder) -> SessionStateBuilder {
-    builder
-        .with_physical_optimizer_rule(Arc::new(
-            crate::scan::segmented_topk_rule::SegmentedTopKRule,
-        ))
-        .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()))
+/// JoinScan needs `SegmentedTopKRule` and the trailing `FilterPushdown` passes
+/// that follow it; AggregateScan needs only a single `FilterPushdown` post-pass.
+/// Exposing the difference as an explicit profile keeps the choice grep-able
+/// from the call site.
+#[derive(Copy, Clone, Debug)]
+pub enum SessionContextProfile {
+    /// JoinScan execution: enables `topk_dynamic_filter_pushdown`, includes
+    /// `SegmentedTopKRule`, and adds the trailing `FilterPushdown` passes that
+    /// `SegmentedTopKRule` requires.
+    Join,
+    /// AggregateScan execution: single `FilterPushdown` post-pass, no
+    /// SegmentedTopK, no topk dynamic filter pushdown.
+    Aggregate,
 }
 
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
@@ -277,26 +272,49 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     builder.with_physical_optimizer_rule(Arc::new(VisibilityCtidResolverRule))
 }
 
-/// Creates the shared DataFusion SessionContext used for both JoinScan logical
-/// planning and execution.
+/// Creates a DataFusion [`SessionContext`] for either JoinScan or AggregateScan.
 ///
-/// The same context configuration is used to:
-/// 1. run logical optimization and produce the canonical serialized plan
-/// 2. lower that deserialized logical plan into a physical plan at execution
-pub fn create_session_context() -> SessionContext {
-    let mut builder = build_base_session(base_session_config());
-
-    // VisibilityExtensionPlanner already places visibility below any immediate
-    // TantivyLookupExec chain, so only resolver wiring remains here before the
-    // first post-optimization FilterPushdown pass. That pass reconnects dynamic
-    // filters after SortMergeJoin rewrites; the final pass in
-    // `add_tail_physical_rules` handles any new filters introduced by
-    // SegmentedTopKRule later in the pipeline.
-    if crate::gucs::is_columnar_sort_enabled() {
-        builder =
-            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+/// The base session (visibility filtering, late materialization, SortMergeJoin
+/// enforcement, the `PgSearchQueryPlanner`, and the visibility-ctid resolver)
+/// is shared via [`build_base_session`]. The supplied [`SessionContextProfile`]
+/// then layers on the physical optimizer rules each consumer needs:
+///
+/// - [`SessionContextProfile::Join`]: enables `topk_dynamic_filter_pushdown`,
+///   conditionally injects an early `FilterPushdown` post-pass when columnar
+///   sort is on (so dynamic filters reconnect after SortMergeJoin rewrites),
+///   then appends `SegmentedTopKRule` followed by a trailing `FilterPushdown`
+///   pass to pick up any filters `SegmentedTopKRule` injects.
+/// - [`SessionContextProfile::Aggregate`]: appends a single `FilterPushdown`
+///   post-pass; SegmentedTopK does not apply to aggregate-on-join queries.
+pub fn create_datafusion_session_context(profile: SessionContextProfile) -> SessionContext {
+    let mut config = SessionConfig::new().with_target_partitions(1);
+    if matches!(profile, SessionContextProfile::Join) {
+        config
+            .options_mut()
+            .optimizer
+            .enable_topk_dynamic_filter_pushdown = true;
     }
-    builder = add_tail_physical_rules(builder);
+
+    let mut builder = build_base_session(config);
+
+    match profile {
+        SessionContextProfile::Join => {
+            if crate::gucs::is_columnar_sort_enabled() {
+                builder = builder.with_physical_optimizer_rule(Arc::new(
+                    FilterPushdown::new_post_optimization(),
+                ));
+            }
+            builder = builder
+                .with_physical_optimizer_rule(Arc::new(
+                    crate::scan::segmented_topk_rule::SegmentedTopKRule,
+                ))
+                .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+        }
+        SessionContextProfile::Aggregate => {
+            builder = builder
+                .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+        }
+    }
 
     SessionContext::new_with_state(builder.build())
 }
@@ -308,7 +326,7 @@ pub async fn build_joinscan_logical_plan(
     private_data: &PrivateData,
     custom_exprs: *mut pg_sys::List,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
-    let ctx = create_session_context();
+    let ctx = create_datafusion_session_context(SessionContextProfile::Join);
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs).await?;
     df.into_optimized_plan()
 }

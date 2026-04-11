@@ -163,8 +163,8 @@ use self::privdat::PrivateData;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{
-    build_joinscan_logical_plan, build_physical_plan, build_task_context, create_session_context,
-    JoinScanState,
+    build_joinscan_logical_plan, build_physical_plan, build_task_context,
+    create_datafusion_session_context, JoinScanState, SessionContextProfile,
 };
 use crate::api::OrderByFeature;
 use crate::index::mvcc::MvccSatisfies;
@@ -1380,7 +1380,7 @@ impl CustomScan for JoinScan {
             // configuration that execution uses so `VisibilityFilterExec`
             // appears in the displayed plan, matching EXPLAIN ANALYZE.
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let ctx = create_session_context();
+            let ctx = create_datafusion_session_context(SessionContextProfile::Join);
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
@@ -1467,7 +1467,7 @@ impl CustomScan for JoinScan {
                 let index_segment_ids =
                     Self::build_index_segment_ids(state, &join_clause, &plan_sources);
 
-                let ctx = create_session_context();
+                let ctx = create_datafusion_session_context(SessionContextProfile::Join);
                 let logical_plan = deserialize_logical_plan_with_runtime(
                     &plan_bytes,
                     &ctx.task_ctx(),

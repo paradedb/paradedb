@@ -72,7 +72,7 @@ use crate::schema::SearchIndexSchema;
 /// Sentinels we scrub:
 /// - String sentinels: "__PDB_NULL__" (with Unicode prefix/suffix)
 /// - Numeric sentinels: i64::MIN, i64::MAX, u64::MAX, f64::MIN, f64::MAX
-fn scrub_null_sentinels(value: &mut Value) {
+pub fn scrub_null_sentinels(value: &mut Value) {
     match value {
         Value::Object(map) => {
             // If this is a bucket with a "key" field, check if the key is a sentinel

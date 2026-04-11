@@ -53,6 +53,7 @@ use std::error::Error;
 
 use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::gucs;
@@ -61,6 +62,58 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{lookup_pdb_function, ExprContextGuard};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
+
+/// Recursively scrubs NULL sentinel values from aggregation JSON output.
+///
+/// Tantivy's aggregation API doesn't natively support NULL values, so we use sentinel values
+/// internally to represent NULLs. This function walks the JSON tree and replaces those sentinels
+/// with proper JSON `null` values for user-facing output.
+///
+/// Sentinels we scrub:
+/// - String sentinels: "__PDB_NULL__" (with Unicode prefix/suffix)
+/// - Numeric sentinels: i64::MIN, i64::MAX, u64::MAX, f64::MIN, f64::MAX
+fn scrub_null_sentinels(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            // If this is a bucket with a "key" field, check if the key is a sentinel
+            if let Some(key_value) = map.get_mut("key") {
+                let is_sentinel = match key_value {
+                    // String sentinels contain "__PDB_NULL__"
+                    Value::String(s) if s.contains("__PDB_NULL__") => true,
+                    // Numeric sentinels
+                    Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            i == i64::MIN || i == i64::MAX
+                        } else if let Some(u) = n.as_u64() {
+                            u == u64::MAX
+                        } else if let Some(f) = n.as_f64() {
+                            f == f64::MIN || f == f64::MAX
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
+                };
+
+                if is_sentinel {
+                    *key_value = Value::Null;
+                }
+            }
+
+            // Recursively scrub all nested objects and arrays
+            for (_key, nested_value) in map.iter_mut() {
+                scrub_null_sentinels(nested_value);
+            }
+        }
+        Value::Array(arr) => {
+            // Recursively scrub all array elements
+            for element in arr.iter_mut() {
+                scrub_null_sentinels(element);
+            }
+        }
+        _ => {}
+    }
+}
 
 fn aggregate_impl(
     index: PgRelation,
@@ -106,7 +159,9 @@ fn aggregate_impl(
     if aggregate.0.is_empty() {
         Ok(JsonB(serde_json::Value::Null))
     } else {
-        Ok(JsonB(serde_json::to_value(aggregate)?))
+        let mut json = serde_json::to_value(aggregate)?;
+        scrub_null_sentinels(&mut json);
+        Ok(JsonB(json))
     }
 }
 

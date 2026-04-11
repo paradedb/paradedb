@@ -112,9 +112,9 @@ WHERE body @@@ pdb.all();
 SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
 FROM docs_nullable
 WHERE body @@@ pdb.all();
-                                                                                                              agg                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": 1, "doc_count": 2, "key_as_string": "true"}, {"key": "__PDB_NULL__", "doc_count": 2}, {"key": 0, "doc_count": 1, "key_as_string": "false"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+                                                                                                         agg
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": 1, "doc_count": 2, "key_as_string": "true"}, {"key": null, "doc_count": 2}, {"key": 0, "doc_count": 1, "key_as_string": "false"}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
 DROP TABLE docs_nullable CASCADE;

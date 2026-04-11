@@ -93,11 +93,7 @@ pub async fn build_join_aggregate_plan(
     let group_exprs: Vec<Expr> = targetlist
         .group_columns
         .iter()
-        .map(|gc| {
-            let source = plan.source_for_rti_in_subtree(gc.rti);
-            let (alias, _col_name) = resolve_source_column(source, gc.rti, &gc.field_name);
-            make_col(&alias, &gc.field_name)
-        })
+        .map(|gc| make_rti_col(plan, gc.rti, &gc.field_name))
         .collect();
 
     // Step 3: Build aggregate expressions
@@ -455,9 +451,7 @@ impl FilterExpr {
             FilterExpr::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
             FilterExpr::ColumnRef { rti, field_name } => {
                 let plan = ctx.plan?;
-                let source = plan.source_for_rti_in_subtree(*rti);
-                let (alias, _) = resolve_source_column(source, *rti, field_name);
-                Some(make_col(&alias, field_name))
+                Some(make_rti_col(plan, *rti, field_name))
             }
             FilterExpr::LitInt(v) => Some(lit(*v)),
             FilterExpr::LitFloat(v) => Some(lit(*v)),
@@ -586,9 +580,7 @@ async fn build_source_df(
 ///
 /// Every caller obtains `source` via `plan.source_for_rti_in_subtree(rti)`,
 /// which already walks the plan tree looking for a source whose
-/// `contains_rti(rti)` is true. The previous fallback walk here was the
-/// same search and could only fire when the planner had failed to validate
-/// the RTI — i.e. never in production. Treat the missing case as a hard
+/// `contains_rti(rti)` is true. The missing case is treated as a hard
 /// invariant violation.
 fn resolve_source_column(
     source: Option<&JoinSource>,
@@ -601,15 +593,26 @@ fn resolve_source_column(
     (alias, field_name.to_string())
 }
 
+/// Build a DataFusion column expression for a `(rti, field_name)` reference
+/// against the given plan tree.
+///
+/// This is the standard pattern: walk the plan to find the source that
+/// claims `rti`, build the execution alias from the source's alias and
+/// plan position, and wrap it in a `make_col`. Use this instead of inlining
+/// `source_for_rti_in_subtree + resolve_source_column + make_col` at every
+/// site that needs a column reference.
+fn make_rti_col(plan: &RelNode, rti: pgrx::pg_sys::Index, field_name: &str) -> Expr {
+    let source = plan.source_for_rti_in_subtree(rti);
+    let (alias, _) = resolve_source_column(source, rti, field_name);
+    make_col(&alias, field_name)
+}
+
 /// Build a DataFusion column expression for an aggregate's first field reference.
 fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
     let (rti, _attno, ref field_name) = agg.field_refs.first().ok_or_else(|| {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;
-
-    let source = plan.source_for_rti_in_subtree(*rti);
-    let (alias, _) = resolve_source_column(source, *rti, field_name);
-    Ok(make_col(&alias, field_name))
+    Ok(make_rti_col(plan, *rti, field_name))
 }
 
 /// Convert aggregate ORDER BY entries to DataFusion `Sort` expressions.
@@ -617,10 +620,8 @@ fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort>
     order_by
         .iter()
         .map(|entry| {
-            let source = plan.source_for_rti_in_subtree(entry.rti);
-            let (alias, _) = resolve_source_column(source, entry.rti, &entry.field_name);
             Sort::new(
-                make_col(&alias, &entry.field_name),
+                make_rti_col(plan, entry.rti, &entry.field_name),
                 entry.direction.is_asc(),
                 entry.direction.is_nulls_first(),
             )
@@ -633,10 +634,6 @@ fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort>
 fn agg_field_cols(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Vec<Expr>> {
     agg.field_refs
         .iter()
-        .map(|(rti, _attno, field_name)| {
-            let source = plan.source_for_rti_in_subtree(*rti);
-            let (alias, _) = resolve_source_column(source, *rti, field_name);
-            Ok(make_col(&alias, field_name))
-        })
+        .map(|(rti, _attno, field_name)| Ok(make_rti_col(plan, *rti, field_name)))
         .collect()
 }

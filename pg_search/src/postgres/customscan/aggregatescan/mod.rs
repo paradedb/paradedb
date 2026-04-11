@@ -767,6 +767,19 @@ impl From<&str> for CustomScanBuildError {
     }
 }
 
+/// Return the alias name of a Postgres `RangeTblEntry`, or `"unknown"` if the
+/// entry has no alias attached. Used by planner-warning messages where we want
+/// a stable user-visible label for the rejected relation.
+unsafe fn rte_alias_or_unknown(rte: *mut pg_sys::RangeTblEntry) -> String {
+    if !(*rte).eref.is_null() && !(*(*rte).eref).aliasname.is_null() {
+        std::ffi::CStr::from_ptr((*(*rte).eref).aliasname)
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        "unknown".to_string()
+    }
+}
+
 pub trait CustomScanClause<CS: CustomScan> {
     type Args;
 
@@ -826,18 +839,9 @@ impl AggregateScan {
         };
         let Some((_table, index)) = rel_get_bm25_index(unsafe { (*heap_rte).relid }) else {
             if has_paradedb_agg {
-                let alias = unsafe {
-                    if !(*heap_rte).eref.is_null() && !(*(*heap_rte).eref).aliasname.is_null() {
-                        std::ffi::CStr::from_ptr((*(*heap_rte).eref).aliasname)
-                            .to_string_lossy()
-                            .into_owned()
-                    } else {
-                        "unknown".to_string()
-                    }
-                };
                 Self::add_planner_warning(
                     "Aggregate Scan not used: table must have a BM25 index",
-                    alias,
+                    unsafe { rte_alias_or_unknown(heap_rte) },
                 );
             }
             return Vec::new();
@@ -845,16 +849,7 @@ impl AggregateScan {
 
         match AggregateCSClause::build(builder, heap_rti, &index) {
             Ok((builder, aggregate_clause)) => {
-                let alias = unsafe {
-                    if !(*heap_rte).eref.is_null() && !(*(*heap_rte).eref).aliasname.is_null() {
-                        std::ffi::CStr::from_ptr((*(*heap_rte).eref).aliasname)
-                            .to_string_lossy()
-                            .into_owned()
-                    } else {
-                        "unknown".to_string()
-                    }
-                };
-                Self::mark_contexts_successful(alias);
+                Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
 
                 vec![builder.build(PrivateData::Tantivy {
                     heap_rti,

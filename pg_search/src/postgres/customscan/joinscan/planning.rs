@@ -1049,15 +1049,11 @@ pub(super) unsafe fn collect_required_fields(
                 }) = output_columns.get(idx)
                 {
                     if *original_attno > 0 {
-                        for source in &mut plan_sources {
-                            ensure_column(source, *rti, *original_attno);
-                        }
+                        ensure_column_in_all_sources(&mut plan_sources, *rti, *original_attno);
                     }
                 }
             } else {
-                for source in &mut plan_sources {
-                    ensure_column(source, var.rti, var.attno);
-                }
+                ensure_column_in_all_sources(&mut plan_sources, var.rti, var.attno);
             }
         }
     }
@@ -1065,9 +1061,7 @@ pub(super) unsafe fn collect_required_fields(
     for info in &join_clause.order_by {
         match &info.feature {
             OrderByFeature::Var { rti, attno, .. } => {
-                for source in &mut plan_sources {
-                    ensure_column(source, *rti, *attno);
-                }
+                ensure_column_in_all_sources(&mut plan_sources, *rti, *attno);
             }
             OrderByFeature::Field {
                 name: name_wrapper,
@@ -1117,9 +1111,7 @@ pub(super) unsafe fn collect_required_fields(
         for proj in projections {
             if let super::build::ChildProjection::Expression { input_vars, .. } = proj {
                 for var_info in input_vars {
-                    for source in &mut plan_sources {
-                        ensure_column(source, var_info.rti, var_info.attno);
-                    }
+                    ensure_column_in_all_sources(&mut plan_sources, var_info.rti, var_info.attno);
                 }
             }
         }
@@ -1130,6 +1122,20 @@ pub(super) unsafe fn collect_required_fields(
 unsafe fn ensure_column(source: &mut JoinSource, rti: pg_sys::Index, attno: pg_sys::AttrNumber) {
     if source.contains_rti(rti) {
         ensure_field(source, attno);
+    }
+}
+
+/// Broadcast [`ensure_column`] across every source in the plan. Each source
+/// only acts on the call when its `contains_rti(rti)` is true, so this is the
+/// idiomatic way to "make sure this `(rti, attno)` reference can be resolved
+/// regardless of which source actually owns it" in `collect_required_fields`.
+unsafe fn ensure_column_in_all_sources(
+    sources: &mut [&mut JoinSource],
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) {
+    for source in sources {
+        ensure_column(source, rti, attno);
     }
 }
 

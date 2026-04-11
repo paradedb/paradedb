@@ -62,7 +62,7 @@
 
 use std::sync::Arc;
 
-use datafusion::common::{DataFusionError, JoinType, Result};
+use datafusion::common::{DataFusionError, Result};
 use datafusion::logical_expr::{col, Expr};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
@@ -453,45 +453,12 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
-                let on = super::translator::build_equi_join_exprs(join)?;
-
-                let df_join_type = match join.join_type {
-                    crate::postgres::customscan::joinscan::build::JoinType::Inner => {
-                        JoinType::Inner
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::Left => JoinType::Left,
-                    crate::postgres::customscan::joinscan::build::JoinType::Full => JoinType::Full,
-                    crate::postgres::customscan::joinscan::build::JoinType::Right => {
-                        JoinType::Right
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::Semi => {
-                        JoinType::LeftSemi
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::Anti => {
-                        JoinType::LeftAnti
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::LeftMark => {
-                        JoinType::LeftMark
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::RightMark => {
-                        JoinType::RightMark
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::RightSemi => {
-                        JoinType::RightSemi
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::RightAnti => {
-                        JoinType::RightAnti
-                    }
-                    unsupported => {
-                        panic!("Join type {} is unsupported during execution", unsupported)
-                    }
-                };
-
-                let df = if on.is_empty() {
-                    left_df.join(right_df, df_join_type, &[], &[], None)?
-                } else {
-                    left_df.join_on(right_df, df_join_type, on)?
-                };
+                let df = super::translator::build_join_df(
+                    left_df,
+                    right_df,
+                    join,
+                    super::translator::JoinTypeAllowList::All,
+                )?;
 
                 if join.filter.is_some() {
                     return Err(DataFusionError::NotImplemented(

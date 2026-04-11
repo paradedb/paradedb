@@ -37,11 +37,11 @@ use crate::postgres::customscan::joinscan::build::{
 };
 use crate::postgres::customscan::joinscan::scan_state::build_base_session;
 use crate::postgres::customscan::joinscan::translator::{
-    build_equi_join_exprs, make_col, ColumnMapper, PredicateTranslator,
+    build_join_df, make_col, ColumnMapper, JoinTypeAllowList, PredicateTranslator,
 };
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
-use datafusion::common::{DataFusionError, JoinType, Result};
+use datafusion::common::{DataFusionError, Result};
 use datafusion::functions_aggregate::array_agg::array_agg_udaf;
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_aggregate::expr_fn::{
@@ -298,30 +298,7 @@ fn build_relnode_df<'a>(
                 )
                 .await?;
 
-                let on = build_equi_join_exprs(join)?;
-
-                let df_join_type = match join.join_type {
-                    crate::postgres::customscan::joinscan::build::JoinType::Inner => {
-                        JoinType::Inner
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::Left => JoinType::Left,
-                    crate::postgres::customscan::joinscan::build::JoinType::Right => {
-                        JoinType::Right
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinType::Full => JoinType::Full,
-                    unsupported => {
-                        return Err(DataFusionError::NotImplemented(format!(
-                            "Aggregate-on-join does not support {} JOIN",
-                            unsupported
-                        )));
-                    }
-                };
-
-                if on.is_empty() {
-                    left_df.join(right_df, df_join_type, &[], &[], None)
-                } else {
-                    left_df.join_on(right_df, df_join_type, on)
-                }
+                build_join_df(left_df, right_df, join, JoinTypeAllowList::EquiOnly)
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(

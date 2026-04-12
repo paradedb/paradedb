@@ -217,6 +217,17 @@ impl LinkedBytesList {
         }
     }
 
+    /// Set the [`pg_sys::BufferAccessStrategy`] used when reading buffers in this list.
+    ///
+    /// # Safety
+    ///
+    /// See [`BufferManager::with_strategy`] — the caller must ensure `strategy`
+    /// is either null or has process lifetime.
+    pub(crate) unsafe fn with_strategy(mut self, strategy: pg_sys::BufferAccessStrategy) -> Self {
+        self.bman = unsafe { self.bman.with_strategy(strategy) };
+        self
+    }
+
     /// Create a new [`LinkedBytesList`] in the specified `indexrel`'s block storage.  This method
     /// creates the necessary initial block structure without trying to use recycled pages from
     /// the [`FreeSpaceManager`].

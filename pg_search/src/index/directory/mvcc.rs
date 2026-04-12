@@ -193,9 +193,18 @@ impl MVCCDirectory {
                 let file_entry = entry
                     .file_entry(uuid_string, path)
                     .expect("No such path for {entry:?}: {path:?}");
-                Ok(Arc::new(unsafe {
-                    SegmentComponentReader::new(&self.indexrel, file_entry)
-                }))
+                let reader: Arc<dyn FileHandle> = if *self.mvcc_style == MvccSatisfies::Mergeable {
+                    Arc::new(unsafe {
+                        SegmentComponentReader::new_with_strategy(
+                            &self.indexrel,
+                            file_entry,
+                            crate::postgres::storage::utils::bulkread_strategy(),
+                        )
+                    })
+                } else {
+                    Arc::new(unsafe { SegmentComponentReader::new(&self.indexrel, file_entry) })
+                };
+                Ok(reader)
             }
             LoadedSegmentMetaEntry::Memory {
                 meta,

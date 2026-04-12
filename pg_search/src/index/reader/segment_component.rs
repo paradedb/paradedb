@@ -20,6 +20,7 @@ use crate::postgres::storage::block::FileEntry;
 
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
+use pgrx::pg_sys;
 use std::io::Error;
 use std::ops::Range;
 use tantivy::directory::FileHandle;
@@ -35,6 +36,26 @@ pub struct SegmentComponentReader {
 impl SegmentComponentReader {
     pub unsafe fn new(indexrel: &PgSearchRelation, entry: FileEntry) -> Self {
         let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
+
+        Self { block_list, entry }
+    }
+
+    /// Like [`new`], but uses the given [`pg_sys::BufferAccessStrategy`] when reading buffers.
+    ///
+    /// Pass [`bulkread_strategy()`] to prevent merge reads from evicting active buffers.
+    ///
+    /// # Safety
+    ///
+    /// Same requirements as [`Self::new`]. Additionally, `strategy` must satisfy
+    /// the safety requirements of [`BufferManager::with_strategy`].
+    pub(crate) unsafe fn new_with_strategy(
+        indexrel: &PgSearchRelation,
+        entry: FileEntry,
+        strategy: pg_sys::BufferAccessStrategy,
+    ) -> Self {
+        let block_list = unsafe {
+            LinkedBytesList::open(indexrel, entry.starting_block).with_strategy(strategy)
+        };
 
         Self { block_list, entry }
     }

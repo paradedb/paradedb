@@ -25,6 +25,27 @@ use std::sync::LazyLock;
 /// Matches Postgres's [`MAX_BUFFERS_TO_EXTEND_BY`]
 pub const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;
 
+/// Returns a process-lifetime `BAS_BULKREAD` [`pg_sys::BufferAccessStrategy`].
+///
+/// This strategy tells PostgreSQL to use a small ring buffer for sequential scans,
+/// preventing bulk reads from evicting active buffers from the shared buffer cache.
+/// It should be used when reading segments that are about to be merged away.
+pub fn bulkread_strategy() -> pg_sys::BufferAccessStrategy {
+    struct Holder(pg_sys::BufferAccessStrategy);
+    unsafe impl Send for Holder {}
+    unsafe impl Sync for Holder {}
+
+    static BAS_BULKREAD: LazyLock<Holder> = LazyLock::new(|| {
+        Holder(unsafe {
+            PgMemoryContexts::TopMemoryContext.switch_to(|_| {
+                pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKREAD)
+            })
+        })
+    });
+
+    BAS_BULKREAD.0
+}
+
 pub trait BM25Page {
     /// Read the opaque, non-decoded [`PgItem`] at `offno`.
     unsafe fn read_item(&self, offno: OffsetNumber) -> Option<PgItem>;

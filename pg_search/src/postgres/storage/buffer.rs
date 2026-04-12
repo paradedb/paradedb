@@ -734,14 +734,39 @@ impl PageHeaderMethods for pg_sys::PageHeaderData {
 pub struct BufferManager {
     rbufacc: RelationBufferAccess,
     fsm_blockno: Option<pg_sys::BlockNumber>,
+    strategy: pg_sys::BufferAccessStrategy,
 }
+
+// SAFETY: The `strategy` field is either null or points to a process-lifetime
+// singleton allocated in TopMemoryContext (via `bulkread_strategy()` or similar),
+// which is safe to share across threads. The `with_strategy` method is `unsafe`
+// and requires the caller to uphold this invariant.
+unsafe impl Send for BufferManager {}
+unsafe impl Sync for BufferManager {}
 
 impl BufferManager {
     pub fn new(rel: &PgSearchRelation) -> Self {
         Self {
             rbufacc: RelationBufferAccess::open(rel),
             fsm_blockno: None,
+            strategy: std::ptr::null_mut(),
         }
+    }
+
+    /// Set the [`pg_sys::BufferAccessStrategy`] used when reading existing buffers.
+    ///
+    /// For example, pass the result of [`bulkread_strategy()`] to prevent bulk reads
+    /// from evicting active buffers in the shared buffer cache.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `strategy` is either null or points to memory
+    /// that lives for the entire process lifetime (e.g. allocated in
+    /// `TopMemoryContext`). This is required for the `Send`/`Sync` impl on
+    /// `BufferManager` to be sound.
+    pub(crate) unsafe fn with_strategy(mut self, strategy: pg_sys::BufferAccessStrategy) -> Self {
+        self.strategy = strategy;
+        self
     }
 
     pub fn fsm(&mut self) -> impl FreeSpaceManager {
@@ -846,13 +871,21 @@ impl BufferManager {
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
         block_tracker::track!(Pinned, blockno);
-        PinnedBuffer::new(self.rbufacc.get_buffer(blockno, None))
+        PinnedBuffer::new(self.rbufacc.get_buffer_extended(
+            blockno,
+            self.strategy,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            None,
+        ))
     }
 
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber) -> Buffer {
-        let pg_buffer = self
-            .rbufacc
-            .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+        let pg_buffer = self.rbufacc.get_buffer_extended(
+            blockno,
+            self.strategy,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            Some(pg_sys::BUFFER_LOCK_SHARE),
+        );
 
         block_tracker::track!(Read, blockno);
         Buffer::new(pg_buffer)
@@ -874,10 +907,12 @@ impl BufferManager {
         block_tracker::track!(Write, blockno);
         BufferMut {
             dirty: false,
-            inner: Buffer::new(
-                self.rbufacc
-                    .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE)),
-            ),
+            inner: Buffer::new(self.rbufacc.get_buffer_extended(
+                blockno,
+                self.strategy,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            )),
         }
     }
 
@@ -897,7 +932,12 @@ impl BufferManager {
     #[allow(dead_code)]
     pub fn get_buffer_conditional(&mut self, blockno: pg_sys::BlockNumber) -> Option<BufferMut> {
         unsafe {
-            let pg_buffer = self.rbufacc.get_buffer(blockno, None);
+            let pg_buffer = self.rbufacc.get_buffer_extended(
+                blockno,
+                self.strategy,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                None,
+            );
             if pg_sys::ConditionalLockBuffer(pg_buffer) {
                 block_tracker::track!(Conditional, blockno);
                 Some(BufferMut {
@@ -913,7 +953,12 @@ impl BufferManager {
 
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         unsafe {
-            let pg_buffer = self.rbufacc.get_buffer(blockno, None);
+            let pg_buffer = self.rbufacc.get_buffer_extended(
+                blockno,
+                self.strategy,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                None,
+            );
             block_tracker::track!(Cleanup, blockno);
             pg_sys::LockBufferForCleanup(pg_buffer);
             BufferMut {
@@ -928,7 +973,12 @@ impl BufferManager {
         blockno: pg_sys::BlockNumber,
     ) -> Option<BufferMut> {
         unsafe {
-            let pg_buffer = self.rbufacc.get_buffer(blockno, None);
+            let pg_buffer = self.rbufacc.get_buffer_extended(
+                blockno,
+                self.strategy,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                None,
+            );
             if pg_sys::ConditionalLockBufferForCleanup(pg_buffer) {
                 block_tracker::track!(ConditionalCleanup, blockno);
                 Some(BufferMut {

@@ -139,20 +139,15 @@
 //! - [`explain`]: EXPLAIN output formatting.
 
 pub mod build;
-mod explain;
-pub mod memory;
 pub mod planner;
 mod planning;
 pub mod predicate;
-mod privdat;
+pub mod privdat;
 pub mod scan_state;
-pub mod translator;
 pub mod visibility_filter;
 
 pub use self::build::CtidColumn;
 use self::build::{JoinCSClause, RelNode, RelationAlias};
-use self::explain::{format_join_level_expr, get_attname_safe};
-use self::memory::create_memory_pool;
 use self::planning::{
     collect_join_sources, collect_join_sources_base_rel, collect_required_fields,
     ensure_score_bubbling, expr_uses_scores_from_source, extract_join_conditions, extract_orderby,
@@ -161,10 +156,12 @@ use self::planning::{
 };
 use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
+use crate::postgres::customscan::datafusion::explain::{format_join_level_expr, get_attname_safe};
 use crate::postgres::customscan::pullup::resolve_fast_field;
 
 use self::scan_state::{
-    build_joinscan_logical_plan, build_physical_plan, create_session_context, JoinScanState,
+    build_joinscan_logical_plan, build_physical_plan, build_task_context,
+    create_datafusion_session_context, JoinScanState, SessionContextProfile,
 };
 use crate::api::OrderByFeature;
 use crate::index::mvcc::MvccSatisfies;
@@ -184,18 +181,84 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
 use std::ffi::{c_void, CStr};
-use std::sync::Arc;
 
 #[derive(Default)]
 pub struct JoinScan;
+
+/// Output of [`JoinScan::try_build_join_custom_path`] when activation succeeds.
+struct BuiltJoinPath {
+    path: pg_sys::CustomPath,
+    aliases: Vec<String>,
+    multi_table_clauses: Vec<*mut pg_sys::Expr>,
+}
+
+/// Why the join scan declined to produce a custom path.
+///
+/// `Quiet` is for the early "this isn't even a candidate join" gates;
+/// `Warn` is for validation failures past the "considered interesting"
+/// boundary, where we owe the planner a `NOTICE`.
+enum JoinPathDecline {
+    Quiet,
+    Warn {
+        reason: JoinDeclineReason,
+        aliases: Vec<String>,
+    },
+}
+
+/// Specific reason a `JoinPathDecline::Warn` was raised. Each variant maps
+/// 1:1 to a planner-warning message we used to emit inline.
+enum JoinDeclineReason {
+    NoEquiKeys,
+    UnsupportedJoinType(Vec<String>),
+    PrunedJoinKey,
+    ActivationFailed,
+    JoinLevelExtractionFailed,
+    OrderByUnavailable,
+    Other(String),
+}
+
+impl JoinDeclineReason {
+    fn emit(&self, aliases: &[String]) {
+        match self {
+            JoinDeclineReason::NoEquiKeys => JoinScan::add_planner_warning(
+                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
+                aliases,
+            ),
+            JoinDeclineReason::UnsupportedJoinType(types) => {
+                JoinScan::add_detailed_planner_warning(
+                    "JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported",
+                    aliases,
+                    types.clone(),
+                )
+            }
+            JoinDeclineReason::PrunedJoinKey => JoinScan::add_planner_warning(
+                "JoinScan not used: a semi/anti join prunes columns required by an outer join key and no equivalent output-visible column was found",
+                aliases,
+            ),
+            JoinDeclineReason::ActivationFailed => JoinScan::add_planner_warning(
+                "JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates)",
+                aliases,
+            ),
+            JoinDeclineReason::JoinLevelExtractionFailed => JoinScan::add_planner_warning(
+                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
+                aliases,
+            ),
+            JoinDeclineReason::OrderByUnavailable => JoinScan::add_planner_warning(
+                "JoinScan not used: ORDER BY column is not available in the joined output schema",
+                aliases,
+            ),
+            JoinDeclineReason::Other(msg) => {
+                JoinScan::add_planner_warning(msg.clone(), ());
+            }
+        }
+    }
+}
 
 /// Try to create JoinScan `CustomPath`s for a single base relation that contains
 /// SubPlan-based join opportunities (e.g. `col IN (SELECT ...) OR col IS NULL`).
@@ -757,187 +820,29 @@ impl CustomScan for JoinScan {
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         unsafe {
-            let args = builder.args();
-            let root = args.root;
-            let jointype = args.jointype;
-            let outerrel = args.outerrel;
-            let innerrel = args.innerrel;
-            let extra = args.extra;
-
-            let (outer_node, mut join_keys) =
-                if let Some(res) = collect_join_sources(root, outerrel) {
-                    res
-                } else {
-                    return Vec::new();
-                };
-            let (inner_node, inner_keys) = if let Some(res) = collect_join_sources(root, innerrel) {
-                res
-            } else {
-                return Vec::new();
-            };
-
-            join_keys.extend(inner_keys);
-
-            let mut all_sources = outer_node.sources();
-            all_sources.extend(inner_node.sources());
-
-            // Collect aliases for warnings
-            let aliases: Vec<String> = all_sources
-                .iter()
-                .map(|s| {
-                    RelationAlias::new(s.scan_info.alias.as_deref())
-                        .warning_context(s.scan_info.heaprelid)
-                })
-                .collect();
-
-            let join_conditions = extract_join_conditions(extra, &all_sources);
-
-            // The minimum requirement for considering the join scan is that a search predicate
-            // is used — either in a source or in a join-level condition.
-            if !all_sources.iter().any(|s| s.scan_info.has_search_predicate)
-                && !join_conditions.has_search_predicate
-            {
-                return Vec::new();
-            }
-
-            //
-            // After this point the join is considered interesting: all returns should have
-            // `add_planner_warning` calls to explain themselves.
-            //
-
-            if join_conditions.equi_keys.is_empty() {
-                Self::add_planner_warning(
-                    "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
-                    &aliases,
-                );
-                return Vec::new();
-            }
-
-            // Add current level keys
-            join_keys.extend(join_conditions.equi_keys.clone());
-
-            let parsed_jointype = match build::JoinType::try_from(jointype) {
-                Ok(jt) => jt,
-                Err(e) => {
-                    Self::add_planner_warning(e.to_string(), ());
-                    return Vec::new();
-                }
-            };
-
-            let mut plan = RelNode::Join(Box::new(build::JoinNode {
-                join_type: parsed_jointype,
-                left: outer_node,
-                right: inner_node,
-                equi_keys: join_conditions.equi_keys,
-                filter: None,
-            }));
-
-            let unsupported = plan.unsupported_join_types();
-            if !unsupported.is_empty() {
-                Self::add_detailed_planner_warning(
-                    "JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported",
-                    &aliases,
-                    unsupported
-                        .iter()
-                        .map(|t| t.to_string().to_uppercase())
-                        .collect::<Vec<_>>(),
-                );
-                return Vec::new();
-            }
-
-            if !plan.rewrite_pruned_join_keys(root) {
-                Self::add_planner_warning(
-                    "JoinScan not used: a semi/anti join prunes columns required by an outer join key and no equivalent output-visible column was found",
-                    &aliases,
-                );
-                return Vec::new();
-            }
-
-            let has_distinct = !(*(*root).parse).distinctClause.is_null();
-
-            // Phase 1: shared activation checks + JoinCSClause construction.
-            let (mut join_clause, limit_offset) = match Self::validate_and_build_clause(
-                root,
-                plan,
-                &join_keys,
-                has_distinct,
-            ) {
-                Some(res) => res,
-                None => {
-                    Self::add_planner_warning(
-                            "JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates)",
-                            &aliases,
-                        );
-                    return Vec::new();
-                }
-            };
-
-            // --- Join-level predicate extraction (join-hook specific) ---
-            // This builds an expression tree that can reference:
-            // - Predicate nodes: Tantivy search queries
-            // - MultiTablePredicate nodes: PostgreSQL expressions
-            let current_sources = join_clause.plan.sources();
-            let (join_clause_updated, multi_table_predicate_clauses) =
-                match extract_join_level_conditions(
-                    root,
-                    extra,
-                    &current_sources,
-                    &join_conditions.other_conditions,
-                    join_clause.clone(),
-                ) {
-                    Ok(result) => result,
-                    Err(_err) => {
-                        Self::add_planner_warning(
-                            "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
-                            &aliases,
-                        );
-                        return Vec::new();
+            match Self::try_build_join_custom_path(&builder) {
+                Ok(BuiltJoinPath {
+                    path,
+                    aliases,
+                    multi_table_clauses,
+                }) => {
+                    let mut path = path;
+                    if !multi_table_clauses.is_empty() {
+                        let mut private_list = PgList::<pg_sys::Node>::from_pg(path.custom_private);
+                        for clause in multi_table_clauses {
+                            private_list.push(clause.cast());
+                        }
+                        path.custom_private = private_list.into_pg();
                     }
-                };
-            join_clause = join_clause_updated;
-
-            // Post-extraction check: need at least one side predicate OR join-level predicates.
-            let current_sources_after_cond = join_clause.plan.sources();
-            let has_side_predicate = current_sources_after_cond
-                .iter()
-                .any(|s| s.has_search_predicate());
-            let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
-            if !has_side_predicate && !has_join_level_predicates {
-                return Vec::new();
-            }
-
-            // Phase 2: shared ORDER BY + cost + CustomPath construction.
-            let consider_parallel = (*outerrel).consider_parallel;
-            let mut custom_path = match Self::finalize_clause_into_path(
-                root,
-                builder.args().joinrel,
-                join_clause,
-                &limit_offset,
-                consider_parallel,
-            ) {
-                Some(path) => path,
-                None => {
-                    Self::add_planner_warning(
-                        "JoinScan not used: ORDER BY column is not available in the joined output schema",
-                        &aliases,
-                    );
-                    return Vec::new();
+                    Self::mark_contexts_successful(&aliases);
+                    vec![path]
                 }
-            };
-
-            // Append multi-table predicate clauses to custom_private.
-            // Structure: [PrivateData JSON, heap_cond_1, heap_cond_2, ...]
-            if !multi_table_predicate_clauses.is_empty() {
-                let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
-                for clause in multi_table_predicate_clauses {
-                    private_list.push(clause.cast());
+                Err(JoinPathDecline::Quiet) => Vec::new(),
+                Err(JoinPathDecline::Warn { reason, aliases }) => {
+                    reason.emit(&aliases);
+                    Vec::new()
                 }
-                custom_path.custom_private = private_list.into_pg();
             }
-
-            Self::mark_contexts_successful(&aliases);
-
-            vec![custom_path]
         }
     }
 
@@ -1383,7 +1288,7 @@ impl CustomScan for JoinScan {
             // configuration that execution uses so `VisibilityFilterExec`
             // appears in the displayed plan, matching EXPLAIN ANALYZE.
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let ctx = create_session_context();
+            let ctx = create_datafusion_session_context(SessionContextProfile::Join);
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
@@ -1470,7 +1375,7 @@ impl CustomScan for JoinScan {
                 let index_segment_ids =
                     Self::build_index_segment_ids(state, &join_clause, &plan_sources);
 
-                let ctx = create_session_context();
+                let ctx = create_datafusion_session_context(SessionContextProfile::Join);
                 let logical_plan = deserialize_logical_plan_with_runtime(
                     &plan_bytes,
                     &ctx.task_ctx(),
@@ -1487,21 +1392,11 @@ impl CustomScan for JoinScan {
                     .block_on(build_physical_plan(&ctx, logical_plan))
                     .expect("Failed to create execution plan");
 
-                let memory_pool = create_memory_pool(
+                let task_ctx = build_task_context(
+                    &ctx,
                     &plan,
                     pg_sys::work_mem as usize * 1024,
                     pg_sys::hash_mem_multiplier,
-                );
-
-                let task_ctx = Arc::new(
-                    TaskContext::default()
-                        .with_session_config(ctx.state().config().clone())
-                        .with_runtime(Arc::new(
-                            RuntimeEnvBuilder::new()
-                                .with_memory_pool(memory_pool)
-                                .build()
-                                .expect("Failed to create RuntimeEnv"),
-                        )),
                 );
                 let stream = {
                     let _guard = runtime.enter();
@@ -1586,6 +1481,139 @@ impl CustomScan for JoinScan {
 }
 
 impl JoinScan {
+    /// Body of [`<Self as CustomScan>::create_custom_path`] in `?`-style.
+    /// The Ok variant returns the assembled `CustomPath` plus the alias list
+    /// (for the "successful" mark) and the trailing multi-table clauses to
+    /// splice onto `custom_private`. The Err variants distinguish silent
+    /// gates (`Quiet`) from validation failures that should emit a planner
+    /// warning (`Warn { reason, aliases }`).
+    unsafe fn try_build_join_custom_path(
+        builder: &CustomPathBuilder<Self>,
+    ) -> Result<BuiltJoinPath, JoinPathDecline> {
+        let args = builder.args();
+        let root = args.root;
+        let jointype = args.jointype;
+        let outerrel = args.outerrel;
+        let innerrel = args.innerrel;
+        let extra = args.extra;
+
+        // Silent gates: collect outer/inner sources or bail without a warning.
+        let (outer_node, mut join_keys) =
+            collect_join_sources(root, outerrel).ok_or(JoinPathDecline::Quiet)?;
+        let (inner_node, inner_keys) =
+            collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
+        join_keys.extend(inner_keys);
+
+        let mut all_sources = outer_node.sources();
+        all_sources.extend(inner_node.sources());
+
+        let aliases: Vec<String> = all_sources
+            .iter()
+            .map(|s| {
+                RelationAlias::new(s.scan_info.alias.as_deref())
+                    .warning_context(s.scan_info.heaprelid)
+            })
+            .collect();
+
+        let join_conditions = extract_join_conditions(extra, &all_sources);
+
+        // The minimum requirement for considering the join scan is that a
+        // search predicate is used — either in a source or in a join-level
+        // condition. Below this gate, every Err carries a planner warning.
+        if !all_sources.iter().any(|s| s.scan_info.has_search_predicate)
+            && !join_conditions.has_search_predicate
+        {
+            return Err(JoinPathDecline::Quiet);
+        }
+
+        let warn = |reason| JoinPathDecline::Warn {
+            reason,
+            aliases: aliases.clone(),
+        };
+
+        if join_conditions.equi_keys.is_empty() {
+            return Err(warn(JoinDeclineReason::NoEquiKeys));
+        }
+
+        join_keys.extend(join_conditions.equi_keys.clone());
+
+        let parsed_jointype = build::JoinType::try_from(jointype)
+            .map_err(|e| warn(JoinDeclineReason::Other(e.to_string())))?;
+
+        let mut plan = RelNode::Join(Box::new(build::JoinNode {
+            join_type: parsed_jointype,
+            left: outer_node,
+            right: inner_node,
+            equi_keys: join_conditions.equi_keys,
+            filter: None,
+        }));
+
+        let unsupported = plan.unsupported_join_types();
+        if !unsupported.is_empty() {
+            return Err(warn(JoinDeclineReason::UnsupportedJoinType(
+                unsupported
+                    .iter()
+                    .map(|t| t.to_string().to_uppercase())
+                    .collect(),
+            )));
+        }
+
+        if !plan.rewrite_pruned_join_keys(root) {
+            return Err(warn(JoinDeclineReason::PrunedJoinKey));
+        }
+
+        let has_distinct = !(*(*root).parse).distinctClause.is_null();
+
+        // Phase 1: shared activation checks + JoinCSClause construction.
+        let (mut join_clause, limit_offset) =
+            Self::validate_and_build_clause(root, plan, &join_keys, has_distinct)
+                .ok_or_else(|| warn(JoinDeclineReason::ActivationFailed))?;
+
+        // --- Join-level predicate extraction (join-hook specific) ---
+        // This builds an expression tree that can reference:
+        // - Predicate nodes: Tantivy search queries
+        // - MultiTablePredicate nodes: PostgreSQL expressions
+        let current_sources = join_clause.plan.sources();
+        let (join_clause_updated, multi_table_clauses) = extract_join_level_conditions(
+            root,
+            extra,
+            &current_sources,
+            &join_conditions.other_conditions,
+            join_clause.clone(),
+        )
+        .map_err(|_| warn(JoinDeclineReason::JoinLevelExtractionFailed))?;
+        join_clause = join_clause_updated;
+
+        // Post-extraction check: need at least one side predicate OR join-level predicates.
+        // This is a silent gate — the join is no longer interesting once predicates have
+        // been pulled out.
+        let current_sources_after_cond = join_clause.plan.sources();
+        let has_side_predicate = current_sources_after_cond
+            .iter()
+            .any(|s| s.has_search_predicate());
+        let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
+        if !has_side_predicate && !has_join_level_predicates {
+            return Err(JoinPathDecline::Quiet);
+        }
+
+        // Phase 2: shared ORDER BY + cost + CustomPath construction.
+        let consider_parallel = (*outerrel).consider_parallel;
+        let path = Self::finalize_clause_into_path(
+            root,
+            builder.args().joinrel,
+            join_clause,
+            &limit_offset,
+            consider_parallel,
+        )
+        .ok_or_else(|| warn(JoinDeclineReason::OrderByUnavailable))?;
+
+        Ok(BuiltJoinPath {
+            path,
+            aliases,
+            multi_table_clauses,
+        })
+    }
+
     /// Build a result tuple from the current joined row.
     ///
     /// # Arguments

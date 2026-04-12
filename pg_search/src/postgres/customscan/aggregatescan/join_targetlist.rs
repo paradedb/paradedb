@@ -40,6 +40,22 @@ use pgrx::pg_sys::{
 };
 use pgrx::PgList;
 
+/// Look up a join source by RTI, returning a uniform error message that
+/// names the calling context (e.g. "GROUP BY column", "aggregate argument").
+///
+/// The three sites that called `sources.iter().find(|s| s.rti == rti)` with
+/// nearly-identical `ok_or_else(...)` formatters now share this helper so the
+/// error wording stays consistent across the file.
+fn find_source_by_rti<'a>(
+    sources: &'a [JoinAggSource],
+    rti: pg_sys::Index,
+    context_label: &str,
+) -> Result<&'a JoinAggSource, String> {
+    sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
+        format!("{context_label} references table at RTI {rti} which is not in the join")
+    })
+}
+
 /// Simplified aggregate classification for the DataFusion backend.
 /// Unlike [`AggregateType`] (Tantivy-oriented), this enum is lightweight and maps
 /// directly to DataFusion aggregate expressions.
@@ -239,12 +255,7 @@ pub unsafe fn extract_aggregate_targetlist(
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
 
-            let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
-                format!(
-                    "GROUP BY column references table at RTI {} which is not in the join",
-                    rti
-                )
-            })?;
+            let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
 
             let field_name = fieldname_from_var(source.relid, var, attno)
                 .ok_or_else(|| {
@@ -428,12 +439,7 @@ unsafe fn extract_aggref_field_refs(
         let rti = (*var).varno as pg_sys::Index;
         let attno = (*var).varattno;
 
-        let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
-            format!(
-                "aggregate argument references table at RTI {} which is not in the join",
-                rti
-            )
-        })?;
+        let source = find_source_by_rti(sources, rti, "aggregate argument")?;
 
         let field_name = fieldname_from_var(source.relid, var, attno)
             .ok_or_else(|| {
@@ -493,12 +499,7 @@ unsafe fn extract_aggref_order_by(
         let rti = (*var).varno as pg_sys::Index;
         let attno = (*var).varattno;
 
-        let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
-            format!(
-                "aggregate ORDER BY references table at RTI {} which is not in the join",
-                rti
-            )
-        })?;
+        let source = find_source_by_rti(sources, rti, "aggregate ORDER BY")?;
 
         let field_name = fieldname_from_var(source.relid, var, attno)
             .ok_or_else(|| {

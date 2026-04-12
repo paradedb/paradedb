@@ -24,6 +24,7 @@
 //! `JoinExpr` nodes, and reconstruct a [`RelNode`] tree that downstream code can
 //! lower into a DataFusion plan.
 
+use super::privdat::{CompareOp, FilterExpr};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -32,11 +33,14 @@ use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
     MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
-use crate::postgres::customscan::pullup::resolve_fast_field;
+use crate::postgres::customscan::pullup::{
+    get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
+};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
+use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
 
@@ -610,18 +614,34 @@ pub unsafe fn has_non_equi_join_quals(
     analyze_join_path_restrictinfo(input_rel, sources).unhandled > 0
 }
 
-impl super::privdat::HavingExpr {
-    /// Translate a Postgres HAVING qual node tree into a serializable `HavingExpr`.
+/// Context for the **build phase** — translating Postgres expression trees
+/// into a serializable [`FilterExpr`] IR.
+///
+/// HAVING provides `targetlist` for resolving `T_Aggref` → `AggRef` and
+/// `T_Var` → `GroupRef`. FILTER provides `sources` for resolving
+/// `T_Var` → `ColumnRef`.
+///
+/// This is distinct from the exec-phase context in `datafusion_exec.rs`,
+/// which carries a `RelNode` tree instead of raw planner sources.
+pub struct FilterExprBuildContext<'a> {
+    pub targetlist: Option<&'a super::join_targetlist::JoinAggregateTargetList>,
+    pub sources: Option<&'a [JoinAggSource]>,
+}
+
+impl FilterExpr {
+    /// Translate a Postgres expression node tree into a serializable [`FilterExpr`].
     ///
-    /// HAVING expressions reference aggregates via `Aggref` nodes and group columns
-    /// via `Var` nodes. We match each Aggref to its position in the output target
-    /// list using `pg_sys::equal` (same approach as `detect_join_aggregate_topk`).
+    /// Used for both HAVING quals and per-aggregate `FILTER (WHERE ...)` clauses.
+    /// The [`FilterExprBuildContext`] determines how leaf nodes are resolved:
+    /// - HAVING passes `targetlist` so `T_Aggref` → `AggRef` and `T_Var` → `GroupRef`
+    /// - FILTER passes `sources` so `T_Var` → `ColumnRef`
+    ///
+    /// Interior nodes (`T_OpExpr`, `T_BoolExpr`, `T_NullTest`, `T_RelabelType`,
+    /// `T_Const`, `T_List`) behave identically in both contexts.
     pub unsafe fn from_pg_node(
         node: *mut pg_sys::Node,
-        targetlist: &super::join_targetlist::JoinAggregateTargetList,
+        ctx: &FilterExprBuildContext<'_>,
     ) -> Option<Self> {
-        use super::privdat::HavingOp;
-
         if node.is_null() {
             return None;
         }
@@ -630,12 +650,13 @@ impl super::privdat::HavingExpr {
 
         match tag {
             pg_sys::NodeTag::T_List => {
-                // Postgres may wrap HAVING quals in a List (AND-implicit).
-                // Translate each element and combine with AND.
+                // Postgres sometimes wraps quals in an implicit-AND List.
+                // Translate each element and combine with AND (collapsing
+                // single-element lists to avoid a redundant And wrapper).
                 let list = PgList::<pg_sys::Node>::from_pg(node as *mut pg_sys::List);
                 let mut children = Vec::new();
                 for item in list.iter_ptr() {
-                    children.push(Self::from_pg_node(item, targetlist)?);
+                    children.push(Self::from_pg_node(item, ctx)?);
                 }
                 if children.len() == 1 {
                     return children.into_iter().next();
@@ -643,28 +664,28 @@ impl super::privdat::HavingExpr {
                 Some(Self::And(children))
             }
             pg_sys::NodeTag::T_Aggref => {
-                // Match this Aggref to an aggregate in the targetlist by output_index.
-                // The output_rel.reltarget.exprs ordering matches what we parsed.
+                // Only meaningful in the HAVING context. Match this Aggref to
+                // an aggregate already extracted into the targetlist, so the
+                // translated expression can reference `agg_{idx}` columns at
+                // exec time.
+                //
+                // We can't do pointer comparison because havingQual has its
+                // own copy of the Aggref node. Instead we match by function
+                // OID + aggstar, and for non-star aggregates also match on
+                // the (rti, attno) of the first argument. For COUNT(*) that's
+                // enough; for column aggregates the (rti, attno) check
+                // disambiguates cases like COUNT(a) vs COUNT(b).
+                let targetlist = ctx.targetlist?;
                 let aggref = node as *mut pg_sys::Aggref;
-                // Find which aggregate this matches by comparing the Aggref pointer
-                // with the output_rel target list positions stored during extraction.
-                for (idx, _agg) in targetlist.aggregates.iter().enumerate() {
-                    // We can't do pointer comparison since havingQual has its own copy.
-                    // Instead, use the aggregate's output_index to reconstruct position.
-                    // The Aggref in HAVING should match one in the targetlist by pg_sys::equal.
-                    // But we don't have the original exprs here. Use a simpler heuristic:
-                    // match by aggfnoid + aggstar + position.
-                    let agg = &targetlist.aggregates[idx];
+                for (idx, agg) in targetlist.aggregates.iter().enumerate() {
                     if (*aggref).aggfnoid.to_u32() == agg.func_oid
                         && ((*aggref).aggstar
                             == matches!(agg.agg_kind, super::join_targetlist::AggKind::CountStar))
                     {
-                        // For COUNT(*) there's typically only one, so first match is fine.
-                        // For column aggregates, check field reference matches too.
                         if (*aggref).aggstar {
                             return Some(Self::AggRef(idx));
                         }
-                        // Non-star: check the argument column matches
+                        // Non-star: confirm the argument column matches.
                         if let Some((_, _, ref _field_name)) = agg.field_refs.first() {
                             let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
                             if let Some(first_arg) = args.get_ptr(0) {
@@ -683,17 +704,32 @@ impl super::privdat::HavingExpr {
                         }
                     }
                 }
-                // Couldn't match — HAVING references an aggregate we don't know about
+                // HAVING referenced an aggregate we didn't extract — bail out
+                // of the DataFusion path and let Postgres handle it natively.
                 None
             }
             pg_sys::NodeTag::T_Var => {
-                // Group column reference
+                // A plain column reference. HAVING can only reference group
+                // columns (any other Var would be a planner bug); FILTER can
+                // reference any column on the source tables, which we resolve
+                // by field name via the fast-field metadata.
                 let var = node as *mut pg_sys::Var;
                 let rti = (*var).varno as pg_sys::Index;
                 let attno = (*var).varattno;
-                for gc in &targetlist.group_columns {
-                    if gc.rti == rti && gc.attno == attno {
-                        return Some(Self::GroupRef(gc.field_name.clone()));
+
+                // FILTER context: resolve to ColumnRef via sources.
+                if let Some(sources) = ctx.sources {
+                    let source = sources.iter().find(|s| s.rti == rti)?;
+                    let field_name = fieldname_from_var(source.relid, var, attno)?.into_inner();
+                    return Some(Self::ColumnRef { rti, field_name });
+                }
+
+                // HAVING context: resolve to GroupRef via targetlist.
+                if let Some(targetlist) = ctx.targetlist {
+                    for gc in &targetlist.group_columns {
+                        if gc.rti == rti && gc.attno == attno {
+                            return Some(Self::GroupRef(gc.field_name.clone()));
+                        }
                     }
                 }
                 None
@@ -701,7 +737,9 @@ impl super::privdat::HavingExpr {
             pg_sys::NodeTag::T_Const => {
                 let c = node as *mut pg_sys::Const;
                 if (*c).constisnull {
-                    return None; // NULL in HAVING is unusual, skip
+                    // NULL literals in HAVING/FILTER are unusual; don't try
+                    // to synthesize a typed NULL — bail and fall back to PG.
+                    return None;
                 }
                 let typoid = (*c).consttype;
                 let datum = (*c).constvalue;
@@ -722,13 +760,17 @@ impl super::privdat::HavingExpr {
                         let f: Option<f32> = pgrx::FromDatum::from_datum(datum, false);
                         Some(Self::LitFloat(f? as f64))
                     }
-                    pg_sys::FLOAT8OID => {
+                    pg_sys::FLOAT8OID | pg_sys::NUMERICOID => {
                         let f: Option<f64> = pgrx::FromDatum::from_datum(datum, false);
                         Some(Self::LitFloat(f?))
                     }
                     pg_sys::BOOLOID => {
                         let b: Option<bool> = pgrx::FromDatum::from_datum(datum, false);
                         Some(Self::LitBool(b?))
+                    }
+                    pg_sys::TEXTOID | pg_sys::VARCHAROID => {
+                        let s: Option<String> = pgrx::FromDatum::from_datum(datum, false);
+                        Some(Self::LitString(s?))
                     }
                     _ => None,
                 }
@@ -739,8 +781,8 @@ impl super::privdat::HavingExpr {
                 if args.len() != 2 {
                     return None;
                 }
-                let left = Self::from_pg_node(args.get_ptr(0)?, targetlist)?;
-                let right = Self::from_pg_node(args.get_ptr(1)?, targetlist)?;
+                let left = Self::from_pg_node(args.get_ptr(0)?, ctx)?;
+                let right = Self::from_pg_node(args.get_ptr(1)?, ctx)?;
 
                 let opname_ptr = pg_sys::get_opname((*op).opno);
                 if opname_ptr.is_null() {
@@ -748,12 +790,12 @@ impl super::privdat::HavingExpr {
                 }
                 let opname = std::ffi::CStr::from_ptr(opname_ptr).to_str().ok()?;
                 let having_op = match opname {
-                    "=" => HavingOp::Eq,
-                    "<>" | "!=" => HavingOp::NotEq,
-                    "<" => HavingOp::Lt,
-                    "<=" => HavingOp::LtEq,
-                    ">" => HavingOp::Gt,
-                    ">=" => HavingOp::GtEq,
+                    "=" => CompareOp::Eq,
+                    "<>" | "!=" => CompareOp::NotEq,
+                    "<" => CompareOp::Lt,
+                    "<=" => CompareOp::LtEq,
+                    ">" => CompareOp::Gt,
+                    ">=" => CompareOp::GtEq,
                     _ => return None,
                 };
 
@@ -765,7 +807,7 @@ impl super::privdat::HavingExpr {
             }
             pg_sys::NodeTag::T_NullTest => {
                 let nt = node as *mut pg_sys::NullTest;
-                let arg = Self::from_pg_node((*nt).arg as *mut pg_sys::Node, targetlist)?;
+                let arg = Self::from_pg_node((*nt).arg as *mut pg_sys::Node, ctx)?;
                 if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {
                     Some(Self::IsNull(Box::new(arg)))
                 } else {
@@ -777,7 +819,7 @@ impl super::privdat::HavingExpr {
                 let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
                 let mut children = Vec::new();
                 for arg in args.iter_ptr() {
-                    children.push(Self::from_pg_node(arg, targetlist)?);
+                    children.push(Self::from_pg_node(arg, ctx)?);
                 }
                 match (*bexpr).boolop {
                     pg_sys::BoolExprType::AND_EXPR => Some(Self::And(children)),
@@ -791,6 +833,10 @@ impl super::privdat::HavingExpr {
                     }
                     _ => None,
                 }
+            }
+            pg_sys::NodeTag::T_RelabelType => {
+                let relabel = node as *mut pg_sys::RelabelType;
+                Self::from_pg_node((*relabel).arg as *mut pg_sys::Node, ctx)
             }
             _ => None,
         }
@@ -850,15 +896,20 @@ pub unsafe fn populate_required_fields(
         // PgSearchTableProvider can expose them as Arrow columns.
         for gc in &targetlist.group_columns {
             if source.contains_rti(gc.rti) {
-                match resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
-                    Some(field) => source.scan_info.add_field(gc.attno, field),
-                    None => {
-                        return Err(format!(
-                            "GROUP BY column (attno={}) is not a fast field on table {}",
-                            gc.attno,
-                            source.scan_info.heaprelid.to_u32()
-                        ));
-                    }
+                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
+                    source.scan_info.add_field(gc.attno, field);
+                } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
+                    // JSON sub-field (e.g., metadata.category from metadata->>'category').
+                    // The attno maps to the parent JSON column, but Tantivy stores
+                    // sub-fields as separate fast fields with dotted names.
+                    source.scan_info.add_field_by_name(gc.attno, field);
+                } else {
+                    return Err(format!(
+                        "GROUP BY column '{}' (attno={}) is not a fast field on table {}",
+                        gc.field_name,
+                        gc.attno,
+                        source.scan_info.heaprelid.to_u32()
+                    ));
                 }
             }
         }
@@ -895,6 +946,28 @@ pub unsafe fn populate_required_fields(
                                 ob.field_name,
                                 source.scan_info.heaprelid.to_u32()
                             ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add fields referenced in aggregate FILTER clauses.
+        for agg in &targetlist.aggregates {
+            if let Some(ref filter) = agg.filter {
+                for (rti, field_name) in collect_filter_column_refs(filter) {
+                    if source.contains_rti(rti) {
+                        if let Some(attno) = get_attno_by_name(field_name, &tupdesc) {
+                            match resolve_fast_field(attno as i32, &tupdesc, indexrel) {
+                                Some(field) => source.scan_info.add_field(attno, field),
+                                None => {
+                                    return Err(format!(
+                                        "FILTER column '{}' is not a fast field on table {}",
+                                        field_name,
+                                        source.scan_info.heaprelid.to_u32()
+                                    ));
+                                }
+                            }
                         }
                     }
                 }
@@ -1067,4 +1140,33 @@ unsafe fn collect_cross_table_search_quals(
     if rtis.len() > 1 {
         clauses.push(node);
     }
+}
+
+/// Collect all `(rti, field_name)` column references from an [`FilterExpr`] tree.
+fn collect_filter_column_refs(expr: &FilterExpr) -> Vec<(pg_sys::Index, &str)> {
+    let mut refs = Vec::new();
+    match expr {
+        FilterExpr::ColumnRef { rti, field_name } => {
+            refs.push((*rti, field_name.as_str()));
+        }
+        FilterExpr::BinOp { left, right, .. } => {
+            refs.extend(collect_filter_column_refs(left));
+            refs.extend(collect_filter_column_refs(right));
+        }
+        FilterExpr::And(children) | FilterExpr::Or(children) => {
+            for c in children {
+                refs.extend(collect_filter_column_refs(c));
+            }
+        }
+        FilterExpr::Not(inner) | FilterExpr::IsNull(inner) | FilterExpr::IsNotNull(inner) => {
+            refs.extend(collect_filter_column_refs(inner));
+        }
+        FilterExpr::AggRef(_)
+        | FilterExpr::GroupRef(_)
+        | FilterExpr::LitInt(_)
+        | FilterExpr::LitFloat(_)
+        | FilterExpr::LitBool(_)
+        | FilterExpr::LitString(_) => {}
+    }
+    refs
 }

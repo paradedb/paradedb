@@ -129,7 +129,7 @@ LIMIT 5;
                Backend: DataFusion
                Indexes: products_idx (products)
                Group By: rating
-               Aggregates: COUNT(*)(*)
+               Aggregates: COUNT(*)
 (8 rows)
 
 SELECT rating, COUNT(*) FROM products

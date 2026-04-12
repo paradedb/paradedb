@@ -125,6 +125,8 @@ impl BaseScan {
 
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();
+        let needs_tokenizer_manager =
+            search_query_input.needs_tokenizer() || state.custom_state().need_snippets();
 
         let search_reader = SearchIndexReader::open_with_context(
             indexrel,
@@ -149,6 +151,7 @@ impl BaseScan {
             },
             std::ptr::NonNull::new(expr_context),
             std::ptr::NonNull::new(planstate),
+            needs_tokenizer_manager,
         )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
@@ -1340,6 +1343,7 @@ impl CustomScan for BaseScan {
                             MvccSatisfies::LargestSegment, // Use largest segment for estimation
                             None,                          // No expr_context needed for estimates
                             None,                          // No planstate needed for estimates
+                            base_query.needs_tokenizer(),
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 

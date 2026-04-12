@@ -35,7 +35,9 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
+use crate::postgres::customscan::pullup::{
+    field_type_for_pullup, get_attno_by_name, resolve_fast_field,
+};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::customscan::score_funcoids;
@@ -49,6 +51,10 @@ use crate::query::SearchQueryInput;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, PgList};
+
+const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
+    | pg_sys::PVC_RECURSE_WINDOWFUNCS
+    | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;
 
 /// Check if an expression uses paradedb.score() for any relation in the JoinSource.
 pub(super) unsafe fn expr_uses_scores_from_source(
@@ -356,13 +362,10 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         );
 
         // Build a LeftMark join: produces all left rows + boolean "mark" column.
-        let join_type = if or_ext.is_anti {
-            // NOT IN (...) OR IS NULL  →  LeftMark with inverted mark check
-            crate::postgres::customscan::joinscan::build::JoinType::LeftMark
-        } else {
-            // IN (...) OR IS NULL  →  LeftMark
-            crate::postgres::customscan::joinscan::build::JoinType::LeftMark
-        };
+        // Both `IN (...) OR IS NULL` and `NOT IN (...) OR IS NULL` use LeftMark;
+        // the anti vs non-anti distinction is carried through `or_ext.is_anti`
+        // and applied at filter-evaluation time as a mark-check inversion.
+        let join_type = crate::postgres::customscan::joinscan::build::JoinType::LeftMark;
 
         let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
             join_type,
@@ -951,7 +954,12 @@ pub(super) unsafe fn collect_required_fields(
     output_columns: &[OutputColumnInfo],
     custom_exprs: *mut pg_sys::List,
 ) {
-    let join_keys = join_clause.plan.join_keys();
+    // Resolve each equi-join key against the join node that owns it so we
+    // bind to the correct `JoinSource` by `plan_position`. A flat
+    // `(rti, attno)` scan can pick the wrong source when a SubPlan's inner
+    // relation shares an RTI value with an outer relation (inner queries
+    // have their own RTI numbering space), forcing us to over-project.
+    let join_key_projections = join_clause.plan.join_key_projections();
     let mut plan_sources = join_clause.plan.sources_mut();
 
     for source in &mut plan_sources {
@@ -959,27 +967,13 @@ pub(super) unsafe fn collect_required_fields(
     }
 
     if plan_sources.len() >= 2 {
-        let mut ensure_join_key_side = |rti: pg_sys::Index, attno: pg_sys::AttrNumber| {
-            // Ensure the field on ALL sources that match this RTI+attno.
-            // Multiple sources can share the same RTI when they originate
-            // from different planner roots (e.g., main query vs SubPlan).
-            let mut found = false;
-            for source in plan_sources.iter_mut() {
-                if source.contains_rti(rti) && source.has_attno(attno) {
-                    ensure_field(source, attno);
-                    found = true;
-                }
+        for (plan_position, attno) in &join_key_projections {
+            if let Some(source) = plan_sources
+                .iter_mut()
+                .find(|s| s.plan_position == *plan_position)
+            {
+                ensure_field(source, *attno);
             }
-            if !found {
-                for source in &mut plan_sources {
-                    ensure_column(source, rti, attno);
-                }
-            }
-        };
-
-        for jk in &join_keys {
-            ensure_join_key_side(jk.outer_rti, jk.outer_attno);
-            ensure_join_key_side(jk.inner_rti, jk.inner_attno);
         }
     }
 
@@ -1025,7 +1019,7 @@ pub(super) unsafe fn collect_required_fields(
                     let raw_col_name = col_name.trim_matches('"');
                     for source in &mut plan_sources {
                         if source.scan_info.alias.as_deref() == Some(alias) {
-                            if let Some(attno) = get_attno_by_name(source, raw_col_name) {
+                            if let Some(attno) = get_source_attno_by_name(source, raw_col_name) {
                                 ensure_field(source, attno);
                             }
                             break;
@@ -1041,7 +1035,7 @@ pub(super) unsafe fn collect_required_fields(
                             // exist in the table but only be indexed via an
                             // expression (e.g. upper(name)), in which case
                             // ensure_field (via resolve_fast_field) won't find it.
-                            let added = get_attno_by_name(source, name)
+                            let added = get_source_attno_by_name(source, name)
                                 .and_then(|attno| try_ensure_field(source, attno))
                                 .is_some();
                             if !added {
@@ -1151,16 +1145,11 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     Ok(())
 }
 
-/// Helper function to retrieve an attribute number given a column name from a `JoinSource`'s underlying heap relation.
-unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
+/// Retrieve an attribute number by column name from a `JoinSource`'s heap relation.
+unsafe fn get_source_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
     let rel = PgSearchRelation::open(side.scan_info.heaprelid);
     let tupdesc = rel.tuple_desc();
-    for (i, att) in tupdesc.iter().enumerate() {
-        if att.name() == name {
-            return Some((i + 1) as pg_sys::AttrNumber);
-        }
-    }
-    None
+    get_attno_by_name(name, &tupdesc)
 }
 
 fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {
@@ -1197,10 +1186,7 @@ unsafe fn pathkey_is_outer_only(
                 return false;
             }
         } else {
-            let var_list = pg_sys::pull_var_clause(
-                check_expr,
-                (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
-            );
+            let var_list = pg_sys::pull_var_clause(check_expr, PVC_RECURSE_ALL);
             let vars = PgList::<pg_sys::Var>::from_pg(var_list);
             for var_ptr in vars.iter_ptr() {
                 if source_rtis.contains(&((*var_ptr).varno as pg_sys::Index)) {
@@ -1319,10 +1305,7 @@ unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSour
         return false;
     }
 
-    let var_list = pg_sys::pull_var_clause(
-        expr,
-        (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
-    );
+    let var_list = pg_sys::pull_var_clause(expr, PVC_RECURSE_ALL);
     let vars = PgList::<pg_sys::Var>::from_pg(var_list);
     if vars.is_empty() {
         return false;
@@ -1526,10 +1509,7 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             return None;
         }
 
-        let var_list = pg_sys::pull_var_clause(
-            expr,
-            (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
-        );
+        let var_list = pg_sys::pull_var_clause(expr, PVC_RECURSE_ALL);
         let vars = PgList::<pg_sys::Var>::from_pg(var_list);
 
         if vars.is_empty() {

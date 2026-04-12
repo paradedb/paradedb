@@ -24,7 +24,8 @@
 //! - Handle ORDER BY score pathkeys
 
 use super::build::{
-    InputVarInfo, JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode,
+    self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
+    JoinSource, JoinSourceCandidate, JoinType, RelNode,
 };
 use super::predicate::find_base_info_recursive;
 use super::privdat::{OutputColumnInfo, PrivateData};
@@ -204,17 +205,16 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     rel: *mut pg_sys::RelOptInfo,
     rti: pg_sys::Index,
 ) -> Option<(RelNode, Vec<JoinKeyPair>)> {
-    let (relid, alias, _bm25_opt) = super::build::lookup_base_rel_info(root, rti)?;
+    let (relid, alias, _bm25_opt) = build::lookup_base_rel_info(root, rti)?;
 
     let mut side_info = JoinSourceCandidate::new(root.into(), rti).with_heaprelid(relid);
     if let Some(alias) = alias {
         side_info = side_info.with_alias(alias);
     }
 
-    // Top-level SubPlans (e.g. `col IN (SELECT ...)`)
-    let mut extracted_subqueries = Vec::new();
-    // SubPlans nested inside OR expressions (e.g. `col IS NULL OR col IN (SELECT ...)`)
-    let mut extracted_or_subqueries: Vec<OrSubPlanExtraction> = Vec::new();
+    // Subquery extraction is meaningful only when the base side has a BM25 index;
+    // otherwise the Semi/Anti/LeftMark wrapping has nothing useful to wrap.
+    let mut classified = ClassifiedBaseRestrictInfo::empty();
 
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
         side_info = side_info.with_indexrelid(bm25_index.oid());
@@ -230,69 +230,31 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         };
         side_info = side_info.with_sort_order(sort_order);
 
-        // Extract single-table predicates from baserestrictinfo.
-        // These are predicates like `p.description @@@ 'wireless'` that PostgreSQL
-        // has pushed down to the base relation level.
-        //
-        // Note: Cross-table predicates (e.g., involving multiple tables in a join)
-        // are handled separately via SearchPredicateUDF through filter pushdown.
-        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 
-        if !baserestrictinfo.is_empty() {
+        if !classified.search_ri.is_empty() {
             let context = PlannerContext::from_planner(root);
-
-            // Separate subplans (SEMI/ANTI joins) from search-capable predicates.
-            // Subplans are collected and later handled by wrapping the current
-            // scan's RelNode in additional Join nodes (see `RelNode::Join` below).
-            // This separation ensures `extract_quals` only receives clauses it
-            // can fully convert to a Tantivy query.
-            let mut search_ri = PgList::<pg_sys::RestrictInfo>::new();
-            for ri in baserestrictinfo.iter_ptr() {
-                if let Some((subplan, is_anti, inner_root)) =
-                    extract_subplan_from_clause(root, (*ri).clause.cast())
-                {
-                    // Top-level SubPlan (e.g. `col IN (SELECT ...)`) → Semi/Anti join.
-                    extracted_subqueries.push((subplan, is_anti, inner_root));
-                } else {
-                    // Try to extract SubPlan from inside an OR expression.
-                    // Handles patterns like `col IS NULL OR col IN (SELECT ...)`.
-                    let clause = if !(*ri).orclause.is_null() {
-                        (*ri).orclause.cast()
-                    } else {
-                        (*ri).clause.cast()
-                    };
-                    if let Some(or_extraction) = extract_subplan_from_or_clause(root, clause) {
-                        extracted_or_subqueries.push(or_extraction);
-                    } else {
-                        // Not a SubPlan — pass to extract_quals for search predicate extraction.
-                        search_ri.push(ri);
-                    }
+            let mut state = QualExtractState::default();
+            // Extract search-capable predicates all at once. This is required
+            // for score filters, which must wrap the rest of the search query.
+            if let Some(qual) = extract_quals(
+                &context,
+                rti,
+                classified.search_ri.as_ptr().cast(),
+                crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
+                &bm25_index,
+                false,
+                &mut state,
+                true,
+            ) {
+                let query = SearchQueryInput::from(&qual);
+                side_info = side_info.with_query(query);
+                if state.uses_our_operator {
+                    side_info = side_info.with_search_predicate();
                 }
-            }
-
-            if !search_ri.is_empty() {
-                let mut state = QualExtractState::default();
-                // Extract search-capable predicates all at once. This is required
-                // for score filters, which must wrap the rest of the search query.
-                if let Some(qual) = extract_quals(
-                    &context,
-                    rti,
-                    search_ri.as_ptr().cast(),
-                    crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
-                    &bm25_index,
-                    false,
-                    &mut state,
-                    true,
-                ) {
-                    let query = SearchQueryInput::from(&qual);
-                    side_info = side_info.with_query(query);
-                    if state.uses_our_operator {
-                        side_info = side_info.with_search_predicate();
-                    }
-                } else {
-                    // Fail the JoinScan if any search predicate cannot be extracted.
-                    return None;
-                }
+            } else {
+                // Fail the JoinScan if any search predicate cannot be extracted.
+                return None;
             }
         }
     }
@@ -303,8 +265,99 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     let mut current_node = RelNode::Scan(Box::new(source));
     let mut all_keys = Vec::new();
 
-    // Wrap current_node in Join nodes for each top-level extracted subquery (Semi/Anti)
-    for (subplan, is_anti, inner_root) in extracted_subqueries {
+    current_node = wrap_with_semi_anti(current_node, classified.top_level_subplans, &mut all_keys);
+    current_node = wrap_with_mark_filter(current_node, classified.or_subplans, &mut all_keys);
+
+    Some((current_node, all_keys))
+}
+
+/// Buckets that [`classify_base_restrictinfo`] sorts a relation's
+/// `baserestrictinfo` clauses into.
+struct ClassifiedBaseRestrictInfo {
+    /// Clauses that are not subplans and should be batched into `extract_quals`
+    /// for search predicate extraction.
+    search_ri: PgList<pg_sys::RestrictInfo>,
+    /// Top-level SubPlans (e.g. `col IN (SELECT ...)`) that should become
+    /// Semi/Anti joins wrapping the base scan.
+    top_level_subplans: Vec<(*mut pg_sys::SubPlan, bool, *mut pg_sys::PlannerInfo)>,
+    /// SubPlans nested inside an OR (e.g. `col IS NULL OR col IN (SELECT ...)`)
+    /// that should become LeftMark joins followed by a Filter.
+    or_subplans: Vec<OrSubPlanExtraction>,
+}
+
+impl ClassifiedBaseRestrictInfo {
+    fn empty() -> Self {
+        Self {
+            search_ri: PgList::<pg_sys::RestrictInfo>::new(),
+            top_level_subplans: Vec::new(),
+            or_subplans: Vec::new(),
+        }
+    }
+}
+
+/// Walk a relation's `baserestrictinfo` and split each clause into one of three
+/// buckets: search-extractable predicates, top-level SubPlans, or OR-nested
+/// SubPlans. Subplans are pulled out so the remaining `search_ri` can be passed
+/// to `extract_quals` as a fully-search-capable batch.
+unsafe fn classify_base_restrictinfo(
+    root: *mut pg_sys::PlannerInfo,
+    baserestrictinfo: *mut pg_sys::List,
+) -> ClassifiedBaseRestrictInfo {
+    let mut classified = ClassifiedBaseRestrictInfo::empty();
+
+    // Extract single-table predicates from baserestrictinfo.
+    // These are predicates like `p.description @@@ 'wireless'` that PostgreSQL
+    // has pushed down to the base relation level.
+    //
+    // Note: Cross-table predicates (e.g., involving multiple tables in a join)
+    // are handled separately via SearchPredicateUDF through filter pushdown.
+    let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg(baserestrictinfo);
+    if baserestrictinfo.is_empty() {
+        return classified;
+    }
+
+    // Separate subplans (SEMI/ANTI joins) from search-capable predicates.
+    // Subplans are collected and later handled by wrapping the current
+    // scan's RelNode in additional Join nodes. This separation ensures
+    // `extract_quals` only receives clauses it can fully convert to a
+    // Tantivy query.
+    for ri in baserestrictinfo.iter_ptr() {
+        if let Some((subplan, is_anti, inner_root)) =
+            extract_subplan_from_clause(root, (*ri).clause.cast())
+        {
+            // Top-level SubPlan (e.g. `col IN (SELECT ...)`) → Semi/Anti join.
+            classified
+                .top_level_subplans
+                .push((subplan, is_anti, inner_root));
+        } else {
+            // Try to extract SubPlan from inside an OR expression.
+            // Handles patterns like `col IS NULL OR col IN (SELECT ...)`.
+            let clause = if !(*ri).orclause.is_null() {
+                (*ri).orclause.cast()
+            } else {
+                (*ri).clause.cast()
+            };
+            if let Some(or_extraction) = extract_subplan_from_or_clause(root, clause) {
+                classified.or_subplans.push(or_extraction);
+            } else {
+                // Not a SubPlan — pass to extract_quals for search predicate extraction.
+                classified.search_ri.push(ri);
+            }
+        }
+    }
+
+    classified
+}
+
+/// Wrap a base scan node with Semi/Anti joins, one per top-level extracted
+/// SubPlan. Equi-keys produced by each SubPlan are appended to `all_keys` so
+/// the caller can return the full set alongside the wrapped node.
+unsafe fn wrap_with_semi_anti(
+    mut current_node: RelNode,
+    top_level_subplans: Vec<(*mut pg_sys::SubPlan, bool, *mut pg_sys::PlannerInfo)>,
+    all_keys: &mut Vec<JoinKeyPair>,
+) -> RelNode {
+    for (subplan, is_anti, inner_root) in top_level_subplans {
         // Find the final rel for the inner subquery
         let inner_rel = find_final_rel(inner_root);
         if inner_rel.is_null() {
@@ -321,11 +374,11 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         let equi_keys =
             extract_equi_keys_from_subplan(subplan, inner_root, &current_node, &inner_node);
 
-        let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
+        let join_node = JoinNode {
             join_type: if is_anti {
-                crate::postgres::customscan::joinscan::build::JoinType::Anti
+                JoinType::Anti
             } else {
-                crate::postgres::customscan::joinscan::build::JoinType::Semi
+                JoinType::Semi
             },
             left: current_node,
             right: inner_node,
@@ -337,11 +390,19 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         current_node = RelNode::Join(Box::new(join_node));
     }
 
-    // Wrap current_node in LeftMark join + Filter for each OR-extracted subquery.
-    // These come from patterns like `col IS NULL OR col IN (SELECT ...)`.
-    // The LeftMark join produces all left rows + a boolean "mark" column.
-    // The Filter keeps rows where `mark = true OR col IS NULL`.
-    for or_ext in extracted_or_subqueries {
+    current_node
+}
+
+/// Wrap a base scan node with a `LeftMark` join + Filter for each OR-extracted
+/// SubPlan (`col IS NULL OR col IN (SELECT ...)` style). The LeftMark join
+/// produces all left rows plus a boolean "mark" column; the Filter then keeps
+/// rows where `mark = true OR col IS NULL` (or the inverted form for NOT IN).
+unsafe fn wrap_with_mark_filter(
+    mut current_node: RelNode,
+    or_subplans: Vec<OrSubPlanExtraction>,
+    all_keys: &mut Vec<JoinKeyPair>,
+) -> RelNode {
+    for or_ext in or_subplans {
         let inner_rel = find_final_rel(or_ext.inner_root);
         if inner_rel.is_null() {
             continue;
@@ -365,10 +426,8 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         // Both `IN (...) OR IS NULL` and `NOT IN (...) OR IS NULL` use LeftMark;
         // the anti vs non-anti distinction is carried through `or_ext.is_anti`
         // and applied at filter-evaluation time as a mark-check inversion.
-        let join_type = crate::postgres::customscan::joinscan::build::JoinType::LeftMark;
-
-        let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
-            join_type,
+        let join_node = JoinNode {
+            join_type: JoinType::LeftMark,
             left: current_node,
             right: inner_node,
             equi_keys: equi_keys.clone(),
@@ -384,9 +443,9 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         //
         // The filter is stored as a MarkOrNullFilter which is handled specially
         // during DataFusion plan building (see scan_state.rs).
-        let filter_node = crate::postgres::customscan::joinscan::build::FilterNode {
+        let filter_node = FilterNode {
             input: join_rel,
-            predicate: crate::postgres::customscan::joinscan::build::JoinLevelExpr::MarkOrNull {
+            predicate: JoinLevelExpr::MarkOrNull {
                 is_anti: or_ext.is_anti,
                 null_test_varno: or_ext.null_test_varno,
                 null_test_attno: or_ext.null_test_attno,
@@ -396,7 +455,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         current_node = RelNode::Filter(Box::new(filter_node));
     }
 
-    Some((current_node, all_keys))
+    current_node
 }
 
 /// Recursively reconstructs the intermediate relational tree from standard PostgreSQL join paths.

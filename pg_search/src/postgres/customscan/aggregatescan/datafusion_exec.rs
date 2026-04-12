@@ -31,7 +31,8 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
 };
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::datafusion::translator::{
-    build_join_df, make_col, ColumnMapper, JoinTypeAllowList, PredicateTranslator,
+    apply_join_level_filter, build_join_df, make_col, ColumnMapper, JoinTypeAllowList,
+    PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
@@ -329,24 +330,16 @@ fn build_relnode_df<'a>(
                     }
                 }
 
-                let filter_expr = unsafe {
-                    PredicateTranslator::translate_join_level_expr(
-                        &filter.predicate,
-                        &translated_exprs,
-                        &ctid_map,
-                        join_level_predicates,
-                        &deferred_positions,
-                        &sources,
-                    )
-                }
-                .ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "Failed to translate aggregate filter expression: {:?}",
-                        filter.predicate
-                    ))
-                })?;
-
-                df.filter(filter_expr)
+                apply_join_level_filter(
+                    df,
+                    &filter.predicate,
+                    &translated_exprs,
+                    &ctid_map,
+                    join_level_predicates,
+                    &deferred_positions,
+                    &sources,
+                    /* handle_mark = */ false,
+                )
             }
         }
     }

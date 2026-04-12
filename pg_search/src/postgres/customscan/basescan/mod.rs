@@ -28,7 +28,7 @@ use std::sync::atomic::Ordering;
 
 use crate::api::operator::estimate_selectivity;
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
+use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -1264,32 +1264,7 @@ impl CustomScan for BaseScan {
                 "   TopK Order By",
                 orderby_info
                     .iter()
-                    .map(|oi| match oi {
-                        OrderByInfo {
-                            feature:
-                                OrderByFeature::Field {
-                                    name: fieldname, ..
-                                },
-                            direction,
-                            ..
-                        } => {
-                            format!("{fieldname} {}", direction.as_ref())
-                        }
-                        OrderByInfo {
-                            feature: OrderByFeature::Var { name, .. },
-                            direction,
-                            ..
-                        } => {
-                            format!("{} {}", name.as_deref().unwrap_or("?"), direction.as_ref())
-                        }
-                        OrderByInfo {
-                            feature: OrderByFeature::Score { .. },
-                            direction,
-                            ..
-                        } => {
-                            format!("pdb.score() {}", direction.as_ref())
-                        }
-                    })
+                    .map(|oi| format!("{} {}", oi.feature, oi.direction.as_ref()))
                     .collect::<Vec<_>>()
                     .join(", "),
             );

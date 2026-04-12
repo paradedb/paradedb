@@ -718,8 +718,8 @@ impl SegmentedTopKState {
                     // Visibility plan: segment_heaps is NEVER updated here. Heaps are
                     // rebuilt inside maybe_compact() only after visibility checking, so
                     // every cutoff in segment_heaps always reflects a row that was alive
-                    // at the last prune cycle. This is the Vec+QuickSelect invariant:
-                    // "threshold always based on visible rows."
+                    // at the last prune cycle, ensuring the threshold is always based on
+                    // visible rows.
                     //
                     // Pre-filter using the last prune cycle's alive cutoff (read-only).
                     // Rows provably worse than the alive K-th are rejected early to bound
@@ -1194,10 +1194,9 @@ impl SegmentedTopKState {
         // segment_heaps.len() to under-count and fire prune cycles too early.
         let num_segments = self.distinct_segments.len().max(1);
 
-        // Visibility plans use the Vec+QuickSelect trigger: prune when the buffer holds
-        // 2×K rows per segment. This ensures visibility is checked before the threshold
-        // is (re)published, satisfying the spec invariant: "threshold always based on
-        // visible rows."
+        // Visibility plans use a tighter 2×K trigger so the visibility pass fires before
+        // the threshold is (re)published, ensuring the threshold always reflects only
+        // live rows.
         //
         // Non-visibility plans use the original 4×K factor (unchanged behavior).
         let trigger = if self.visibility_entries.is_empty() {
@@ -1205,19 +1204,18 @@ impl SegmentedTopKState {
         } else {
             2 * self.k * num_segments
         };
-        // Q122-129 fix: include pass_through_rows in the trigger count.
-        // Plans where all rows have NULL/State-2 sort columns accumulate only
-        // pass_through_rows (row_ordinals stays empty), so without this addition
-        // the trigger would never fire and visibility checking would be deferred
-        // entirely to emit_final_topk.
+        // Include pass_through_rows in the trigger count: plans where all rows have
+        // NULL or State-2 sort columns accumulate only pass_through_rows (row_ordinals
+        // stays empty), so without this the trigger would never fire and visibility
+        // checking would be deferred entirely to emit_final_topk.
         if self.row_ordinals.len() + self.pass_through_rows.len() < trigger {
             return Ok(());
         }
 
         // Step 1: Cutoff filter — retain only rows within per-segment bounds.
-        // Capture the pre-take length for the compaction skip check below (BUG-C fix:
-        // after std::mem::take the original Vec has capacity 0, making the ratio check
-        // always true and bypassing the "don't compact if < half rows discarded" guard).
+        // Capture the pre-take length before std::mem::take empties row_ordinals: after
+        // take(), the Vec has capacity 0, which would make the half-rows-discarded ratio
+        // check always true and bypass the "don't compact if < half rows discarded" guard.
         let old_row_ordinals_len = self.row_ordinals.len();
         let mut new_row_ordinals = Vec::new();
         for (batch_idx, row_idx, seg_ord, heap_val) in std::mem::take(&mut self.row_ordinals) {
@@ -1254,22 +1252,22 @@ impl SegmentedTopKState {
                 // Rebuild segment_heaps from visible survivors so the global
                 // threshold accurately reflects only live rows.
                 self.segment_heaps.clear();
-                // BUG-E fix: stale last_segment_cutoffs referred to the old heap
-                // state; clear it so publish_global_threshold recomputes correctly.
+                // Clear stale cutoffs: last_segment_cutoffs still refers to the old
+                // heap state and must be reset so publish_global_threshold recomputes
+                // correctly from the rebuilt heaps.
                 self.last_segment_cutoffs.clear();
                 for (_, _, seg_ord, heap_val) in &new_row_ordinals {
                     let heap = self.segment_heaps.entry(*seg_ord).or_default();
                     Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
                 }
-                // BUG-B fix: if dead-row removal made any segment heap underfull
-                // (fewer than K entries), the previously published threshold is now
-                // too aggressive — it blocks rows with scores below the dead row's
-                // ordinal that are needed to refill the heap.  Retract to lit(true)
-                // so those rows can flow in, then republish the correct threshold
-                // from the rebuilt (possibly underfull) heaps.
-                // publish_global_threshold() returns early without touching
-                // dynamic_filter when no heap has reached size K, so we must reset
-                // it explicitly here before calling it.
+                // If dead-row removal made any segment heap underfull (fewer than K
+                // entries), the previously published threshold is now too aggressive —
+                // it blocks rows with ordinals below the dead row's that are needed to
+                // refill the heap. Retract to lit(true) so those rows can flow in, then
+                // republish the correct threshold from the rebuilt (possibly underfull)
+                // heaps. publish_global_threshold() returns early without touching
+                // dynamic_filter when no heap has reached size K, so we must reset it
+                // explicitly here before calling it.
                 let any_underfull = self.segment_heaps.values().any(|h| h.len() < self.k);
                 if any_underfull {
                     use datafusion::physical_expr::expressions::lit;

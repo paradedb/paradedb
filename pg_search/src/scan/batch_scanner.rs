@@ -326,12 +326,14 @@ impl Scanner {
         // Batch lookup the ctids and visibility check them.
         // When defer_visibility is true, we skip visibility checking entirely —
         // VisibilityFilterExec will handle it in batch after the join.
+        // The `ctids` Vec here is used only for:
+        //   1. Visibility masking (compacting invisible rows out of `ids`/`scores`).
+        //   2. The `WhichFastField::Ctid` Arrow output column.
+        // It is NOT placed in SearchIndexScore — the score carries only `bm25`.
         let ctids: Vec<u64> = if self.defer_visibility {
-            // TODO: Remove ctid from SearchIndexScore entirely and use batch
-            // lookups (similar to materialize_deferred_ctid) in consumers.
-            // These placeholder zeros only appear in Batch.ids for LIMIT
-            // tracking via SearchIndexScore, where the ctid value is irrelevant.
-            vec![0u64; ids.len()]
+            // defer_visibility=true always uses DeferredCtid, never WhichFastField::Ctid.
+            // No real ctid lookup needed — an empty vec is correct here.
+            vec![]
         } else {
             self.maybe_ctids.resize(ids.len(), None);
             ffhelper
@@ -466,10 +468,9 @@ impl Scanner {
             ids: ids
                 .into_iter()
                 .zip(scores)
-                .zip(ctids)
-                .map(|((id, score), ctid)| {
+                .map(|(id, score)| {
                     (
-                        SearchIndexScore::new(ctid, score),
+                        SearchIndexScore { bm25: score },
                         DocAddress::new(segment_ord, id),
                     )
                 })

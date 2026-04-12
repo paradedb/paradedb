@@ -29,18 +29,17 @@
 //!     pre-filter memoization).
 //!   - State 2 (materialized): already-decoded strings/bytes — always kept.
 //!
-//! For States 0 and 1, a per-segment bounded heap of size K retains only the
-//! top rows per segment. All batches are collected during the input phase,
-//! and survivors are emitted in a single pass once all input is consumed.
+//! For States 0 and 1, a per-segment Vec-based buffer (capacity 2×K) with
+//! QuickSelect retains only the top K rows per segment. All batches are
+//! collected during the input phase, and survivors are emitted in a single
+//! pass once all input is consumed.
 //!
 //! ## Global threshold
 //!
-//! As rows are ingested, a global threshold is published to the scanner:
-//!
-//! Once the global heap across all segments reaches K entries, the worst
-//!
-//! entry's deferred ordinals are converted back to strings via
-//! `FFHelper::ord_to_str` and published as a `DynamicFilterPhysicalExpr`.
+//! As rows are ingested, a global threshold is published to the scanner.
+//! Once a segment's buffer undergoes its first QuickSelect (accumulating 2×K
+//! rows), the K-th element's deferred ordinals are converted back to strings
+//! via `FFHelper::ord_to_str` and published as a `DynamicFilterPhysicalExpr`.
 //! DataFusion's standard filter pushdown mechanism routes this to
 //! `PgSearchScanPlan`, where `pre_filter::try_rewrite_binary` translates
 //! the string literals to per-segment ordinal bounds automatically.
@@ -106,7 +105,6 @@ use datafusion::physical_plan::metrics::{
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use pgrx::pg_sys;
 use std::any::Any;
-use std::collections::BinaryHeap;
 use std::sync::{Arc, Mutex};
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocId, SegmentOrdinal};
@@ -474,7 +472,8 @@ impl ExecutionPlan for SegmentedTopKExec {
             k: self.k,
             schema: self.properties.eq_properties.schema().clone(),
             row_converter,
-            segment_heaps: HashMap::default(),
+            segment_bufs: HashMap::default(),
+            segment_cutoffs: HashMap::default(),
             distinct_segments: HashSet::default(),
             dynamic_filter: Arc::clone(&self.dynamic_filter),
             batches: Vec::new(),
@@ -578,24 +577,30 @@ struct SegmentedTopKState {
     k: usize,
     schema: SchemaRef,
     row_converter: RowConverter,
-    /// Per-segment max-heaps of comparable Rows. The root (peek) is always the K-th
-    /// best row for that segment (the per-segment cutoff threshold).
+    /// Per-segment rolling buffers for the Vec+QuickSelect approach. Each buffer grows
+    /// up to 2×K rows; when it reaches 2×K, `select_nth_unstable(k-1)` partitions it,
+    /// the K-th element is stored in `segment_cutoffs`, and the buffer is truncated to K.
     ///
-    /// **Non-visibility plans:** updated in `collect_batch` on every ingested row, so the
-    /// heap reflects the live running top-K per segment at all times.
+    /// **Non-visibility plans:** updated in `collect_batch` on every accepted row.
+    /// Per-segment QuickSelect fires inline when the buffer hits 2×K, immediately
+    /// updating `segment_cutoffs` so subsequent rows can be pre-filtered.
     ///
-    /// **Visibility plans:** updated ONLY inside `maybe_compact()` after visibility
-    /// checking. This invariant guarantees every cutoff in the heap corresponds to a row
-    /// that was alive at the last prune cycle, so the published global threshold is always
-    /// based on visible (alive) rows — never on dead rows sitting in the buffer.
-    segment_heaps: HashMap<SegmentOrdinal, BinaryHeap<OwnedRow>>,
+    /// **Visibility plans:** NOT updated in `collect_batch`. Rebuilt from visible
+    /// survivors inside `maybe_compact()` after each prune cycle, so every published
+    /// cutoff is based exclusively on live rows.
+    segment_bufs: HashMap<SegmentOrdinal, Vec<OwnedRow>>,
+    /// Per-segment K-th best row (the cutoff threshold) after the most recent QuickSelect.
+    /// Absent for segments that have not yet accumulated K rows (no QuickSelect run yet).
+    /// Updated by inline QuickSelect in `collect_batch` (non-vis) and by the prune-cycle
+    /// rebuild in `maybe_compact` (vis).
+    segment_cutoffs: HashMap<SegmentOrdinal, OwnedRow>,
     /// Set of all segment ordinals encountered during collection.
     ///
     /// Used to compute the prune-cycle trigger (`2 × K × num_segments` for visibility
-    /// plans). Unlike `segment_heaps`, this is updated in `collect_batch` for EVERY
-    /// ingested row — including visibility plans where `segment_heaps` is left empty
-    /// until the first prune cycle — and is never cleared. It only grows as new Tantivy
-    /// segments are encountered, giving an accurate segment count for the trigger.
+    /// plans). Updated in `collect_batch` for EVERY ingested row — including visibility
+    /// plans where `segment_bufs` is not rebuilt until the first prune cycle — and is
+    /// never cleared. It only grows as new Tantivy segments are encountered, giving an
+    /// accurate segment count for the trigger.
     distinct_segments: HashSet<SegmentOrdinal>,
     /// Dynamic filter updated with global thresholds (materialized strings).
     /// Pushed down through DataFusion's standard filter pushdown to the scanner.
@@ -636,20 +641,6 @@ struct SegmentedTopKState {
 }
 
 impl SegmentedTopKState {
-    /// Update the per-segment cutoff heap with a new ordinal. The heap tracks
-    /// the K best transformed ordinals to determine the boundary. Row locations
-    /// are tracked separately in `row_ordinals`.
-    fn update_cutoff_heap(heap: &mut BinaryHeap<OwnedRow>, heap_val: OwnedRow, k: usize) {
-        if heap.len() < k {
-            heap.push(heap_val);
-        } else if let Some(worst) = heap.peek() {
-            if &heap_val < worst {
-                heap.pop();
-                heap.push(heap_val);
-            }
-        }
-    }
-
     /// Ingest a single batch: extract ordinals, update per-segment heaps,
     /// and publish thresholds. The batch is buffered for the final emission
     /// phase. Pass-through rows (State 2 and NULL ordinals) are buffered
@@ -699,7 +690,7 @@ impl SegmentedTopKState {
             if let Some(seg_ord) = row_to_seg[row_idx] {
                 // Track distinct segments for the compaction trigger. Always updated here
                 // so that the trigger denominator is accurate even for visibility plans
-                // where segment_heaps is not touched until maybe_compact().
+                // where segment_bufs is not rebuilt until maybe_compact().
                 if self.distinct_segments.insert(seg_ord) {
                     self.segments_seen.add(1);
                 }
@@ -707,29 +698,41 @@ impl SegmentedTopKState {
                 let heap_val = converted_rows.row(row_idx).owned();
 
                 if self.visibility_entries.is_empty() {
-                    // Non-visibility plan: update the per-segment cutoff heap directly
-                    // and buffer the row unconditionally. No dead rows exist, so the
-                    // heap and the threshold it produces are always correct.
-                    let heap = self.segment_heaps.entry(seg_ord).or_default();
-                    Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
+                    // Non-visibility plan: pre-filter rows already worse than the current
+                    // segment cutoff, then push to the buffer. When the buffer reaches 2×K,
+                    // QuickSelect partitions it and the K-th element becomes the new cutoff.
+                    let is_worse = self
+                        .segment_cutoffs
+                        .get(&seg_ord)
+                        .is_some_and(|cutoff| &heap_val > cutoff);
+                    if is_worse {
+                        continue;
+                    }
+                    let buf = self.segment_bufs.entry(seg_ord).or_default();
+                    buf.push(heap_val.clone());
                     self.row_ordinals
                         .push((batch_idx, row_idx, seg_ord, heap_val));
+                    // QuickSelect: when the buffer hits 2×K, partition around the K-th
+                    // element (index k-1). That element becomes the new segment cutoff
+                    // and the buffer is truncated to K, mirroring Tantivy's TopNComputer.
+                    if buf.len() >= 2 * self.k {
+                        buf.select_nth_unstable(self.k - 1);
+                        let cutoff = buf[self.k - 1].clone();
+                        buf.truncate(self.k);
+                        self.segment_cutoffs.insert(seg_ord, cutoff);
+                    }
                 } else {
-                    // Visibility plan: segment_heaps is NEVER updated here. Heaps are
+                    // Visibility plan: segment_bufs is NEVER updated here. Buffers are
                     // rebuilt inside maybe_compact() only after visibility checking, so
-                    // every cutoff in segment_heaps always reflects a row that was alive
-                    // at the last prune cycle, ensuring the threshold is always based on
-                    // visible rows.
+                    // every published cutoff reflects exclusively live rows.
                     //
                     // Pre-filter using the last prune cycle's alive cutoff (read-only).
                     // Rows provably worse than the alive K-th are rejected early to bound
                     // buffer growth between prune cycles.
-                    let is_candidate = match self.segment_heaps.get(&seg_ord).and_then(|h| h.peek())
-                    {
-                        Some(cutoff) => &heap_val <= cutoff,
-                        // Before first prune cycle, or first row for this segment: accept.
-                        None => true,
-                    };
+                    let is_candidate = self
+                        .segment_cutoffs
+                        .get(&seg_ord)
+                        .is_none_or(|cutoff| &heap_val <= cutoff);
                     if is_candidate {
                         self.row_ordinals
                             .push((batch_idx, row_idx, seg_ord, heap_val));
@@ -990,9 +993,8 @@ impl SegmentedTopKState {
         let mut survivors = crate::api::HashSet::default();
         for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
             let dominated = self
-                .segment_heaps
+                .segment_cutoffs
                 .get(seg_ord)
-                .and_then(|h| h.peek())
                 .is_some_and(|cutoff| heap_val <= cutoff);
             if dominated {
                 survivors.insert((*batch_idx, *row_idx));
@@ -1014,14 +1016,13 @@ impl SegmentedTopKState {
 
         // 1. Examine the "worst" row (the root of the heap) for each segment that
         //    has reached size `K`.
-        let full_segment_heaps: Vec<(SegmentOrdinal, OwnedRow)> = self
-            .segment_heaps
+        let full_segment_cutoffs: Vec<(SegmentOrdinal, OwnedRow)> = self
+            .segment_cutoffs
             .iter()
-            .filter(|(_, heap)| heap.len() >= self.k)
-            .filter_map(|(&seg_ord, heap)| heap.peek().map(|row| (seg_ord, row.clone())))
+            .map(|(&seg_ord, cutoff)| (seg_ord, cutoff.clone()))
             .collect();
 
-        for (seg_ord, worst_local) in full_segment_heaps {
+        for (seg_ord, worst_local) in full_segment_cutoffs {
             // 2. Resolve the local ordinal threshold into a materialized row.
             let (mat_values, mat_row) = self.resolve_segment_cutoff(seg_ord, &worst_local)?;
 
@@ -1187,11 +1188,11 @@ impl SegmentedTopKState {
     ///
     /// When visibility data was absorbed, dead rows are also removed here so
     /// that the global threshold is never inflated by rows that are invisible
-    /// in the heap. `segment_heaps` is rebuilt from the visible survivors.
+    /// to the current snapshot. `segment_bufs` is rebuilt from the visible survivors.
     fn maybe_compact(&mut self) -> Result<()> {
-        // Use `distinct_segments` (not `segment_heaps`) to count segments: for visibility
-        // plans, segment_heaps is empty before the first prune cycle, which would cause
-        // segment_heaps.len() to under-count and fire prune cycles too early.
+        // Use `distinct_segments` (not `segment_bufs`) to count segments: for visibility
+        // plans, segment_bufs is empty before the first prune cycle, which would cause
+        // segment_bufs.len() to under-count and fire prune cycles too early.
         let num_segments = self.distinct_segments.len().max(1);
 
         // Visibility plans use a tighter 2×K trigger so the visibility pass fires before
@@ -1219,18 +1220,21 @@ impl SegmentedTopKState {
         let old_row_ordinals_len = self.row_ordinals.len();
         let mut new_row_ordinals = Vec::new();
         for (batch_idx, row_idx, seg_ord, heap_val) in std::mem::take(&mut self.row_ordinals) {
-            let keep = match self.segment_heaps.get(&seg_ord).and_then(|h| h.peek()) {
-                Some(cutoff_val) => &heap_val <= cutoff_val,
-                None => true,
-            };
+            let keep = self
+                .segment_cutoffs
+                .get(&seg_ord)
+                .is_none_or(|cutoff| &heap_val <= cutoff);
             if keep {
                 new_row_ordinals.push((batch_idx, row_idx, seg_ord, heap_val));
             }
         }
 
-        // Step 2: Visibility filter — remove dead rows so the global threshold
-        // reflects only live rows. Rebuild segment_heaps from visible survivors.
+        // Step 2: Visibility filter — remove dead rows, then rebuild segment_bufs and
+        // segment_cutoffs via QuickSelect from the surviving rows.
         // pass_through_rows are NOT checked here; they are checked in emit_final_topk.
+        //
+        // The rebuild always runs (not only when rows are invisible) so that the global
+        // threshold is published on every prune cycle, including all-alive workloads.
         if !self.visibility_entries.is_empty() && !new_row_ordinals.is_empty() {
             let row_keys: Vec<(usize, usize)> = new_row_ordinals
                 .iter()
@@ -1249,33 +1253,43 @@ impl SegmentedTopKState {
                     .filter(|(_, visible)| *visible)
                     .map(|(row, _)| row)
                     .collect();
-                // Rebuild segment_heaps from visible survivors so the global
-                // threshold accurately reflects only live rows.
-                self.segment_heaps.clear();
-                // Clear stale cutoffs: last_segment_cutoffs still refers to the old
-                // heap state and must be reset so publish_global_threshold recomputes
-                // correctly from the rebuilt heaps.
-                self.last_segment_cutoffs.clear();
-                for (_, _, seg_ord, heap_val) in &new_row_ordinals {
-                    let heap = self.segment_heaps.entry(*seg_ord).or_default();
-                    Self::update_cutoff_heap(heap, heap_val.clone(), self.k);
-                }
-                // If dead-row removal made any segment heap underfull (fewer than K
-                // entries), the previously published threshold is now too aggressive —
-                // it blocks rows with ordinals below the dead row's that are needed to
-                // refill the heap. Retract to lit(true) so those rows can flow in, then
-                // republish the correct threshold from the rebuilt (possibly underfull)
-                // heaps. publish_global_threshold() returns early without touching
-                // dynamic_filter when no heap has reached size K, so we must reset it
-                // explicitly here before calling it.
-                let any_underfull = self.segment_heaps.values().any(|h| h.len() < self.k);
-                if any_underfull {
-                    use datafusion::physical_expr::expressions::lit;
-                    let _ = self.dynamic_filter.update(lit(true));
-                    self.last_published_global = None;
-                }
-                self.publish_global_threshold()?;
             }
+
+            // Rebuild segment_bufs and segment_cutoffs from survivors via QuickSelect.
+            // Clear stale cached cutoffs so publish_global_threshold recomputes from
+            // the freshly rebuilt state.
+            self.segment_bufs.clear();
+            self.segment_cutoffs.clear();
+            self.last_segment_cutoffs.clear();
+            for (_, _, seg_ord, heap_val) in &new_row_ordinals {
+                self.segment_bufs
+                    .entry(*seg_ord)
+                    .or_default()
+                    .push(heap_val.clone());
+            }
+            for (seg_ord, buf) in self.segment_bufs.iter_mut() {
+                if buf.len() >= self.k {
+                    buf.select_nth_unstable(self.k - 1);
+                    let cutoff = buf[self.k - 1].clone();
+                    buf.truncate(self.k);
+                    self.segment_cutoffs.insert(*seg_ord, cutoff);
+                }
+            }
+
+            // If dead-row removal left any segment with fewer than K rows, the
+            // previously published threshold is now too aggressive — rows with
+            // ordinals below the dead row's that are needed to refill the slots
+            // would be pruned. Retract to lit(true) so those rows can flow in,
+            // then republish the correct threshold from the rebuilt state.
+            // publish_global_threshold() skips segments without a cutoff in
+            // segment_cutoffs, so we must reset dynamic_filter explicitly here.
+            let any_underfull = self.segment_bufs.values().any(|buf| buf.len() < self.k);
+            if any_underfull {
+                use datafusion::physical_expr::expressions::lit;
+                let _ = self.dynamic_filter.update(lit(true));
+                self.last_published_global = None;
+            }
+            self.publish_global_threshold()?;
         }
 
         // Step 3: Populate survivors set for batch compaction.

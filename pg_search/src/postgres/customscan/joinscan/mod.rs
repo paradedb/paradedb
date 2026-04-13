@@ -1296,68 +1296,63 @@ impl CustomScan for JoinScan {
 
                 // MPP execution path: when the GUC is enabled and workers are planned,
                 // use hash-partitioned MPP execution instead of broadcast-join.
-                let _use_mpp = crate::gucs::enable_mpp_join() && join_clause.planned_workers > 0;
+                let use_mpp = crate::gucs::enable_mpp_join() && join_clause.planned_workers > 0;
 
-                // TODO(#4152): Wire the MPP execution path here. When _use_mpp is true:
-                // 1. Call parallel::launch_join_workers() to set up workers + transport mesh
-                // 2. Build physical plan with SessionContextProfile::JoinMpp
-                // 3. Serialize and broadcast plan to workers
-                // 4. Register DSM mesh for leader
-                // 5. Spawn control service
-                // 6. Execute partition 0 of the plan
-                // For now, fall through to the broadcast-join path.
+                if use_mpp {
+                    JoinScan::exec_mpp_path(state, runtime, &join_clause, &plan_bytes);
+                } else {
+                    // Deserialize the logical plan and convert to execution plan
+                    let planstate = state.planstate();
 
-                // Deserialize the logical plan and convert to execution plan
-                let planstate = state.planstate();
+                    let index_segment_ids =
+                        Self::build_index_segment_ids(state, &join_clause, &plan_sources);
 
-                let index_segment_ids =
-                    Self::build_index_segment_ids(state, &join_clause, &plan_sources);
+                    let ctx = create_datafusion_session_context(SessionContextProfile::Join);
+                    let logical_plan = deserialize_logical_plan_with_runtime(
+                        &plan_bytes,
+                        &ctx.task_ctx(),
+                        state.custom_state().parallel_state,
+                        Some(state.runtime_context),
+                        Some(planstate),
+                        state.custom_state().non_partitioning_segments.clone(),
+                        index_segment_ids,
+                    )
+                    .expect("Failed to deserialize logical plan");
 
-                let ctx = create_datafusion_session_context(SessionContextProfile::Join);
-                let logical_plan = deserialize_logical_plan_with_runtime(
-                    &plan_bytes,
-                    &ctx.task_ctx(),
-                    state.custom_state().parallel_state,
-                    Some(state.runtime_context),
-                    Some(planstate),
-                    state.custom_state().non_partitioning_segments.clone(),
-                    index_segment_ids,
-                )
-                .expect("Failed to deserialize logical plan");
+                    // Convert logical plan to physical plan
+                    let plan = runtime
+                        .block_on(build_physical_plan(&ctx, logical_plan))
+                        .expect("Failed to create execution plan");
 
-                // Convert logical plan to physical plan
-                let plan = runtime
-                    .block_on(build_physical_plan(&ctx, logical_plan))
-                    .expect("Failed to create execution plan");
+                    let task_ctx = build_task_context(
+                        &ctx,
+                        &plan,
+                        pg_sys::work_mem as usize * 1024,
+                        pg_sys::hash_mem_multiplier,
+                    );
+                    let stream = {
+                        let _guard = runtime.enter();
+                        plan.execute(0, task_ctx)
+                            .expect("Failed to execute DataFusion plan")
+                    };
 
-                let task_ctx = build_task_context(
-                    &ctx,
-                    &plan,
-                    pg_sys::work_mem as usize * 1024,
-                    pg_sys::hash_mem_multiplier,
-                );
-                let stream = {
-                    let _guard = runtime.enter();
-                    plan.execute(0, task_ctx)
-                        .expect("Failed to execute DataFusion plan")
-                };
+                    // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
+                    state.custom_state_mut().physical_plan = Some(plan.clone());
 
-                // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
-                state.custom_state_mut().physical_plan = Some(plan.clone());
-
-                let schema = plan.schema();
-                for (i, field) in schema.fields().iter().enumerate() {
-                    if let Ok(ctid_col) = CtidColumn::try_from(field.name().as_str()) {
-                        let plan_position = ctid_col.plan_position();
-                        if let Some(rel_state) =
-                            state.custom_state_mut().relations.get_mut(&plan_position)
-                        {
-                            rel_state.ctid_col_idx = Some(i);
+                    let schema = plan.schema();
+                    for (i, field) in schema.fields().iter().enumerate() {
+                        if let Ok(ctid_col) = CtidColumn::try_from(field.name().as_str()) {
+                            let plan_position = ctid_col.plan_position();
+                            if let Some(rel_state) =
+                                state.custom_state_mut().relations.get_mut(&plan_position)
+                            {
+                                rel_state.ctid_col_idx = Some(i);
+                            }
                         }
                     }
-                }
-                state.custom_state_mut().runtime = Some(runtime);
-                state.custom_state_mut().datafusion_stream = Some(stream);
+                    state.custom_state_mut().runtime = Some(runtime);
+                    state.custom_state_mut().datafusion_stream = Some(stream);
+                } // end else (broadcast-join path)
             }
 
             loop {
@@ -1415,6 +1410,143 @@ impl CustomScan for JoinScan {
         drop(std::mem::take(
             &mut state.custom_state_mut().source_manifests,
         ));
+    }
+}
+
+impl JoinScan {
+    /// MPP execution path: launches workers, broadcasts the physical plan, and
+    /// sets up the leader to execute partition 0 with a control service.
+    #[allow(unused_variables, dead_code)]
+    unsafe fn exec_mpp_path(
+        state: &mut CustomScanStateWrapper<JoinScan>,
+        runtime: tokio::runtime::Runtime,
+        join_clause: &build::JoinCSClause,
+        plan_bytes: &bytes::Bytes,
+    ) {
+        use crate::postgres::customscan::joinscan::exchange;
+        use crate::postgres::customscan::joinscan::transport::TransportMesh;
+
+        let nworkers = join_clause.planned_workers;
+
+        // Step 1: Launch workers and initialize transport mesh.
+        let Some((
+            process,
+            _leader_plan_placeholder,
+            mux_writers,
+            mux_readers,
+            _session_id,
+            bridge,
+            nlaunched,
+        )) = parallel::launch_join_workers(
+            &runtime,
+            nworkers,
+            pg_sys::work_mem as usize * 1024,
+            pg_sys::parallel_leader_participation,
+        )
+        else {
+            panic!("MPP: failed to launch parallel workers");
+        };
+
+        // Step 2: Build MPP session context with actual participant count.
+        let ctx = create_datafusion_session_context(SessionContextProfile::JoinMpp {
+            participant_index: 0, // Leader is always participant 0
+            total_participants: nlaunched,
+        });
+
+        // Step 3: Deserialize logical plan.
+        let planstate = state.planstate();
+        let index_segment_ids =
+            Self::build_index_segment_ids(state, join_clause, &join_clause.plan.sources());
+        let logical_plan = deserialize_logical_plan_with_runtime(
+            plan_bytes,
+            &ctx.task_ctx(),
+            state.custom_state().parallel_state,
+            Some(state.runtime_context),
+            Some(planstate),
+            state.custom_state().non_partitioning_segments.clone(),
+            index_segment_ids,
+        )
+        .expect("MPP: failed to deserialize logical plan");
+
+        // Step 4: Build physical plan (optimizer injects EnforceDsmShuffle + EnforceSanitization).
+        let plan = runtime
+            .block_on(build_physical_plan(&ctx, logical_plan))
+            .expect("MPP: failed to create physical plan");
+
+        // Step 5: Serialize physical plan for broadcast.
+        let physical_plan_bytes =
+            datafusion_proto::bytes::physical_plan_to_bytes_with_extension_codec(
+                plan.clone(),
+                &crate::scan::codec::PgSearchPhysicalCodec,
+            )
+            .expect("MPP: failed to serialize physical plan");
+
+        // Step 6: Broadcast plan to workers via control channels.
+        for (i, reader_mutex) in mux_readers.iter().enumerate() {
+            if i == 0 {
+                continue; // Skip self (leader)
+            }
+            let mut reader = reader_mutex.lock();
+            reader
+                .send_control_message_variable(128, &physical_plan_bytes)
+                .expect("MPP: failed to broadcast plan to worker");
+        }
+
+        // Step 7: Register the DSM mesh for the leader.
+        let transport = TransportMesh {
+            mux_writers,
+            mux_readers,
+            bridge,
+        };
+        let mesh = exchange::DsmMesh {
+            transport,
+            registry: parking_lot::Mutex::new(exchange::StreamRegistry::default()),
+        };
+        exchange::register_dsm_mesh(mesh);
+
+        // Step 8: Serialize/deserialize round-trip on the leader so that stream
+        // sources get registered in the leader's StreamRegistry.
+        let codec = crate::scan::codec::PgSearchPhysicalCodec;
+        let plan = datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec(
+            &physical_plan_bytes,
+            &ctx.task_ctx(),
+            &codec,
+        )
+        .expect("MPP: leader plan deserialization failed");
+
+        // Step 9: Spawn control service and execute.
+        let local_set = tokio::task::LocalSet::new();
+        let task_ctx = build_task_context(
+            &ctx,
+            &plan,
+            pg_sys::work_mem as usize * 1024,
+            pg_sys::hash_mem_multiplier,
+        );
+
+        exchange::spawn_control_service(&local_set, task_ctx.clone());
+
+        let stream = runtime.block_on(local_set.run_until(async {
+            plan.execute(0, task_ctx)
+                .expect("MPP: failed to execute plan")
+        }));
+
+        // Retain plan for EXPLAIN ANALYZE.
+        state.custom_state_mut().physical_plan = Some(plan.clone());
+
+        // Map CTID columns to their schema positions.
+        let schema = plan.schema();
+        for (i, field) in schema.fields().iter().enumerate() {
+            if let Ok(ctid_col) = build::CtidColumn::try_from(field.name().as_str()) {
+                let plan_position = ctid_col.plan_position();
+                if let Some(rel_state) = state.custom_state_mut().relations.get_mut(&plan_position)
+                {
+                    rel_state.ctid_col_idx = Some(i);
+                }
+            }
+        }
+
+        state.custom_state_mut().runtime = Some(runtime);
+        state.custom_state_mut().datafusion_stream = Some(stream);
     }
 }
 

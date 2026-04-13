@@ -82,8 +82,8 @@ unsafe fn try_unwrap_identity_opexpr(op: *mut pg_sys::OpExpr) -> Option<*mut pg_
     if args_list.len() != 2 {
         return None;
     }
-    let left = args_list.get_ptr(0)? as *mut pg_sys::Node;
-    let right = args_list.get_ptr(1)? as *mut pg_sys::Node;
+    let left = args_list.get_ptr(0)?;
+    let right = args_list.get_ptr(1)?;
 
     // Match "Var-side <op> Const" or "Const <op> Var-side".
     // The "var side" is the non-Const operand — it may itself be a wrapped Var.

@@ -1,2 +1,3 @@
 [codespell]
+skip = tokenizers/src/edge_ngram.rs
 ignore-multiline-regex = \{\s*/\*\s*\*\s*codespell:ignore-begin\s*\*\s*\*/\s*\}.*?\{\s*/\*\s*\*\s*codespell:ignore-end\s*\*\s*\*/\s*\}

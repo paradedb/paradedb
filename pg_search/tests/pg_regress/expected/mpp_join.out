@@ -1,0 +1,198 @@
+-- Test for MPP (plan partitioning) JoinScan execution
+-- Verifies that the enable_mpp_join GUC exists and is settable,
+-- and that queries produce correct results when MPP is enabled.
+-- Disable parallel workers initially for setup
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan TO OFF;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- =============================================================================
+-- SETUP: Create tables with enough data for multi-segment indexes
+-- =============================================================================
+DROP TABLE IF EXISTS mpp_orders CASCADE;
+DROP TABLE IF EXISTS mpp_customers CASCADE;
+CREATE TABLE mpp_customers (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    city TEXT,
+    age INTEGER
+);
+CREATE TABLE mpp_orders (
+    id INTEGER PRIMARY KEY,
+    customer_id INTEGER,
+    product TEXT,
+    amount DECIMAL(10,2)
+);
+-- Create BM25 indexes BEFORE inserting to encourage multiple segments
+CREATE INDEX mpp_customers_bm25 ON mpp_customers USING bm25 (id, name, city, age)
+WITH (key_field = 'id', text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}, "city": {"tokenizer": {"type": "keyword"}, "fast": true}}', numeric_fields = '{"age": {"fast": true}}');
+CREATE INDEX mpp_orders_bm25 ON mpp_orders USING bm25 (id, customer_id, product, amount)
+WITH (key_field = 'id', text_fields = '{"product": {"tokenizer": {"type": "keyword"}, "fast": true}}', numeric_fields = '{"customer_id": {"fast": true}, "amount": {"fast": true}}');
+-- Insert customer data
+INSERT INTO mpp_customers (id, name, city, age) VALUES
+(1, 'alice', 'NYC', 30),
+(2, 'bob', 'LA', 25),
+(3, 'cloe', 'NYC', 35),
+(4, 'dave', 'SF', 28),
+(5, 'eve', 'LA', 32);
+-- Insert order data
+INSERT INTO mpp_orders (id, customer_id, product, amount) VALUES
+(101, 1, 'laptop', 999.99),
+(102, 1, 'mouse', 29.99),
+(103, 2, 'keyboard', 89.99),
+(104, 3, 'monitor', 499.99),
+(105, 3, 'laptop', 1299.99),
+(106, 4, 'mouse', 19.99),
+(107, 5, 'keyboard', 79.99),
+(108, 5, 'laptop', 899.99);
+-- Create standard indexes for join keys
+CREATE INDEX mpp_orders_customer_id ON mpp_orders (customer_id);
+-- =============================================================================
+-- TEST 1: Verify the GUC exists and is settable
+-- =============================================================================
+-- Should not error
+SET paradedb.enable_mpp_join = off;
+SHOW paradedb.enable_mpp_join;
+ paradedb.enable_mpp_join 
+--------------------------
+ off
+(1 row)
+
+SET paradedb.enable_mpp_join = on;
+SHOW paradedb.enable_mpp_join;
+ paradedb.enable_mpp_join 
+--------------------------
+ on
+(1 row)
+
+-- Reset for baseline
+SET paradedb.enable_mpp_join = off;
+-- =============================================================================
+-- TEST 2: Baseline query results with broadcast-join (MPP off)
+-- =============================================================================
+SET paradedb.enable_join_custom_scan = on;
+SET max_parallel_workers_per_gather = 2;
+SET max_parallel_workers = 4;
+-- Inner join with search predicate
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name, o.product, o.amount
+FROM mpp_customers c
+JOIN mpp_orders o ON c.id = o.customer_id
+WHERE c.name @@@ 'alice'
+ORDER BY c.id, o.id
+LIMIT 10;
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.id, c.name, o.product, o.amount, o.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: c.id, c.name, o.product, o.amount, o.id
+         Relation Tree: o INNER c
+         Join Cond: c.id = o.customer_id
+         Limit: 10
+         Order By: c.id asc, o.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, id@1 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[o, c]
+           :       ProjectionExec: expr=[ctid_0@2 as ctid_0, id@3 as id, ctid_1@0 as ctid_1, id@1 as id]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, customer_id@1)], projection=[ctid_1@0, id@1, ctid_0@2, id@4]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT c.id, c.name, o.product, o.amount
+FROM mpp_customers c
+JOIN mpp_orders o ON c.id = o.customer_id
+WHERE c.name @@@ 'alice'
+ORDER BY c.id, o.id
+LIMIT 10;
+ id | name  | product | amount 
+----+-------+---------+--------
+  1 | alice | laptop  | 999.99
+  1 | alice | mouse   |  29.99
+(2 rows)
+
+-- =============================================================================
+-- TEST 3: Same query with MPP enabled
+-- =============================================================================
+SET paradedb.enable_mpp_join = on;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name, o.product, o.amount
+FROM mpp_customers c
+JOIN mpp_orders o ON c.id = o.customer_id
+WHERE c.name @@@ 'alice'
+ORDER BY c.id, o.id
+LIMIT 10;
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.id, c.name, o.product, o.amount, o.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: c.id, c.name, o.product, o.amount, o.id
+         Relation Tree: o INNER c
+         Join Cond: c.id = o.customer_id
+         Limit: 10
+         Order By: c.id asc, o.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, id@1 as col_5, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[o, c]
+           :       ProjectionExec: expr=[ctid_0@2 as ctid_0, id@3 as id, ctid_1@0 as ctid_1, id@1 as id]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, customer_id@1)], projection=[ctid_1@0, id@1, ctid_0@2, id@4]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
+
+SELECT c.id, c.name, o.product, o.amount
+FROM mpp_customers c
+JOIN mpp_orders o ON c.id = o.customer_id
+WHERE c.name @@@ 'alice'
+ORDER BY c.id, o.id
+LIMIT 10;
+ id | name  | product | amount 
+----+-------+---------+--------
+  1 | alice | laptop  | 999.99
+  1 | alice | mouse   |  29.99
+(2 rows)
+
+-- =============================================================================
+-- TEST 4: Multi-predicate query
+-- =============================================================================
+-- MPP still on
+SELECT c.id, c.name, c.city, o.product, o.amount
+FROM mpp_customers c
+JOIN mpp_orders o ON c.id = o.customer_id
+WHERE c.city @@@ 'NYC' AND o.product @@@ 'laptop'
+ORDER BY c.id, o.id
+LIMIT 10;
+ id | name  | city | product | amount  
+----+-------+------+---------+---------
+  1 | alice | NYC  | laptop  |  999.99
+  3 | cloe  | NYC  | laptop  | 1299.99
+(2 rows)
+
+-- Compare with MPP off
+SET paradedb.enable_mpp_join = off;
+SELECT c.id, c.name, c.city, o.product, o.amount
+FROM mpp_customers c
+JOIN mpp_orders o ON c.id = o.customer_id
+WHERE c.city @@@ 'NYC' AND o.product @@@ 'laptop'
+ORDER BY c.id, o.id
+LIMIT 10;
+ id | name  | city | product | amount  
+----+-------+------+---------+---------
+  1 | alice | NYC  | laptop  |  999.99
+  3 | cloe  | NYC  | laptop  | 1299.99
+(2 rows)
+
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+SET paradedb.enable_mpp_join = off;
+SET max_parallel_workers_per_gather = 0;
+DROP TABLE IF EXISTS mpp_orders CASCADE;
+DROP TABLE IF EXISTS mpp_customers CASCADE;

@@ -363,6 +363,36 @@ pub enum OrderByFeature {
         attno: pg_sys::AttrNumber,
         name: Option<String>,
     },
+    NullTest {
+        inner: Box<OrderByFeature>,
+        nulltesttype: NullTestKind,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum NullTestKind {
+    IsNull,
+    IsNotNull,
+}
+
+impl std::fmt::Display for OrderByFeature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Score { .. } => write!(f, "pdb.score()"),
+            Self::Field { name, .. } => write!(f, "{name}"),
+            Self::Var { name, .. } => write!(f, "{}", name.as_deref().unwrap_or("?")),
+            Self::NullTest {
+                inner,
+                nulltesttype,
+            } => {
+                let test = match nulltesttype {
+                    NullTestKind::IsNull => "IS NULL",
+                    NullTestKind::IsNotNull => "IS NOT NULL",
+                };
+                write!(f, "{inner} {test}")
+            }
+        }
+    }
 }
 
 /// Simple ORDER BY information for serialization in PrivateData

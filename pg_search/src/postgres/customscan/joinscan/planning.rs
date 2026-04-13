@@ -30,7 +30,7 @@ use super::predicate::find_base_info_recursive;
 use super::privdat::{OutputColumnInfo, PrivateData};
 
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
@@ -1031,7 +1031,11 @@ pub(super) unsafe fn collect_required_fields(
     }
 
     for info in &join_clause.order_by {
-        match &info.feature {
+        let feature = match &info.feature {
+            OrderByFeature::NullTest { inner, .. } => inner.as_ref(),
+            other => other,
+        };
+        match feature {
             OrderByFeature::Var { rti, attno, .. } => {
                 for source in &mut plan_sources {
                     ensure_column(source, *rti, *attno);
@@ -1266,7 +1270,12 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-            let check_expr = strip_wrappers(expr.cast());
+            let mut check_expr = strip_wrappers(expr.cast());
+
+            // Unwrap NullTest to inspect the inner expression
+            if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
+                check_expr = strip_wrappers((*nt).arg.cast());
+            }
 
             if sources
                 .iter()
@@ -1755,6 +1764,31 @@ impl JoinSortExprKind {
         output_rtis: &[pg_sys::Index],
         pathkey_equivalence_member: bool,
     ) -> Self {
+        if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
+            let inner_expr = strip_wrappers((*nt).arg.cast()).cast::<pg_sys::Expr>();
+            let nulltesttype = if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {
+                NullTestKind::IsNull
+            } else {
+                NullTestKind::IsNotNull
+            };
+            return match Self::classify(
+                inner_expr,
+                direction,
+                sources,
+                output_rtis,
+                pathkey_equivalence_member,
+            ) {
+                Self::Resolved(inner_info) => Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::NullTest {
+                        inner: Box::new(inner_info.feature),
+                        nulltesttype,
+                    },
+                    direction,
+                }),
+                other => other,
+            };
+        }
+
         for source in sources.iter() {
             if is_score_func_recursive(check_expr.cast(), source) {
                 if !output_rtis.contains(&source.scan_info.heap_rti) {
@@ -1957,8 +1991,16 @@ pub(super) unsafe fn extract_orderby(
 
             match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, true) {
                 JoinSortExprKind::Resolved(info) => {
-                    result.push(info);
-                    pathkey_resolved = true;
+                    // For DISTINCT queries, NullTest pathkeys come from the
+                    // DISTINCT target list — they are handled by the GROUP BY,
+                    // not the sort. Acknowledge the pathkey but don't add it to
+                    // the ORDER BY list.
+                    if has_distinct && matches!(info.feature, OrderByFeature::NullTest { .. }) {
+                        pathkey_resolved = true;
+                    } else {
+                        result.push(info);
+                        pathkey_resolved = true;
+                    }
                 }
                 JoinSortExprKind::SkipMember => continue,
                 JoinSortExprKind::NoMatch => {}

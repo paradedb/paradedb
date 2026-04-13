@@ -185,7 +185,8 @@ use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use futures::StreamExt;
-use pgrx::{pg_sys, PgList};
+use crate::api::HashSet;
+use pgrx::{pg_guard, pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 
 #[derive(Default)]
@@ -265,12 +266,13 @@ impl JoinDeclineReason {
 /// `expression_tree_walker` so it handles all node types automatically.
 unsafe fn collect_all_subplan_ids_from_expr(
     node: *mut pg_sys::Node,
-    ids: &mut std::collections::HashSet<i32>,
+    ids: &mut HashSet<i32>,
 ) {
     if node.is_null() {
         return;
     }
 
+    #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
         context: *mut std::ffi::c_void,
@@ -280,7 +282,7 @@ unsafe fn collect_all_subplan_ids_from_expr(
         }
         if (*node).type_ == pg_sys::NodeTag::T_SubPlan {
             let subplan = node as *mut pg_sys::SubPlan;
-            let ids = &mut *(context as *mut std::collections::HashSet<i32>);
+            let ids = &mut *(context as *mut HashSet<i32>);
             ids.insert((*subplan).plan_id);
         }
         pg_sys::expression_tree_walker(node, Some(walker), context)
@@ -288,7 +290,7 @@ unsafe fn collect_all_subplan_ids_from_expr(
 
     walker(
         node,
-        ids as *mut std::collections::HashSet<i32> as *mut std::ffi::c_void,
+        ids as *mut HashSet<i32> as *mut std::ffi::c_void,
     );
 }
 
@@ -297,8 +299,8 @@ unsafe fn collect_all_subplan_ids_from_expr(
 unsafe fn collect_all_subplan_ids_from_baserestrictinfo(
     root: *mut pg_sys::PlannerInfo,
     absorbed_rtis: &[pg_sys::Index],
-) -> std::collections::HashSet<i32> {
-    let mut all_ids = std::collections::HashSet::new();
+) -> HashSet<i32> {
+    let mut all_ids = HashSet::default();
     for rti in absorbed_rtis {
         let rel = pg_sys::find_base_rel(root, *rti as i32);
         let ri_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
@@ -312,13 +314,13 @@ unsafe fn collect_all_subplan_ids_from_baserestrictinfo(
 
 /// Collect the `plan_id`s of SubPlans that JoinScan absorbed into
 /// Semi/Anti/LeftMark join nodes in the `RelNode` tree.
-fn collect_absorbed_subplan_ids(plan: &RelNode) -> std::collections::HashSet<i32> {
-    let mut ids = std::collections::HashSet::new();
+fn collect_absorbed_subplan_ids(plan: &RelNode) -> HashSet<i32> {
+    let mut ids = HashSet::default();
     walk_relnode_for_subplan_ids(plan, &mut ids);
     ids
 }
 
-fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut std::collections::HashSet<i32>) {
+fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
     match node {
         RelNode::Join(j) => {
             if let Some(plan_id) = j.subplan_id {

@@ -71,7 +71,7 @@ use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
-use crate::api::{OrderByFeature, SortDirection};
+use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::build::{
     self as build, CtidColumn, JoinCSClause, JoinSource, RelNode, RelationAlias,
@@ -752,56 +752,67 @@ fn build_clause_df<'a>(
         if !join_clause.order_by.is_empty() {
             let mut sort_exprs = Vec::new();
             for info in &join_clause.order_by {
+                let resolve_feature = |feature: &OrderByFeature| -> Expr {
+                    match feature {
+                        OrderByFeature::Score { rti } => {
+                            if !distinct_col_map.is_empty() {
+                                resolve_distinct_col(true, 0, 0, "")
+                            } else {
+                                join_clause
+                                    .plan
+                                    .sources()
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, s)| s.scan_info.heap_rti == *rti)
+                                    .map(|(idx, source)| make_source_score_col(source, idx))
+                                    .unwrap_or_else(|| col("unknown_score"))
+                            }
+                        }
+                        OrderByFeature::Field { name, rti } => join_clause
+                            .plan
+                            .sources()
+                            .iter()
+                            .enumerate()
+                            .find(|(_, s)| s.contains_rti(*rti))
+                            .map(|(idx, source)| make_source_col(source, idx, name.as_ref()))
+                            .unwrap_or_else(|| {
+                                pgrx::warning!("JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'");
+                                col(name.as_ref())
+                            }),
+                        OrderByFeature::Var { rti, attno, .. } => {
+                            if !distinct_col_map.is_empty() {
+                                resolve_distinct_col(false, *rti, *attno, "")
+                            } else {
+                                join_clause
+                                    .plan
+                                    .sources()
+                                    .iter()
+                                    .enumerate()
+                                    .find_map(|(i, source)| {
+                                        let mapped = source.map_var(*rti, *attno)?;
+                                        let field = source.column_name(mapped)?;
+                                        Some(make_source_col(source, i, &field))
+                                    })
+                                    .unwrap_or_else(|| col("unknown_col"))
+                            }
+                        }
+                        OrderByFeature::NullTest { .. } => {
+                            unreachable!("NullTest should be handled by the outer match")
+                        }
+                    }
+                };
                 let expr = match &info.feature {
-                    OrderByFeature::Score { rti } => {
-                        if !distinct_col_map.is_empty() {
-                            resolve_distinct_col(true, 0, 0, "")
-                        } else {
-                            // TODO: this heap_rti lookup has the same collision
-                            // risk as the partitioning check fixed above — if a
-                            // NOT IN subquery source shares the same RTI as the
-                            // outer table, the wrong score column could be
-                            // selected. Low risk since ORDER BY scores typically
-                            // reference outer-query tables. Fix by switching
-                            // OrderByFeature::Score to carry plan_position.
-                            join_clause
-                                .plan
-                                .sources()
-                                .iter()
-                                .enumerate()
-                                .find(|(_, s)| s.scan_info.heap_rti == *rti)
-                                .map(|(idx, source)| make_source_score_col(source, idx))
-                                .unwrap_or_else(|| col("unknown_score"))
+                    OrderByFeature::NullTest {
+                        inner,
+                        nulltesttype,
+                    } => {
+                        let inner_expr = resolve_feature(inner);
+                        match nulltesttype {
+                            NullTestKind::IsNull => inner_expr.is_null(),
+                            NullTestKind::IsNotNull => inner_expr.is_not_null(),
                         }
                     }
-                    OrderByFeature::Field { name, rti } => join_clause
-                        .plan
-                        .sources()
-                        .iter()
-                        .enumerate()
-                        .find(|(_, s)| s.contains_rti(*rti))
-                        .map(|(idx, source)| make_source_col(source, idx, name.as_ref()))
-                        .unwrap_or_else(|| {
-                            pgrx::warning!("JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'");
-                            col(name.as_ref())
-                        }),
-                    OrderByFeature::Var { rti, attno, .. } => {
-                        if !distinct_col_map.is_empty() {
-                            resolve_distinct_col(false, *rti, *attno, "")
-                        } else {
-                            join_clause
-                                .plan
-                                .sources()
-                                .iter()
-                                .enumerate()
-                                .find_map(|(i, source)| {
-                                    let mapped = source.map_var(*rti, *attno)?;
-                                    let field = source.column_name(mapped)?;
-                                    Some(make_source_col(source, i, &field))
-                                })
-                                .unwrap_or_else(|| col("unknown_col"))
-                        }
-                    }
+                    other => resolve_feature(other),
                 };
 
                 let asc = matches!(
@@ -978,9 +989,22 @@ fn build_source_df<'a>(
                             }
                         }
                     }
-                    OrderByFeature::Score { .. } => {
-                        // Score is not a late-materialized column, skip
-                    }
+                    OrderByFeature::Score { .. } => {}
+                    OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
+                        OrderByFeature::Field { name, rti } => {
+                            if source.contains_rti(*rti) {
+                                required_early.insert(name.as_ref().to_string());
+                            }
+                        }
+                        OrderByFeature::Var { rti, attno, .. } => {
+                            if source.contains_rti(*rti) {
+                                if let Some(col_name) = source.column_name(*attno) {
+                                    required_early.insert(col_name);
+                                }
+                            }
+                        }
+                        _ => {}
+                    },
                 }
             }
         }

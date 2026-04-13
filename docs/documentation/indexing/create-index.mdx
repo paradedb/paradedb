@@ -52,6 +52,12 @@ end
 
 </CodeGroup>
 
+<Note>
+  See the [getting started guide](/documentation/getting-started/environment)
+  for more detail on how to set up your ORM's migration system to create
+  indexes.
+</Note>
+
 By default, text columns are tokenized using the [unicode](/documentation/tokenizers/available-tokenizers/unicode) tokenizer, which splits text according to the
 Unicode segmentation standard. Because index creation is a time-consuming operation, we recommend experimenting with the [available tokenizers](/documentation/tokenizers/overview)
 to find the most suitable one before running `CREATE INDEX`.

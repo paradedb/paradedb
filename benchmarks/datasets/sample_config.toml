@@ -1,6 +1,6 @@
 root_table = "orders"
-sampling_seed = 723                                         # sum of the characters in "ParadeDB" as ascii
-s3_base_path = "s3://paradedb-ci-benchmark/datasets/sample" # does not exist, replace with your own path
+sampling_seed = 723                                          # sum of the characters in "ParadeDB" as ascii
+s3_base_path = "s3://paradedb-ci-benchmarks/datasets/sample" # does not exist, replace with your own path
 
 [[tables]]
 name = "orders"

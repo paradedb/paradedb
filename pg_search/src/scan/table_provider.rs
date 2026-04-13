@@ -733,7 +733,7 @@ impl TableProvider for PgSearchTableProvider {
 
     async fn scan(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         _limit: Option<usize>,
@@ -772,7 +772,20 @@ impl TableProvider for PgSearchTableProvider {
             query.solve_postgres_expressions(expr_context);
         }
 
+        // Check for MPP participant config in the session state.
+        // In MPP mode, each participant gets a slice of segments instead of using
+        // the broadcast-join parallel state mechanism.
+        let mpp_config = state
+            .config()
+            .options()
+            .extensions
+            .get::<MppParticipantConfig>();
+
         // Determine MVCC strategy based on whether we are running in parallel mode.
+        //
+        // For MPP mode (MppParticipantConfig present, total_participants > 1):
+        //   - Each participant opens all segments via Snapshot, then the create_eager_scan
+        //     path filters to only this participant's assigned segments via chunk_range().
         //
         // For the partitioning source (`parallel_state` is Some):
         //   - Leader: Snapshot (claims segments dynamically; its own snapshot is the source
@@ -818,6 +831,40 @@ impl TableProvider for PgSearchTableProvider {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
         let sort_order = self.scan_info.sort_order.as_ref();
+
+        // MPP segment slicing: when running in MPP mode with multiple participants,
+        // each participant gets a deterministic slice of segments via chunk_range().
+        // This replaces the broadcast-join model where one source is "partitioned"
+        // and others are "replicated".
+        if let Some(mpp) = &mpp_config {
+            if mpp.total_participants > 1 {
+                let all_segments = reader.segment_readers();
+                let n_segments = all_segments.len();
+                let (start, len) = crate::parallel_worker::chunk_range(
+                    n_segments,
+                    mpp.total_participants,
+                    mpp.index,
+                );
+                let my_segments = &all_segments[start..start + len];
+
+                let ffhelper = Arc::new(ffhelper);
+                let segments: Vec<ScanState> = my_segments
+                    .iter()
+                    .map(|r| {
+                        self.create_scan_partition(
+                            &reader,
+                            r.segment_id(),
+                            &projected_fields,
+                            &ffhelper,
+                            &visibility,
+                            heap_relid,
+                        )
+                    })
+                    .collect();
+
+                return self.create_scan(segments, projected_schema, query, sort_order, ffhelper);
+            }
+        }
 
         if let Some(sort_order) = sort_order {
             if let Some(parallel_state) = parallel_state {

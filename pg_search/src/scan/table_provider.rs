@@ -45,6 +45,47 @@ use crate::scan::Scanner;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Configuration for MPP (plan partitioning) parallel execution.
+#[allow(dead_code)]
+///
+/// Stored in the DataFusion `SessionConfig` extensions so that each participant
+/// knows its index and the total number of participants. Used by
+/// `PgSearchTableProvider` to slice segments and by `EnforceDsmShuffle` to
+/// determine the exchange topology.
+#[derive(Debug, Clone)]
+pub struct MppParticipantConfig {
+    /// 0-based index of this participant (leader=0, worker1=1, ...).
+    pub index: usize,
+    /// Total number of participants (leader + workers).
+    pub total_participants: usize,
+}
+
+impl datafusion::config::ConfigExtension for MppParticipantConfig {
+    const PREFIX: &'static str = "paradedb_mpp";
+}
+
+impl datafusion::config::ExtensionOptions for MppParticipantConfig {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn cloned(&self) -> Box<dyn datafusion::config::ExtensionOptions> {
+        Box::new(self.clone())
+    }
+
+    fn set(&mut self, _key: &str, _value: &str) -> datafusion::common::Result<()> {
+        Ok(())
+    }
+
+    fn entries(&self) -> Vec<datafusion::config::ConfigEntry> {
+        vec![]
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VisibilitySourceMetadata {
     pub plan_position: usize,

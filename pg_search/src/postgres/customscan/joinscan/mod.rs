@@ -139,10 +139,14 @@
 //! - [`explain`]: EXPLAIN output formatting.
 
 pub mod build;
+#[allow(dead_code, deprecated)]
+pub mod exchange;
 pub mod planner;
 mod planning;
 pub mod predicate;
 pub mod privdat;
+#[allow(dead_code, deprecated)]
+pub mod sanitize;
 pub mod scan_state;
 pub mod transport;
 pub mod visibility_filter;

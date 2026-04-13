@@ -163,6 +163,7 @@ use self::scan_state::{
     build_joinscan_logical_plan, build_physical_plan, build_task_context,
     create_datafusion_session_context, JoinScanState, SessionContextProfile,
 };
+use crate::api::HashSet;
 use crate::api::OrderByFeature;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
@@ -185,7 +186,7 @@ use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use futures::StreamExt;
-use pgrx::{pg_sys, PgList};
+use pgrx::{pg_guard, pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 
 #[derive(Default)]
@@ -258,6 +259,133 @@ impl JoinDeclineReason {
             }
         }
     }
+}
+
+/// Recursively walk an expression tree and collect the `plan_id` of every
+/// `T_SubPlan` node found at any depth.  Uses Postgres's
+/// `expression_tree_walker` so it handles all node types automatically.
+unsafe fn collect_all_subplan_ids_from_expr(node: *mut pg_sys::Node, ids: &mut HashSet<i32>) {
+    if node.is_null() {
+        return;
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut std::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        if (*node).type_ == pg_sys::NodeTag::T_SubPlan {
+            let subplan = node as *mut pg_sys::SubPlan;
+            let ids = &mut *(context as *mut HashSet<i32>);
+            ids.insert((*subplan).plan_id);
+        }
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    walker(node, ids as *mut HashSet<i32> as *mut std::ffi::c_void);
+}
+
+/// Collect all SubPlan `plan_id`s present in `baserestrictinfo` of the
+/// given base relations.
+unsafe fn collect_all_subplan_ids_from_baserestrictinfo(
+    root: *mut pg_sys::PlannerInfo,
+    absorbed_rtis: &[pg_sys::Index],
+) -> HashSet<i32> {
+    let mut all_ids = HashSet::default();
+    for rti in absorbed_rtis {
+        let rel = pg_sys::find_base_rel(root, *rti as i32);
+        let ri_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        for ri in ri_list.iter_ptr() {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            collect_all_subplan_ids_from_expr(clause, &mut all_ids);
+        }
+    }
+    all_ids
+}
+
+/// Collect the `plan_id`s of SubPlans that JoinScan absorbed into
+/// Semi/Anti/LeftMark join nodes in the `RelNode` tree.
+fn collect_absorbed_subplan_ids(plan: &RelNode) -> HashSet<i32> {
+    let mut ids = HashSet::default();
+    walk_relnode_for_subplan_ids(plan, &mut ids);
+    ids
+}
+
+fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
+    match node {
+        RelNode::Join(j) => {
+            if let Some(plan_id) = j.subplan_id {
+                ids.insert(plan_id);
+            }
+            walk_relnode_for_subplan_ids(&j.left, ids);
+            walk_relnode_for_subplan_ids(&j.right, ids);
+        }
+        RelNode::Filter(f) => walk_relnode_for_subplan_ids(&f.input, ids),
+        RelNode::Scan(_) => {}
+    }
+}
+
+/// Check whether it is safe to push LIMIT into the JoinScan plan.
+///
+/// Returns `true` when ALL of:
+/// 1. JoinScan absorbed every base relation in the query (no outer
+///    relations that could add post-filters above JoinScan).
+/// 2. Every SubPlan in `baserestrictinfo` of absorbed relations was also
+///    absorbed into the `RelNode` tree (Semi/Anti/LeftMark joins).
+///    Un-absorbed SubPlans would become Postgres post-filters above
+///    the capped output.
+/// 3. No volatile functions in `baserestrictinfo` of absorbed relations
+///    (volatile functions can never be pushed into Tantivy).
+unsafe fn is_limit_pushdown_safe(
+    root: *mut pg_sys::PlannerInfo,
+    join_clause: &JoinCSClause,
+) -> bool {
+    let absorbed_rtis: Vec<pg_sys::Index> = join_clause
+        .plan
+        .sources()
+        .iter()
+        .map(|s| s.scan_info.heap_rti)
+        .collect();
+
+    // 1. Did JoinScan absorb ALL base relations?
+    #[cfg(feature = "pg15")]
+    let all_rels = (*root).all_baserels;
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    let all_rels = (*root).all_query_rels;
+
+    let mut absorbed_bms: *mut pg_sys::Bitmapset = std::ptr::null_mut();
+    for rti in &absorbed_rtis {
+        absorbed_bms = pg_sys::bms_add_member(absorbed_bms, *rti as i32);
+    }
+    if !pg_sys::bms_is_subset(all_rels, absorbed_bms) {
+        return false;
+    }
+
+    // 2. Every SubPlan in baserestrictinfo must have been absorbed.
+    let all_subplan_ids = collect_all_subplan_ids_from_baserestrictinfo(root, &absorbed_rtis);
+    let absorbed_subplan_ids = collect_absorbed_subplan_ids(&join_clause.plan);
+    for id in &all_subplan_ids {
+        if !absorbed_subplan_ids.contains(id) {
+            return false;
+        }
+    }
+
+    // 3. No volatile functions (these can never be absorbed).
+    for rti in &absorbed_rtis {
+        let rel = pg_sys::find_base_rel(root, *rti as i32);
+        let ri_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        for ri in ri_list.iter_ptr() {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            if pg_sys::contain_volatile_functions(clause) {
+                return false;
+            }
+        }
+    }
+
+    true
 }
 
 /// Try to create JoinScan `CustomPath`s for a single base relation that contains
@@ -446,6 +574,26 @@ impl JoinScan {
                 );
             }
             join_clause = join_clause.with_forced_partitioning(0);
+        }
+
+        // Safety check: bail out if LIMIT pushdown is unsafe due to
+        // un-absorbed relations, un-absorbed SubPlans, or volatile functions.
+        if join_clause.limit_offset.limit.is_some() && !is_limit_pushdown_safe(root, &join_clause) {
+            let aliases: Vec<String> = join_clause
+                .plan
+                .sources()
+                .iter()
+                .map(|s| {
+                    RelationAlias::new(s.scan_info.alias.as_deref())
+                        .warning_context(s.scan_info.heaprelid)
+                })
+                .collect();
+            JoinScan::add_planner_warning(
+                "JoinScan not used: LIMIT pushdown unsafe (un-absorbed \
+                 relations, SubPlans, or volatile functions)",
+                &aliases,
+            );
+            return None;
         }
 
         Some((join_clause, limit_offset))
@@ -1030,8 +1178,8 @@ impl CustomScan for JoinScan {
                                 )
                             }
                         }
-                        OrderByFeature::Score { .. } => {
-                            format!("pdb.score() {}", oi.direction.as_ref())
+                        other => {
+                            format!("{other} {}", oi.direction.as_ref())
                         }
                     })
                     .collect::<Vec<_>>()
@@ -1590,6 +1738,7 @@ impl JoinScan {
             right: inner_node,
             equi_keys: join_conditions.equi_keys,
             filter: None,
+            subplan_id: None,
         }));
 
         let unsupported = plan.unsupported_join_types();

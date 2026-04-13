@@ -139,30 +139,34 @@ WHERE c.name @@@ 'Acme OR Globex'
 AND p.description @@@ 'widget OR gadget OR gizmo'
 ORDER BY cat.category_name, p.id
 LIMIT 5;
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, p)
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: cat.category_name, p.id
-         ->  Hash Join
-               Hash Cond: (cat.product_id = p.id)
-               ->  Seq Scan on categories_op cat
-               ->  Hash
-                     ->  Custom Scan (ParadeDB Join Scan)
-                           Relation Tree: c INNER p
-                           Join Cond: p.company_id = c.id
-                           Limit: 5
-                           Order By: p.id asc
-                           DataFusion Physical Plan: 
-                             : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-                             :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                             :     VisibilityFilterExec: tables=[c, p]
-                             :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_0@0, ctid_1@2, id@4]
-                             :         CooperativeExec
-                             :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex","lenient":null,"conjunction_mode":null}}}}
-                             :         CooperativeExec
-                             :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+         ->  Nested Loop
+               Join Filter: (p.company_id = c.id)
+               ->  Hash Join
+                     Hash Cond: (cat.product_id = p.id)
+                     ->  Seq Scan on categories_op cat
+                     ->  Hash
+                           ->  Custom Scan (ParadeDB Base Scan) on products_op p
+                                 Table: products_op
+                                 Index: products_op_idx
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     ->  Custom Scan (ParadeDB Base Scan) on companies_op c
+                           Table: companies_op
+                           Index: companies_op_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 SELECT p.id, p.description, cat.category_name
 FROM products_op p
@@ -172,6 +176,8 @@ WHERE c.name @@@ 'Acme OR Globex'
 AND p.description @@@ 'widget OR gadget OR gizmo'
 ORDER BY cat.category_name, p.id
 LIMIT 5;
+WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, p)
  id  |  description  | category_name 
 -----+---------------+---------------
  100 | A fine widget | Electronics

@@ -44,19 +44,16 @@ Index(
 ```
 
 ```ruby Rails
-class AddPartialMockItemIndex < ActiveRecord::Migration[7.2]
-  def up
-    execute <<~SQL
-      CREATE INDEX search_idx ON mock_items
-      USING bm25 (id, description, category)
-      WITH (key_field='id')
-      WHERE description IS NOT NULL;
-    SQL
-  end
-
-  def down
-    remove_bm25_index :mock_items, name: :search_idx, if_exists: true
-  end
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.where = "description IS NOT NULL"
+  self.fields = {
+    id: nil,
+    description: nil,
+    category: nil
+  }
 end
 ```
 

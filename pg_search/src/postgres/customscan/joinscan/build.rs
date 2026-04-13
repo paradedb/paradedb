@@ -1154,6 +1154,10 @@ pub struct JoinCSClause {
     pub has_distinct: bool,
     /// Optional index of the source that MUST be partitioned, overriding cost-based selection.
     pub forced_partitioning_idx: Option<usize>,
+    /// Number of parallel workers planned for MPP execution.
+    /// When > 0, the MPP (plan partitioning) execution path is used instead of
+    /// the broadcast-join path.
+    pub planned_workers: usize,
 }
 
 impl JoinCSClause {
@@ -1167,6 +1171,7 @@ impl JoinCSClause {
             output_projection: None,
             has_distinct: false,
             forced_partitioning_idx: None,
+            planned_workers: 0,
         };
         for (i, source) in clause.plan.sources_mut().into_iter().enumerate() {
             source.plan_position = i;
@@ -1250,6 +1255,13 @@ impl JoinCSClause {
 
     pub fn with_forced_partitioning(mut self, idx: usize) -> Self {
         self.forced_partitioning_idx = Some(idx);
+        self
+    }
+
+    /// Set the number of parallel workers for MPP execution.
+    #[allow(dead_code)]
+    pub fn with_planned_workers(mut self, nworkers: usize) -> Self {
+        self.planned_workers = nworkers;
         self
     }
 

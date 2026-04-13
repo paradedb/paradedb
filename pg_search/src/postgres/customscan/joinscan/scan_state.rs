@@ -241,7 +241,7 @@ impl CustomScanState for JoinScanState {
 /// that follow it; AggregateScan needs only a single `FilterPushdown` post-pass.
 /// Exposing the difference as an explicit profile keeps the choice grep-able
 /// from the call site.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum SessionContextProfile {
     /// JoinScan execution: enables `topk_dynamic_filter_pushdown`, includes
     /// `SegmentedTopKRule`, and adds the trailing `FilterPushdown` passes that
@@ -250,6 +250,16 @@ pub enum SessionContextProfile {
     /// AggregateScan execution: single `FilterPushdown` post-pass, no
     /// SegmentedTopK, no topk dynamic filter pushdown.
     Aggregate,
+    /// MPP (plan partitioning) JoinScan execution: like `Join` but with
+    /// `target_partitions = N`, hash-join repartitioning forced, and
+    /// `EnforceDsmShuffle` + `EnforceSanitization` optimizer rules injected.
+    #[allow(dead_code)]
+    JoinMpp {
+        /// 0-based index of this participant.
+        participant_index: usize,
+        /// Total number of participants (leader + workers).
+        total_participants: usize,
+    },
 }
 
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
@@ -297,18 +307,55 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 /// - [`SessionContextProfile::Aggregate`]: appends a single `FilterPushdown`
 ///   post-pass; SegmentedTopK does not apply to aggregate-on-join queries.
 pub fn create_datafusion_session_context(profile: SessionContextProfile) -> SessionContext {
-    let mut config = SessionConfig::new().with_target_partitions(1);
-    if matches!(profile, SessionContextProfile::Join) {
+    let is_mpp = matches!(profile, SessionContextProfile::JoinMpp { .. });
+    let is_join = matches!(
+        profile,
+        SessionContextProfile::Join | SessionContextProfile::JoinMpp { .. }
+    );
+
+    let mut config = if let SessionContextProfile::JoinMpp {
+        total_participants, ..
+    } = &profile
+    {
+        let mut c = SessionConfig::new().with_target_partitions(*total_participants);
+        // Force DataFusion to use partitioned hash joins instead of single-partition mode.
+        c.options_mut()
+            .optimizer
+            .hash_join_single_partition_threshold = 0;
+        c.options_mut()
+            .optimizer
+            .hash_join_single_partition_threshold_rows = 0;
+        c
+    } else {
+        SessionConfig::new().with_target_partitions(1)
+    };
+
+    if is_join {
         config
             .options_mut()
             .optimizer
             .enable_topk_dynamic_filter_pushdown = true;
     }
 
+    // Set MppParticipantConfig in session extensions for MPP mode.
+    if let SessionContextProfile::JoinMpp {
+        participant_index,
+        total_participants,
+    } = &profile
+    {
+        config
+            .options_mut()
+            .extensions
+            .insert(crate::scan::table_provider::MppParticipantConfig {
+                index: *participant_index,
+                total_participants: *total_participants,
+            });
+    }
+
     let mut builder = build_base_session(config);
 
-    match profile {
-        SessionContextProfile::Join => {
+    match &profile {
+        SessionContextProfile::Join | SessionContextProfile::JoinMpp { .. } => {
             if crate::gucs::is_columnar_sort_enabled() {
                 builder = builder.with_physical_optimizer_rule(Arc::new(
                     FilterPushdown::new_post_optimization(),
@@ -319,6 +366,23 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
                     crate::scan::segmented_topk_rule::SegmentedTopKRule,
                 ))
                 .with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+
+            // MPP-specific optimizer rules: inject DSM exchange and sanitization.
+            if is_mpp {
+                if let SessionContextProfile::JoinMpp {
+                    total_participants, ..
+                } = &profile
+                {
+                    builder = builder.with_physical_optimizer_rule(Arc::new(
+                        crate::postgres::customscan::joinscan::exchange::EnforceDsmShuffle {
+                            total_participants: *total_participants,
+                        },
+                    ));
+                    builder = builder.with_physical_optimizer_rule(Arc::new(
+                        crate::postgres::customscan::joinscan::sanitize::EnforceSanitization::new(),
+                    ));
+                }
+            }
         }
         SessionContextProfile::Aggregate => {
             builder = builder
@@ -327,6 +391,23 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
     }
 
     SessionContext::new_with_state(builder.build())
+}
+
+/// Compute the total number of MPP participants (workers + leader if applicable).
+///
+/// Returns 1 for serial execution (`planned_workers == 0`).
+#[allow(dead_code)]
+pub fn compute_total_participants(planned_workers: usize) -> usize {
+    if planned_workers == 0 {
+        1
+    } else {
+        planned_workers
+            + if unsafe { pg_sys::parallel_leader_participation } {
+                1
+            } else {
+                0
+            }
+    }
 }
 
 /// Build the DataFusion logical plan for the join.
@@ -370,6 +451,9 @@ pub async fn register_source_table(
 ///
 /// Uses the session context's query planner and wraps multi-partition
 /// output with `CoalescePartitionsExec`. Shared by JoinScan and AggregateScan.
+///
+/// In MPP mode (`target_partitions > 1`), the `CoalescePartitionsExec` wrapping
+/// is skipped because `EnforceDsmShuffle` handles the final result gathering.
 pub async fn build_physical_plan(
     ctx: &SessionContext,
     plan: datafusion::logical_expr::LogicalPlan,
@@ -381,7 +465,9 @@ pub async fn build_physical_plan(
         .create_physical_plan(&plan, &state)
         .await?;
 
-    if plan.output_partitioning().partition_count() > 1 {
+    // In MPP mode, don't coalesce — EnforceDsmShuffle handles distribution.
+    let target_partitions = ctx.state().config().target_partitions();
+    if target_partitions == 1 && plan.output_partitioning().partition_count() > 1 {
         Ok(Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>)
     } else {
         Ok(plan)

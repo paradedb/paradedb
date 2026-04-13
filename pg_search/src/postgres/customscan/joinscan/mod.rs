@@ -141,6 +141,8 @@
 pub mod build;
 #[allow(dead_code, deprecated)]
 pub mod exchange;
+#[allow(dead_code)]
+pub mod parallel;
 pub mod planner;
 mod planning;
 pub mod predicate;

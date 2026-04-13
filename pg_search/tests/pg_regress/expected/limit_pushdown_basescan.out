@@ -173,10 +173,11 @@ SELECT count(*) FROM lp_q_result;
 DROP TABLE lp_q_result;
 DEALLOCATE lp_q;
 -- ============================================================
--- Test 5: Partitioned table with SubPlan post-filter
+-- Test 5: Partition with SubPlan post-filter
 -- ============================================================
--- Create a partitioned table where half the rows fail the SubPlan
--- filter, proving that TopK suppression is necessary.
+-- BM25 indexes live on individual partitions. Query a partition
+-- directly to verify that has_non_pushable_predicates() catches
+-- the SubPlan even though rel_is_single_or_partitioned passes.
 CREATE TABLE lp_items_part (
     id BIGINT NOT NULL,
     status TEXT,
@@ -194,21 +195,39 @@ USING bm25 (id, status, description) WITH (key_field = 'id');
 CREATE INDEX lp_items_part_2_bm25 ON lp_items_part_2
 USING bm25 (id, status, description) WITH (key_field = 'id');
 ANALYZE;
+-- Query partition directly (not the parent table)
 SELECT count(*) FROM (
-    SELECT id FROM lp_items_part
+    SELECT id FROM lp_items_part_1
     WHERE description @@@ 'partitioned'
       AND (status IS NULL
            OR status IN (SELECT s FROM lp_active_statuses))
     LIMIT 100
 ) sub;
-ERROR:  `lp_items_part` does not contain a `USING bm25` index
+ count 
+-------
+   100
+(1 row)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id FROM lp_items_part
+SELECT id FROM lp_items_part_1
 WHERE description @@@ 'partitioned'
   AND (status IS NULL
        OR status IN (SELECT s FROM lp_active_statuses))
 LIMIT 100;
-ERROR:  `lp_items_part` does not contain a `USING bm25` index
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Base Scan) on lp_items_part_1
+         Filter: ((status IS NULL) OR (ANY (status = (hashed SubPlan 1).col1)))
+         Table: lp_items_part_1
+         Index: lp_items_part_1_bm25
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"partitioned","lenient":null,"conjunction_mode":null}}}}
+         SubPlan 1
+           ->  Seq Scan on lp_active_statuses
+(10 rows)
+
 -- ============================================================
 -- Test 6: LEFT JOIN LATERAL with SubPlan on the outer table
 -- ============================================================

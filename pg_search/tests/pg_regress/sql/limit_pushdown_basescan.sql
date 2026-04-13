@@ -157,10 +157,11 @@ DROP TABLE lp_q_result;
 DEALLOCATE lp_q;
 
 -- ============================================================
--- Test 5: Partitioned table with SubPlan post-filter
+-- Test 5: Partition with SubPlan post-filter
 -- ============================================================
--- Create a partitioned table where half the rows fail the SubPlan
--- filter, proving that TopK suppression is necessary.
+-- BM25 indexes live on individual partitions. Query a partition
+-- directly to verify that has_non_pushable_predicates() catches
+-- the SubPlan even though rel_is_single_or_partitioned passes.
 
 CREATE TABLE lp_items_part (
     id BIGINT NOT NULL,
@@ -184,8 +185,9 @@ USING bm25 (id, status, description) WITH (key_field = 'id');
 
 ANALYZE;
 
+-- Query partition directly (not the parent table)
 SELECT count(*) FROM (
-    SELECT id FROM lp_items_part
+    SELECT id FROM lp_items_part_1
     WHERE description @@@ 'partitioned'
       AND (status IS NULL
            OR status IN (SELECT s FROM lp_active_statuses))
@@ -193,7 +195,7 @@ SELECT count(*) FROM (
 ) sub;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id FROM lp_items_part
+SELECT id FROM lp_items_part_1
 WHERE description @@@ 'partitioned'
   AND (status IS NULL
        OR status IN (SELECT s FROM lp_active_statuses))

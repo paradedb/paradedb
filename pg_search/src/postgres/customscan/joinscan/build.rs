@@ -659,9 +659,6 @@ pub struct JoinNode {
     /// from, if any.  Set for Semi/Anti/LeftMark joins created by
     /// `wrap_with_semi_anti` and `wrap_with_mark_filter`; `None` for joins
     /// that come from the normal join-hook path or path reconstruction.
-    /// Only used at plan time for the LIMIT pushdown safety check —
-    /// not needed after serialization.
-    #[serde(skip, default)]
     pub subplan_id: Option<i32>,
 }
 

@@ -240,6 +240,7 @@ unsafe fn build_relnode_from_fromexpr(
             right,
             equi_keys: Vec::new(),
             filter: None,
+            subplan_id: None,
         }));
     }
 
@@ -394,6 +395,7 @@ unsafe fn build_join_node(
         right,
         equi_keys,
         filter: None,
+        subplan_id: None,
     })))
 }
 

@@ -23,6 +23,7 @@ use datafusion::common::TableReference;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
+use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use tantivy::index::SegmentId;
 
@@ -389,6 +390,51 @@ impl PgSearchPhysicalCodec {
     const TAG_DSM_SANITIZE: u8 = 2;
 }
 
+/// Lightweight serialization of a DataFusion `Partitioning` for cross-process transfer.
+///
+/// We only need to preserve the partition count and type — Hash expressions are
+/// recovered from the child plan's output partitioning on decode.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[allow(dead_code)]
+enum SerializedPartitioning {
+    Hash(usize),
+    RoundRobin(usize),
+    Unknown(usize),
+}
+
+#[allow(dead_code)]
+impl SerializedPartitioning {
+    fn from_partitioning(p: &datafusion::physical_plan::Partitioning) -> Self {
+        use datafusion::physical_plan::Partitioning;
+        match p {
+            Partitioning::Hash(_, n) => Self::Hash(*n),
+            Partitioning::RoundRobinBatch(n) => Self::RoundRobin(*n),
+            Partitioning::UnknownPartitioning(n) => Self::Unknown(*n),
+        }
+    }
+
+    fn to_partitioning(
+        &self,
+        hash_exprs: Option<Vec<Arc<dyn datafusion::physical_expr::PhysicalExpr>>>,
+    ) -> datafusion::physical_plan::Partitioning {
+        use datafusion::physical_plan::Partitioning;
+        match self {
+            Self::Hash(n) => Partitioning::Hash(hash_exprs.unwrap_or_default(), *n),
+            Self::RoundRobin(n) => Partitioning::RoundRobinBatch(*n),
+            Self::Unknown(n) => Partitioning::UnknownPartitioning(*n),
+        }
+    }
+}
+
+/// Payload serialized for a `DsmExchangeExec` node.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[allow(dead_code)]
+struct DsmExchangePayload {
+    config: crate::postgres::customscan::joinscan::exchange::DsmExchangeConfig,
+    producer_partitioning: SerializedPartitioning,
+    output_partitioning: SerializedPartitioning,
+}
+
 impl datafusion_proto::physical_plan::PhysicalExtensionCodec for PgSearchPhysicalCodec {
     fn try_decode(
         &self,
@@ -403,13 +449,73 @@ impl datafusion_proto::physical_plan::PhysicalExtensionCodec for PgSearchPhysica
         }
 
         let tag = buf[0];
+        let payload = &buf[1..];
         match tag {
             Self::TAG_DSM_EXCHANGE => {
-                // TODO(#4152): Deserialize DsmExchangeConfig and partitioning from buf[1..],
-                // reconstruct DsmExchangeExec, and register stream sources.
-                Err(DataFusionError::NotImplemented(
-                    "DsmExchangeExec physical deserialization not yet implemented".into(),
-                ))
+                if inputs.len() != 1 {
+                    return Err(DataFusionError::Internal(
+                        "DsmExchangeExec requires exactly one input".into(),
+                    ));
+                }
+                let exchange_payload: DsmExchangePayload = serde_json::from_slice(payload)
+                    .map_err(|e| {
+                        DataFusionError::Internal(format!(
+                            "Failed to deserialize DsmExchangePayload: {e}"
+                        ))
+                    })?;
+
+                // Recover hash expressions from the child's output partitioning.
+                let input = inputs[0].clone();
+                let child_hash_exprs =
+                    if let datafusion::physical_plan::Partitioning::Hash(exprs, _) =
+                        input.output_partitioning()
+                    {
+                        Some(exprs.clone())
+                    } else {
+                        None
+                    };
+
+                let producer_partitioning = exchange_payload
+                    .producer_partitioning
+                    .to_partitioning(child_hash_exprs.clone());
+                let output_partitioning = exchange_payload
+                    .output_partitioning
+                    .to_partitioning(child_hash_exprs);
+
+                let exchange = Arc::new(
+                    crate::postgres::customscan::joinscan::exchange::DsmExchangeExec::try_new(
+                        input.clone(),
+                        producer_partitioning,
+                        output_partitioning,
+                        exchange_payload.config.clone(),
+                    )?,
+                );
+
+                // Register the exchange as a stream source so the control service
+                // can trigger it on demand.
+                use crate::postgres::customscan::joinscan::exchange::{
+                    register_stream_source, StreamSource,
+                };
+                use crate::postgres::customscan::joinscan::transport::ParticipantId;
+                let mpp_config = _ctx
+                    .session_config()
+                    .options()
+                    .extensions
+                    .get::<crate::scan::table_provider::MppParticipantConfig>();
+                let participant_id = mpp_config
+                    .map(|c| ParticipantId(c.index as u16))
+                    .unwrap_or(ParticipantId(0));
+
+                register_stream_source(
+                    StreamSource {
+                        input,
+                        partitioning: exchange.producer_partitioning.clone(),
+                        config: exchange_payload.config,
+                    },
+                    participant_id,
+                );
+
+                Ok(exchange)
             }
             Self::TAG_DSM_SANITIZE => {
                 if inputs.len() != 1 {
@@ -434,12 +540,24 @@ impl datafusion_proto::physical_plan::PhysicalExtensionCodec for PgSearchPhysica
         node: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
         buf: &mut Vec<u8>,
     ) -> Result<()> {
-        if node
-            .as_any()
-            .is::<crate::postgres::customscan::joinscan::exchange::DsmExchangeExec>()
+        if let Some(exchange) =
+            node.as_any()
+                .downcast_ref::<crate::postgres::customscan::joinscan::exchange::DsmExchangeExec>()
         {
             buf.push(Self::TAG_DSM_EXCHANGE);
-            // TODO(#4152): Serialize DsmExchangeConfig and partitioning expressions.
+            let payload = DsmExchangePayload {
+                config: exchange.config.clone(),
+                producer_partitioning: SerializedPartitioning::from_partitioning(
+                    &exchange.producer_partitioning,
+                ),
+                output_partitioning: SerializedPartitioning::from_partitioning(
+                    exchange.properties.output_partitioning(),
+                ),
+            };
+            let json = serde_json::to_vec(&payload).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize DsmExchangePayload: {e}"))
+            })?;
+            buf.extend_from_slice(&json);
             Ok(())
         } else if node
             .as_any()

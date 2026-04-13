@@ -38,6 +38,12 @@ static CHECK_AGGREGATE_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to toggle the use of our "ParadeDB Join Scan".
 static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Enables the MPP (plan partitioning) execution model for JoinScan parallel execution.
+/// When enabled, all tables in the join are hash-partitioned across workers and data is
+/// shuffled via shared memory exchange operators, instead of the default broadcast-join.
+/// Default is `false` (experimental).
+static ENABLE_MPP_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -167,6 +173,15 @@ pub fn init() {
         c"Enable ParadeDB's experimental join custom scan",
         c"Enable ParadeDB's experimental join custom scan. Default is false.",
         &ENABLE_JOIN_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_mpp_join",
+        c"Enable MPP (plan partitioning) execution for parallel JoinScan",
+        c"When enabled, JoinScan uses hash-partitioned MPP execution instead of broadcast join. Default is false (experimental).",
+        &ENABLE_MPP_JOIN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -417,6 +432,10 @@ pub fn check_aggregate_scan() -> bool {
 
 pub fn enable_join_custom_scan() -> bool {
     ENABLE_JOIN_CUSTOM_SCAN.get()
+}
+
+pub fn enable_mpp_join() -> bool {
+    ENABLE_MPP_JOIN.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {

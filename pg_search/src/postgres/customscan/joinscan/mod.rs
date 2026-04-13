@@ -684,6 +684,9 @@ impl JoinScan {
             }
         }
 
+        // Store planned worker count for MPP execution path.
+        join_clause.planned_workers = nworkers;
+
         // --- Build CustomPath ---
 
         let has_order_by = !join_clause.order_by.is_empty();
@@ -1277,6 +1280,7 @@ impl CustomScan for JoinScan {
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
                 let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
                     .build()
                     .unwrap();
                 let join_clause = state.custom_state().join_clause.clone();
@@ -1301,15 +1305,27 @@ impl CustomScan for JoinScan {
                     );
                 }
 
-                // Deserialize the logical plan and convert to execution plan
-                let planstate = state.planstate();
-                // Clone plan_bytes to release the immutable borrow on `state`
-                // before the mutable borrow in ensure_source_manifests below.
                 let plan_bytes = state
                     .custom_state()
                     .logical_plan
                     .clone()
                     .expect("Logical plan is required");
+
+                // MPP execution path: when the GUC is enabled and workers are planned,
+                // use hash-partitioned MPP execution instead of broadcast-join.
+                let _use_mpp = crate::gucs::enable_mpp_join() && join_clause.planned_workers > 0;
+
+                // TODO(#4152): Wire the MPP execution path here. When _use_mpp is true:
+                // 1. Call parallel::launch_join_workers() to set up workers + transport mesh
+                // 2. Build physical plan with SessionContextProfile::JoinMpp
+                // 3. Serialize and broadcast plan to workers
+                // 4. Register DSM mesh for leader
+                // 5. Spawn control service
+                // 6. Execute partition 0 of the plan
+                // For now, fall through to the broadcast-join path.
+
+                // Deserialize the logical plan and convert to execution plan
+                let planstate = state.planstate();
 
                 let index_segment_ids =
                     Self::build_index_segment_ids(state, &join_clause, &plan_sources);

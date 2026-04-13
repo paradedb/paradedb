@@ -665,7 +665,7 @@ fn load_external_data(url: &str, dataset: &str, size_label: &str, data_source: O
         // bunch of code or json that duckdbs parallel parser can't handle if one of its chunk
         // boundaries ends up in one of the complicated-quote/line-break blocks common to those
         // datasets
-        println!("Downloading CSV for '{table_name}' from {csv_source}...");
+        println!("Downloading CSVs for '{table_name}' from {csv_source}...");
         let download_sql = format!(
             "COPY (SELECT * FROM read_csv('{csv_source}/*.csv', header=true, parallel=false)) \
              TO '{table_temp_dir}' (FORMAT CSV, HEADER true, PER_THREAD_OUTPUT true)"

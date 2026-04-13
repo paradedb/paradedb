@@ -42,12 +42,12 @@ runs:
       working-directory: benchmarks/
       shell: bash
       run: |
-        BENCHMARK_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
+        POSTGRES_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
 
         if [ "${{ inputs.mode }}" = "existing" ]; then
           # Pre-sampled dataset loaded from S3.
           cargo run --release -- benchmark existing \
-            --url "${BENCHMARK_URL}" \
+            --url "${POSTGRES_URL}" \
             --size ${{ inputs.size }} \
             --type pg_search \
             --dataset ${{ inputs.dataset }} \
@@ -65,7 +65,7 @@ runs:
           NUM_ROWS=${{ inputs.rows }}
 
           cargo run --release -- benchmark generated \
-            --url "${BENCHMARK_URL}" \
+            --url "${POSTGRES_URL}" \
             --rows ${NUM_ROWS} \
             --type pg_search \
             --dataset ${{ inputs.dataset }} \

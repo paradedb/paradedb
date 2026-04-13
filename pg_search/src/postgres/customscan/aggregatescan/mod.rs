@@ -50,7 +50,7 @@ use crate::postgres::customscan::aggregatescan::datafusion_exec::{
 };
 use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
 use crate::postgres::customscan::aggregatescan::exec::{
-    aggregation_results_iter, AggregationResultsRow,
+    aggregation_results_iter, AggregateResult, AggregationResultsRow,
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
@@ -893,55 +893,45 @@ impl AggregateScan {
         // but we need the native aggregate type (e.g., JSONB for pdb.agg).
         // This matches basescan's approach of setting Const values directly.
         let mut agg_iter = row.aggregates.iter();
-        for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
+        let aggregate_clause = &state.custom_state().aggregate_clause;
+        for (i, entry) in aggregate_clause.entries().enumerate() {
             let Some(const_node) = const_nodes.get(i).copied().flatten() else {
-                // No Const node for this entry, skip the aggregate iterator if it's an aggregate
-                if matches!(entry, TargetListEntry::Aggregate(_)) {
-                    agg_iter.next();
+                // No Const node for this entry, skip the aggregate iterator if
+                // it's an aggregate that occupies a slot in `row.aggregates`
+                // (doc-count aggregates do not — see `uses_doc_count_path`).
+                if let TargetListEntry::Aggregate(agg_type) = entry {
+                    if !uses_doc_count_path(agg_type, aggregate_clause) {
+                        agg_iter.next();
+                    }
                 }
                 continue;
             };
 
             let (datum, is_null) = match entry {
                 TargetListEntry::Aggregate(agg_type) => {
-                    // Get the next aggregate result
-                    let agg_result = agg_iter.next().and_then(|v| v.clone());
-
-                    // Convert to datum using the Const node's type (native aggregate type)
-                    // not the output tuple descriptor's type
-                    if row.is_empty() {
-                        // Empty result - use nullish value
-                        let nullish_datum = agg_type.nullish().value.and_then(|value| {
-                            TantivyValue(OwnedValue::F64(value))
-                                .try_into_datum((*const_node).consttype.into())
-                                .unwrap()
-                        });
-                        (
-                            nullish_datum.unwrap_or(pg_sys::Datum::null()),
-                            nullish_datum.is_none(),
-                        )
-                    } else if agg_type.can_use_doc_count()
-                        && !state.custom_state().aggregate_clause.has_filter()
-                        && state.custom_state().aggregate_clause.has_groupby()
-                    {
-                        let d = row
-                            .doc_count()
-                            .try_into_datum(pgrx::PgOid::from((*const_node).consttype));
-                        match d {
-                            Ok(Some(datum)) => (datum, false),
-                            _ => (pg_sys::Datum::null(), true),
-                        }
-                    } else {
-                        // Use the native aggregate result type (from the Const node)
-                        let d = exec::aggregate_result_to_datum(
-                            agg_result,
-                            agg_type,
-                            (*const_node).consttype, // Use Const's type, not output type
-                        );
-                        match d {
-                            Some(datum) => (datum, false),
-                            None => (pg_sys::Datum::null(), true),
-                        }
+                    // Use the native aggregate result type (from the Const node),
+                    // not the output tuple descriptor's type — those would have
+                    // been converted to e.g. TEXT for jsonb_pretty output, but
+                    // the wrapped projection wants the raw JSONB / numeric.
+                    //
+                    // Only advance the aggregate iterator for entries that
+                    // actually occupy a slot in `row.aggregates` (see
+                    // `uses_doc_count_path`).
+                    let next_aggregate =
+                        if row.is_empty() || uses_doc_count_path(agg_type, aggregate_clause) {
+                            None
+                        } else {
+                            agg_iter.next().and_then(|v| v.clone())
+                        };
+                    match aggregate_value_to_datum(
+                        agg_type,
+                        row,
+                        (*const_node).consttype,
+                        aggregate_clause,
+                        next_aggregate,
+                    ) {
+                        Some(datum) => (datum, false),
+                        None => (pg_sys::Datum::null(), true),
                     }
                 }
                 TargetListEntry::GroupingColumn(_) => {
@@ -1086,6 +1076,56 @@ impl AggregateScan {
     }
 }
 
+/// True when an aggregate entry is served by the bucket's `doc_count` rather
+/// than by an entry in `row.aggregates`. Matches the filter in
+/// `CollectFlat<AggregateType, MetricsWithGroupBy>` in `build.rs`, which omits
+/// these aggregates from the Tantivy request — so they must NOT be advanced
+/// past when walking the result iterator.
+fn uses_doc_count_path(agg_type: &AggregateType, aggregate_clause: &AggregateCSClause) -> bool {
+    agg_type.can_use_doc_count() && !aggregate_clause.has_filter() && aggregate_clause.has_groupby()
+}
+
+/// Convert one aggregate target-list entry to a Postgres datum.
+///
+/// Handles three branches in order:
+/// 1. **Empty result row** → use the agg type's `nullish` fallback (always F64).
+/// 2. **`can_use_doc_count` fast path** → forward `row.doc_count()` directly,
+///    bypassing the aggregate iterator. Requires no FILTER and a GROUP BY.
+/// 3. **Otherwise** → call into [`exec::aggregate_result_to_datum`] with the
+///    `next_aggregate` value the caller supplies from its iterator.
+///
+/// The caller is responsible for advancing its aggregate iterator exactly when
+/// branch 3 fires — see [`uses_doc_count_path`]. Doc-count aggregates have no
+/// slot in `row.aggregates`, so advancing past them would shift subsequent
+/// aggregate results by one.
+///
+/// Used by both `fill_slot_from_row` (which targets the tupdesc type) and
+/// `project_wrapped_aggregates` (which targets the Const node's native type).
+/// Returns `None` when the result should be NULL.
+unsafe fn aggregate_value_to_datum(
+    agg_type: &AggregateType,
+    row: &AggregationResultsRow,
+    target_typoid: pg_sys::Oid,
+    aggregate_clause: &AggregateCSClause,
+    next_aggregate: Option<AggregateResult>,
+) -> Option<pg_sys::Datum> {
+    if row.is_empty() {
+        return agg_type.nullish().value.and_then(|value| {
+            TantivyValue(OwnedValue::F64(value))
+                .try_into_datum(target_typoid.into())
+                .unwrap()
+        });
+    }
+    if uses_doc_count_path(agg_type, aggregate_clause) {
+        return row
+            .doc_count()
+            .try_into_datum(pgrx::PgOid::from(target_typoid))
+            .ok()
+            .flatten();
+    }
+    exec::aggregate_result_to_datum(next_aggregate, agg_type, target_typoid)
+}
+
 /// Fill the scan slot's `tts_values` / `tts_isnull` arrays from a single
 /// `AggregationResultsRow`. Walks the aggregate clause's target list once and
 /// dispatches to one of four shapes:
@@ -1093,9 +1133,7 @@ impl AggregateScan {
 /// 1. `GroupingColumn` with a non-empty row → decode the group key (handles
 ///    NULL sentinels and ISO-8601 datetime parsing) via [`group_key_to_datum`].
 /// 2. `GroupingColumn` with an empty row → NULL.
-/// 3. `Aggregate` with a non-empty row → either reuse the doc-count fast
-///    path or convert the next aggregate result to a Postgres datum.
-/// 4. `Aggregate` with an empty row → use the agg type's `nullish` value.
+/// 3. `Aggregate` (any row) → delegate to [`aggregate_value_to_datum`].
 ///
 /// Finalizes by setting `tts_flags` and `tts_nvalid` so the slot is in the
 /// "virtual tuple stored" state.
@@ -1117,33 +1155,32 @@ unsafe fn fill_slot_from_row(
         let attr = tupdesc.get(i).expect("missing attribute");
         let expected_typoid = attr.type_oid().value();
 
-        let datum = match (entry, row.is_empty()) {
-            (TargetListEntry::GroupingColumn(gc_idx), false) => {
-                group_key_to_datum(row.group_keys[*gc_idx].clone(), expected_typoid)
-            }
-            (TargetListEntry::GroupingColumn(_), true) => None,
-            (TargetListEntry::Aggregate(agg_type), false) => {
-                if agg_type.can_use_doc_count()
-                    && !aggregate_clause.has_filter()
-                    && aggregate_clause.has_groupby()
-                {
-                    row.doc_count()
-                        .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                        .expect("should be able to convert to datum")
+        let datum = match entry {
+            TargetListEntry::GroupingColumn(gc_idx) => {
+                if row.is_empty() {
+                    None
                 } else {
-                    exec::aggregate_result_to_datum(
-                        aggregates.next().and_then(|v| v),
-                        agg_type,
-                        expected_typoid,
-                    )
+                    group_key_to_datum(row.group_keys[*gc_idx].clone(), expected_typoid)
                 }
             }
-            (TargetListEntry::Aggregate(agg_type), true) => {
-                agg_type.nullish().value.and_then(|value| {
-                    TantivyValue(OwnedValue::F64(value))
-                        .try_into_datum(expected_typoid.into())
-                        .unwrap()
-                })
+            TargetListEntry::Aggregate(agg_type) => {
+                // Doc-count aggregates don't occupy a slot in `row.aggregates`
+                // (see `uses_doc_count_path` and the matching filter in
+                // `CollectFlat<..., MetricsWithGroupBy>` in build.rs), so the
+                // iterator must only be advanced for aggregates that do.
+                let next_aggregate =
+                    if row.is_empty() || uses_doc_count_path(agg_type, aggregate_clause) {
+                        None
+                    } else {
+                        aggregates.next().and_then(|v| v)
+                    };
+                aggregate_value_to_datum(
+                    agg_type,
+                    row,
+                    expected_typoid,
+                    aggregate_clause,
+                    next_aggregate,
+                )
             }
         };
 

@@ -512,10 +512,22 @@ pub fn build_equi_join_exprs(join: &JoinNode) -> Result<Vec<Expr>> {
     Ok(on)
 }
 
-fn make_source_col(source: &JoinSource, field_name: &str) -> Expr {
+/// Build a DataFusion column expression for a `(source, field_name)` pair.
+///
+/// The execution alias is built from the source's optional alias and its
+/// `plan_position` (the DFS index assigned by `JoinCSClause::new`). Both
+/// JoinScan and AggregateScan use this exact pattern; sharing it keeps the
+/// alias-construction policy in one place.
+pub fn make_source_col(source: &JoinSource, field_name: &str) -> Expr {
     let alias =
         RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
     make_col(&alias, field_name)
+}
+
+/// Build a DataFusion column expression for the synthetic score column on the
+/// given source. Equivalent to `make_source_col(source, SCORE_COL_NAME)`.
+pub fn make_source_score_col(source: &JoinSource) -> Expr {
+    make_source_col(source, SCORE_COL_NAME)
 }
 
 pub struct CombinedMapper<'a> {

@@ -79,6 +79,7 @@
                               "documentation/tokenizers/available-tokenizers/literal-normalized",
                               "documentation/tokenizers/available-tokenizers/whitespace",
                               "documentation/tokenizers/available-tokenizers/ngrams",
+                              "documentation/tokenizers/available-tokenizers/edge-ngrams",
                               "documentation/tokenizers/available-tokenizers/simple",
                               "documentation/tokenizers/available-tokenizers/regex",
                               "documentation/tokenizers/available-tokenizers/chinese-compatible",

@@ -1,0 +1,70 @@
+---
+title: Edge Ngram
+description: Generates prefix n-grams per word, ideal for search-as-you-type
+canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenizers/edge-ngrams
+---
+
+The edge ngram tokenizer first splits text into words at character-class boundaries, then generates n-grams anchored
+to the **beginning** of each word. This makes it ideal for "search-as-you-type" functionality, where users find matches
+as they type partial words.
+
+The tokenizer takes two required arguments: the minimum and maximum gram length. For each word, it emits prefix tokens
+from `min_gram` to `max_gram` characters long (clamped to the word length). Words shorter than `min_gram` are skipped.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.edge_ngram(2,5)))
+WITH (key_field='id');
+```
+
+To get a feel for this tokenizer, run the following command and replace the text with your own:
+
+```sql
+SELECT 'Quick Fox'::pdb.edge_ngram(2,5)::text[];
+```
+
+```ini Expected Response
+            text
+-----------------------------
+ {qu,qui,quic,quick,fo,fox}
+(1 row)
+```
+
+## Token Chars
+
+By default, the edge ngram tokenizer treats letters and digits as token content and everything else (spaces,
+punctuation, symbols) as word delimiters. You can customize this with `token_chars`, which accepts a comma-separated
+list of character classes: `letter`, `digit`, `whitespace`, `punctuation`, `symbol`.
+
+For example, including `punctuation` keeps hyphens as part of words:
+
+```sql
+SELECT 'Quick-Fox'::pdb.edge_ngram(2,5,'token_chars=letter,digit,punctuation')::text[];
+```
+
+```ini Expected Response
+          text
+-------------------------
+ {qu,qui,quic,quick}
+(1 row)
+```
+
+## Search-as-you-Type
+
+A common pattern is to use edge ngrams at index time for autocomplete, combined with a different tokenizer at
+[search time](/documentation/tokenizers/search-tokenizer) so that the query string is not itself split into edge
+ngrams:
+
+```sql
+CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT);
+INSERT INTO products (name) VALUES ('PostgreSQL'), ('ParadeDB'), ('Paragraph');
+
+CREATE INDEX ON products
+USING bm25 (id, (name::pdb.edge_ngram(2,10,'alias=edge')))
+WITH (key_field='id');
+
+-- Matches "ParadeDB" and "Paragraph" using the edge ngram index
+SELECT * FROM products WHERE (name::pdb.unicode_words('alias=edge')) @@@ 'Par';
+
+DROP TABLE products;
+```

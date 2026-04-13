@@ -372,6 +372,90 @@ pub fn deserialize_logical_plan(
     )
 }
 
+/// Physical plan extension codec for MPP (plan partitioning) serialization.
+///
+/// Handles serialization/deserialization of custom physical plan nodes
+/// (`DsmExchangeExec`, `DsmSanitizeExec`) across process boundaries.
+/// Workers use this codec to reconstruct the execution plan after receiving
+/// it from the leader.
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+pub struct PgSearchPhysicalCodec;
+
+#[allow(dead_code)]
+impl PgSearchPhysicalCodec {
+    // Tag bytes for identifying custom physical plan nodes.
+    const TAG_DSM_EXCHANGE: u8 = 1;
+    const TAG_DSM_SANITIZE: u8 = 2;
+}
+
+impl datafusion_proto::physical_plan::PhysicalExtensionCodec for PgSearchPhysicalCodec {
+    fn try_decode(
+        &self,
+        buf: &[u8],
+        inputs: &[Arc<dyn datafusion::physical_plan::ExecutionPlan>],
+        _ctx: &TaskContext,
+    ) -> Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+        if buf.is_empty() {
+            return Err(DataFusionError::Internal(
+                "Empty buffer for physical extension decode".into(),
+            ));
+        }
+
+        let tag = buf[0];
+        match tag {
+            Self::TAG_DSM_EXCHANGE => {
+                // TODO(#4152): Deserialize DsmExchangeConfig and partitioning from buf[1..],
+                // reconstruct DsmExchangeExec, and register stream sources.
+                Err(DataFusionError::NotImplemented(
+                    "DsmExchangeExec physical deserialization not yet implemented".into(),
+                ))
+            }
+            Self::TAG_DSM_SANITIZE => {
+                if inputs.len() != 1 {
+                    return Err(DataFusionError::Internal(
+                        "DsmSanitizeExec requires exactly one input".into(),
+                    ));
+                }
+                Ok(Arc::new(
+                    crate::postgres::customscan::joinscan::sanitize::DsmSanitizeExec::new(
+                        inputs[0].clone(),
+                    ),
+                ))
+            }
+            _ => Err(DataFusionError::Internal(format!(
+                "Unknown physical extension tag: {tag}"
+            ))),
+        }
+    }
+
+    fn try_encode(
+        &self,
+        node: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+        buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        if node
+            .as_any()
+            .is::<crate::postgres::customscan::joinscan::exchange::DsmExchangeExec>()
+        {
+            buf.push(Self::TAG_DSM_EXCHANGE);
+            // TODO(#4152): Serialize DsmExchangeConfig and partitioning expressions.
+            Ok(())
+        } else if node
+            .as_any()
+            .is::<crate::postgres::customscan::joinscan::sanitize::DsmSanitizeExec>()
+        {
+            buf.push(Self::TAG_DSM_SANITIZE);
+            Ok(())
+        } else {
+            Err(DataFusionError::Internal(format!(
+                "Unknown physical plan node for PgSearchPhysicalCodec: {}",
+                node.name()
+            )))
+        }
+    }
+}
+
 /// Deserializes a DataFusion `LogicalPlan` using a codec populated with the
 /// runtime state required by execution.
 pub fn deserialize_logical_plan_with_runtime(

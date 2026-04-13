@@ -7,11 +7,53 @@ canonical: https://docs.paradedb.com/documentation/indexing/create-index
 Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the BM25 index.
 The following code block creates a BM25 index over several columns in the `mock_items` table.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category)
 WITH (key_field='id');
 ```
+
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={
+                "id": {},
+                "description": {},
+                "category": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(MockItem.description),
+    indexing.BM25Field(MockItem.category),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: nil,
+    category: nil
+  }
+end
+```
+
+</CodeGroup>
 
 By default, text columns are tokenized using the [unicode](/documentation/tokenizers/available-tokenizers/unicode) tokenizer, which splits text according to the
 Unicode segmentation standard. Because index creation is a time-consuming operation, we recommend experimenting with the [available tokenizers](/documentation/tokenizers/overview)
@@ -19,20 +61,122 @@ to find the most suitable one before running `CREATE INDEX`.
 
 For instance, if a column contains multiple languages, the ICU tokenizer may be more appropriate.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.icu), category)
 WITH (key_field='id');
 ```
 
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={
+                "id": {},
+                "description": {"tokenizer": "icu"},
+                "category": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(
+        MockItem.description,
+        tokenizer=indexing.tokenize.icu(),
+    ),
+    indexing.BM25Field(MockItem.category),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: { tokenizer: :icu },
+    category: nil
+  }
+end
+```
+
+</CodeGroup>
+
 Only one BM25 index can exist per table. We recommend indexing all columns in a table that may be present in a search query,
 including columns used for sorting, grouping, filtering, and aggregations.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
 ```
+
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={
+                "id": {},
+                "description": {},
+                "category": {},
+                "rating": {},
+                "in_stock": {},
+                "created_at": {},
+                "metadata": {},
+                "weight_range": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(MockItem.description),
+    indexing.BM25Field(MockItem.category),
+    indexing.BM25Field(MockItem.rating),
+    indexing.BM25Field(MockItem.in_stock),
+    indexing.BM25Field(MockItem.created_at),
+    indexing.BM25Field(MockItem.metadata_),
+    indexing.BM25Field(MockItem.weight_range),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: nil,
+    category: nil,
+    rating: nil,
+    in_stock: nil,
+    created_at: nil,
+    metadata: nil,
+    weight_range: nil
+  }
+end
+```
+
+</CodeGroup>
 
 Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, and arrays, can be indexed.
 
@@ -64,8 +208,64 @@ The `key_field` must:
 After tokens are created, [token filters](/documentation/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
 For example, the following code block adds English stemming to `description`:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
 WITH (key_field='id');
 ```
+
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={
+                "id": {},
+                "description": {
+                    "tokenizer": "simple",
+                    "filters": ["stemmer"],
+                    "stemmer": "english",
+                },
+                "category": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(
+        MockItem.description,
+        tokenizer=indexing.tokenize.simple(
+            filters=["stemmer"],
+            stemmer="english",
+        ),
+    ),
+    indexing.BM25Field(MockItem.category),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: {
+      tokenizer: :simple,
+      filters: [:stemmer],
+      stemmer: "english"
+    },
+    category: nil
+  }
+end
+```
+
+</CodeGroup>

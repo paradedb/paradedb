@@ -12,10 +12,51 @@ INSERT INTO array_demo (categories) VALUES
     ('{"food","groceries and produce"}'),
     ('{"electronics","computers"}'),
     ('{"books","fiction","mystery"}');
+```
 
+<CodeGroup>
+```sql SQL
 CREATE INDEX ON array_demo USING bm25 (id, categories)
 WITH (key_field = 'id');
 ```
+
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={
+                "id": {},
+                "categories": {},
+            },
+            key_field="id",
+            name="array_demo_bm25_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "array_demo_bm25_idx",
+    indexing.BM25Field(ArrayDemo.id),
+    indexing.BM25Field(ArrayDemo.categories),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class ArrayDemoIndex < ParadeDB::Index
+  self.table_name = :array_demo
+  self.key_field = :id
+  self.index_name = :array_demo_bm25_idx
+  self.fields = {
+    id: nil,
+    categories: nil
+  }
+end
+```
+
+</CodeGroup>
 
 Under the hood, each element in the array is indexed as a separate entry. This means that an array is considered a
 match if **any** of its entries is a match.
@@ -33,7 +74,49 @@ SELECT * FROM array_demo WHERE categories === 'food';
 
 Text arrays can be [tokenized](/documentation/tokenizers/overview) and [filtered](/documentation/token-filters/overview) in the same way as text fields:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX ON array_demo USING bm25 (id, (categories::pdb.literal))
 WITH (key_field = 'id');
 ```
+
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={
+                "id": {},
+                "categories": {"tokenizer": "literal"},
+            },
+            key_field="id",
+            name="array_demo_bm25_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "array_demo_bm25_idx",
+    indexing.BM25Field(ArrayDemo.id),
+    indexing.BM25Field(
+        ArrayDemo.categories,
+        tokenizer=indexing.tokenize.literal(),
+    ),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class ArrayDemoIndex < ParadeDB::Index
+  self.table_name = :array_demo
+  self.key_field = :id
+  self.index_name = :array_demo_bm25_idx
+  self.fields = {
+    id: nil,
+    categories: { tokenizer: :literal }
+  }
+end
+```
+
+</CodeGroup>

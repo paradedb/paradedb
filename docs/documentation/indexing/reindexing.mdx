@@ -16,11 +16,63 @@ If an index's schema is changed, it must be rebuilt. This includes:
 Let's assume the existing index is called `search_idx`, and we want to create a new index called `search_idx_v2`.
 First, use `CREATE INDEX CONCURRENTLY` to build a new index in the background.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX CONCURRENTLY search_idx_v2
 ON mock_items USING bm25 (id, description, category)
 WITH (key_field = 'id');
 ```
+
+```python Django
+operations = [
+    AddIndexConcurrently(
+        model_name="mockitem",
+        index=BM25Index(
+            fields={
+                "id": {},
+                "description": {},
+                "category": {},
+            },
+            key_field="id",
+            name="search_idx_v2",
+        ),
+    ),
+]
+```
+
+```python SQLAlchemy
+idx = Index(
+    "search_idx_v2",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(MockItem.description),
+    indexing.BM25Field(MockItem.category),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+    postgresql_concurrently=True,
+)
+
+idx.create(engine.execution_options(isolation_level="AUTOCOMMIT"))
+```
+
+```ruby Rails
+class AddMockItemIndexV2 < ActiveRecord::Migration[7.2]
+  disable_ddl_transaction!
+
+  def up
+    execute <<~SQL
+      CREATE INDEX CONCURRENTLY search_idx_v2
+      ON mock_items USING bm25 (id, description, category)
+      WITH (key_field = 'id');
+    SQL
+  end
+
+  def down
+    remove_bm25_index :mock_items, name: :search_idx_v2, if_exists: true
+  end
+end
+```
+
+</CodeGroup>
 
 <Note>
   The `CONCURRENTLY` clause is required. `CONCURRENTLY` allows the existing

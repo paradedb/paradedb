@@ -10,11 +10,66 @@ In addition to indexing columns, Postgres expressions can also be indexed.
 
 The following statement indexes an expression which concatenates `description` and `category`, which are both text fields:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, ((description || ' ' || category)::pdb.simple('alias=description_concat')))
 WITH (key_field='id');
 ```
+
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={"id": {}},
+            expressions=[
+                IndexExpression(
+                      Func(
+                          F("description"),
+                          Value(" "),
+                          F("category"),
+                          template="(%(expressions)s)",
+                          arg_joiner=" || ",
+                          output_field=models.TextField(),
+                      ),
+                      alias="description_concat",
+                      tokenizer="simple",
+                  )            ],
+            key_field="id",
+            name="search_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(
+        MockItem.description + " " + MockItem.category,
+        tokenizer=indexing.tokenize.simple(alias="description_concat"),
+    ),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    "(description || ' ' || category)": {
+      tokenizer: :simple,
+      alias: "description_concat"
+    }
+  }
+end
+```
+
+</CodeGroup>
 
 To index a text/JSON expression:
 
@@ -42,11 +97,57 @@ WHERE (description || ' ' || category) &&& 'running shoes';
 To index a non-text expression, cast the expression to `pdb.alias`. For example, the following statement indexes
 the expression `rating + 1`, which returns an integer:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, ((rating + 1)::pdb.alias('rating')))
 WITH (key_field='id');
 ```
+
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={"id": {}, "description": {}},
+            expressions=[
+                IndexExpression(
+                    F("rating") + 1,
+                    alias="rating",
+                ),
+            ],
+            key_field="id",
+            name="search_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(MockItem.description),
+    indexing.BM25Field(
+        pdb.alias(MockItem.rating + 1, "rating"),
+    ),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    description: nil,
+    "(rating + 1)": { alias: "rating" }
+  }
+end
+```
+
+</CodeGroup>
 
 With the expression indexed, queries containing the expression can be pushed down to the ParadeDB index:
 

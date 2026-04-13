@@ -10,12 +10,60 @@ This can reduce index size and improve performance when you only query a subset 
 
 The BM25 index supports partial indexes using the same syntax as PostgreSQL.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category)
 WITH (key_field='id')
 WHERE description IS NOT NULL;
 ```
+
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={
+                "id": {},
+                "description": {},
+                "category": {},
+            },
+            key_field="id",
+            name="search_idx",
+            condition=Q(description__isnull=False),
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(MockItem.description),
+    indexing.BM25Field(MockItem.category),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+    postgresql_where=MockItem.description.is_not(None),
+)
+```
+
+```ruby Rails
+class AddPartialMockItemIndex < ActiveRecord::Migration[7.2]
+  def up
+    execute <<~SQL
+      CREATE INDEX search_idx ON mock_items
+      USING bm25 (id, description, category)
+      WITH (key_field='id')
+      WHERE description IS NOT NULL;
+    SQL
+  end
+
+  def down
+    remove_bm25_index :mock_items, name: :search_idx, if_exists: true
+  end
+end
+```
+
+</CodeGroup>
 
 An important note: if the BM25 index has a `WHERE` condition, queries **must have the same `WHERE` condition** in order for the index to be used.
 A query that does not contain the `WHERE` condition will fall back to a sequential scan, which does not support all of

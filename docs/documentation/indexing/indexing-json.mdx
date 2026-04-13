@@ -7,11 +7,50 @@ canonical: https://docs.paradedb.com/documentation/indexing/indexing-json
 When indexing JSON, ParadeDB automatically indexes all sub-fields of the JSON object. The type of each sub-field is also inferred automatically.
 For example, consider the following statement where `metadata` is `JSONB`:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, metadata)
 WITH (key_field='id');
 ```
+
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={
+                "id": {},
+                "metadata": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(MockItem.metadata_),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    metadata: nil
+  }
+end
+```
+
+</CodeGroup>
 
 A single `metadata` JSON may look like:
 
@@ -23,17 +62,111 @@ ParadeDB will automatically index both `metadata.color` and `metadata.location` 
 
 By default, all text sub-fields of a JSON object use the same tokenizer. The tokenizer can be configured the same way as text fields:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (metadata::pdb.ngram(2,3)))
 WITH (key_field='id');
 ```
 
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={
+                "id": {},
+                "metadata": {
+                    "tokenizer": "ngram",
+                    "args": [2, 3],
+                },
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(
+        MockItem.metadata_,
+        tokenizer=indexing.tokenize.ngram(min_gram=2, max_gram=3),
+    ),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    metadata: { tokenizer: :ngram, named_args: { min: 2, max: 3 } }
+  }
+end
+```
+
+</CodeGroup>
+
 Instead of indexing the entire JSON, sub-fields of the JSON can be indexed individually. This allows for configuring separate tokenizers
 within a larger JSON:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, ((metadata->>'color')::pdb.ngram(2,3)))
 WITH (key_field='id');
 ```
+
+```python Django
+class Meta:
+    indexes = [
+        BM25Index(
+            fields={
+                "id": {},
+                "metadata": {
+                    "json_keys": {
+                        "color": {
+                            "tokenizer": "ngram",
+                            "args": [2, 3],
+                        },
+                    },
+                },
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    ]
+```
+
+```python SQLAlchemy
+Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(
+        expr.json_text(MockItem.metadata_, "color"),
+        tokenizer=indexing.tokenize.ngram(min_gram=2, max_gram=3),
+    ),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: nil,
+    "metadata->>'color'" => { tokenizer: :ngram, named_args: { min: 2, max: 3 } }
+  }
+end
+```
+
+</CodeGroup>

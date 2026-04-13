@@ -46,7 +46,8 @@ INSERT INTO funding_rounds (id, company_id, amount, round_type) VALUES
 CREATE INDEX companies_bm25_idx ON companies USING bm25 (id, name, description)
 WITH (key_field = 'id');
 
-CREATE INDEX funding_rounds_bm25_idx ON funding_rounds USING bm25 (id, company_id, amount, round_type)
+CREATE INDEX funding_rounds_bm25_idx ON funding_rounds
+USING bm25 (id, company_id, amount, (round_type::pdb.literal))
 WITH (
     key_field = 'id',
     numeric_fields = '{"company_id": {"fast": true}, "amount": {"fast": true}}'
@@ -152,11 +153,33 @@ AND c.description @@@ 'technology'
 ORDER BY c.id - 0 DESC
 LIMIT 10;
 
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.id - 0 DESC
+LIMIT 10;
+
 -- =============================================================================
 -- TEST 5: ORDER BY c.id * 1 DESC (multiplication by one)
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.id * 1 DESC
+LIMIT 10;
+
 SELECT c.id, c.name
 FROM companies c
 WHERE c.id IN (
@@ -184,11 +207,33 @@ AND c.description @@@ 'technology'
 ORDER BY c.id / 1 DESC
 LIMIT 10;
 
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.id / 1 DESC
+LIMIT 10;
+
 -- =============================================================================
 -- TEST 7: Nested wrappers — (c.id + 0)::int4 should still unwrap
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY (c.id + 0)::int4 DESC
+LIMIT 10;
+
 SELECT c.id, c.name
 FROM companies c
 WHERE c.id IN (
@@ -277,7 +322,24 @@ ORDER BY c.id + 0 DESC
 LIMIT 10;
 
 -- =============================================================================
--- TEST 12: Production-shape query — multiple IN subqueries with NOT EXISTS
+-- TEST 12: Cross-type expression should NOT unwrap (different operator OID)
+-- c.id is int4, 0::bigint makes this int48pl (OID not in whitelist)
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type === 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.id + 0::bigint DESC
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 13: Production-shape query — multiple IN subqueries with NOT EXISTS
 -- =============================================================================
 
 DROP TABLE IF EXISTS orders CASCADE;
@@ -296,7 +358,7 @@ INSERT INTO orders (id, company_id, status, total) VALUES
 (204, 3, 'completed', 8000),
 (205, 4, 'completed', 2000);
 
-CREATE INDEX orders_bm25_idx ON orders USING bm25 (id, company_id, status, total)
+CREATE INDEX orders_bm25_idx ON orders USING bm25 (id, company_id, (status::pdb.literal), total)
 WITH (
     key_field = 'id',
     numeric_fields = '{"company_id": {"fast": true}, "total": {"fast": true}}'

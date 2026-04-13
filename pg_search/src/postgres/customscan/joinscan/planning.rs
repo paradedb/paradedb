@@ -1308,7 +1308,9 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-            let mut check_expr = strip_wrappers(expr.cast());
+            // Chain strip_wrappers (for PlaceHolderVar/RelabelType) then
+            // unwrap_order_preserving (for identity OpExpr like `id + 0`).
+            let mut check_expr = unwrap_order_preserving(strip_wrappers(expr.cast()));
 
             // Unwrap NullTest to inspect the inner expression
             if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {

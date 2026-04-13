@@ -62,10 +62,12 @@ pub(crate) unsafe fn unwrap_order_preserving(mut expr: *mut pg_sys::Node) -> *mu
             pg_sys::NodeTag::T_CoerceToDomain => {
                 expr = (*(expr as *mut pg_sys::CoerceToDomain)).arg as *mut pg_sys::Node;
             }
-            pg_sys::NodeTag::T_OpExpr => match try_unwrap_identity_opexpr(expr as *mut pg_sys::OpExpr) {
-                Some(inner) => expr = inner,
-                None => return expr,
-            },
+            pg_sys::NodeTag::T_OpExpr => {
+                match try_unwrap_identity_opexpr(expr as *mut pg_sys::OpExpr) {
+                    Some(inner) => expr = inner,
+                    None => return expr,
+                }
+            }
             _ => return expr,
         }
     }
@@ -114,18 +116,10 @@ unsafe fn is_identity_operation(
 
     match opno {
         // Addition: identity element is 0, commutative (either side)
-        op_oids::INT4PL => {
-            i32::from_datum((*konst).constvalue, false) == Some(0)
-        }
-        op_oids::INT8PL => {
-            i64::from_datum((*konst).constvalue, false) == Some(0)
-        }
-        op_oids::FLOAT4PL => {
-            f32::from_datum((*konst).constvalue, false) == Some(0.0)
-        }
-        op_oids::FLOAT8PL => {
-            f64::from_datum((*konst).constvalue, false) == Some(0.0)
-        }
+        op_oids::INT4PL => i32::from_datum((*konst).constvalue, false) == Some(0),
+        op_oids::INT8PL => i64::from_datum((*konst).constvalue, false) == Some(0),
+        op_oids::FLOAT4PL => f32::from_datum((*konst).constvalue, false) == Some(0.0),
+        op_oids::FLOAT8PL => f64::from_datum((*konst).constvalue, false) == Some(0.0),
         op_oids::NUMERIC_ADD => {
             // For numeric, extract as string and check for zero
             numeric_const_is_zero(konst)
@@ -133,20 +127,12 @@ unsafe fn is_identity_operation(
 
         // Subtraction: identity element is 0, but only when const is on the right
         // (0 - id inverts ordering)
-        op_oids::INT4MI => {
-            const_on_right && i32::from_datum((*konst).constvalue, false) == Some(0)
-        }
-        op_oids::INT8MI => {
-            const_on_right && i64::from_datum((*konst).constvalue, false) == Some(0)
-        }
+        op_oids::INT4MI => const_on_right && i32::from_datum((*konst).constvalue, false) == Some(0),
+        op_oids::INT8MI => const_on_right && i64::from_datum((*konst).constvalue, false) == Some(0),
 
         // Multiplication: identity element is 1, commutative (either side)
-        op_oids::INT4MUL => {
-            i32::from_datum((*konst).constvalue, false) == Some(1)
-        }
-        op_oids::INT8MUL => {
-            i64::from_datum((*konst).constvalue, false) == Some(1)
-        }
+        op_oids::INT4MUL => i32::from_datum((*konst).constvalue, false) == Some(1),
+        op_oids::INT8MUL => i64::from_datum((*konst).constvalue, false) == Some(1),
 
         // Division: identity element is 1, only when const is on the right
         op_oids::INT4DIV => {

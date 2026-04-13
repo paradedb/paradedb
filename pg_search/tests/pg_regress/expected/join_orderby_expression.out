@@ -36,7 +36,8 @@ INSERT INTO funding_rounds (id, company_id, amount, round_type) VALUES
 (106, 5, 3000000, 'series_a');
 CREATE INDEX companies_bm25_idx ON companies USING bm25 (id, name, description)
 WITH (key_field = 'id');
-CREATE INDEX funding_rounds_bm25_idx ON funding_rounds USING bm25 (id, company_id, amount, round_type)
+CREATE INDEX funding_rounds_bm25_idx ON funding_rounds
+USING bm25 (id, company_id, amount, (round_type::pdb.literal))
 WITH (
     key_field = 'id',
     numeric_fields = '{"company_id": {"fast": true}, "amount": {"fast": true}}'
@@ -108,33 +109,29 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, fr)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.id, c.name, ((c.id + 0))
-   ->  Sort
-         Output: c.id, c.name, ((c.id + 0))
-         Sort Key: ((c.id + 0)) DESC
-         ->  Nested Loop Semi Join
-               Output: c.id, c.name, (c.id + 0)
-               Join Filter: (c.id = fr.company_id)
-               ->  Custom Scan (ParadeDB Base Scan) on public.companies c
-                     Output: c.id, c.name
-                     Table: companies
-                     Index: companies_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on public.funding_rounds fr
-                     Output: fr.company_id
-                     Table: funding_rounds
-                     Index: funding_rounds_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+   ->  Result
+         Output: c.id, c.name, (c.id + 0)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.id, c.name
+               Relation Tree: c SEMI fr
+               Join Cond: c.id = fr.company_id
+               Limit: 10
+               Order By: c.id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+                 :       VisibilityFilterExec: tables=[c]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT c.id, c.name
 FROM companies c
@@ -146,8 +143,7 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, fr)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -184,8 +180,7 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, fr)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name     
 ----+-------------
   1 | TechStartup
@@ -205,33 +200,45 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id - 0 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, fr)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.id, c.name, ((c.id - 0))
-   ->  Sort
-         Output: c.id, c.name, ((c.id - 0))
-         Sort Key: ((c.id - 0)) DESC
-         ->  Nested Loop Semi Join
-               Output: c.id, c.name, (c.id - 0)
-               Join Filter: (c.id = fr.company_id)
-               ->  Custom Scan (ParadeDB Base Scan) on public.companies c
-                     Output: c.id, c.name
-                     Table: companies
-                     Index: companies_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on public.funding_rounds fr
-                     Output: fr.company_id
-                     Table: funding_rounds
-                     Index: funding_rounds_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+   ->  Result
+         Output: c.id, c.name, (c.id - 0)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.id, c.name
+               Relation Tree: c SEMI fr
+               Join Cond: c.id = fr.company_id
+               Limit: 10
+               Order By: c.id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+                 :       VisibilityFilterExec: tables=[c]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.id - 0 DESC
+LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ id |    name     
+----+-------------
+  1 | TechStartup
+(1 row)
 
 -- =============================================================================
 -- TEST 5: ORDER BY c.id * 1 DESC (multiplication by one)
@@ -247,33 +254,45 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id * 1 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, fr)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.id, c.name, ((c.id * 1))
-   ->  Sort
-         Output: c.id, c.name, ((c.id * 1))
-         Sort Key: ((c.id * 1)) DESC
-         ->  Nested Loop Semi Join
-               Output: c.id, c.name, (c.id * 1)
-               Join Filter: (c.id = fr.company_id)
-               ->  Custom Scan (ParadeDB Base Scan) on public.companies c
-                     Output: c.id, c.name
-                     Table: companies
-                     Index: companies_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on public.funding_rounds fr
-                     Output: fr.company_id
-                     Table: funding_rounds
-                     Index: funding_rounds_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+   ->  Result
+         Output: c.id, c.name, (c.id * 1)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.id, c.name
+               Relation Tree: c SEMI fr
+               Join Cond: c.id = fr.company_id
+               Limit: 10
+               Order By: c.id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+                 :       VisibilityFilterExec: tables=[c]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.id * 1 DESC
+LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ id |    name     
+----+-------------
+  1 | TechStartup
+(1 row)
 
 -- =============================================================================
 -- TEST 6: ORDER BY c.id / 1 DESC (division by one)
@@ -289,33 +308,45 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id / 1 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, fr)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.id, c.name, ((c.id / 1))
-   ->  Sort
-         Output: c.id, c.name, ((c.id / 1))
-         Sort Key: ((c.id / 1)) DESC
-         ->  Nested Loop Semi Join
-               Output: c.id, c.name, (c.id / 1)
-               Join Filter: (c.id = fr.company_id)
-               ->  Custom Scan (ParadeDB Base Scan) on public.companies c
-                     Output: c.id, c.name
-                     Table: companies
-                     Index: companies_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on public.funding_rounds fr
-                     Output: fr.company_id
-                     Table: funding_rounds
-                     Index: funding_rounds_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+   ->  Result
+         Output: c.id, c.name, (c.id / 1)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.id, c.name
+               Relation Tree: c SEMI fr
+               Join Cond: c.id = fr.company_id
+               Limit: 10
+               Order By: c.id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+                 :       VisibilityFilterExec: tables=[c]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.id / 1 DESC
+LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ id |    name     
+----+-------------
+  1 | TechStartup
+(1 row)
 
 -- =============================================================================
 -- TEST 7: Nested wrappers — (c.id + 0)::int4 should still unwrap
@@ -331,33 +362,45 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY (c.id + 0)::int4 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, fr)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.id, c.name, ((c.id + 0))
-   ->  Sort
-         Output: c.id, c.name, ((c.id + 0))
-         Sort Key: ((c.id + 0)) DESC
-         ->  Nested Loop Semi Join
-               Output: c.id, c.name, (c.id + 0)
-               Join Filter: (c.id = fr.company_id)
-               ->  Custom Scan (ParadeDB Base Scan) on public.companies c
-                     Output: c.id, c.name
-                     Table: companies
-                     Index: companies_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-               ->  Custom Scan (ParadeDB Base Scan) on public.funding_rounds fr
-                     Output: fr.company_id
-                     Table: funding_rounds
-                     Index: funding_rounds_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+   ->  Result
+         Output: c.id, c.name, (c.id + 0)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.id, c.name
+               Relation Tree: c SEMI fr
+               Join Cond: c.id = fr.company_id
+               Limit: 10
+               Order By: c.id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+                 :       VisibilityFilterExec: tables=[c]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY (c.id + 0)::int4 DESC
+LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ id |    name     
+----+-------------
+  1 | TechStartup
+(1 row)
 
 -- =============================================================================
 -- TEST 8: Non-identity expression should NOT activate JoinScan
@@ -500,17 +543,72 @@ WHERE c.id IN (
 AND c.description @@@ 'technology'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.id, c.name, ((c.id + 0))
+   ->  Result
+         Output: c.id, c.name, (c.id + 0)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.id, c.name
+               Relation Tree: c SEMI fr
+               Join Cond: c.id = fr.company_id
+               Limit: 10
+               Order By: c.id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+                 :       VisibilityFilterExec: tables=[c]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed","is_datetime":false}}}}
+(19 rows)
+
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type === 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.id + 0 DESC
+LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+ id |    name     
+----+-------------
+  1 | TechStartup
+(1 row)
+
+-- =============================================================================
+-- TEST 12: Cross-type expression should NOT unwrap (different operator OID)
+-- c.id is int4, 0::bigint makes this int48pl (OID not in whitelist)
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type === 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.id + 0::bigint DESC
+LIMIT 10;
 WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, fr)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: c.id, c.name, ((c.id + 0))
+   Output: c.id, c.name, ((c.id + '0'::bigint))
    ->  Sort
-         Output: c.id, c.name, ((c.id + 0))
-         Sort Key: ((c.id + 0)) DESC
+         Output: c.id, c.name, ((c.id + '0'::bigint))
+         Sort Key: ((c.id + '0'::bigint)) DESC
          ->  Nested Loop Semi Join
-               Output: c.id, c.name, (c.id + 0)
+               Output: c.id, c.name, (c.id + '0'::bigint)
                Join Filter: (c.id = fr.company_id)
                ->  Custom Scan (ParadeDB Base Scan) on public.companies c
                      Output: c.id, c.name
@@ -528,25 +626,8 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Tantivy Query: {"with_index":{"query":{"term":{"field":"round_type","value":"seed","is_datetime":false}}}}
 (22 rows)
 
-SELECT c.id, c.name
-FROM companies c
-WHERE c.id IN (
-    SELECT fr.company_id
-    FROM funding_rounds fr
-    WHERE fr.round_type === 'seed'
-)
-AND c.description @@@ 'technology'
-ORDER BY c.id + 0 DESC
-LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, fr)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr)
- id |    name     
-----+-------------
-  1 | TechStartup
-(1 row)
-
 -- =============================================================================
--- TEST 12: Production-shape query — multiple IN subqueries with NOT EXISTS
+-- TEST 13: Production-shape query — multiple IN subqueries with NOT EXISTS
 -- =============================================================================
 DROP TABLE IF EXISTS orders CASCADE;
 CREATE TABLE orders (
@@ -561,7 +642,7 @@ INSERT INTO orders (id, company_id, status, total) VALUES
 (203, 1, 'cancelled', 1000),
 (204, 3, 'completed', 8000),
 (205, 4, 'completed', 2000);
-CREATE INDEX orders_bm25_idx ON orders USING bm25 (id, company_id, status, total)
+CREATE INDEX orders_bm25_idx ON orders USING bm25 (id, company_id, (status::pdb.literal), total)
 WITH (
     key_field = 'id',
     numeric_fields = '{"company_id": {"fast": true}, "total": {"fast": true}}'
@@ -604,9 +685,7 @@ WHERE c.id IN (
 AND c.description @@@ 'technology OR intelligence'
 ORDER BY c.id + 0 DESC
 LIMIT 10;
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTANTI, RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: c, fr, o)
-WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: fr, o)
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, fr, o)
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
  id |    name    
 ----+------------
   4 | AIVentures

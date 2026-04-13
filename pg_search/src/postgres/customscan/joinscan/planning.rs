@@ -374,6 +374,7 @@ unsafe fn wrap_with_semi_anti(
         let equi_keys =
             extract_equi_keys_from_subplan(subplan, inner_root, &current_node, &inner_node);
 
+        let plan_id = (*subplan).plan_id;
         let join_node = JoinNode {
             join_type: if is_anti {
                 JoinType::Anti
@@ -384,6 +385,7 @@ unsafe fn wrap_with_semi_anti(
             right: inner_node,
             equi_keys: equi_keys.clone(),
             filter: None,
+            subplan_id: Some(plan_id),
         };
 
         all_keys.extend(equi_keys);
@@ -426,12 +428,14 @@ unsafe fn wrap_with_mark_filter(
         // Both `IN (...) OR IS NULL` and `NOT IN (...) OR IS NULL` use LeftMark;
         // the anti vs non-anti distinction is carried through `or_ext.is_anti`
         // and applied at filter-evaluation time as a mark-check inversion.
+        let plan_id = (*or_ext.subplan).plan_id;
         let join_node = JoinNode {
             join_type: JoinType::LeftMark,
             left: current_node,
             right: inner_node,
             equi_keys: equi_keys.clone(),
             filter: None,
+            subplan_id: Some(plan_id),
         };
 
         all_keys.extend(equi_keys);
@@ -573,6 +577,7 @@ unsafe fn collect_join_sources_join_rel(
             right: inner_node,
             equi_keys: join_conditions.equi_keys.clone(),
             filter: None,
+            subplan_id: None,
         };
 
         keys.extend(join_conditions.equi_keys);

@@ -144,6 +144,7 @@ mod planning;
 pub mod predicate;
 pub mod privdat;
 pub mod scan_state;
+pub mod transport;
 pub mod visibility_filter;
 
 pub use self::build::CtidColumn;

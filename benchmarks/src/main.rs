@@ -661,9 +661,13 @@ fn load_external_data(url: &str, dataset: &str, size_label: &str, data_source: O
         });
 
         // Download CSV files from source to local temp dir.
+        // We must use parallel=false because some datasets (stackoverflow for instance) contain a
+        // bunch of code or json that duckdbs parallel parser can't handle if one of its chunk
+        // boundaries ends up in one of the complicated-quote/line-break blocks common to those
+        // datasets
         println!("Downloading CSV for '{table_name}' from {csv_source}...");
         let download_sql = format!(
-            "COPY (SELECT * FROM read_csv('{csv_source}/*.csv', header=true, all_varchar=true)) \
+            "COPY (SELECT * FROM read_csv('{csv_source}/*.csv', header=true, parallel=false)) \
              TO '{table_temp_dir}' (FORMAT CSV, HEADER true, PER_THREAD_OUTPUT true)"
         );
         duckdb_conn

@@ -45,6 +45,12 @@ SELECT 'Running Shoes.  olé'::pdb.ngram(2, 3, 'lowercase=false')::text[];
 SELECT 'Running Shoes.  olé'::pdb.ngram(2, 3, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 SELECT 'Running Shoes.  olé'::pdb.ngram('min=2', 'max=3', 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
 
+SELECT 'Quick Fox'::pdb.edge_ngram(2, 5)::text[];
+SELECT 'Quick Fox'::pdb.edge_ngram(1, 2)::text[];
+SELECT 'Quick Fox'::pdb.edge_ngram(2, 5, 'lowercase=true')::text[];
+SELECT 'Quick-Fox'::pdb.edge_ngram(2, 5, 'token_chars=letter,digit,punctuation')::text[];
+SELECT 'Quick Fox'::pdb.edge_ngram('min=2', 'max=5')::text[];
+
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=arabic')::text[];
 SELECT 'Novinka počasí funguje.'::pdb.simple('stemmer=czech')::text[];
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=danish')::text[];
@@ -108,6 +114,7 @@ CREATE INDEX idxtokenizer_typmod_display ON tokenizer_typmod_display USING bm25
         (description::pdb.lindera(japanese, 'alias=lindera_japanese')),
         (description::pdb.lindera(korean, 'alias=lindera_korean')),
         (description::pdb.ngram(3, 5, 'alias=ngram')),
+        (description::pdb.edge_ngram(2, 5, 'alias=edge_ngram')),
         (description::pdb.regex_pattern('is|a', 'alias=regex')),
         (description::pdb.simple('alias=simple')),
         (description::pdb.whitespace('alias=whitespace')),

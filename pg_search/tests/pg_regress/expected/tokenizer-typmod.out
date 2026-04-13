@@ -215,6 +215,36 @@ SELECT 'Running Shoes.  olé'::pdb.ngram('min=2', 'max=3', 'lowercase=false', 's
  {Ru,Run,un,unn,nn,nni,ni,nin,in,ing,ng,"ng ","g ","g S"," S"," Sh",Sh,Sho,ho,hoe,oe,oe,es,es.,s.,"s. ",". ",".  ","  ","  o"," o"," ol",ol,ole,le}
 (1 row)
 
+SELECT 'Quick Fox'::pdb.edge_ngram(2, 5)::text[];
+            text
+-----------------------------
+ {qu,qui,quic,quick,fo,fox}
+(1 row)
+
+SELECT 'Quick Fox'::pdb.edge_ngram(1, 2)::text[];
+   text
+-----------
+ {q,qu,f,fo}
+(1 row)
+
+SELECT 'Quick Fox'::pdb.edge_ngram(2, 5, 'lowercase=true')::text[];
+            text
+-----------------------------
+ {qu,qui,quic,quick,fo,fox}
+(1 row)
+
+SELECT 'Quick-Fox'::pdb.edge_ngram(2, 5, 'token_chars=letter,digit,punctuation')::text[];
+          text
+-------------------------
+ {qu,qui,quic,quick}
+(1 row)
+
+SELECT 'Quick Fox'::pdb.edge_ngram('min=2', 'max=5')::text[];
+            text
+-----------------------------
+ {qu,qui,quic,quick,fo,fox}
+(1 row)
+
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=arabic')::text[];
         text         
 ---------------------
@@ -426,6 +456,7 @@ CREATE INDEX idxtokenizer_typmod_display ON tokenizer_typmod_display USING bm25
         (description::pdb.lindera(japanese, 'alias=lindera_japanese')),
         (description::pdb.lindera(korean, 'alias=lindera_korean')),
         (description::pdb.ngram(3, 5, 'alias=ngram')),
+        (description::pdb.edge_ngram(2, 5, 'alias=edge_ngram')),
         (description::pdb.regex_pattern('is|a', 'alias=regex')),
         (description::pdb.simple('alias=simple')),
         (description::pdb.whitespace('alias=whitespace')),
@@ -434,9 +465,9 @@ CREATE INDEX idxtokenizer_typmod_display ON tokenizer_typmod_display USING bm25
     )
     WITH (key_field = 'id');
 SELECT indexdef from pg_indexes where indexname = 'idxtokenizer_typmod_display';
-                                                                                                                                                                                                                                                                                                                                                                                                                    indexdef                                                                                                                                                                                                                                                                                                                                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- CREATE INDEX idxtokenizer_typmod_display ON public.tokenizer_typmod_display USING bm25 (id, description, ((description)::pdb.chinese_compatible('alias=chinese_compatible')), ((description)::pdb.literal('alias=literal')), ((description)::pdb.jieba('alias=jieba')), ((description)::pdb.lindera('chinese', 'alias=lindera_chinese')), ((description)::pdb.lindera('japanese', 'alias=lindera_japanese')), ((description)::pdb.lindera('korean', 'alias=lindera_korean')), ((description)::pdb.ngram('3', '5', 'alias=ngram')), ((description)::pdb.regex_pattern('is|a', 'alias=regex')), ((description)::pdb.simple('alias=simple')), ((description)::pdb.whitespace('alias=whitespace')), ((description)::pdb.source_code('alias=source_code')), ((description)::pdb.literal_normalized('alias=literal_normalized'))) WITH (key_field=id)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                      indexdef
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ CREATE INDEX idxtokenizer_typmod_display ON public.tokenizer_typmod_display USING bm25 (id, description, ((description)::pdb.chinese_compatible('alias=chinese_compatible')), ((description)::pdb.literal('alias=literal')), ((description)::pdb.jieba('alias=jieba')), ((description)::pdb.lindera('chinese', 'alias=lindera_chinese')), ((description)::pdb.lindera('japanese', 'alias=lindera_japanese')), ((description)::pdb.lindera('korean', 'alias=lindera_korean')), ((description)::pdb.ngram('3', '5', 'alias=ngram')), ((description)::pdb.edge_ngram('2', '5', 'alias=edge_ngram')), ((description)::pdb.regex_pattern('is|a', 'alias=regex')), ((description)::pdb.simple('alias=simple')), ((description)::pdb.whitespace('alias=whitespace')), ((description)::pdb.source_code('alias=source_code')), ((description)::pdb.literal_normalized('alias=literal_normalized'))) WITH (key_field=id)
 (1 row)
 
 DROP TABLE tokenizer_typmod_display;

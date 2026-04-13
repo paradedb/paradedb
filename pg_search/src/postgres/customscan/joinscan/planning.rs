@@ -24,18 +24,21 @@
 //! - Handle ORDER BY score pathkeys
 
 use super::build::{
-    InputVarInfo, JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode,
+    self as build, FilterNode, InputVarInfo, JoinCSClause, JoinKeyPair, JoinLevelExpr, JoinNode,
+    JoinSource, JoinSourceCandidate, JoinType, RelNode,
 };
 use super::predicate::find_base_info_recursive;
 use super::privdat::{OutputColumnInfo, PrivateData};
 
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
-use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
+use crate::postgres::customscan::pullup::{
+    field_type_for_pullup, get_attno_by_name, resolve_fast_field,
+};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::customscan::score_funcoids;
@@ -49,6 +52,10 @@ use crate::query::SearchQueryInput;
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, PgList};
+
+const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
+    | pg_sys::PVC_RECURSE_WINDOWFUNCS
+    | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;
 
 /// Check if an expression uses paradedb.score() for any relation in the JoinSource.
 pub(super) unsafe fn expr_uses_scores_from_source(
@@ -198,17 +205,16 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     rel: *mut pg_sys::RelOptInfo,
     rti: pg_sys::Index,
 ) -> Option<(RelNode, Vec<JoinKeyPair>)> {
-    let (relid, alias, _bm25_opt) = super::build::lookup_base_rel_info(root, rti)?;
+    let (relid, alias, _bm25_opt) = build::lookup_base_rel_info(root, rti)?;
 
     let mut side_info = JoinSourceCandidate::new(root.into(), rti).with_heaprelid(relid);
     if let Some(alias) = alias {
         side_info = side_info.with_alias(alias);
     }
 
-    // Top-level SubPlans (e.g. `col IN (SELECT ...)`)
-    let mut extracted_subqueries = Vec::new();
-    // SubPlans nested inside OR expressions (e.g. `col IS NULL OR col IN (SELECT ...)`)
-    let mut extracted_or_subqueries: Vec<OrSubPlanExtraction> = Vec::new();
+    // Subquery extraction is meaningful only when the base side has a BM25 index;
+    // otherwise the Semi/Anti/LeftMark wrapping has nothing useful to wrap.
+    let mut classified = ClassifiedBaseRestrictInfo::empty();
 
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
         side_info = side_info.with_indexrelid(bm25_index.oid());
@@ -224,69 +230,31 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         };
         side_info = side_info.with_sort_order(sort_order);
 
-        // Extract single-table predicates from baserestrictinfo.
-        // These are predicates like `p.description @@@ 'wireless'` that PostgreSQL
-        // has pushed down to the base relation level.
-        //
-        // Note: Cross-table predicates (e.g., involving multiple tables in a join)
-        // are handled separately via SearchPredicateUDF through filter pushdown.
-        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
 
-        if !baserestrictinfo.is_empty() {
+        if !classified.search_ri.is_empty() {
             let context = PlannerContext::from_planner(root);
-
-            // Separate subplans (SEMI/ANTI joins) from search-capable predicates.
-            // Subplans are collected and later handled by wrapping the current
-            // scan's RelNode in additional Join nodes (see `RelNode::Join` below).
-            // This separation ensures `extract_quals` only receives clauses it
-            // can fully convert to a Tantivy query.
-            let mut search_ri = PgList::<pg_sys::RestrictInfo>::new();
-            for ri in baserestrictinfo.iter_ptr() {
-                if let Some((subplan, is_anti, inner_root)) =
-                    extract_subplan_from_clause(root, (*ri).clause.cast())
-                {
-                    // Top-level SubPlan (e.g. `col IN (SELECT ...)`) → Semi/Anti join.
-                    extracted_subqueries.push((subplan, is_anti, inner_root));
-                } else {
-                    // Try to extract SubPlan from inside an OR expression.
-                    // Handles patterns like `col IS NULL OR col IN (SELECT ...)`.
-                    let clause = if !(*ri).orclause.is_null() {
-                        (*ri).orclause.cast()
-                    } else {
-                        (*ri).clause.cast()
-                    };
-                    if let Some(or_extraction) = extract_subplan_from_or_clause(root, clause) {
-                        extracted_or_subqueries.push(or_extraction);
-                    } else {
-                        // Not a SubPlan — pass to extract_quals for search predicate extraction.
-                        search_ri.push(ri);
-                    }
+            let mut state = QualExtractState::default();
+            // Extract search-capable predicates all at once. This is required
+            // for score filters, which must wrap the rest of the search query.
+            if let Some(qual) = extract_quals(
+                &context,
+                rti,
+                classified.search_ri.as_ptr().cast(),
+                crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
+                &bm25_index,
+                false,
+                &mut state,
+                true,
+            ) {
+                let query = SearchQueryInput::from(&qual);
+                side_info = side_info.with_query(query);
+                if state.uses_our_operator {
+                    side_info = side_info.with_search_predicate();
                 }
-            }
-
-            if !search_ri.is_empty() {
-                let mut state = QualExtractState::default();
-                // Extract search-capable predicates all at once. This is required
-                // for score filters, which must wrap the rest of the search query.
-                if let Some(qual) = extract_quals(
-                    &context,
-                    rti,
-                    search_ri.as_ptr().cast(),
-                    crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
-                    &bm25_index,
-                    false,
-                    &mut state,
-                    true,
-                ) {
-                    let query = SearchQueryInput::from(&qual);
-                    side_info = side_info.with_query(query);
-                    if state.uses_our_operator {
-                        side_info = side_info.with_search_predicate();
-                    }
-                } else {
-                    // Fail the JoinScan if any search predicate cannot be extracted.
-                    return None;
-                }
+            } else {
+                // Fail the JoinScan if any search predicate cannot be extracted.
+                return None;
             }
         }
     }
@@ -297,8 +265,99 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     let mut current_node = RelNode::Scan(Box::new(source));
     let mut all_keys = Vec::new();
 
-    // Wrap current_node in Join nodes for each top-level extracted subquery (Semi/Anti)
-    for (subplan, is_anti, inner_root) in extracted_subqueries {
+    current_node = wrap_with_semi_anti(current_node, classified.top_level_subplans, &mut all_keys);
+    current_node = wrap_with_mark_filter(current_node, classified.or_subplans, &mut all_keys);
+
+    Some((current_node, all_keys))
+}
+
+/// Buckets that [`classify_base_restrictinfo`] sorts a relation's
+/// `baserestrictinfo` clauses into.
+struct ClassifiedBaseRestrictInfo {
+    /// Clauses that are not subplans and should be batched into `extract_quals`
+    /// for search predicate extraction.
+    search_ri: PgList<pg_sys::RestrictInfo>,
+    /// Top-level SubPlans (e.g. `col IN (SELECT ...)`) that should become
+    /// Semi/Anti joins wrapping the base scan.
+    top_level_subplans: Vec<(*mut pg_sys::SubPlan, bool, *mut pg_sys::PlannerInfo)>,
+    /// SubPlans nested inside an OR (e.g. `col IS NULL OR col IN (SELECT ...)`)
+    /// that should become LeftMark joins followed by a Filter.
+    or_subplans: Vec<OrSubPlanExtraction>,
+}
+
+impl ClassifiedBaseRestrictInfo {
+    fn empty() -> Self {
+        Self {
+            search_ri: PgList::<pg_sys::RestrictInfo>::new(),
+            top_level_subplans: Vec::new(),
+            or_subplans: Vec::new(),
+        }
+    }
+}
+
+/// Walk a relation's `baserestrictinfo` and split each clause into one of three
+/// buckets: search-extractable predicates, top-level SubPlans, or OR-nested
+/// SubPlans. Subplans are pulled out so the remaining `search_ri` can be passed
+/// to `extract_quals` as a fully-search-capable batch.
+unsafe fn classify_base_restrictinfo(
+    root: *mut pg_sys::PlannerInfo,
+    baserestrictinfo: *mut pg_sys::List,
+) -> ClassifiedBaseRestrictInfo {
+    let mut classified = ClassifiedBaseRestrictInfo::empty();
+
+    // Extract single-table predicates from baserestrictinfo.
+    // These are predicates like `p.description @@@ 'wireless'` that PostgreSQL
+    // has pushed down to the base relation level.
+    //
+    // Note: Cross-table predicates (e.g., involving multiple tables in a join)
+    // are handled separately via SearchPredicateUDF through filter pushdown.
+    let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg(baserestrictinfo);
+    if baserestrictinfo.is_empty() {
+        return classified;
+    }
+
+    // Separate subplans (SEMI/ANTI joins) from search-capable predicates.
+    // Subplans are collected and later handled by wrapping the current
+    // scan's RelNode in additional Join nodes. This separation ensures
+    // `extract_quals` only receives clauses it can fully convert to a
+    // Tantivy query.
+    for ri in baserestrictinfo.iter_ptr() {
+        if let Some((subplan, is_anti, inner_root)) =
+            extract_subplan_from_clause(root, (*ri).clause.cast())
+        {
+            // Top-level SubPlan (e.g. `col IN (SELECT ...)`) → Semi/Anti join.
+            classified
+                .top_level_subplans
+                .push((subplan, is_anti, inner_root));
+        } else {
+            // Try to extract SubPlan from inside an OR expression.
+            // Handles patterns like `col IS NULL OR col IN (SELECT ...)`.
+            let clause = if !(*ri).orclause.is_null() {
+                (*ri).orclause.cast()
+            } else {
+                (*ri).clause.cast()
+            };
+            if let Some(or_extraction) = extract_subplan_from_or_clause(root, clause) {
+                classified.or_subplans.push(or_extraction);
+            } else {
+                // Not a SubPlan — pass to extract_quals for search predicate extraction.
+                classified.search_ri.push(ri);
+            }
+        }
+    }
+
+    classified
+}
+
+/// Wrap a base scan node with Semi/Anti joins, one per top-level extracted
+/// SubPlan. Equi-keys produced by each SubPlan are appended to `all_keys` so
+/// the caller can return the full set alongside the wrapped node.
+unsafe fn wrap_with_semi_anti(
+    mut current_node: RelNode,
+    top_level_subplans: Vec<(*mut pg_sys::SubPlan, bool, *mut pg_sys::PlannerInfo)>,
+    all_keys: &mut Vec<JoinKeyPair>,
+) -> RelNode {
+    for (subplan, is_anti, inner_root) in top_level_subplans {
         // Find the final rel for the inner subquery
         let inner_rel = find_final_rel(inner_root);
         if inner_rel.is_null() {
@@ -315,27 +374,37 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         let equi_keys =
             extract_equi_keys_from_subplan(subplan, inner_root, &current_node, &inner_node);
 
-        let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
+        let plan_id = (*subplan).plan_id;
+        let join_node = JoinNode {
             join_type: if is_anti {
-                crate::postgres::customscan::joinscan::build::JoinType::Anti
+                JoinType::Anti
             } else {
-                crate::postgres::customscan::joinscan::build::JoinType::Semi
+                JoinType::Semi
             },
             left: current_node,
             right: inner_node,
             equi_keys: equi_keys.clone(),
             filter: None,
+            subplan_id: Some(plan_id),
         };
 
         all_keys.extend(equi_keys);
         current_node = RelNode::Join(Box::new(join_node));
     }
 
-    // Wrap current_node in LeftMark join + Filter for each OR-extracted subquery.
-    // These come from patterns like `col IS NULL OR col IN (SELECT ...)`.
-    // The LeftMark join produces all left rows + a boolean "mark" column.
-    // The Filter keeps rows where `mark = true OR col IS NULL`.
-    for or_ext in extracted_or_subqueries {
+    current_node
+}
+
+/// Wrap a base scan node with a `LeftMark` join + Filter for each OR-extracted
+/// SubPlan (`col IS NULL OR col IN (SELECT ...)` style). The LeftMark join
+/// produces all left rows plus a boolean "mark" column; the Filter then keeps
+/// rows where `mark = true OR col IS NULL` (or the inverted form for NOT IN).
+unsafe fn wrap_with_mark_filter(
+    mut current_node: RelNode,
+    or_subplans: Vec<OrSubPlanExtraction>,
+    all_keys: &mut Vec<JoinKeyPair>,
+) -> RelNode {
+    for or_ext in or_subplans {
         let inner_rel = find_final_rel(or_ext.inner_root);
         if inner_rel.is_null() {
             continue;
@@ -356,20 +425,17 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         );
 
         // Build a LeftMark join: produces all left rows + boolean "mark" column.
-        let join_type = if or_ext.is_anti {
-            // NOT IN (...) OR IS NULL  →  LeftMark with inverted mark check
-            crate::postgres::customscan::joinscan::build::JoinType::LeftMark
-        } else {
-            // IN (...) OR IS NULL  →  LeftMark
-            crate::postgres::customscan::joinscan::build::JoinType::LeftMark
-        };
-
-        let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
-            join_type,
+        // Both `IN (...) OR IS NULL` and `NOT IN (...) OR IS NULL` use LeftMark;
+        // the anti vs non-anti distinction is carried through `or_ext.is_anti`
+        // and applied at filter-evaluation time as a mark-check inversion.
+        let plan_id = (*or_ext.subplan).plan_id;
+        let join_node = JoinNode {
+            join_type: JoinType::LeftMark,
             left: current_node,
             right: inner_node,
             equi_keys: equi_keys.clone(),
             filter: None,
+            subplan_id: Some(plan_id),
         };
 
         all_keys.extend(equi_keys);
@@ -381,9 +447,9 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         //
         // The filter is stored as a MarkOrNullFilter which is handled specially
         // during DataFusion plan building (see scan_state.rs).
-        let filter_node = crate::postgres::customscan::joinscan::build::FilterNode {
+        let filter_node = FilterNode {
             input: join_rel,
-            predicate: crate::postgres::customscan::joinscan::build::JoinLevelExpr::MarkOrNull {
+            predicate: JoinLevelExpr::MarkOrNull {
                 is_anti: or_ext.is_anti,
                 null_test_varno: or_ext.null_test_varno,
                 null_test_attno: or_ext.null_test_attno,
@@ -393,7 +459,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
         current_node = RelNode::Filter(Box::new(filter_node));
     }
 
-    Some((current_node, all_keys))
+    current_node
 }
 
 /// Recursively reconstructs the intermediate relational tree from standard PostgreSQL join paths.
@@ -511,6 +577,7 @@ unsafe fn collect_join_sources_join_rel(
             right: inner_node,
             equi_keys: join_conditions.equi_keys.clone(),
             filter: None,
+            subplan_id: None,
         };
 
         keys.extend(join_conditions.equi_keys);
@@ -951,7 +1018,12 @@ pub(super) unsafe fn collect_required_fields(
     output_columns: &[OutputColumnInfo],
     custom_exprs: *mut pg_sys::List,
 ) {
-    let join_keys = join_clause.plan.join_keys();
+    // Resolve each equi-join key against the join node that owns it so we
+    // bind to the correct `JoinSource` by `plan_position`. A flat
+    // `(rti, attno)` scan can pick the wrong source when a SubPlan's inner
+    // relation shares an RTI value with an outer relation (inner queries
+    // have their own RTI numbering space), forcing us to over-project.
+    let join_key_projections = join_clause.plan.join_key_projections();
     let mut plan_sources = join_clause.plan.sources_mut();
 
     for source in &mut plan_sources {
@@ -959,27 +1031,13 @@ pub(super) unsafe fn collect_required_fields(
     }
 
     if plan_sources.len() >= 2 {
-        let mut ensure_join_key_side = |rti: pg_sys::Index, attno: pg_sys::AttrNumber| {
-            // Ensure the field on ALL sources that match this RTI+attno.
-            // Multiple sources can share the same RTI when they originate
-            // from different planner roots (e.g., main query vs SubPlan).
-            let mut found = false;
-            for source in plan_sources.iter_mut() {
-                if source.contains_rti(rti) && source.has_attno(attno) {
-                    ensure_field(source, attno);
-                    found = true;
-                }
+        for (plan_position, attno) in &join_key_projections {
+            if let Some(source) = plan_sources
+                .iter_mut()
+                .find(|s| s.plan_position == *plan_position)
+            {
+                ensure_field(source, *attno);
             }
-            if !found {
-                for source in &mut plan_sources {
-                    ensure_column(source, rti, attno);
-                }
-            }
-        };
-
-        for jk in &join_keys {
-            ensure_join_key_side(jk.outer_rti, jk.outer_attno);
-            ensure_join_key_side(jk.inner_rti, jk.inner_attno);
         }
     }
 
@@ -996,25 +1054,23 @@ pub(super) unsafe fn collect_required_fields(
                 }) = output_columns.get(idx)
                 {
                     if *original_attno > 0 {
-                        for source in &mut plan_sources {
-                            ensure_column(source, *rti, *original_attno);
-                        }
+                        ensure_column_in_all_sources(&mut plan_sources, *rti, *original_attno);
                     }
                 }
             } else {
-                for source in &mut plan_sources {
-                    ensure_column(source, var.rti, var.attno);
-                }
+                ensure_column_in_all_sources(&mut plan_sources, var.rti, var.attno);
             }
         }
     }
 
     for info in &join_clause.order_by {
-        match &info.feature {
+        let feature = match &info.feature {
+            OrderByFeature::NullTest { inner, .. } => inner.as_ref(),
+            other => other,
+        };
+        match feature {
             OrderByFeature::Var { rti, attno, .. } => {
-                for source in &mut plan_sources {
-                    ensure_column(source, *rti, *attno);
-                }
+                ensure_column_in_all_sources(&mut plan_sources, *rti, *attno);
             }
             OrderByFeature::Field {
                 name: name_wrapper,
@@ -1025,7 +1081,7 @@ pub(super) unsafe fn collect_required_fields(
                     let raw_col_name = col_name.trim_matches('"');
                     for source in &mut plan_sources {
                         if source.scan_info.alias.as_deref() == Some(alias) {
-                            if let Some(attno) = get_attno_by_name(source, raw_col_name) {
+                            if let Some(attno) = get_source_attno_by_name(source, raw_col_name) {
                                 ensure_field(source, attno);
                             }
                             break;
@@ -1041,7 +1097,7 @@ pub(super) unsafe fn collect_required_fields(
                             // exist in the table but only be indexed via an
                             // expression (e.g. upper(name)), in which case
                             // ensure_field (via resolve_fast_field) won't find it.
-                            let added = get_attno_by_name(source, name)
+                            let added = get_source_attno_by_name(source, name)
                                 .and_then(|attno| try_ensure_field(source, attno))
                                 .is_some();
                             if !added {
@@ -1064,9 +1120,7 @@ pub(super) unsafe fn collect_required_fields(
         for proj in projections {
             if let super::build::ChildProjection::Expression { input_vars, .. } = proj {
                 for var_info in input_vars {
-                    for source in &mut plan_sources {
-                        ensure_column(source, var_info.rti, var_info.attno);
-                    }
+                    ensure_column_in_all_sources(&mut plan_sources, var_info.rti, var_info.attno);
                 }
             }
         }
@@ -1077,6 +1131,20 @@ pub(super) unsafe fn collect_required_fields(
 unsafe fn ensure_column(source: &mut JoinSource, rti: pg_sys::Index, attno: pg_sys::AttrNumber) {
     if source.contains_rti(rti) {
         ensure_field(source, attno);
+    }
+}
+
+/// Broadcast [`ensure_column`] across every source in the plan. Each source
+/// only acts on the call when its `contains_rti(rti)` is true, so this is the
+/// idiomatic way to "make sure this `(rti, attno)` reference can be resolved
+/// regardless of which source actually owns it" in `collect_required_fields`.
+unsafe fn ensure_column_in_all_sources(
+    sources: &mut [&mut JoinSource],
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) {
+    for source in sources {
+        ensure_column(source, rti, attno);
     }
 }
 
@@ -1151,16 +1219,11 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
     Ok(())
 }
 
-/// Helper function to retrieve an attribute number given a column name from a `JoinSource`'s underlying heap relation.
-unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
+/// Retrieve an attribute number by column name from a `JoinSource`'s heap relation.
+unsafe fn get_source_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
     let rel = PgSearchRelation::open(side.scan_info.heaprelid);
     let tupdesc = rel.tuple_desc();
-    for (i, att) in tupdesc.iter().enumerate() {
-        if att.name() == name {
-            return Some((i + 1) as pg_sys::AttrNumber);
-        }
-    }
-    None
+    get_attno_by_name(name, &tupdesc)
 }
 
 fn collect_source_rtis(sources: &[&JoinSource]) -> Vec<pg_sys::Index> {
@@ -1197,10 +1260,7 @@ unsafe fn pathkey_is_outer_only(
                 return false;
             }
         } else {
-            let var_list = pg_sys::pull_var_clause(
-                check_expr,
-                (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
-            );
+            let var_list = pg_sys::pull_var_clause(check_expr, PVC_RECURSE_ALL);
             let vars = PgList::<pg_sys::Var>::from_pg(var_list);
             for var_ptr in vars.iter_ptr() {
                 if source_rtis.contains(&((*var_ptr).varno as pg_sys::Index)) {
@@ -1248,7 +1308,12 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-            let check_expr = strip_wrappers(expr.cast());
+            let mut check_expr = strip_wrappers(expr.cast());
+
+            // Unwrap NullTest to inspect the inner expression
+            if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
+                check_expr = strip_wrappers((*nt).arg.cast());
+            }
 
             if sources
                 .iter()
@@ -1319,10 +1384,7 @@ unsafe fn expression_vars_all_fast(expr: *mut pg_sys::Node, sources: &[&JoinSour
         return false;
     }
 
-    let var_list = pg_sys::pull_var_clause(
-        expr,
-        (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
-    );
+    let var_list = pg_sys::pull_var_clause(expr, PVC_RECURSE_ALL);
     let vars = PgList::<pg_sys::Var>::from_pg(var_list);
     if vars.is_empty() {
         return false;
@@ -1526,10 +1588,7 @@ pub(super) unsafe fn distinct_columns_are_fast_fields(
             return None;
         }
 
-        let var_list = pg_sys::pull_var_clause(
-            expr,
-            (pg_sys::PVC_RECURSE_AGGREGATES | pg_sys::PVC_RECURSE_WINDOWFUNCS) as i32,
-        );
+        let var_list = pg_sys::pull_var_clause(expr, PVC_RECURSE_ALL);
         let vars = PgList::<pg_sys::Var>::from_pg(var_list);
 
         if vars.is_empty() {
@@ -1743,6 +1802,31 @@ impl JoinSortExprKind {
         output_rtis: &[pg_sys::Index],
         pathkey_equivalence_member: bool,
     ) -> Self {
+        if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
+            let inner_expr = strip_wrappers((*nt).arg.cast()).cast::<pg_sys::Expr>();
+            let nulltesttype = if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {
+                NullTestKind::IsNull
+            } else {
+                NullTestKind::IsNotNull
+            };
+            return match Self::classify(
+                inner_expr,
+                direction,
+                sources,
+                output_rtis,
+                pathkey_equivalence_member,
+            ) {
+                Self::Resolved(inner_info) => Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::NullTest {
+                        inner: Box::new(inner_info.feature),
+                        nulltesttype,
+                    },
+                    direction,
+                }),
+                other => other,
+            };
+        }
+
         for source in sources.iter() {
             if is_score_func_recursive(check_expr.cast(), source) {
                 if !output_rtis.contains(&source.scan_info.heap_rti) {
@@ -1946,8 +2030,16 @@ pub(super) unsafe fn extract_orderby(
 
             match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, true) {
                 JoinSortExprKind::Resolved(info) => {
-                    result.push(info);
-                    pathkey_resolved = true;
+                    // For DISTINCT queries, NullTest pathkeys come from the
+                    // DISTINCT target list — they are handled by the GROUP BY,
+                    // not the sort. Acknowledge the pathkey but don't add it to
+                    // the ORDER BY list.
+                    if has_distinct && matches!(info.feature, OrderByFeature::NullTest { .. }) {
+                        pathkey_resolved = true;
+                    } else {
+                        result.push(info);
+                        pathkey_resolved = true;
+                    }
                 }
                 JoinSortExprKind::SkipMember => continue,
                 JoinSortExprKind::NoMatch => {}

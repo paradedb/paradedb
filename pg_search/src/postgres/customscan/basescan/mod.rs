@@ -28,7 +28,7 @@ use std::sync::atomic::Ordering;
 
 use crate::api::operator::estimate_selectivity;
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
+use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -125,6 +125,8 @@ impl BaseScan {
 
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();
+        let needs_tokenizer_manager =
+            search_query_input.needs_tokenizer() || state.custom_state().need_snippets();
 
         let search_reader = SearchIndexReader::open_with_context(
             indexrel,
@@ -149,6 +151,7 @@ impl BaseScan {
             },
             std::ptr::NonNull::new(expr_context),
             std::ptr::NonNull::new(planstate),
+            needs_tokenizer_manager,
         )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
@@ -454,6 +457,35 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
     }
 }
 
+/// Returns `true` if any predicate in `baserestrictinfo` cannot be fully
+/// evaluated inside Tantivy — meaning Postgres will apply a post-filter
+/// above the scan. Pushing LIMIT into the scan in that case would cap
+/// the output before post-filtering, producing fewer rows than correct.
+unsafe fn has_non_pushable_predicates(
+    rel: *mut pg_sys::RelOptInfo,
+    quals_pushed: &Option<Qual>,
+) -> bool {
+    let restrict_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+
+    for ri in restrict_list.iter_ptr() {
+        let clause = (*ri).clause as *mut pg_sys::Node;
+        if pg_sys::contain_subplans(clause) {
+            return true;
+        }
+        if pg_sys::contain_volatile_functions(clause) {
+            return true;
+        }
+    }
+
+    // If qual extraction returned None but restrictions exist,
+    // something is being left as a post-filter.
+    if quals_pushed.is_none() && !restrict_list.is_empty() {
+        return true;
+    }
+
+    false
+}
+
 impl CustomScan for BaseScan {
     const NAME: &'static CStr = c"ParadeDB Base Scan";
 
@@ -655,18 +687,21 @@ impl CustomScan for BaseScan {
                     && where_clause_only_references_left(builder.args().root, rti);
 
                 if rel_is_single_or_partitioned || is_left_driven_lateral {
-                    // We can use the limit for estimates if:
-                    // a) we have a limit, and
-                    // b) we're either:
-                    //    * querying a single relation OR
-                    //    * querying partitions of a partitioned table OR
-                    //    * we're in a LEFT JOIN LATERAL where the left side drives the query
-                    Some((*builder.args().root).limit_tuples)
+                    if has_non_pushable_predicates(rel, &Some(quals.clone())) {
+                        None
+                    } else {
+                        Some((*builder.args().root).limit_tuples)
+                    }
                 } else {
                     None
                 }
             } else {
-                maybe_limit_from_parse(builder.args().root)
+                let raw = maybe_limit_from_parse(builder.args().root);
+                if raw.is_some() && has_non_pushable_predicates(rel, &Some(quals.clone())) {
+                    None
+                } else {
+                    raw
+                }
             };
 
             let limit = if let Some(l) = limit {
@@ -1261,32 +1296,7 @@ impl CustomScan for BaseScan {
                 "   TopK Order By",
                 orderby_info
                     .iter()
-                    .map(|oi| match oi {
-                        OrderByInfo {
-                            feature:
-                                OrderByFeature::Field {
-                                    name: fieldname, ..
-                                },
-                            direction,
-                            ..
-                        } => {
-                            format!("{fieldname} {}", direction.as_ref())
-                        }
-                        OrderByInfo {
-                            feature: OrderByFeature::Var { name, .. },
-                            direction,
-                            ..
-                        } => {
-                            format!("{} {}", name.as_deref().unwrap_or("?"), direction.as_ref())
-                        }
-                        OrderByInfo {
-                            feature: OrderByFeature::Score { .. },
-                            direction,
-                            ..
-                        } => {
-                            format!("pdb.score() {}", direction.as_ref())
-                        }
-                    })
+                    .map(|oi| format!("{} {}", oi.feature, oi.direction.as_ref()))
                     .collect::<Vec<_>>()
                     .join(", "),
             );
@@ -1340,6 +1350,7 @@ impl CustomScan for BaseScan {
                             MvccSatisfies::LargestSegment, // Use largest segment for estimation
                             None,                          // No expr_context needed for estimates
                             None,                          // No planstate needed for estimates
+                            base_query.needs_tokenizer(),
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 

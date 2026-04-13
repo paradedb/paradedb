@@ -19,7 +19,6 @@ mod fixtures;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 
 use anyhow::Result;
 use fixtures::*;
@@ -29,6 +28,7 @@ use rand::Rng;
 use rstest::*;
 use sqlx::Row;
 use tokio::join;
+use tokio::sync::Barrier;
 
 /// This test targets the locking functionality between Tantivy writers.
 /// With no locking implemented, a high number of concurrent writers will
@@ -138,40 +138,55 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     "#
     .execute(&mut conn);
 
-    // Create two separate connections
+    // Behavioral smoke test: two concurrent transactions should be able to cross-write the
+    // indexes without blocking on statement-scoped writer state from the first INSERT.
     let mut conn_a = database.connection().await;
     let mut conn_b = database.connection().await;
+    let barrier = Arc::new(Barrier::new(2));
+    let barrier_a = barrier.clone();
+    let barrier_b = barrier.clone();
 
-    // Define the tasks for each connection
     let task_a = async move {
-        "INSERT INTO index_a (content) VALUES ('Content A1');
-         SELECT pg_sleep(3);
-         INSERT INTO index_b (content) VALUES ('Content B1 from A');"
-            .execute_async(&mut conn_a)
-            .await;
+        sqlx::query("SET statement_timeout = '30s'")
+            .execute(&mut conn_a)
+            .await?;
+        sqlx::query("SET lock_timeout = '2s'")
+            .execute(&mut conn_a)
+            .await?;
+        sqlx::query("BEGIN").execute(&mut conn_a).await?;
+        sqlx::query("INSERT INTO index_a (content) VALUES ('Content A1')")
+            .execute(&mut conn_a)
+            .await?;
+        barrier_a.wait().await;
+        sqlx::query("INSERT INTO index_b (content) VALUES ('Content B1 from A')")
+            .execute(&mut conn_a)
+            .await?;
+        sqlx::query("COMMIT").execute(&mut conn_a).await?;
+        Ok::<(), anyhow::Error>(())
     };
 
     let task_b = async move {
-        "INSERT INTO index_b (content) VALUES ('Content B2');
-         SELECT pg_sleep(3);
-         INSERT INTO index_a (content) VALUES ('Content A2 from B');"
-            .execute_async(&mut conn_b)
-            .await;
+        sqlx::query("SET statement_timeout = '30s'")
+            .execute(&mut conn_b)
+            .await?;
+        sqlx::query("SET lock_timeout = '2s'")
+            .execute(&mut conn_b)
+            .await?;
+        sqlx::query("BEGIN").execute(&mut conn_b).await?;
+        sqlx::query("INSERT INTO index_b (content) VALUES ('Content B2')")
+            .execute(&mut conn_b)
+            .await?;
+        barrier_b.wait().await;
+        sqlx::query("INSERT INTO index_a (content) VALUES ('Content A2 from B')")
+            .execute(&mut conn_b)
+            .await?;
+        sqlx::query("COMMIT").execute(&mut conn_b).await?;
+        Ok::<(), anyhow::Error>(())
     };
 
-    // We're going to check a timer to ensure both of these queries,
-    // which each sleep at query time, run concurrently.
-    let start_time = Instant::now();
-
-    // Run both tasks concurrently
-    join!(task_a, task_b);
-
-    // Stop the timer and assert that the duration is close to 5 seconds
-    let duration = start_time.elapsed();
-    assert!(
-        duration.as_secs() >= 3 && duration.as_secs() < 5,
-        "Expected duration to be around 3 seconds, but it took {duration:?}"
-    );
+    let (result_a, result_b) = join!(task_a, task_b);
+    result_a?;
+    result_b?;
 
     // Verify the results
     let count_a: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM index_a")

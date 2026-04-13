@@ -339,6 +339,8 @@ pub struct PgGucs {
     pub columnar_exec: bool,
     /// Enable sorted execution for ColumnarExecState.
     pub columnar_sort: bool,
+    /// Enable MPP (plan partitioning) execution for parallel JoinScan.
+    pub enable_mpp_join: bool,
 }
 
 impl Default for PgGucs {
@@ -354,6 +356,7 @@ impl Default for PgGucs {
             parallel_workers: true,
             columnar_exec: false,
             columnar_sort: true,
+            enable_mpp_join: false,
         }
     }
 }
@@ -371,6 +374,7 @@ impl PgGucs {
             parallel_workers,
             columnar_exec,
             columnar_sort,
+            enable_mpp_join,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -411,6 +415,7 @@ impl PgGucs {
             "SET paradedb.enable_columnar_sort TO {columnar_sort};"
         )
         .unwrap();
+        writeln!(gucs, "SET paradedb.enable_mpp_join TO {enable_mpp_join};").unwrap();
         gucs
     }
 }
